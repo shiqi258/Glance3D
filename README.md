@@ -1,5 +1,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/glance3d-app/glance3d/ci.yml?label=CI&logo=github)](https://github.com/glance3d-app/glance3d/actions/workflows/ci.yml) [![Packaging](https://img.shields.io/github/actions/workflow/status/glance3d-app/glance3d-superbuild/nightly.yml?label=Packaging&logo=github)](https://github.com/glance3d-app/glance3d-superbuild) [![codecov](https://codecov.io/gh/glance3d-app/glance3d/branch/master/graph/badge.svg?token=siwG82IXK7)](https://codecov.io/gh/glance3d-app/glance3d) [![Downloads](https://img.shields.io/github/downloads/glance3d-app/glance3d/total.svg)](https://github.com/glance3d-app/glance3d/releases) [![Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://glance3d.app/thanks) [![Discord](https://discordapp.com/api/guilds/1046005690809978911/widget.png?style=shield)](https://discord.glance3d.app) [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
+English | [简体中文](README.zh-CN.md)
+
 # Glance3D - Fast and minimalist 3D viewer
 
 By the Glance3D Foundation.
@@ -96,7 +98,7 @@ Glance3D is a community-driven, inclusive and beginner-friendly project. We love
 
 # Acknowledgments
 
-Glance3D was initially created by [Kitware SAS](https://www.kitware.eu/), by Joachim Pouderoux, Michael Migliore and Mathieu Westphal, and is relying on many awesome open source projects, including [VTK](https://vtk.org/), [OCCT](https://dev.opencascade.org/), [Assimp](https://www.assimp.org/), [Alembic](http://www.alembic.io/), [Draco](https://google.github.io/draco/), [web-ifc](https://github.com/ThatOpen/engine_web-ifc), [OpenUSD](https://openusd.org/release/index.html), [OpenVDB](https://www.openvdb.org/), [PDAL](https://pdal.org), [OSPRay](https://www.ospray.org/) and [ImGui](https://github.com/ocornut/imgui/).
+Glance3D is derived from F3D, which was initially created by [Kitware SAS](https://www.kitware.eu/), by Joachim Pouderoux, Michael Migliore and Mathieu Westphal, and later maintained by the F3D-APP Foundation. Glance3D relies on many awesome open source projects, including [VTK](https://vtk.org/), [OCCT](https://dev.opencascade.org/), [Assimp](https://www.assimp.org/), [Alembic](http://www.alembic.io/), [Draco](https://google.github.io/draco/), [web-ifc](https://github.com/ThatOpen/engine_web-ifc), [OpenUSD](https://openusd.org/release/index.html), [OpenVDB](https://www.openvdb.org/), [PDAL](https://pdal.org), [OSPRay](https://www.ospray.org/) and [ImGui](https://github.com/ocornut/imgui/).
 
 # License
 
