@@ -1,7 +1,4 @@
-[![CI](https://img.shields.io/github/actions/workflow/status/glance3d-app/glance3d/ci.yml?label=CI&logo=github)](https://github.com/glance3d-app/glance3d/actions/workflows/ci.yml)
-[![Packaging](https://img.shields.io/github/actions/workflow/status/glance3d-app/glance3d-superbuild/nightly.yml?label=Packaging&logo=github)](https://github.com/glance3d-app/glance3d-superbuild)
-[![codecov](https://codecov.io/gh/glance3d-app/glance3d/branch/master/graph/badge.svg?token=siwG82IXK7)](https://codecov.io/gh/glance3d-app/glance3d)
-[![Downloads](https://img.shields.io/github/downloads/glance3d-app/glance3d/total.svg)](https://github.com/glance3d-app/glance3d/releases)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE.md)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 [English](README.md) | 简体中文
