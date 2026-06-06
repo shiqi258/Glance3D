@@ -1,107 +1,207 @@
-[![CI](https://img.shields.io/github/actions/workflow/status/glance3d-app/glance3d/ci.yml?label=CI&logo=github)](https://github.com/glance3d-app/glance3d/actions/workflows/ci.yml) [![Packaging](https://img.shields.io/github/actions/workflow/status/glance3d-app/glance3d-superbuild/nightly.yml?label=Packaging&logo=github)](https://github.com/glance3d-app/glance3d-superbuild) [![codecov](https://codecov.io/gh/glance3d-app/glance3d/branch/master/graph/badge.svg?token=siwG82IXK7)](https://codecov.io/gh/glance3d-app/glance3d) [![Downloads](https://img.shields.io/github/downloads/glance3d-app/glance3d/total.svg)](https://github.com/glance3d-app/glance3d/releases) [![Sponsors](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://glance3d.app/thanks) [![Discord](https://discordapp.com/api/guilds/1046005690809978911/widget.png?style=shield)](https://discord.glance3d.app) [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+[![CI](https://img.shields.io/github/actions/workflow/status/glance3d-app/glance3d/ci.yml?label=CI&logo=github)](https://github.com/glance3d-app/glance3d/actions/workflows/ci.yml)
+[![Packaging](https://img.shields.io/github/actions/workflow/status/glance3d-app/glance3d-superbuild/nightly.yml?label=Packaging&logo=github)](https://github.com/glance3d-app/glance3d-superbuild)
+[![codecov](https://codecov.io/gh/glance3d-app/glance3d/branch/master/graph/badge.svg?token=siwG82IXK7)](https://codecov.io/gh/glance3d-app/glance3d)
+[![Downloads](https://img.shields.io/github/downloads/glance3d-app/glance3d/total.svg)](https://github.com/glance3d-app/glance3d/releases)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 English | [简体中文](README.zh-CN.md)
 
-# Glance3D - Fast and minimalist 3D viewer
+# Glance3D
 
-By the Glance3D Foundation.
+Glance3D is a 3D viewer focused on fast file previews and rich interaction around preview settings.
 
-<img src="https://raw.githubusercontent.com/glance3d-app/glance3d/master/resources/logo.svg" align="left" width="20px"/>
-Glance3D is a fast and minimalist 3D viewer desktop application. It supports many file formats, from digital content to scientific datasets (including glTF, USD, STL, STEP, PLY, OBJ, FBX, Alembic), can show animations and support thumbnails and many rendering and texturing options including real time physically based rendering and raytracing.
-<br clear="left"/>
+It is derived from [F3D](https://f3d.app/) and keeps the strong foundation of `f3d`/`libf3d`: broad format support, VTK-based rendering, command-line automation, configuration files, thumbnail generation, and embeddable rendering APIs. On top of that foundation, Glance3D aims to make the preview workflow more direct, tunable, and comfortable for real production use.
 
-It is fully controllable from the command line and support configuration files. It can provide thumbnails, support interactive hotkeys, drag&drop and integration into file managers.
+![Glance3D rendering example](https://media.githubusercontent.com/media/glance3d-app/glance3d-website/refs/heads/main/static/images/typical.png)
 
-Glance3D also contains libf3d, a simple library to render meshes, with a C++17 API, C, Python, Java and Javascript Bindings.
+## Positioning
 
-<img src="https://media.githubusercontent.com/media/glance3d-app/glance3d-website/refs/heads/main/static/images/typical.png" width="640" />
+Glance3D is designed for people who need to inspect many 3D assets quickly while still being able to control how those assets are previewed.
 
-_A typical render by Glance3D_
+- Open and preview 3D models, CAD/BIM data, point clouds, volumes, scientific datasets, images, and environment maps.
+- Adjust preview-related rendering options such as materials, textures, edges, lighting, HDRI, scalar coloring, volume rendering, tone mapping, SSAO, and optional ray tracing.
+- Use interactive controls, hotkeys, drag and drop, command scripts, and configuration files to keep preview workflows repeatable.
+- Generate screenshots and file-manager thumbnails with dedicated preview configuration.
+- Reuse the `libf3d` rendering stack from C++, C, Python, Java, and JavaScript/WebAssembly.
 
-<img src="https://user-images.githubusercontent.com/3129530/194735261-dd6f1c1c-fa57-47b0-9d27-f735d18ccd5e.gif" width="640" />
+## Relationship With F3D
 
-_Animation of a glTF file within Glance3D_
+Glance3D is built on the original F3D codebase. During the transition, some executable names, CMake options, configuration paths, and library APIs still use the `f3d` or `F3D_` names. This is intentional for compatibility with the existing ecosystem and build system.
 
-<img src="https://media.githubusercontent.com/media/glance3d-app/glance3d-website/refs/heads/main/static/images/directScalars.png" width="640" />
+In practice:
 
-_A direct scalars render by Glance3D_
+- The project identity is Glance3D.
+- The current command-line executable is still `f3d`.
+- The core library is still exposed as `libf3d`.
+- Many build options are still named `F3D_*`.
 
-See the [gallery](https://glance3d.app/gallery) for more images, take a look at the [changelog](doc/CHANGELOG.md) or go to the [download page](https://glance3d.app/download) to download and install Glance3D!
+## Quick Start
 
-You can even use Glance3D directly in your [browser](https://glance3d.app/viewer)!
+Open a model from your file manager, or run:
 
-If you need any help or want to discuss with other Glance3D users and developers, head over to our [discord](https://discord.glance3d.app).
-
-# Quickstart
-
-Open a file directly in Glance3D or from the command line by running:
-
-```
+```bash
 f3d /path/to/file.ext
 ```
 
-Optionally, append `--output=/path/to/img.png` to save the rendering into an image file.
+Save the current preview as an image:
 
-See the [Quickstart Guide](doc/user/01-QUICKSTART.md) for more information about getting started with Glance3D.
+```bash
+f3d /path/to/file.ext --output=/path/to/preview.png
+```
 
-# Documentation
+Print the available options:
 
-- To get started, please take a look at the [user documentation](doc/user/01-QUICKSTART.md).
-- If you need any help, are looking for a feature or found a bug, please open an [issue](https://github.com/glance3d-app/glance3d/issues).
-- If you want to use the libf3d, please take a look at its [documentation](doc/libf3d/01-OVERVIEW.md).
-- If you want to build Glance3D, please take a look at the [contribution guide](CONTRIBUTING.md).
+```bash
+f3d --help
+```
 
-# Support
+After opening a file, press `H` to show the interaction cheat sheet.
 
-Glance3D needs your help!
+Common interactions:
 
-If you can, please consider sponsoring Glance3D. Even a small donation would help us offset the recurring maintenance costs.
-With enough sponsors we would be able to make Glance3D grow faster and stronger! Read more about it [here](https://glance3d.app/thanks).
+- Left mouse drag: rotate the view.
+- Mouse wheel or right mouse drag: zoom.
+- Middle mouse drag: pan.
+- `Enter`: reset the camera.
+- `Space`: play or pause animation.
+- `G`: toggle the grid.
+- `K`: cycle interaction style.
 
-If you are an industry user of Glance3D and want to make sure it can keep growing and being maintained, [please reach out](https://glance3d.app/thanks)!
+See the [Quickstart Guide](doc/user/01-QUICKSTART.md) for more details.
 
-In any case, please star it on github and share the word about it!
+## Get Glance3D
 
-## Sponsors
+Use the project download page or release page for prebuilt packages:
 
-Many thanks to our sponsors for supporting Glance3D
+- [glance3d.app/download](https://glance3d.app/download)
+- [GitHub Releases](https://github.com/glance3d-app/glance3d/releases)
 
-<a href="https://nlnet.nl/project/F3D/" target="_blank"><img src="https://nlnet.nl/image/logos/NGI0Core_tag.svg" height="45"/></a>
-<a href="https://www.opendronemap.org/" target="_blank"><img src="https://glance3d.app/assets/images/opendronemap-95d4ad6e24c091a06ec00e1828e1eb38.png" height="45" /></a>
+## Preview Configuration
 
-# Vision
+Glance3D can be driven by command-line options, configuration files, and interactive commands. This makes it possible to keep different preview presets for different asset types or workflows.
 
-As a minimalist 3D viewer Glance3D aims to:
+Examples:
 
-- Support as many 3D file formats as possible
-- Support many types of renderings (textures, edges, etc... ) and visualizations (meshes, volumic, point sprites)
-- Support any and all use-cases dealing with 3D datasets
-- Let any user easily and quickly view any model with good defaults
-- Be as configurable as possible
-- Be fully controllable from the command line and configuration file
-- Be usable non-interactively
-- Be as modular as possible to be built with a small number of dependencies
+```bash
+# Preview a model and save a screenshot
+f3d model.glb --output=preview.png
 
-but there is no plan to:
+# List readers enabled in the current build
+f3d --list-readers
 
-- Provide a classic mouse-based UI, with menus and buttons
-- Provide data processing tools
-- Provide export feature
+# Use a specific interaction style
+f3d drawing.png --interaction-style=2d
 
-# Contributing
+# Configure a reader option, for example VDB downsampling
+f3d volume.vdb -DVDB.downsampling_factor=0.5
 
-Glance3D is a community-driven, inclusive and beginner-friendly project. We love to see how the project is growing thanks to the contributions from the community. We would love to see your face in the list below! If you want to contribute to Glance3D, you are very welcome to! Take a look at our [contribution documentation](CONTRIBUTING.md), [governance documentation](doc/dev/11-GOVERNANCE.md) and [code of conduct](CODE_OF_CONDUCT.md).
+# Play all animations
+f3d animated.glb --animation-indices=-1
+```
 
-<a href="https://github.com/glance3d-app/glance3d/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=glance3d-app/glance3d" />
-</a>
+Useful documentation:
 
-# Acknowledgments
+- [Options](doc/user/03-OPTIONS.md)
+- [Interactions](doc/user/04-INTERACTIONS.md)
+- [Configuration files](doc/user/06-CONFIGURATION_FILE.md)
+- [Commands and scripts](doc/user/07-COMMANDS.md)
+- [Desktop integration and thumbnails](doc/user/11-DESKTOP_INTEGRATION.md)
 
-Glance3D is derived from F3D, which was initially created by [Kitware SAS](https://www.kitware.eu/), by Joachim Pouderoux, Michael Migliore and Mathieu Westphal, and later maintained by the F3D-APP Foundation. Glance3D relies on many awesome open source projects, including [VTK](https://vtk.org/), [OCCT](https://dev.opencascade.org/), [Assimp](https://www.assimp.org/), [Alembic](http://www.alembic.io/), [Draco](https://google.github.io/draco/), [web-ifc](https://github.com/ThatOpen/engine_web-ifc), [OpenUSD](https://openusd.org/release/index.html), [OpenVDB](https://www.openvdb.org/), [PDAL](https://pdal.org), [OSPRay](https://www.ospray.org/) and [ImGui](https://github.com/ocornut/imgui/).
+## Supported Formats
 
-# License
+Supported formats depend on build options and enabled plugins. Common formats include:
 
-Glance3D can be used and distributed under the 3-Clause BSD License, see the [license](LICENSE.md).
-Glance3D integrates the sources of other libraries and tools, all under permissive licenses, see the [third party licenses](THIRD_PARTY_LICENSES.md).
-Glance3D packages rely on other libraries and tools, all under permissive licenses, all listed in the respective packages.
+- General 3D: `.gltf`, `.glb`, `.obj`, `.fbx`, `.dae`, `.3ds`, `.3mf`, `.off`, `.x`
+- CAD/BIM: `.step`, `.stp`, `.iges`, `.igs`, `.brep`, `.xbf`, `.ifc`
+- Scientific and volume data: `.vtk`, `.vtp`, `.vtu`, `.vtr`, `.vti`, `.vts`, `.vtm`, `.vtkhdf`, `.vdb`, `.nc`, `.nrrd`, `.mhd`
+- Point clouds and scans: `.ply`, `.pts`, `.las`, `.laz`, `.pcd`, `.ptx`
+- Images and environment maps: `.png`, `.jpg`, `.jpeg`, `.bmp`, `.tga`, `.hdr`, `.webp`, `.exr`
+- 3D Gaussian Splatting: `.splat`, `.spz`
+
+Use [Supported Formats](doc/user/02-SUPPORTED_FORMATS.md) and `f3d --list-readers` as the source of truth for your build.
+
+## Build
+
+Glance3D uses CMake. Basic requirements include:
+
+- CMake
+- A C++20 compiler
+- A CMake-compatible build system such as Ninja, Make, Visual Studio, or Xcode
+- VTK 9.4.0 or newer
+
+Typical local build:
+
+```bash
+cmake -S /path/to/source -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+With the repository presets:
+
+```bash
+cmake --preset=dev /path/to/source
+cmake --preset=vcpkg /path/to/source
+```
+
+Common CMake options:
+
+- `F3D_BUILD_APPLICATION`: build the Glance3D application.
+- `BUILD_TESTING`: enable tests.
+- `F3D_MODULE_UI`: enable ImGui UI support.
+- `F3D_MODULE_RAYTRACING`: enable ray tracing support, when VTK supports OSPRay.
+- `F3D_PLUGIN_BUILD_ASSIMP`: enable Assimp formats.
+- `F3D_PLUGIN_BUILD_OCCT`: enable Open CASCADE formats.
+- `F3D_PLUGIN_BUILD_USD`: enable OpenUSD formats.
+- `F3D_PLUGIN_BUILD_VDB`: enable OpenVDB formats.
+- `F3D_BINDINGS_PYTHON`: build Python bindings.
+- `F3D_BINDINGS_C`: build C bindings.
+- `F3D_BINDINGS_JAVA`: build Java bindings.
+
+See the [build documentation](doc/dev/05-BUILD.md) and [testing documentation](doc/dev/06-TESTING.md) for the full workflow.
+
+## Project Layout
+
+```text
+application/     Command-line and desktop application entry points
+library/         libf3d core C++ API
+c/               C bindings
+python/          Python bindings
+java/            Java bindings
+webassembly/     JavaScript/WebAssembly bindings and tests
+plugins/         Optional format reader plugins
+vtkext/          VTK-based extension modules
+doc/             User, developer, and libf3d documentation
+examples/        libf3d examples
+testing/         Test data, interaction scripts, and rendering baselines
+resources/       Icons, configuration, shell completion, and bundled resources
+cmake/           CMake modules and install configuration
+```
+
+## Documentation
+
+- [User quickstart](doc/user/01-QUICKSTART.md)
+- [Supported formats](doc/user/02-SUPPORTED_FORMATS.md)
+- [Command-line options](doc/user/03-OPTIONS.md)
+- [Interactions](doc/user/04-INTERACTIONS.md)
+- [Configuration files](doc/user/06-CONFIGURATION_FILE.md)
+- [Plugins](doc/user/12-PLUGINS.md)
+- [libf3d overview](doc/libf3d/01-OVERVIEW.md)
+- [Developer getting started](doc/dev/04-GETTING_STARTED.md)
+- [Architecture](doc/dev/08-ARCHITECTURE.md)
+- [Changelog](doc/CHANGELOG.md)
+
+## Contributing
+
+Glance3D is community-driven and welcomes bug reports, documentation improvements, feature work, and preview-workflow ideas.
+
+Before contributing, please read the [contribution guide](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md), and [AI policy](AI_POLICY.md).
+
+## Acknowledgments
+
+Glance3D is derived from F3D, which was initially created by [Kitware SAS](https://www.kitware.eu/), Joachim Pouderoux, Michael Migliore, and Mathieu Westphal, and later maintained by the F3D-APP Foundation. Glance3D relies on many open source projects, including [VTK](https://vtk.org/), [OCCT](https://dev.opencascade.org/), [Assimp](https://www.assimp.org/), [Alembic](http://www.alembic.io/), [Draco](https://google.github.io/draco/), [web-ifc](https://github.com/ThatOpen/engine_web-ifc), [OpenUSD](https://openusd.org/release/index.html), [OpenVDB](https://www.openvdb.org/), [PDAL](https://pdal.org), [OSPRay](https://www.ospray.org/), and [ImGui](https://github.com/ocornut/imgui/).
+
+## License
+
+Glance3D is distributed under the 3-Clause BSD License. See [LICENSE.md](LICENSE.md).
+
+Third-party libraries and tools are listed in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
