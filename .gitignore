@@ -21,3 +21,15 @@ _wasm_build
 
 # testing related
 .cache
+
+# local build trees
+build/
+build-*/
+vcpkg_installed/
+.vs/
+
+# local tool logs
+.codex-*.txt
+
+# local CMake presets
+CMakeUserPresets.json
