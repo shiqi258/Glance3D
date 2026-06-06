@@ -162,6 +162,16 @@ function(f3d_create_exec target_name)
 
   target_compile_options(${target_name} PUBLIC ${f3d_compile_options_public} PRIVATE ${f3d_compile_options_private})
   target_link_options(${target_name} PUBLIC ${f3d_link_options_public})
+
+  if(WIN32)
+    # Make the build output directly runnable from Explorer/PowerShell by colocating
+    # transitive runtime DLLs (eg. VTK and optional plugin dependencies such as assimp).
+    add_custom_command(TARGET ${target_name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_RUNTIME_DLLS:${target_name}>
+        $<TARGET_FILE_DIR:${target_name}>
+      COMMAND_EXPAND_LISTS)
+  endif()
 endfunction()
 
 # Generate F3DIcon buffer

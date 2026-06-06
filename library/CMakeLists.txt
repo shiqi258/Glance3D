@@ -179,6 +179,25 @@ target_link_libraries(libf3d PRIVATE ${F3D_VTK_MODULES} ${F3D_STATIC_PLUGIN_TARG
 target_compile_options(libf3d PUBLIC ${f3d_compile_options_public} PRIVATE ${f3d_compile_options_private})
 target_link_options(libf3d PUBLIC ${f3d_link_options_public})
 
+if(WIN32)
+  # Static plugins can still bring shared runtime dependencies (eg. assimp and its helper DLLs).
+  # Copy them next to f3d.dll so the application is directly runnable from the build tree.
+  add_custom_command(TARGET libf3d POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_RUNTIME_DLLS:libf3d>
+      $<TARGET_FILE_DIR:libf3d>
+    COMMAND_EXPAND_LISTS)
+
+  if(TARGET assimp::assimp)
+    # Some package managers ship assimp helper DLLs next to assimp itself, without exposing
+    # them as transitive CMake runtime dependencies. Mirror that bin directory into the output.
+    add_custom_command(TARGET libf3d POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+        $<TARGET_FILE_DIR:assimp::assimp>
+        $<TARGET_FILE_DIR:libf3d>)
+  endif()
+endif()
+
 if(F3D_LINUX_LINK_FILESYSTEM)
   target_link_libraries(libf3d PRIVATE stdc++fs)
 endif()
