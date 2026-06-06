@@ -4,7 +4,7 @@
 > For WebAssembly cross-compilation, follow the dedicated guide [here](14-BUILD_WASM.md).
 > For other dedicated tools and builds setupo, see [this doc](07-TOOLING.md).
 
-F3D uses a CMake based build system, so building F3D just requires installing
+Glance3D uses a CMake based build system, so building Glance3D just requires installing
 needed dependencies, configuring and building. If you are not used to such processes
 please take a look at our [getting started guide](04-GETTING_STARTED.md).
 
@@ -28,11 +28,11 @@ please take a look at our [getting started guide](04-GETTING_STARTED.md).
 - Optionally, [OpenEXR](https://openexr.com/en/latest/) >= 3.0.1.
 - Optionally, [WebP](https://chromium.googlesource.com/webm/libwebp) >= 1.2.4.
 
-F3D is tested continuously against versions recommended by the [VFX reference platform](https://vfxplatform.com) defined for **CY2025**
+Glance3D is tested continuously against versions recommended by the [VFX reference platform](https://vfxplatform.com) defined for **CY2025**
 
 ## VTK compatibility
 
-As stated in the dependencies, F3D is compatible with VTK >= 9.4.0, however, some features may not be available. We suggest using VTK 9.6.2 with RenderingRayTracing, IOExodus, IOHDF, IONetCDF, IOPDAL and IOOpenVDB modules enabled in order to get as many features as possible in F3D.
+As stated in the dependencies, Glance3D is compatible with VTK >= 9.4.0, however, some features may not be available. We suggest using VTK 9.6.2 with RenderingRayTracing, IOExodus, IOHDF, IONetCDF, IOPDAL and IOOpenVDB modules enabled in order to get as many features as possible in F3D.
 
 ## Configuration and building
 
@@ -41,7 +41,7 @@ then build the software using your build system.
 
 Here is some CMake options of interest:
 
-- `F3D_BUILD_APPLICATION`: Build the F3D executable.
+- `F3D_BUILD_APPLICATION`: Build the Glance3D executable.
 - `BUILD_TESTING`: Enable the [tests](06-TESTING.md).
 - `F3D_MACOS_BUNDLE`: On macOS, build a `.app` bundle.
 - `F3D_WINDOWS_BUILD_SHELL_THUMBNAILS_EXTENSION`: On Windows, build the shell thumbnails extension.
@@ -83,7 +83,7 @@ Please note optional dependencies should then be enabled as needed.
 ## VCPKG
 
 It's possible to use VCPKG to automatically build dependencies. A manifest file `vcpkg.json` is available at your convenience. Please read [VCPKG documentation](https://vcpkg.io/en/getting-started.html).
-Basically, just install VCPKG, and configure F3D using `-DCMAKE_TOOLCHAIN_FILE=[path to vcpkg]/scripts/buildsystems/vcpkg.cmake` option.
+Basically, just install VCPKG, and configure Glance3D using `-DCMAKE_TOOLCHAIN_FILE=[path to vcpkg]/scripts/buildsystems/vcpkg.cmake` option.
 Only VTK is added to the manifest file and additional dependencies must be added manually in this file. For an easier setup you can use the provided preset `vcpkg`:
 
 `cmake --preset=vcpkg /path/to/source`
@@ -106,14 +106,14 @@ Here is the list of all the components:
 
 | Name            | Installed by default | Operating system | Description                                                                                                                 |
 | --------------- | -------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `application`   | YES                  | ALL              | F3D application.                                                                                                            |
+| `application`   | YES                  | ALL              | Glance3D application.                                                                                                            |
 | `configuration` | NO                   | ALL              | Default configuration files, `config` and `thumbnail`.                                                                      |
 | `library`       | YES                  | ALL              | libf3d library binaries.                                                                                                    |
 | `plugin`        | YES                  | ALL              | libf3d plugins.                                                                                                             |
 | `dependencies`  | NO                   | ALL              | libf3d runtime dependencies. Can be used to create a self-contained and relocatable package. System libraries are excluded. |
 | `sdk`           | NO                   | ALL              | libf3d SDK (headers and CMake config files) for `library` and `application` find_package components.                        |
 | `plugin_sdk`    | NO                   | ALL              | libf3d plugin SDK (headers and CMake config files including macros) for `pluginsdk` find_package components.                |
-| `licenses`      | YES                  | ALL              | F3D and third party licenses.                                                                                               |
+| `licenses`      | YES                  | ALL              | Glance3D and third party licenses.                                                                                               |
 | `documentation` | YES                  | Linux            | `man` documentation.                                                                                                        |
 | `shellext`      | YES                  | Windows/Linux    | Desktop integration.                                                                                                        |
 | `python`        | YES                  | ALL              | Python bindings.                                                                                                            |

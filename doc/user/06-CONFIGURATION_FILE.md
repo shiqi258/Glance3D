@@ -164,9 +164,9 @@ Supported interactions are legion, eg:
   - `Enter`
   - `Delete`
 - Other interactions, eg:
-  - `Drop` when files or directories are dropped on F3D window
+  - `Drop` when files or directories are dropped on Glance3D window
 
-To identify the interaction to use, just use `f3d --verbose` and perform the interaction, F3D will log it like this:
+To identify the interaction to use, just use `f3d --verbose` and perform the interaction, Glance3D will log it like this:
 
 ```
 Interaction: KeyPress Ctrl+Shift+Insert
@@ -174,7 +174,7 @@ Interaction: KeyPress Ctrl+Shift+Insert
 
 Please note that the interaction itself can be modified by the modifiers, hence some binds may be unreachable depending on your
 keyboard layout, eg. on a `QWERTY` layout, the bind `Exclam` is unreachable while `Shift+Exclam` is reachable.
-We tried to make the default bindings of F3D to be a keyboard layout independent as possible, but feel free to redefined them
+We tried to make the default bindings of Glance3D to be a keyboard layout independent as possible, but feel free to redefined them
 for your needs.
 
 ## Glob and Exact Matching
@@ -233,16 +233,16 @@ Single .json file for configuration is supported, as well a config directory con
 In the case of config directory, .json file are read in alphabetical order and an option or binding in a block can be overridden
 by the same option or bind being set in another block in another .json file read after.
 
-F3D provides a default config directory for generic usage (`config.d`) and a thumbnail specific config directory (`thumbnail.d`).
+Glance3D provides a default config directory for generic usage (`config.d`) and a thumbnail specific config directory (`thumbnail.d`).
 You can edit the file contained in these directory or add your own in specific directories (see below).
 
-F3D looks for configuration files in different locations depending on your operating system.
+Glance3D looks for configuration files in different locations depending on your operating system.
 Existing configuration files are read in order and combined with later entries, potentially overriding previously read entry with the same names.
 For thumbnails, just replace `config` by `thumbnail`, as the thumbnails configuration is just passed to f3d using the `--config` [CLI option](03-OPTIONS.md).
 
 - Linux: `/etc/f3d/config(.json,.d)`, `/usr/share/f3d/configs/config(.json,.d)`, `[install_dir]/share/f3d/configs/config(.json,.d)`, `${XDG_CONFIG_HOME}/f3d/config(.json,.d)`
 - Windows: `[install_dir]\share\f3d\configs\(config.json,.d)`, `%APPDATA%\f3d\(config.json,.d)`
-- macOS: `/usr/local/etc/f3d/config(.json,.d)`, `f3d.app/Contents/Resources/configs/config(.json,.d)`, `${HOME}/Library/Application Support/f3d/config(.json,.d)`
+- macOS: `/usr/local/etc/f3d/config(.json,.d)`, `Glance3D.app/Contents/Resources/configs/config(.json,.d)`, `${HOME}/Library/Application Support/f3d/config(.json,.d)`
 
 Please note that, on Linux, `XDG_CONFIG_HOME` implementation can fallback on `HOME` environment variables as specified [here](https://specifications.freedesktop.org/basedir/latest/).
 

@@ -20,7 +20,7 @@ Simple interaction with the displayed data is possible directly within the windo
 
 ## 2D Mode
 
-F3D supports a 2D interaction mode designed for viewing images and flat content. In 2D mode:
+Glance3D supports a 2D interaction mode designed for viewing images and flat content. In 2D mode:
 
 - Rotation is disabled
 - Camera commands (`set_camera`, `roll_camera`, `elevation_camera`, `azimuth_camera`) are disabled
@@ -74,7 +74,7 @@ Other options can be toggled or cycled directly by pressing the following hotkey
 - <kbd>Ctrl</kbd>+<kbd>Y</kbd>: Scene up direction to +Y
 - <kbd>Ctrl</kbd>+<kbd>Z</kbd>: Scene up direction to +Z
 
-Note that the raytracing hotkeys are only available if F3D is build with raytracing enabled.
+Note that the raytracing hotkeys are only available if Glance3D is build with raytracing enabled.
 
 Camera Hotkeys:
 
@@ -112,7 +112,7 @@ Other hotkeys and interactions are available:
 - <kbd>&darr;</kbd>: add all current files parent directories to the list of files, reload the currently loaded files and reset the camera, respect the `--recursive-dir-add` CLI option.
 - <kbd>F12</kbd>: take a screenshot, ie. render the current view to an image file.
 - <kbd>Ctrl</kbd>+<kbd>F12</kbd>: take a "minimal" screenshot, ie. render the current view with no grid and no overlays to an image file with a transparent background.
-- _Drop_ a file, directory or HDRI into the F3D window to load it. F3D relies on the extension (`.hdr` or `.exr`) to detect if the dropped file is an HDRI.
+- _Drop_ a file, directory or HDRI into the Glance3D window to load it. Glance3D relies on the extension (`.hdr` or `.exr`) to detect if the dropped file is an HDRI.
 - <kbd>Ctrl</kbd> + _Drop_ a file, directory and load it.
 - <kbd>Shift</kbd> + _Drop_ a HDRI and use it, no extensions checks performed.
 

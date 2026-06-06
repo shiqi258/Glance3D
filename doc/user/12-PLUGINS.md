@@ -1,10 +1,10 @@
 # Plugins
 
-F3D officially supports plugins for certain file formats. If you installed F3D using the binary
+Glance3D officially supports plugins for certain file formats. If you installed Glance3D using the binary
 release, there's no need to manually load these plugins when opening your file.
-F3D will load them automatically.
+Glance3D will load them automatically.
 
-However, if you installed F3D using a package manager,
+However, if you installed Glance3D using a package manager,
 it's possible that the packager chose to bundle the plugins into different packages or
 to list plugin dependencies as optional in order to reduce the number of dependencies of the main package.
 
@@ -30,21 +30,21 @@ multiple plugins in a single comma-separated list, like in the example below:
 
 ## Supported plugins
 
-F3D supports loading plugins and contains the following plugins:
+Glance3D supports loading plugins and contains the following plugins:
 `native`, `alembic`, `assimp`, `draco`, `hdf`, `occt`, `pdal`, `usd`, `vdb`, `webifc`.
 
 see [the format list](02-SUPPORTED_FORMATS.md) for more details.
 
 > [!NOTE]
 > Native plugin is always loaded automatically.
-> If you downloaded the binaries from the release page, it's not necessary to specify manually the plugins above. F3D loads them automatically.
+> If you downloaded the binaries from the release page, it's not necessary to specify manually the plugins above. Glance3D loads them automatically.
 
 Here is how the plugins are searched (in preceding order):
 
 1. Search the static plugins.
 2. Consider the `load-plugins` option given it is a full path.
 3. Search in the paths specified in the `--plugins-path` CLI option.
-4. Search in a directory relative to the F3D application: `../lib`.
+4. Search in a directory relative to the Glance3D application: `../lib`.
 5. Rely on OS specific paths (e.g. `LD_LIBRARY_PATH` on Linux or `DYLD_LIBRARY_PATH` on macOS).
 
 You can also try plugins maintained by the community. If you have created a plugin and would like it to be listed here, please submit a pull request.

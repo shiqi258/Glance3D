@@ -20,7 +20,7 @@ Requires `clang` toolchain.
 ## How to locally generate and run the website
 
 1. Install `npm`
-2. Clone https://github.com/f3d-app/f3d-website
+2. Clone https://github.com/glance3d-app/glance3d-website
 3. Install needed npm packages: `npm install`
 4. Build and serve the website: `npm run start`
 

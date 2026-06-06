@@ -1,6 +1,6 @@
 # Coding Style
 
-F3D use different coding styles in each component, however there are some common rules
+Glance3D use different coding styles in each component, however there are some common rules
 
 ## C++
 
@@ -37,7 +37,7 @@ Includes:
 - Organized by category: `F3DApplication`, `libf3d`, `VTKExtensions`, `other deps`, `std`, `system`.
 - Sorted inside category.
 
-### F3D Application rules
+### Glance3D Application rules
 
 - Class starts with `F3D`
 - Method starts with an uppercase char.

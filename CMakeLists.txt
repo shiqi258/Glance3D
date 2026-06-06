@@ -236,7 +236,7 @@ endif()
 
 set(f3d_resources_dir "share/f3d")
 if (F3D_MACOS_BUNDLE)
-  set(f3d_resources_dir "f3d.app/Contents/Resources")
+  set(f3d_resources_dir "Glance3D.app/Contents/Resources")
 endif()
 
 ## Will be stored in f3dConfig.cmake

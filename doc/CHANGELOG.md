@@ -2,7 +2,7 @@
 
 ## v3.5.0
 
-For F3D users:
+For Glance3D users:
 
 - Created an Android version
 - Moved macOS binary package to macOS 14 framework.
@@ -56,7 +56,7 @@ For libf3d users:
 - Added a `ui.dpi_aware` option to rescale font automatically on HiDPI screens (Windows only)
 - Deprecated `interactor.trackball` option in favor of `interactor.style`
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Updated all vendored dependencies
 - Updated all external dependencies in CI and shipping system
@@ -74,7 +74,7 @@ For Web viewer users:
 
 ## v3.4.1
 
-For F3D users:
+For Glance3D users:
 
 - BEHAVIOR CHANGE: Changed the behavior of gaussian point sprites, it now require the use of `--point-sprites-absolute-size`
 - BEHAVIOR CHANGE: Changed the default configuration for alembic to NOT display scalar by default
@@ -91,7 +91,7 @@ For F3D users:
 - Added axes and grid color configuration with a CLI option `--x/y/z-color`
 - Added proper support for composite data
 - Added an interaction to change the up direction `Ctrl+Y` and `Ctrl+Z` and dynamic up support
-- Improved the documentation on https://f3d.app
+- Improved the documentation on https://glance3d.app
 - Improved style of progress and animation bar to fit F3D style
 - Improved color logging
 - Reduced VRAM usage of antialiasing and HDRI rendering
@@ -133,7 +133,7 @@ For libf3d users:
 - examples: Added C example
 - examples: Added Java example
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Removed compatibility with VTK v9.2.6 and older. VTK v9.3.0 is the new minimum version.
 - Added `F3D_BINDINGS_C` CMake option to build the C bindings, no dependencies
@@ -146,9 +146,9 @@ For Web viewer users:
 
 ## v3.3.0
 
-For F3D users:
+For Glance3D users:
 
-- Created a F3D web application based on WebAssembly: https://f3d.app/viewer
+- Created a F3D web application based on WebAssembly: https://glance3d.app/viewer
 - **BEHAVIOR CHANGE**: Added a CLI option `--recursive-dir-add` to control if directory should be added recursively, off by default
 - Complete rework of the cheatsheet with for a nicer, cleaner look
 - [Linux] Added support for using F3D offscreen without GLX lib being present on the system
@@ -187,14 +187,14 @@ For libf3d users:
 - Added `ui.drop_zone.custom_binds` option to control the bindings visible in drop zone
 - Added `ui.backdrop.opacity` to control the UI backdrop opacity
 
-For F3D packagers:
+For Glance3D packagers:
 
 - F3D does not use libglx directly anymore when using VTK > 9.5
 - F3D v3.3.0 will be the last version of F3D supporting vtk v9.2.6, VTK v9.3.1 will be required for the next release
 
 ## v3.2.0
 
-For F3D users:
+For Glance3D users:
 
 - Added support for VTKHDF format, including AMR datasets
 - Added support for SPZ and PLY gaussian splatting format
@@ -244,7 +244,7 @@ For libf3d users:
 - Fixed `help(f3d)`
 - Deprecated `scene.animation.index` option
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Fixed a missing include in vtkF3DQuakeMDLImporter
 - Fixed a configuration issue against assimp 6.0
@@ -254,7 +254,7 @@ For F3D packagers:
 
 ## v3.1.0
 
-For F3D users:
+For Glance3D users:
 
 - Added support for reading Quake MDL files
 - Added support supersampling anti aliasing and enable it for thumbnails
@@ -303,20 +303,20 @@ For libf3d users:
 - Changed path options to use actual type `std::filesystem::path`. Note that path should now be collapsed.
 - Changed colormap_t options to use actual type `colormap_t`
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Fixed compatibility with FreeBSD
 - Fixed reproducible build for man generation
 
-For F3D plugin developers:
+For Glance3D plugin developers:
 
 - Added support for reader specific options
 
 ## v3.0.0
 
-For F3D users:
+For Glance3D users:
 
-- BREAKING CHANGE: [Configuration files](https://f3d.app/docs/next/user/CONFIGURATION_FILE) have changed syntax
+- BREAKING CHANGE: [Configuration files](https://glance3d.app/docs/next/user/CONFIGURATION_FILE) have changed syntax
 - BREAKING CHANGE: Removed all deprecated options
 - BREAKING CHANGE: `--scalars` have been split into `--scalar-coloring` and `--coloring-array` CLI options
 - BREAKING CHANGE: `=` must be used for CLI Options, `--option value` is not supported anymore
@@ -327,7 +327,7 @@ For F3D users:
 - BREAKING CHANGE: `--animation-frame-rate` has been replaced by `--frame-rate`
 - BREAKING CHANGE: Renamed `--bg-color` into `--background-color`
 - BREAKING CHANGE: Renamed `--comp` into `--coloring-component`
-- BREAKING CHANGE: Removed the `?` interaction to dump info, use [commands](https://f3d.app/docs/next/user/COMMANDS) instead
+- BREAKING CHANGE: Removed the `?` interaction to dump info, use [commands](https://glance3d.app/docs/next/user/COMMANDS) instead
 - BREAKING CHANGE: Renamed `--progress` into `--loading-progress`
 - BREAKING CHANGE: Renamed `--cells` into `--coloring-by-cells`
 - BREAKING CHANGE: Renamed `--range` into `--coloring-range`
@@ -340,19 +340,19 @@ For F3D users:
 - BREAKING CHANGE: F3D binary release is now built with GCC9
 - Changed the logo!
 - Reworked the UI using ImGui
-- Added support for specifying interactions in config files, [see doc](https://f3d.app/docs/next/user/CONFIGURATION_FILE#bindings)
+- Added support for specifying interactions in config files, [see doc](https://glance3d.app/docs/next/user/CONFIGURATION_FILE#bindings)
 - Added a `--command-script` CLI option
 - Added a tiny file dialog, just press `Ctrl+O`
 - Added support for armature visualization with `--armature` CLI option (glTF only)
 - Added support for keeping camera position when switching files, just press `Ctrl+Arrow`
-- Added a ImGui based console to input [commands](https://f3d.app/docs/next/user/COMMANDS) by pressing `Esc`
+- Added a ImGui based console to input [commands](https://glance3d.app/docs/next/user/COMMANDS) by pressing `Esc`
 - Added a "Save minimal screenshot" interaction by pressing `Shift+F12`
 - Added error reporting when loading a file failed for some reason
 - Added missing config file for .brep files
 - Added support for .xbf files
 - Added `--input` CLI option
 - Added support for libf3d option in configuration files
-- Added support for parsing option based on their type, see [the doc](https://f3d.app/docs/next/user/PARSING)
+- Added support for parsing option based on their type, see [the doc](https://glance3d.app/docs/next/user/PARSING)
 - Added a `--rendering-backend` option to select the rendering backend, including headless
 - Added an interaction to rotate camera 90 degrees by pressing 4/6
 - Added an interaction to drop only HDRI (Shift+Drop) and an interaction to drop only 3D files (Ctrl+Drop)
@@ -411,7 +411,7 @@ For libf3d users:
 - Added an `utils::collapsePath`
 - Fixed an issue with HiDPI when using the libf3d on Windows
 
-For F3D packagers:
+For Glance3D packagers:
 
 - BREAKING CHANGE: Removed compatibility with older version of VTK. VTK v9.2.6 is now required.
 - Added a new CMake options to build python stubs: `F3D_BINDINGS_PYTHON_GENERATE_STUBS`
@@ -419,28 +419,28 @@ For F3D packagers:
 - Modified dmon dependency to be optional
 - `F3D_LINUX_APPLICATION_LINK_FILESYSTEM` has been renamed `F3D_LINUX_LINK_FILESYSTEM` and is now OFF by default
 
-For F3D plugin developers:
+For Glance3D plugin developers:
 
 - Added a vtkF3DImporter and vtkF3DGLTFImporter for easier subclassing
 
 ## v2.5.1
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Added compatibility with VTK v9.4.0
 
 ## v2.5.0
 
-For F3D users:
+For Glance3D users:
 
-- Added a Webassembly version available online: https://f3d.app/viewer
+- Added a Webassembly version available online: https://glance3d.app/viewer
 - Added a "neutral" tone mapping feature
 - Added an screenshot feature when pressing F12, with its dedicated option, `--screenshot-filename`
 - Added a `--final-shader` option to customize post-processing.
 - Added a `--grid-color` option to set the color of the grid
 - Added a `--animation-progress` option to control if the animation progress bar should be shown
 - Added a `--backface-type` option to control backface visibility
-- Added a concept of filename [template](https://f3d.app/docs/next/user/OPTIONS#filename-templating) for saving screenshots and outputs
+- Added a concept of filename [template](https://glance3d.app/docs/next/user/OPTIONS#filename-templating) for saving screenshots and outputs
 - Added native menus for macOS
 - Improved documentation all around
 - Reworked config file logic to avoid duplicating of the default config
@@ -457,7 +457,7 @@ For libf3d users:
 - Added a tkinter python example
 - Exposed log level in the python API
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Fixed compatibility with CMake 3.29.1
 - Fixed compatibility with OCCT 7_8_0
@@ -465,7 +465,7 @@ For F3D packagers:
 
 ## v2.4.0
 
-For F3D users:
+For Glance3D users:
 
 - Added a new option `--point-type` used to specify how to display points sprites
 - Added support for 3D Gaussians Splatting in binary `.splat` format
@@ -496,10 +496,10 @@ For libf3d users:
 - Added a new option `model.point-sprites.type` used to specify how to display points (only if `model.point-sprites.enable` is true)
 - Added a `image::toTerminalText` method to print image to terminal text
 - Added an `image` metadata API
-- Added a `vtkext` module for plugin developer, see the [documentation](https://f3d.app/docs/next/libf3d/PLUGINS)
+- Added a `vtkext` module for plugin developer, see the [documentation](https://glance3d.app/docs/next/libf3d/PLUGINS)
 - Added a new f3d component to find_package of, `pluginsdk`, require to build plugins against F3D
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Added a CMake report at the end of configuration
 - Added a new cmake installation component, `plugin_sdk`, needed to compile external plugin against F3D
@@ -510,7 +510,7 @@ For F3D packagers:
 
 ## v2.3.0
 
-For F3D users:
+For Glance3D users:
 
 - Added `--animation-autoplay` option (libf3d: `scene.animation.autoplay`) to automatically start animation on file load
 - Added an experimental `vdb` plugin in order to read .vdb files using OpenVDB
@@ -520,7 +520,7 @@ For F3D users:
 - Added VTK output to the log when using `--verbose=debug` for easier debug
 - Reworked the `alembic` plugin to read Texture Coordinates and Normals for .abc files
 - Improved the reading of EXR files using multi-threading for better performance when loading HDRIs
-- Improved the documentation on https://f3d.app
+- Improved the documentation on https://glance3d.app
 - Improved general logging in order to make it easier to understand issues with file and options
 - Fixed potential crashes when reading `assimp` plugin file formats
 - Fixed `--grid-absolute` for off-center models
@@ -546,7 +546,7 @@ For libf3d users:
 - Added a `f3d::image::saveBuffer` API to save an image as a file format in memory
 - Fixed the default name of the window
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Added a new optional dependency, OpenUSD. Enable with `F3D_PLUGIN_BUILD_USD` CMake option
 - Added a new optional dependency through VTK, OpenVDB. Enable with `F3D_PLUGIN_BUILD_VDB` CMake option
@@ -555,7 +555,7 @@ For F3D packagers:
 
 ## v2.2.1
 
-For F3D users:
+For Glance3D users:
 
 - Added a native Apple Silicon release package
 - Added new options `hdri-file`, `hdri-ambient`, `hdri-skybox` to have more control on the HDRI behavior
@@ -593,13 +593,13 @@ For developers:
 - Removed `F3D_TESTING_ENABLE_HDRI_TESTS` cmake option and merged it with `F3D_TESTING_ENABLE_LONG_TIMEOUT_TESTS`
 - Added a Getting Started guide for beginners developers
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Fixed compatibility with FreeBSD
 
 ## v2.1.0
 
-For F3D users:
+For Glance3D users:
 
 - Reworked Animation support and added many animation related options
 - Added `--camera-direction` and `--camera-zoom-factor` and use it in default config file
@@ -637,7 +637,7 @@ For developers:
 
 - Added vcpkg support for dependency installation
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Added a `F3D_PLUGIN_OCCT_COLORING_SUPPORT` CMake variable to control if this feature is compiled, default is ON
 - Added `SONAME` support
@@ -654,7 +654,7 @@ Contributors: @DeveloperPaul123 @topazus @bkmgit @snoyer @Meakk @mwestphal
 
 ## v2.0.0
 
-For F3D users:
+For Glance3D users:
 
 - Removed `--fullscreen` options completely
 - Added a `--position` option to set the position of the F3D window
@@ -682,7 +682,7 @@ For libf3d users:
 - Added dynamic support for all `model` options
 - Added plugin SDK to create your own plugins for any file format
 
-For F3D packagers:
+For Glance3D packagers:
 
 - Added plugins support for true optional dependencies
 - Added a `F3D_APPLICATION_LINK_FILESYSTEM` CMake option to control if F3D should link explicitly against libstdc++fs
@@ -728,7 +728,7 @@ Other fixes:
 - Fixed a clipping issue when setting camera position
 - Removed fullscreen hotkey
 
-For F3D developers:
+For Glance3D developers:
 
 - Updated cxxopts to 3.0.0
 - Now using json.hpp for parsing json config file

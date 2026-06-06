@@ -55,7 +55,7 @@ Here is diagram explaining how some of these parts interact together:
 `vtkext` contains two [VTK modules](https://docs.vtk.org/en/latest/api/cmake/ModuleSystem.html) that are used extensively in the libf3d. The public one is used in the plugins.
 
 `public` is a VTK module that contains classes and utilities that can be installed as part of the `plugin_sdk` and used by plugins, including externals plugins. `vtkF3DImporter` is a class
-that is specifically made for plugin developers to inherit their importers from. The documentation of this module can be found [here](https://f3d.app/docs/next/category/vtkext-api-reference).
+that is specifically made for plugin developers to inherit their importers from. The documentation of this module can be found [here](https://glance3d.app/docs/next/category/vtkext-api-reference).
 
 `private` is a VTK module that contains many classes and utilities used by the libf3d to provide all features of F3D, especially the rendering, interactions and UI.
 A notable class is `vtkF3DRenderer` that is responsible to actually add the different actors in the 3D scene.
@@ -88,9 +88,9 @@ There is also a dedicated `testing` directory which contains all of the [applica
 
 ## Other f3d-app repositories
 
-Although almost everything is contained in the [f3d-app/f3d](https://github.com/f3d-app/f3d) repository, other repositories in the [f3d-app](https://github.com/f3d-app) organisation are handling certains specific tasks in the F3D ecosystem.
+Although almost everything is contained in the [glance3d-app/glance3d](https://github.com/glance3d-app/glance3d) repository, other repositories in the [f3d-app](https://github.com/f3d-app) organisation are handling certains specific tasks in the Glance3D ecosystem.
 
-- The [f3d-superbuild](https://github.com/f3d-app/f3d-superbuild) handles the packaging and the creation of the binaries provided in the [releases page](https://github.com/f3d-app/f3d/releases).
-- [f3d-website](https://github.com/f3d-app/f3d-website) contains the website generated from our documentation and deployed [here](https://f3d.app) as well as our [webviewer](https://f3d.app/viewer).
+- The [f3d-superbuild](https://github.com/glance3d-app/glance3d-superbuild) handles the packaging and the creation of the binaries provided in the [releases page](https://github.com/glance3d-app/glance3d/releases).
+- [f3d-website](https://github.com/glance3d-app/glance3d-website) contains the website generated from our documentation and deployed [here](https://glance3d.app) as well as our [webviewer](https://glance3d.app/viewer).
 - A collection of actions: [sccache-setup](https://github.com/f3d-app/sccache-setup-action), [lfs-data-cache](https://github.com/f3d-app/lfs-data-cache-action) and [install-mesa-windows](https://github.com/f3d-app/install-mesa-windows-action) used by the CI of F3D
-- A collection of [docker files](https://github.com/f3d-app/f3d-docker-images) used for generating docker images used by the CI of F3D
+- A collection of [docker files](https://github.com/glance3d-app/glance3d-docker-images) used for generating docker images used by the CI of F3D

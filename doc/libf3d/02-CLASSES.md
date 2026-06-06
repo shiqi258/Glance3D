@@ -1,7 +1,7 @@
 # Classes Introduction
 
 This is only an introduction to libf3d classes.
-For the complete documentation, please consult the [libf3d doxygen documentation.](https://f3d.app/docs/next/category/libf3d-api-reference).
+For the complete documentation, please consult the [libf3d doxygen documentation.](https://glance3d.app/docs/next/category/libf3d-api-reference).
 
 ## Engine class
 
@@ -19,7 +19,7 @@ However, it's possible to force the rendering backend in some specific use cases
 - `createExternal()`: the user is responsible of the rendering stack. It lets the user integrate libf3d in other frameworks like Qt or GLFW. No interactor provided. See [Context](#context-class) documentation for more info.
   An additional boolean argument is available to specify if offscreen rendering is requested when relevant on the selected rendering backend.
 
-A static function `loadPlugin` can also be called to load reader plugins. It must be called before loading any file. An internal plugin containing VTK native readers can be loaded by calling `f3d::engine::loadPlugin("native");`. Other plugins maintained by F3D team are available if their build is enabled: `alembic`, `assimp`, `draco`, `hdf`, `occt`, `pdal`, `usd`, `vdb` and `webifc`.
+A static function `loadPlugin` can also be called to load reader plugins. It must be called before loading any file. An internal plugin containing VTK native readers can be loaded by calling `f3d::engine::loadPlugin("native");`. Other plugins maintained by Glance3D team are available if their build is enabled: `alembic`, `assimp`, `draco`, `hdf`, `occt`, `pdal`, `usd`, `vdb` and `webifc`.
 If CMake option `F3D_PLUGINS_STATIC_BUILD` is enabled, the plugins listed above are also static just like `native` plugin.
 All static plugins can be loaded using `f3d::engine::autoloadPlugins()`.
 

@@ -1,33 +1,33 @@
 # Animations
 
-F3D is able to play animations for any files which contain them.
+Glance3D is able to play animations for any files which contain them.
 Play them either interactively or by selecting a specific time to display.
-For files containing multiple animations, F3D allows the user to either play each animation separately or to select multiple animations to play at the same.
+For files containing multiple animations, Glance3D allows the user to either play each animation separately or to select multiple animations to play at the same.
 
 ## Demonstration
 
-This specific example uses an animation file which can be downloaded [here](https://github.com/f3d-app/f3d/blob/606089959c9520085a9cbf70660fb0ffc68fb934/testing/data/InterpolationTest.glb).
+This specific example uses an animation file which can be downloaded [here](https://github.com/glance3d-app/glance3d/blob/606089959c9520085a9cbf70660fb0ffc68fb934/testing/data/InterpolationTest.glb).
 
-<img width="1024" alt="1" src="https://media.githubusercontent.com/media/f3d-app/f3d-website/refs/heads/main/docs/user/animation_0.png" />
+<img width="1024" alt="1" src="https://media.githubusercontent.com/media/glance3d-app/glance3d-website/refs/heads/main/docs/user/animation_0.png" />
 
 Load the example animation file shown above by executing within command line: `f3d InterpolationTest.glb`
 
-<img width="1024" alt="2" src="https://media.githubusercontent.com/media/f3d-app/f3d-website/refs/heads/main/docs/user/animation_1.png" />
+<img width="1024" alt="2" src="https://media.githubusercontent.com/media/glance3d-app/glance3d-website/refs/heads/main/docs/user/animation_1.png" />
 To view current animation name, press <kbd>H</kbd> to open up cheatsheet menu
 
-<img width="1024" alt="3" src="https://media.githubusercontent.com/media/f3d-app/f3d-website/refs/heads/main/docs/user/animation_2.png" />
+<img width="1024" alt="3" src="https://media.githubusercontent.com/media/glance3d-app/glance3d-website/refs/heads/main/docs/user/animation_2.png" />
 Press <kbd>W</kbd> to cycle through available animations
 
-<img width="1024" alt="4" src="https://media.githubusercontent.com/media/f3d-app/f3d-website/refs/heads/main/docs/user/animation_3.png" />
+<img width="1024" alt="4" src="https://media.githubusercontent.com/media/glance3d-app/glance3d-website/refs/heads/main/docs/user/animation_3.png" />
 Press <kbd>space</kbd> to play/pause current animation.
 Note: A blue bar runs along the bottom of screen to indicate the current time interval of the animation sequence if animation-progress was turned on.
 
-<img width="1024" alt="5" src="https://media.githubusercontent.com/media/f3d-app/f3d-website/refs/heads/main/docs/user/animation_4.png" />
+<img width="1024" alt="5" src="https://media.githubusercontent.com/media/glance3d-app/glance3d-website/refs/heads/main/docs/user/animation_4.png" />
 "All Animations" will play all animations at the same time if supported by the file format.
 
 ## Command line options
 
-F3D animation behavior can be fully controlled from the command line using the following options.
+Glance3D animation behavior can be fully controlled from the command line using the following options.
 
 | Options                      | Default             | Description                                          |
 | ---------------------------- | ------------------- | ---------------------------------------------------- |
@@ -39,7 +39,7 @@ F3D animation behavior can be fully controlled from the command line using the f
 
 ## Exporting animation frames
 
-F3D can export multiple frames from an animation to image files. To do this, include `{frame}` in the output filename template:
+Glance3D can export multiple frames from an animation to image files. To do this, include `{frame}` in the output filename template:
 
 ```bash
 f3d example.file --output=frame_{frame:04}.png
@@ -73,7 +73,7 @@ See [COMMANDS](07-COMMANDS.md) for commands like `jump_to_frame`
 
 Pressing <kbd>W</kbd> let you cycle the animation to show.
 
-When cycling, F3D will cycle like this:
+When cycling, Glance3D will cycle like this:
 
 - Multiple animations or all animations
 - Animation index 0
@@ -88,7 +88,7 @@ All animations will only be cycled if supported by the currently loaded files.
 
 ## Time Units
 
-When F3D plays an animation, it assumes the time unit is in seconds to show accurate speed of animation.
+When Glance3D plays an animation, it assumes the time unit is in seconds to show accurate speed of animation.
 
 ## Coloring range
 
@@ -105,7 +105,7 @@ The animation support level is listed for each reader [here](02-SUPPORTED_FORMAT
 - MULTI: Multiple animations can be selected at a time
 
 When opening multiple files at the same time using the `--multi-file-mode` option and selecting multiple animations to show,
-F3D may warn when combining SINGLE and non SINGLE files, but will still try to respect the chosen animation indices.
+Glance3D may warn when combining SINGLE and non SINGLE files, but will still try to respect the chosen animation indices.
 
 ## Animation keyframes
 
@@ -117,4 +117,4 @@ This command is currently supported only by the following readers:
 - `vtkF3DQuakeMDLImporter`
 
 You can follow the issue below to track the progress of animation support for other readers :
-[F3D Issue – Improve Animation System #2637](https://github.com/f3d-app/f3d/issues/2637#:~:text=Access%20to%20timesteps)
+[Glance3D Issue - Improve Animation System #2637](https://github.com/glance3d-app/glance3d/issues/2637#:~:text=Access%20to%20timesteps)

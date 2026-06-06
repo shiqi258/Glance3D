@@ -8,7 +8,7 @@ If you think you have found a vulnerability in this repository, please report it
 
 Instead, report it using one of the following ways:
 
-- Contact the [F3D maintainers](mailto:contact@f3d.app) via email
+- Contact the [Glance3D maintainers](mailto:security@glance3d.app) via email
 
 Please include as much of the information listed below as you can to help us better understand and resolve the issue:
 
@@ -27,7 +27,7 @@ This information will help us triage your report more quickly.
 ## Supported Versions
 
 The only supported version is the last full release.
-It can be found in [github release page](https://github.com/f3d-app/f3d/releases).
+It can be found in the [GitHub release page](https://github.com/glance3d-app/glance3d/releases).
 
 ## Acknowledgements
 

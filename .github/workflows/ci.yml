@@ -121,7 +121,7 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'ci:full') ||
       github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-ci
+    container: ghcr.io/glance3d-app/glance3d-ci
 
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5
@@ -211,7 +211,7 @@ jobs:
             static_label: no-static
 
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-ci
+    container: ghcr.io/glance3d-app/glance3d-ci
 
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5
@@ -344,7 +344,7 @@ jobs:
             python_version: "3.14"
 
     runs-on: ${{matrix.os}}
-    container: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/f3d-app/f3d-ci' || null }}
+    container: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/glance3d-app/glance3d-ci' || null }}
 
     env:
       DISPLAY: :0
@@ -376,7 +376,7 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'ci:full') ||
       github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-ci
+    container: ghcr.io/glance3d-app/glance3d-ci
 
     env:
       DISPLAY: :0
@@ -413,7 +413,7 @@ jobs:
         sanitizer_type: [address, thread, undefined]
 
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-ci
+    container: ghcr.io/glance3d-app/glance3d-ci
 
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5
@@ -450,7 +450,7 @@ jobs:
       fail-fast: false
 
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-ci
+    container: ghcr.io/glance3d-app/glance3d-ci
 
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5
@@ -482,7 +482,7 @@ jobs:
       fail-fast: false
 
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-ci
+    container: ghcr.io/glance3d-app/glance3d-ci
 
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5
@@ -543,7 +543,7 @@ jobs:
         arch: [armeabi-v7a, arm64-v8a, x86, x86_64]
 
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-android-${{ matrix.arch }}:${{needs.recover_docker_timestamp.outputs.docker_timestamp}}
+    container: ghcr.io/glance3d-app/glance3d-android-${{ matrix.arch }}:${{needs.recover_docker_timestamp.outputs.docker_timestamp}}
 
     steps:
       - name: Checkout

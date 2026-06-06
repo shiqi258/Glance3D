@@ -1,6 +1,6 @@
 # Command line options
 
-F3D behavior can be fully controlled from the command line using the following options.
+Glance3D behavior can be fully controlled from the command line using the following options.
 
 ## Application Options
 
@@ -55,7 +55,7 @@ Do not render anything and quit just after loading the first file, use with --ve
 
 ### `--max-size=<size in MiB>` (_int_, default: `-1`)
 
-Prevent F3D to load a file bigger than the provided size in Mib, leave empty for unlimited, useful for thumbnails.
+Prevent Glance3D to load a file bigger than the provided size in Mib, leave empty for unlimited, useful for thumbnails.
 
 ### `--watch` (_bool_, default: `false`)
 
@@ -83,7 +83,7 @@ Filename to save [screenshots](04-INTERACTIONS.md#taking-screenshots) to. Can us
 
 ### `--rendering-backend=<auto|egl|osmesa|glx|wgl>` (_string_, default: `auto`)
 
-Rendering backend to load, `auto` means to let F3D pick the correct one for you depending on your system capabilities. Use `egl` or `osmesa` on linux to force headless rendering.
+Rendering backend to load, `auto` means to let Glance3D pick the correct one for you depending on your system capabilities. Use `egl` or `osmesa` on linux to force headless rendering.
 
 ### `-D`, `--define=<libf3d.option=value>` (_special_)
 
@@ -603,7 +603,7 @@ To turn on/off boolean options, it is possible to write `--option=true` and `--o
 
 If an option has an "implicit" value, it means that the options can be used without specifying the value to use the implicit value.
 
-The default correspond to the value without any [configuration file](06-CONFIGURATION_FILE.md), which F3D is usually distributed with.
+The default correspond to the value without any [configuration file](06-CONFIGURATION_FILE.md), which Glance3D is usually distributed with.
 
 As documented, the `--option=value` syntax should be preferred. The syntax `--option value` can have unintended effect with positional arguments.
 
@@ -615,7 +615,7 @@ All options are parsed according to their type, see the [parsing documentation](
 
 ## Piping
 
-F3D supports piping in and out for [most formats](02-SUPPORTED_FORMATS.md), using the `-` char, eg:
+Glance3D supports piping in and out for [most formats](02-SUPPORTED_FORMATS.md), using the `-` char, eg:
 
 ```
 f3d - --output=- < path/to/file.glb > path/to/img.png
@@ -645,7 +645,7 @@ BRepTools.Write_s(obj.wrapped, sys.stdout.buffer)
 python script.py | f3d - --output=- | display
 ```
 
-While piping is more common on Linux, F3D supports it perfectly on Windows and MacOS as well.
+While piping is more common on Linux, Glance3D supports it perfectly on Windows and MacOS as well.
 
 With versions of VTK < v9.6.20260128, specifying the [reader](02-SUPPORTED_FORMATS.md) to use is required, like this:
 
@@ -678,7 +678,7 @@ Model related variables will be replaced by `no_file` if no file is loaded and `
 
 ## HDRI Caches
 
-When using HDRI related options, F3D will create and use a cache directory to store related data in order to speed up rendering.
+When using HDRI related options, Glance3D will create and use a cache directory to store related data in order to speed up rendering.
 These cache files can be safely removed at the cost of recomputing them on next use.
 
 The cache directory location is as follows, in order, using the first defined environment variables:

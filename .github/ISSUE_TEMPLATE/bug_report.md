@@ -7,7 +7,7 @@ assignees: ""
 ---
 
 **Describe the bug**
-A clear and concise description of what the bug is, a screenshot helps a lot. [Do not use AI](https://f3d.app/dev/AI_POLICY) to generate this.
+A clear and concise description of what the bug is, a screenshot helps a lot. [Do not use AI](https://glance3d.app/dev/AI_POLICY) to generate this.
 
 **To Reproduce**
 Steps to reproduce the behavior:
@@ -24,7 +24,7 @@ A clear and concise description of what you expected to happen.
 - OS:
 - GPU and GPU driver:
 
-**F3D Information**
+**Glance3D Information**
 Paste the content of `f3d --version` or `f3d-console.exe --version` on Windows:
 
 **Additional context**

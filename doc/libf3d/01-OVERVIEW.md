@@ -151,10 +151,10 @@ eng.getInteractor().start();
 
 Most options are dynamic, some are only taken into account when loading a file. See the [options](03-OPTIONS.md) documentation.
 
-Find more examples in the [examples directory](https://github.com/f3d-app/f3d/tree/master/examples),
-you can also find other usages in the [testing directory](https://github.com/f3d-app/f3d/tree/master/library/testing).
+Find more examples in the [examples directory](https://github.com/glance3d-app/glance3d/tree/master/examples),
+you can also find other usages in the [testing directory](https://github.com/glance3d-app/glance3d/tree/master/library/testing).
 
-For the complete documentation, please consult the [libf3d doxygen documentation.](https://f3d.app/docs/next/category/libf3d-api-reference).
+For the complete documentation, please consult the [libf3d doxygen documentation.](https://glance3d.app/docs/next/category/libf3d-api-reference).
 
 ## Building against the libf3d
 
@@ -182,7 +182,7 @@ see the installed `f3dConfig.cmake` file for more info.
 
 ## Extending libf3d with plugins
 
-In order to add new supported file format to libf3d, you can create a plugin using CMake macros. Please follow instructions in the [F3D plugin SDK guide](05-PLUGINS.md).
+In order to add new supported file format to libf3d, you can create a plugin using CMake macros. Please follow instructions in the [Glance3D plugin SDK guide](05-PLUGINS.md).
 Also make sure the `plugin_sdk` component have been installed as well as the `sdk` component.
 
 ## Migrate from v3.5

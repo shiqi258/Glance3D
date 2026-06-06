@@ -2,7 +2,7 @@
 
 ## Limitations
 
-Here is a non exhaustive list of F3D limitations:
+Here is a non exhaustive list of Glance3D limitations:
 
 - No support for specifying manual lighting in the default scene apart from using `--light-intensity` option.
 - Drag and drop interaction cannot be recorded nor played back.
@@ -52,7 +52,7 @@ Gaussian splatting (option `--point-sprites=gaussian`) needs depth sorting which
 
 ### General
 
-> I have built F3D with raytracing support but the denoiser is not working.
+> I have built Glance3D with raytracing support but the denoiser is not working.
 
 Make sure that VTK has been built with _OpenImageDenoise_ support (`VTKOSPRAY_ENABLE_DENOISER` option).
 
@@ -67,7 +67,7 @@ It's recommended to use these options: `--point-sprites-size=1 --point-sprites=g
 
 ### Linux
 
-> I have a link error related to `stdc++fs` not found or I'm unable to run F3D due to filesystem errors.
+> I have a link error related to `stdc++fs` not found or I'm unable to run Glance3D due to filesystem errors.
 
 With some C++ STD library version, explicit linking to `stdc++fs` is not supported or required. We provide a CMake option `F3D_LINUX_LINK_FILESYSTEM` that you can set to the desired value to workaround this issue.
 
@@ -89,17 +89,17 @@ The GCC flag `-latomic` is not being added automatically with specific architect
 
 Dynamically switching rendering backend require VTK 9.4.0, you may need to update VTK or to use our binary release.
 
-> I'm unable to link C++ examples against my local F3D install directory, it complains about missing VTK symbols
+> I'm unable to link C++ examples against my local Glance3D install directory, it complains about missing VTK symbols
 
 Make sure to have VTK installed in your system or to add VTK install lib directory to `LD_LIBRARY_PATH`.
 
 ### Windows
 
-> Using the portable binary release, I'm unable to run F3D because Windows warns about a security risk
+> Using the portable binary release, I'm unable to run Glance3D because Windows warns about a security risk
 
-F3D is not signed by Microsoft yet so Windows shows this warning. Just click on the "more" button to be able to run F3D.
+Glance3D is not signed by Microsoft yet so Windows shows this warning. Just click on the "more" button to be able to run F3D.
 
-> After installing F3D or registering the shell extension, my explorer is broken.
+> After installing Glance3D or registering the shell extension, my explorer is broken.
 
 Unregister the shell extension by running:
 
@@ -108,9 +108,9 @@ cd C:\path\to\f3d\bin\
 regsvr32 /u F3DShellExtension.dll
 ```
 
-> I use F3D in a VM, the application fails to launch.
+> I use Glance3D in a VM, the application fails to launch.
 
-OpenGL applications like F3D can have issues when launched from Windows Server or from a guest Windows because the access to the GPU is restricted.
+OpenGL applications like Glance3D can have issues when launched from Windows Server or from a guest Windows because the access to the GPU is restricted.
 You can try to use a software implementation of OpenGL, called [Mesa](https://github.com/pal1000/mesa-dist-win/releases).
 
 - Download the latest `release-msvc`.
@@ -122,15 +122,15 @@ You can try to use a software implementation of OpenGL, called [Mesa](https://gi
 
 Set the codepage to UTF-8, run `chcp 65001`.
 
-> When I install F3D, I can't add F3D to the path and the installer complains that: `PATH too long installer unable to modify PATH!`.
+> When I install F3D, I can't add Glance3D to the path and the installer complains that: `PATH too long installer unable to modify PATH!`.
 
 There are too many entry in your PATH environment variable, remove the ones you do not use.
 
 > When I try to update F3D, the installer fails with: `Error opening file for writing: F3DShellExtension.dll`
 
-Your previous F3D installation is current being used to generate thumbnails, wait for a bit or reboot your computer before updating again.
+Your previous Glance3D installation is current being used to generate thumbnails, wait for a bit or reboot your computer before updating again.
 
-> When running F3D without interactivity (e.g. `f3d.exe --version`) from CLI, nothing is displayed.
+> When running Glance3D without interactivity (e.g. `f3d.exe --version`) from CLI, nothing is displayed.
 
 It's a limitation from the Windows "subsystem". Use `f3d-console.exe` instead.
 
@@ -148,14 +148,14 @@ Our macOS binary package are not signed, to work around this, you can simply run
 xattr -cr /Applications/F3D.app
 ```
 
-Then F3D should work as expected.
+Then Glance3D should work as expected.
 
 ### Python
 
 > I can't find `usd` and `vdb` plugins after installing f3d with pip
 
-The `usd` and `vdb` plugins are not shipped in the python wheels for now, you can compile F3D yourself with them though.
+The `usd` and `vdb` plugins are not shipped in the python wheels for now, you can compile Glance3D yourself with them though.
 
 > Raytracing does not work after installing f3d with pip
 
-F3D raytracing feature is not shipped in the python wheels for now, you can compile F3D yourself with it though.
+Glance3D raytracing feature is not shipped in the python wheels for now, you can compile Glance3D yourself with it though.

@@ -147,12 +147,12 @@ runs:
       # CMAKE_MODULE_PATH is required because of
       # https://github.com/AcademySoftwareFoundation/openvdb/issues/1160
       # OCCT plugin causes issues with static build because it exports symbols with the executable for some reasons
-      # https://github.com/f3d-app/f3d/issues/1322
+      # https://github.com/glance3d-app/glance3d/issues/1322
       # MacOS x86_64 occasionally segfault with Java
-      # https://github.com/f3d-app/f3d/issues/1410
+      # https://github.com/glance3d-app/glance3d/issues/1410
       # F3D_TESTING_ENABLE_EXTERNAL_(QT|GLFW) are disabled if no X server is running
       # QT/GLFW external tests should be adapted to run offscreen
-      # https://github.com/f3d-app/f3d/issues/1670
+      # https://github.com/glance3d-app/glance3d/issues/1670
     - name: Configure
       shell: bash
       working-directory: ${{github.workspace}}/build
@@ -245,10 +245,10 @@ runs:
       run: echo "F3D_CTEST_EXCEPTIONS=(test_scene_zero_copy)" >> $GITHUB_ENV
 
     # Certain tests are failing on macOS with GPU pass through
-    # https://github.com/f3d-app/f3d/issues/792
-    # https://github.com/f3d-app/f3d/issues/1534
-    # https://github.com/f3d-app/f3d/issues/2268
-    # https://github.com/f3d-app/f3d/issues/3047
+    # https://github.com/glance3d-app/glance3d/issues/792
+    # https://github.com/glance3d-app/glance3d/issues/1534
+    # https://github.com/glance3d-app/glance3d/issues/2268
+    # https://github.com/glance3d-app/glance3d/issues/3047
     - name: Set CI test exception for macOS x86_64
       if: |
         runner.os == 'macOS' &&
@@ -257,10 +257,10 @@ runs:
       run: echo "F3D_CTEST_EXCEPTIONS=(TestDXF)|(TestPipedDXF)|(TestScalarsCell)|(TestXCAFColors)|(TestInteractionAnimationSlow)|(TestInteractionFocalPointPickingPoints)|(TestInteractionCycleAnimation)|(TestInteractionCycleComp)|(TestGLTFRigArmature)|(TestInteractionNoModelScrollWheel)|(TestInteractionNoModelScrollBar)|(TestInteractionTAA)|(TestInteractionPointCloudTAA)" >> $GITHUB_ENV
 
     # Certain tests are failing on macOS arm64 for unknown reasons
-    # https://github.com/f3d-app/f3d/issues/1276
-    # https://github.com/f3d-app/f3d/issues/792
-    # https://github.com/f3d-app/f3d/issues/1534
-    # https://github.com/f3d-app/f3d/issues/3047
+    # https://github.com/glance3d-app/glance3d/issues/1276
+    # https://github.com/glance3d-app/glance3d/issues/792
+    # https://github.com/glance3d-app/glance3d/issues/1534
+    # https://github.com/glance3d-app/glance3d/issues/3047
     - name: Set CI test exception for macOS arm64
       if: |
         runner.os == 'macOS' &&
@@ -407,7 +407,7 @@ runs:
         cmake --install build_plugins --config Release --component configuration
 
     # Grid rendering has artifacts in macOS arm64 CI
-    # https://github.com/f3d-app/f3d/issues/1276
+    # https://github.com/glance3d-app/glance3d/issues/1276
     - name: Check Install
       if: |
         inputs.vtk_version != 'v9.4.2' && inputs.vtk_version != 'v9.5.2'

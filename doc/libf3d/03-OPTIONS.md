@@ -680,7 +680,7 @@ When using this API make sure to catch exceptions has needed, eg:
 
 ### Variant API
 
-An API that is similar to the F3D 2.0 options API thanks to std::variant.
+An API that is similar to the Glance3D 2.0 options API thanks to std::variant.
 
 ```cpp
   f3d::engine eng = f3d::engine::create();

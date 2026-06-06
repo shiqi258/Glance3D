@@ -70,7 +70,7 @@ void PrintHelp(const std::string& execName, const cxxopts::Options& cxxOptions)
   {
     F3DOptionsTools::PrintHelpPair(cmd, desc, 50);
   }
-  f3d::log::info("\nReport bugs to https://github.com/f3d-app/f3d/issues");
+  f3d::log::info("\nReport bugs to https://github.com/glance3d-app/glance3d/issues");
   f3d::log::setUseColoring(true);
 }
 

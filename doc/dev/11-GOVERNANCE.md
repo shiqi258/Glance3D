@@ -1,6 +1,6 @@
 # Governance Policy
 
-This document provides the governance policy for F3D (the "Project"). [Every person](./12-MAINTAINERS_AND_CONTRIBUTORS.md) responsible for its maintenance (the "Maintainers") agrees to this policy and to abide by all Project policies, including the [code of conduct](../../CODE_OF_CONDUCT.md) by adding their name to the [MAINTAINERS_AND_CONTRIBUTORS.md](./12-MAINTAINERS_AND_CONTRIBUTORS.md) file.
+This document provides the governance policy for Glance3D (the "Project"). [Every person](./12-MAINTAINERS_AND_CONTRIBUTORS.md) responsible for its maintenance (the "Maintainers") agrees to this policy and to abide by all Project policies, including the [code of conduct](../../CODE_OF_CONDUCT.md) by adding their name to the [MAINTAINERS_AND_CONTRIBUTORS.md](./12-MAINTAINERS_AND_CONTRIBUTORS.md) file.
 
 ## 1. Roles
 
@@ -24,7 +24,7 @@ Anyone interested to become a moderators should just reach out to existing Maint
 
 Returning Contributors are those who have made multiple contributions to the Project over multiple release and want to be acknowledged as such. Returning Contributors are also very much welcome to share their ideas and feedbacks about the development and maintenance of F3D. Returning contributors may be asked by others about their contributions, provide reviews on code they are familiar with, provide technical insight during discussions and take part in any related activities they wish to.
 
-To become a Returning Contributor, one need to have merged at least two pull requests into the F3D repositories over the course of multiple releases.
+To become a Returning Contributor, one need to have merged at least two pull requests into the Glance3D repositories over the course of multiple releases.
 Returning Contributors are part of the f3d-app github organization with a "member" role and are listed in the [dedicated](./12-MAINTAINERS_AND_CONTRIBUTORS.md) file.
 
 Usually Maintainers will reach out to potential Returning Contributors after new releases but in case it was missed, one should reach out to Maintainers for consideration.
@@ -39,15 +39,15 @@ Contributors are those who have made or want to make contributions to the Projec
 ### 1.4. Mentees
 
 Mentees are contributors that are enrolled in the [mentoring program](./13-MENTORING.md) of F3D.
-It is open to anyone willing to learn more about open source contribution to F3D and be helped by Maintainers and Contributors.
+It is open to anyone willing to learn more about open source contribution to Glance3D and be helped by Maintainers and Contributors.
 
 ### 1.5. Sponsor
 
-Sponsor are users that are currently sponsoring the project. They are acknowledged as specified in our [donation page](https://f3d.app/thanks).
+Sponsor are users that are currently sponsoring the project. They are acknowledged as specified in our [donation page](https://glance3d.app/thanks).
 
 ### 1.6 Industry sponsor
 
-Industry sponsor are company that are currently sponsoring the project. They are acknowledged as specified in our [donation page](https://f3d.app/thanks).
+Industry sponsor are company that are currently sponsoring the project. They are acknowledged as specified in our [donation page](https://glance3d.app/thanks).
 
 ## 2. Decisions
 

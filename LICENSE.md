@@ -3,6 +3,7 @@ BSD 3-Clause License
 - Copyright 2019-2021 Kitware SAS
 - Copyright 2021-2025 Michael Migliore, Mathieu Westphal
 - Copyright 2025 F3D-APP Foundation
+- Copyright 2026 Glance3D contributors
 
 All rights reserved.
 

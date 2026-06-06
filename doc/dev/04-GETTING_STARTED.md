@@ -6,7 +6,7 @@ to such processes, you may be looking for our [build guide](05-BUILD.md).
 
 You may also want to take a look into the [mentoring program](13-MENTORING.md).
 
-This guide will help you to compile your own version of F3D with required dependencies.
+This guide will help you to compile your own version of Glance3D with required dependencies.
 Optional dependencies or covered in the build guide.
 
 - If you are using [Linux](#linux)
@@ -54,14 +54,14 @@ Open a terminal.
 ```
 mkdir f3d
 cd f3d
-git clone https://github.com/f3d-app/f3d src
+git clone https://github.com/glance3d-app/glance3d src
 mkdir build
 cd build
 cmake ../src
 make
 ```
 
-You can then simply run F3D from the command line:
+You can then simply run Glance3D from the command line:
 
 ```
 ./bin/f3d
@@ -93,7 +93,7 @@ and the internal VCPKG to automatically build the dependencies.
 
 - Open Visual Studio
 - Select `Clone a repository`
-- Specify the repository address: `https://github.com/f3d-app/f3d.git` and the local directory of your choice
+- Specify the repository address: `https://github.com/glance3d-app/glance3d.git` and the local directory of your choice
 
 > [!WARNING]
 > The first run will take a while (up to 1 hour) because VTK is compiled twice (in Debug and Release mode)
@@ -115,7 +115,7 @@ Alternatively, it is possible to use Visual Studio directly by opening .sln file
 - Download and install [cmake][cmake-download]
 - Download and install [Visual Studio 2022 Community Edition][visual-studio]
 
-#### Retrieve VTK and F3D sources
+#### Retrieve VTK and Glance3D sources
 
 - Open git bash
 
@@ -131,7 +131,7 @@ mkdir install
 cd ..
 mkdir f3d
 cd f3d
-git clone https://github.com/f3d-app/f3d.git src
+git clone https://github.com/glance3d-app/glance3d.git src
 mkdir build
 ```
 
@@ -225,17 +225,17 @@ Open a terminal.
 ```
 mkdir f3d
 cd f3d
-git clone https://github.com/f3d-app/f3d src
+git clone https://github.com/glance3d-app/glance3d src
 mkdir build
 cd build
 cmake ../src
 make
 ```
 
-You can then simply run F3D from the command line:
+You can then simply run Glance3D from the command line:
 
 ```
-./bin/f3d.app/Contents/MacOS/f3d
+./bin/Glance3D.app/Contents/MacOS/f3d
 ```
 
 ### Running the test suite (optional)

@@ -1,6 +1,6 @@
 # AI Policy
 
-F3D maintainers believe that generative AI is a special tool that require special care, in that regards, if you use AI to contribute to F3D, you need to:
+Glance3D maintainers believe that generative AI is a special tool that requires special care. In that regard, if you use AI to contribute to Glance3D, you need to:
 
 - **Disclose that you are using AI**
 - **Use it in a precise way, to help with precise tasks**

@@ -9,7 +9,7 @@ jobs:
   # Check nightly: Checkout VTK and check if the last merged commit is less than 24 hours old
   #----------------------------------------------------------------------------
   check_nightly:
-    if: github.repository == 'f3d-app/f3d'
+    if: github.repository == 'glance3d-app/glance3d'
     runs-on: ubuntu-24.04
     name: Check nightly
     outputs:
@@ -78,7 +78,7 @@ jobs:
             os: ubuntu-24.04
             rendering_backend: osmesa
     runs-on: ${{matrix.os}}
-    container: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/f3d-app/f3d-ci' || null }}
+    container: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/glance3d-app/glance3d-ci' || null }}
 
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5
@@ -118,7 +118,7 @@ jobs:
         sanitizer_type: [address, thread, undefined]
 
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-ci
+    container: ghcr.io/glance3d-app/glance3d-ci
 
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5
@@ -203,7 +203,7 @@ jobs:
         arch: [armeabi-v7a, arm64-v8a, x86, x86_64]
 
     runs-on: ubuntu-24.04
-    container: ghcr.io/f3d-app/f3d-android-${{ matrix.arch }}:${{needs.recover_docker_timestamp.outputs.docker_timestamp}}_${{needs.check_nightly.outputs.vtk_sha}}
+    container: ghcr.io/glance3d-app/glance3d-android-${{ matrix.arch }}:${{needs.recover_docker_timestamp.outputs.docker_timestamp}}_${{needs.check_nightly.outputs.vtk_sha}}
 
     steps:
       - name: Checkout

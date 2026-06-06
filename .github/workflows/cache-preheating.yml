@@ -29,7 +29,7 @@ jobs:
             mindeps_label: mindeps
 
     runs-on: ${{matrix.os}}
-    container: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/f3d-app/f3d-ci' || null }}
+    container: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/glance3d-app/glance3d-ci' || null }}
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
@@ -102,7 +102,7 @@ jobs:
             mindeps_label: no-mindeps
 
     runs-on: ${{matrix.os}}
-    container: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/f3d-app/f3d-ci' || null }}
+    container: ${{ matrix.os == 'ubuntu-24.04' && 'ghcr.io/glance3d-app/glance3d-ci' || null }}
 
     env:
       CMAKE_POLICY_VERSION_MINIMUM: 3.5

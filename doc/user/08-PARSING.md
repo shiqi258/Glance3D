@@ -84,7 +84,7 @@ The following formats are supported when parsing a color, case insensitive:
 - hwb(H, W%, B%) where H is integer [0, 360], W and B are integer [0, 100]
 - cmyk(C%, M%, Y%, K%) where C, M, Y, K are integer [0, 100]
 - [color name](https://examples.vtk.org/site/ColorNamesSeries/ColorNamePatches.html)
-- F3D colors
+- Glance3D colors
 
 See [W3C](https://www.w3.org/TR/css-color-3/#rgb-color) doc for more details on these formats.
 
@@ -94,7 +94,7 @@ When using parenthesis in a command line arg, you may need to quote the entire o
 
 All colors are expressed in sRGB color space.
 
-### F3D colors reference:
+### Glance3D colors reference:
 
 - `f3d_red`: rgb(249, 67, 6)
 - `f3d_green`: rgb(122, 255, 122)

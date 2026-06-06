@@ -39,11 +39,11 @@ jobs:
         working-directory: ${{github.workspace}}
         run: |
           res=0
-          docker manifest inspect ghcr.io/f3d-app/f3d-wasm:${{steps.docker_timestamp.outputs.extract}} || res=$?
-          docker manifest inspect ghcr.io/f3d-app/f3d-android-armeabi-v7a:${{steps.docker_timestamp.outputs.extract}} || res=$?
-          docker manifest inspect ghcr.io/f3d-app/f3d-android-arm64-v8a:${{steps.docker_timestamp.outputs.extract}} || res=$?
-          docker manifest inspect ghcr.io/f3d-app/f3d-android-x86:${{steps.docker_timestamp.outputs.extract}} || res=$?
-          docker manifest inspect ghcr.io/f3d-app/f3d-android-x86_64:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-wasm:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-android-armeabi-v7a:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-android-arm64-v8a:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-android-x86:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-android-x86_64:${{steps.docker_timestamp.outputs.extract}} || res=$?
           echo "F3D_DOCKER_IMAGE_AVAILABLE=$res" >> $GITHUB_ENV
 
       # This require a F3D_DOCKER_CI_DISPATCH secret contain a PAT with read and write admin access

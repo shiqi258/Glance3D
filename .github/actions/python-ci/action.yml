@@ -128,7 +128,7 @@ runs:
       with:
         path: ${{ env.Python_ROOT_DIR }}
 
-    # Qt6 tests only supported on windows for now https://github.com/f3d-app/f3d/issues/2670
+    # Qt6 tests only supported on windows for now https://github.com/glance3d-app/glance3d/issues/2670
     # `import numpy` crashes on Windows, excluding test_scene_zero_copy.py
     - name: Test wheel (macOS/Linux)
       if: runner.os != 'Windows'

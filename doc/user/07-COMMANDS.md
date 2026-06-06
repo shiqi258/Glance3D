@@ -1,6 +1,6 @@
 # Commands
 
-F3D provides access to commands through [interactive console](#interactive-console), [command script](#command-script---command-script) and [bindings configuration](06-CONFIGURATION_FILE.md#bindings).
+Glance3D provides access to commands through [interactive console](#interactive-console), [command script](#command-script---command-script) and [bindings configuration](06-CONFIGURATION_FILE.md#bindings).
 Commands let you trigger specific behavior that may not be available otherwise.
 Please note commands are currently experimental and the behaviors, actions may be added or removed without deprecation.
 Action names and arguments may also change without deprecation.
@@ -104,11 +104,11 @@ This command is currently supported only by the following readers :
 - `vtkF3DQuakeMDLImporter`
 
 You can follow the issue below to track the progress of animation support for other readers:
-[F3D Issue – Improve Animation System #2637](https://github.com/f3d-app/f3d/issues/2637#:~:text=Access%20to%20timesteps)
+[Glance3D Issue - Improve Animation System #2637](https://github.com/glance3d-app/glance3d/issues/2637#:~:text=Access%20to%20timesteps)
 
 `cycle_verbose_level` : A specific command to cycle between the verbose levels (`Debug`, `Info`, `Warning`, `Error`, `Quiet`).
 
-`add_files [path/to/file1] [path/to/file2]`: A specific command to add files to the scene (overridden by a F3D specific command, see below). Take one or more files as arguments.
+`add_files [path/to/file1] [path/to/file2]`: A specific command to add files to the scene (overridden by a Glance3D specific command, see below). Take one or more files as arguments.
 eg: `add_files /path/to/dragon.vtu`.
 
 `alias [alias_name] [command]`: A specific command to create an alias for a command. Take an alias name and a command as arguments.
@@ -116,9 +116,9 @@ eg: `alias myrotate roll_camera 90`.
 
 `help [command]: A specific command to print help about a specific command. eg: `help set_camera`.
 
-## F3D provided specific commands
+## Glance3D provided specific commands
 
-The F3D application provides a few more commands.
+The Glance3D application provides a few more commands.
 
 `exit`: A specific command to quit the application. No argument.
 
@@ -153,7 +153,7 @@ eg: `add_files_or_set_hdri /path/to/dragon.vtu /path/to/file.hdr`.
 
 ## Command Script (`--command-script`)
 
-F3D provides a feature to execute commands from a script file using the `--command-script` [CLI option](03-OPTIONS.md). This allows users to automate a sequence of commands by listing them in a plain text file, eg: `f3d --command-script path/to/command_script.txt`.
+Glance3D provides a feature to execute commands from a script file using the `--command-script` [CLI option](03-OPTIONS.md). This allows users to automate a sequence of commands by listing them in a plain text file, eg: `f3d --command-script path/to/command_script.txt`.
 
 Example Command Script, commands are separated by new lines, comments are supported:
 
@@ -167,7 +167,7 @@ increase_light_intensity
 
 ## Interactive Console
 
-If F3D is built with `F3D_MODULE_UI` support, pressing <kbd>Esc</kbd> will open the console. It's possible to type any command in the input field and pressing <kbd>Enter</kbd> will trigger the command instantly.
+If Glance3D is built with `F3D_MODULE_UI` support, pressing <kbd>Esc</kbd> will open the console. It's possible to type any command in the input field and pressing <kbd>Enter</kbd> will trigger the command instantly.
 
 Press <kbd>Tab</kbd> to autocomplete the command and display suggestions.
 

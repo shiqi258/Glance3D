@@ -1,61 +1,61 @@
 # How to Contribute
 
-F3D welcomes all contributors, regardless of skill level or experience!
+Glance3D welcomes all contributors, regardless of skill level or experience!
 
 ## Contributing as a User
 
-Contributing to F3D can be as simple as pointing out a spelling mistake on the website,
+Contributing to Glance3D can be as simple as pointing out a spelling mistake on the website,
 reporting a bug you encountered, or suggesting a new feature you feel would improve the application.
 
-We use [GitHub](https://github.com/f3d-app/f3d) to manage the project and you can report new issues or weigh
-in on existing ones via our [issue tracker](https://github.com/f3d-app/f3d/issues).
+We use [GitHub](https://github.com/glance3d-app/glance3d) to manage the project and you can report new issues or weigh
+in on existing ones via our [issue tracker](https://github.com/glance3d-app/glance3d/issues).
 
-Also, do not hesitate to join our [Discord](https://discord.f3d.app)!
+Also, do not hesitate to join our [Discord](https://discord.glance3d.app)!
 
 ## How to contribute to the documentation
 
 Another way to get contribute is to improve the documentation, look for typos, improve phrasing, the examples and the gallery.
-This does not require to build F3D or to learn C++ and is a very important work!
+This does not require to build Glance3D or to learn C++ and is a very important work!
 
 You can follow the workflow described below.
 
 ## How to Get Started With Development
 
-To contribute to F3D as a developer, first you may want to try and build F3D for yourself.
+To contribute to Glance3D as a developer, first you may want to try and build Glance3D for yourself.
 If you are already familiar with software compilation, you can take a look at our [build guide](doc/dev/05-BUILD.md).
 If not, you may want to look at our [getting started guide](doc/dev/04-GETTING_STARTED.md), that provide steps to compile F3D.
-You may also want to take a look into the [F3D mentoring program](doc/dev/13-MENTORING.md) in order to get help with all the
+You may also want to take a look into the [Glance3D mentoring program](doc/dev/13-MENTORING.md) in order to get help with all the
 contributing steps.
 
-Once you are able to build F3D, you may want to take a look at the open [issues](https://github.com/f3d-app/f3d/issues)!
-If you are a beginner, you may want to look at ["good first issues"](https://github.com/f3d-app/f3d/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22).
-If you already have some experience with programming and contribution, definitely look at ["help wanted"](https://github.com/f3d-app/f3d/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) issues.
+Once you are able to build F3D, you may want to take a look at the open [issues](https://github.com/glance3d-app/glance3d/issues)!
+If you are a beginner, you may want to look at ["good first issues"](https://github.com/glance3d-app/glance3d/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22).
+If you already have some experience with programming and contribution, definitely look at ["help wanted"](https://github.com/glance3d-app/glance3d/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) issues.
 If an issue is interesting to you and is not yet assigned, then you should _comment on the issue_ and ask for any help or clarification needed.
-F3D maintainers will see your comment, assign the issue to you and provide guidance as needed.
+Glance3D maintainers will see your comment, assign the issue to you and provide guidance as needed.
 
 To get involved more deeply, please take a look at the [roadmaps](doc/dev/10-ROADMAPS_AND_RELEASES.md) for the upcoming releases.
 
-It is also recommended to reach out on [Discord](https://discord.f3d.app) to simplify communication, but it is not required.
+It is also recommended to reach out on [Discord](https://discord.glance3d.app) to simplify communication, but it is not required.
 
-You may also want to understand the overall [architecture](doc/dev/08-ARCHITECTURE.md) of the F3D project.
+You may also want to understand the overall [architecture](doc/dev/08-ARCHITECTURE.md) of the Glance3D project.
 
-You can then fix the issue or implement the feature on your side and contribute it to the F3D repository by following the workflow described below.
+You can then fix the issue or implement the feature on your side and contribute it to the Glance3D repository by following the workflow described below.
 
-Of course, if you are already using F3D and want to improve it for your specific needs, because you want a feature or found a bug,
-that is definitely possible. Feel free to reach out for guidance by opening an issue or asking on [Discord](https://discord.f3d.app).
+Of course, if you are already using Glance3D and want to improve it for your specific needs, because you want a feature or found a bug,
+that is definitely possible. Feel free to reach out for guidance by opening an issue or asking on [Discord](https://discord.glance3d.app).
 
 ## AI Policy
 
-F3D has a dedicated [AI policy](AI_POLICY.md), if you are an AI user, make sure to read it and comply to it.
+Glance3D has a dedicated [AI policy](AI_POLICY.md), if you are an AI user, make sure to read it and comply to it.
 
-## F3D Development Workflow
+## Glance3D Development Workflow
 
-F3D uses [GitLab Flow](https://about.gitlab.com/topics/version-control/what-is-gitlab-flow/). In a few words, here is how to contribute:
+Glance3D uses [GitLab Flow](https://about.gitlab.com/topics/version-control/what-is-gitlab-flow/). In a few words, here is how to contribute:
 
-- [Fork](https://github.com/f3d-app/f3d/fork) the F3D repository on GitHub.
+- [Fork](https://github.com/glance3d-app/glance3d/fork) the Glance3D repository on GitHub.
 - Comment on a chosen issue, if any, so it can be assigned to you by a maintainer.
 - Create and push a new feature branch on your fork containing new commits, do not use `main` or `master` branch.
-- As soon as possible, create a _draft_ pull request against `f3d-app/f3d/master` so that maintainers are aware and design can be discussed.
+- As soon as possible, create a _draft_ pull request against `glance3d-app/glance3d/master` so that maintainers are aware and design can be discussed.
 - Once the PR has been created, even as draft, it is possible to [run the CI](#continuous-integration), feel free to do so.
 - When it is ready for review, undraft your pull request, which will notify maintainers. Also make sure to check the needed checkboxes in the description.
 - To ask for a review or if you need help with CI, use the review system of github to request a review from [the maintainers](doc/dev/12-MAINTAINERS_AND_CONTRIBUTORS.md#maintainers).
@@ -66,18 +66,18 @@ F3D uses [GitLab Flow](https://about.gitlab.com/topics/version-control/what-is-g
 - In general, there is no need to rebase with `master` but doing so is a good practice when pushing new changes.
 - Once the PR is approved and CI comes back clean, a maintainer will merge your pull request in the master branch.
 - If the PR was linked with an issue, please ensure the issue is closed or update to reflect the change in master.
-- The master now contains your changes and will be present in the next minor/major release, any documentation related changes are visible on [the website](https://f3d.app)!
+- The master now contains your changes and will be present in the next minor/major release, any documentation related changes are visible on [the website](https://glance3d.app)!
 
 ## Discord usage
 
-- If you are a discord user, then you are most welcome to join the [F3D discord](https://discord.f3d.app)
+- If you are a discord user, then you are most welcome to join the [Glance3D discord](https://discord.glance3d.app)
 - When discussing a specific issue or pull request, create a dedicated thread in the "Contribute" channel
 - As a first message, post a link to the issue, a moderator will pin it to the thread
 - Discussing issues, design and investigation on discord is usually more efficient on discord than on github, but always try to write down the discussion conclusions on github
 
 ## Continuous Integration
 
-F3D has pretty extensive continuous integration trying to cover all usecases for F3D.
+Glance3D has pretty extensive continuous integration trying to cover all usecases for F3D.
 It means that if the change in your pull request breaks continuous integration, it will not be merged until the full CI passes successfully.
 It also means that adding a new feature or behavior means adding an associated test.
 Make sure to check the results for yourself and ask for help if needed.
@@ -93,10 +93,10 @@ To run the CI, just add a comment like this in your PR:
 After this, the CI will always be run every time you push to your branch.
 To remove a label, use the same syntax with a `-` before the label, eg: `\ci -fast`.
 
-F3D continuous integration will also check the coverage as it is a good way to evaluate if new features are being tested or not.
+Glance3D continuous integration will also check the coverage as it is a good way to evaluate if new features are being tested or not.
 When adding code to F3D, always try to cover it by adding/modifying [tests](doc/dev/06-TESTING.md).
 
-F3D continuous integration also checks formatting using clang-format and other tools and will inform you if changes needs to be made.
+Glance3D continuous integration also checks formatting using clang-format and other tools and will inform you if changes needs to be made.
 Some [formatting rules](doc/dev/09-CODING_STYLE.md) are not enforced by clang-format and will be checked during the review process.
 
 When making changes to the `libf3d` public API, continuous integration will warn about making related changes to the bindings.
@@ -105,4 +105,4 @@ This is required in order to merge the pull request.
 When making changes to the `default_versions.json` file, continuous integration will warn about updating the docker timestamp in the same file.
 This is required in order to merge the pull request. This also requires running the `cache` part of the CI, which can only be triggered by maintainers.
 
-The continuous integration is just code, as the rest of F3D is. If you want to fix or improve it, you are very welcome to!
+The continuous integration is just code, as the rest of Glance3D is. If you want to fix or improve it, you are very welcome to!

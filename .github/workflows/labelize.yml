@@ -67,4 +67,4 @@ jobs:
         if: failure()
         uses: GrantBirki/comment@v3.0.0
         with:
-          body: ‚ùå Invalid CI command "${{env.F3D_LABEL_COMMENT}}"
+          body: ‚ù?Invalid CI command "${{env.F3D_LABEL_COMMENT}}"

@@ -6,12 +6,12 @@
 You will then be able to call `find_package(f3d REQUIRED COMPONENTS pluginsdk)` in your plugin CMakeLists.txt, a few macros are made available to you to generate a plugin which allow you to extend libf3d to support your own file format. Access to a f3d::vtkext VTK module is also provided if needed.
 
 > [!NOTE]
-> Please consider contributing your plugin in [F3D directly](https://github.com/f3d-app/f3d/tree/master/plugins) if you think it can be useful to the community.
+> Please consider contributing your plugin in [Glance3D directly](https://github.com/glance3d-app/glance3d/tree/master/plugins) if you think it can be useful to the community.
 > You can also consider contributing directly [in VTK](https://gitlab.kitware.com/vtk/vtk/blob/master/Documentation/dev/git/develop.md).
 
 ## Creating a plugin
 
-You can take a look at the example in the [examples/plugin](https://github.com/f3d-app/f3d/tree/master/examples/plugins) directory or at the official [plugins](https://github.com/f3d-app/f3d/tree/master/plugins).
+You can take a look at the example in the [examples/plugin](https://github.com/glance3d-app/glance3d/tree/master/examples/plugins) directory or at the official [plugins](https://github.com/glance3d-app/glance3d/tree/master/plugins).
 
 The first thing (and most difficult part) you have to do is creating a VTK reader (or a VTK importer if you want to support a full scene with materials, lights and cameras), and wrap it into a VTK module. You can create several readers/importers in the same VTK module if you need to support several file formats in a single plugin.
 
@@ -51,7 +51,7 @@ f3d_plugin_build(
 ```
 
 If the build succeeds, a library called `libf3d-plugin-<name>.so` will be created (`f3d-plugin-<name>.dll` on Windows)
-A JSON file of the following form will also be generated. It's used by F3D internally to get information about supported file formats.
+A JSON file of the following form will also be generated. It's used by Glance3D internally to get information about supported file formats.
 
 ```json
 {
@@ -75,16 +75,16 @@ The list of existing mimetypes can be find [here](https://www.iana.org/assignmen
 
 ## Loading your plugin
 
-The plugin can be loaded using `f3d::engine::loadPlugin("path or name")` API if you are using libf3d, or `--load-plugins="path or name"` option if you are using F3D application.
+The plugin can be loaded using `f3d::engine::loadPlugin("path or name")` API if you are using libf3d, or `--load-plugins="path or name"` option if you are using Glance3D application.
 The option can also be set in a configuration file that you could distribute with your plugin.
 
 ## f3d::vtkext
 
-F3D provides access to a VTK modules containing utilities that may be useful for plugin developers:
+Glance3D provides access to a VTK modules containing utilities that may be useful for plugin developers:
 
-- `vtkF3DFaceVaryingPointDispatcher`: A VTK filter that manipulates point data so that F3D can display them as face-varying data (used by `usd` plugin)
+- `vtkF3DFaceVaryingPointDispatcher`: A VTK filter that manipulates point data so that Glance3D can display them as face-varying data (used by `usd` plugin)
 - `vtkF3DBitonicSort`: A VTK class that perform Bitonic Sort algorithm on the GPU (used by the translucent point sprites rendering algorithm)
 - `vtkF3DImporter`: An Importer class that abstract away support for different version of VTK after some API changes.
 - `vtkF3DGLTFImporter`: An custom glTF importer class that support armatures, useful when creating other plugin supporting glTF extensions.
 
-For the complete documentation, please consult the [vtkext doxygen documentation.](https://f3d.app/docs/next/category/vtkext-api-reference).
+For the complete documentation, please consult the [vtkext doxygen documentation.](https://glance3d.app/docs/next/category/vtkext-api-reference).

@@ -1,6 +1,6 @@
 # Supported File Formats
 
-F3D supports the following file formats:
+Glance3D supports the following file formats:
 
 | Name                                      | File Extension(s)                              | Full scene | Animation Support | Streaming Support | Plugin    | Reader Name             |
 | ----------------------------------------- | ---------------------------------------------- | ---------- | ----------------- | ----------------- | --------- | ----------------------- |
