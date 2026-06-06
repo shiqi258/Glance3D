@@ -1,18 +1,18 @@
 # Desktop Integration
 
-F3D can be integrated in the desktop experience.
+Glance3D can be integrated in the desktop experience.
 
 ## Linux
 
 ### Thumbnails
 
-For Linux desktop integration, F3D rely on mime types files as defined by the [XDG standard](https://specifications.freedesktop.org/mime-apps-spec/latest-single/), .thumbnailer file as specified [here](https://wiki.archlinux.org/title/File_manager_functionality#Thumbnail_previews) and .desktop file as specified [here](https://wiki.archlinux.org/title/desktop_entries). Many file managers use this mechanism, including nautilus, thunar, pcmanfm and caja.
+For Linux desktop integration, Glance3D relies on mime types files as defined by the [XDG standard](https://specifications.freedesktop.org/mime-apps-spec/latest-single/), .thumbnailer file as specified [here](https://wiki.archlinux.org/title/File_manager_functionality#Thumbnail_previews) and .desktop file as specified [here](https://wiki.archlinux.org/title/desktop_entries). Many file managers use this mechanism, including nautilus, thunar, pcmanfm and caja.
 
 The simplest way to obtain desktop integration on Linux is to use a package for your distribution, or the .deb binary release package we provide if compatible with your distribution.
 In other cases, the binary release archive can be used like this:
 
 0. Make sure `~/.local/bin` is part of your `PATH`
-1. Extract F3D binary release archive in `~/.local/`
+1. Extract Glance3D binary release archive in `~/.local/`
 2. Update your [mime database](https://linux.die.net/man/1/update-mime-database) pointing to `~/.local/share/mime`
 3. Update your [desktop database](https://linuxcommandlibrary.com/man/update-desktop-database) pointing to `~/.local/share/application`
 
@@ -25,13 +25,13 @@ update-desktop-database ~/.local/share/applications
 
 ### Rendering
 
-F3D supports rendering in environments with limited graphical contexts, including sandboxes or without Xorg running.
+Glance3D supports rendering in environments with limited graphical contexts, including sandboxes or without Xorg running.
 In most cases, the default behavior will automatically detect which capabilities are available and use the right rendering backend,
 it is possible to specify it using the `--rendering-backend` CLI option.
 
 - If `libEGL.so` is available, you can use: `--rendering-backend=egl`.
 - If `libOSMesa.so` is available, you can use: `--rendering-backend=osmesa`.
-- When using `--rendering-backend=auto`, F3D will try to load the following libraries in order and use the first one it was able to load and use:
+- When using `--rendering-backend=auto`, Glance3D will try to load the following libraries in order and use the first one it was able to load and use:
   - `libGLX.so`
   - `libEGL.so`
   - `libOSMesa.so`
@@ -53,9 +53,9 @@ If you use the portable archive, make sure to extract it somewhere the sandboxin
 
 ## Windows
 
-For Windows desktop integration, F3D rely on a registered shell extension.
+For Windows desktop integration, Glance3D relies on a registered shell extension.
 
-Using the F3D NSIS installer (.exe) is the simplest way to enable thumbnails and integrate F3D on windows.
+Using the Glance3D NSIS installer (.exe) is the simplest way to enable thumbnails and integrate Glance3D on Windows.
 
 It is also possible to do it manually when using the zipped binary release archive, on installation, just run:
 

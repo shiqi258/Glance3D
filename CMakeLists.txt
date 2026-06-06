@@ -20,9 +20,14 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin${output_postfix}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib${output_postfix}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib${output_postfix}")
 
-project(F3D
-  DESCRIPTION "F3D - A fast and minimalist 3D viewer"
+project(Glance3D
+  DESCRIPTION "Glance3D - A fast and minimalist 3D viewer"
   LANGUAGES C CXX)
+
+# Keep the existing internal F3D-prefixed build variables stable while the public
+# project identity moves to Glance3D.
+set(F3D_SOURCE_DIR "${Glance3D_SOURCE_DIR}")
+set(F3D_BINARY_DIR "${Glance3D_BINARY_DIR}")
 
 set(f3d_cmake_dir "${F3D_SOURCE_DIR}/cmake")
 list(INSERT CMAKE_MODULE_PATH 0 "${f3d_cmake_dir}")
@@ -136,7 +141,7 @@ endif()
 cmake_dependent_option(BUILD_SHARED_LIBS "Build f3d with shared libraries" ON "NOT ANDROID" OFF)
 
 # F3D_STRICT_BUILD
-set(F3D_STRICT_BUILD OFF CACHE BOOL "Use strict warnings and errors flags for building F3D")
+set(F3D_STRICT_BUILD OFF CACHE BOOL "Use strict warnings and errors flags for building Glance3D")
 mark_as_advanced(F3D_STRICT_BUILD)
 set(f3d_strict_build_compile_options "")
 set(f3d_strict_build_link_options "")
@@ -223,7 +228,7 @@ if(NOT F3D_TESTING_FORCE_RENDERING_BACKEND)
 endif()
 mark_as_advanced(F3D_TESTING_FORCE_RENDERING_BACKEND)
 
-# Figure out F3D configuration directory
+# Figure out Glance3D configuration directory
 if(UNIX AND NOT APPLE)
   option(F3D_LINUX_INSTALL_DEFAULT_CONFIGURATION_FILE_IN_PREFIX "Install the default configuration at the prefix root instead of system wide" OFF)
   mark_as_advanced(F3D_LINUX_INSTALL_DEFAULT_CONFIGURATION_FILE_IN_PREFIX)
@@ -242,7 +247,7 @@ if (UNIX AND NOT APPLE)
   endif()
 endif()
 
-# F3D Application
+# Glance3D Application
 cmake_dependent_option(F3D_BUILD_APPLICATION "Build the application" ON "NOT ANDROID AND NOT EMSCRIPTEN" OFF)
 
 # Build external dependencies that needs it
@@ -252,7 +257,7 @@ add_subdirectory(external)
 add_subdirectory(vtkext)
 
 # plugins
-option(F3D_PLUGINS_STATIC_BUILD "Make all plugins static (embedded into libf3d) and automatically loaded by F3D" ON)
+option(F3D_PLUGINS_STATIC_BUILD "Make all plugins static (embedded into libf3d) and automatically loaded by Glance3D" ON)
 mark_as_advanced(F3D_PLUGINS_STATIC_BUILD)
 if (F3D_MACOS_BUNDLE AND NOT F3D_PLUGINS_STATIC_BUILD)
   message(FATAL_ERROR "Building a macOS Bundle do not support loading plugins dynamically")

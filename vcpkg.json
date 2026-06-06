@@ -1,5 +1,5 @@
 {
-  "name": "f3d",
+  "name": "glance3d",
   "dependencies": [
     {
       "name": "vtk",

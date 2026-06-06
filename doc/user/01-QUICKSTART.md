@@ -1,23 +1,23 @@
 # Quickstart Guide
 
-This guide will help you get started using F3D.
+This guide will help you get started using Glance3D.
 
-As an overview, you'll learn how to run F3D and open files, configure basic scene constructions, interact with them, and play animations.
+As an overview, you'll learn how to run Glance3D and open files, configure basic scene constructions, interact with them, and play animations.
 
 ## Prerequisites
 
-To use F3D, you'll need to install F3D. See the download page for the latest release package supported by your system.
+To use Glance3D, you'll need to install Glance3D. See the download page for the latest release package supported by your system.
 
-## Running F3D
+## Running Glance3D
 
-Once F3D has been installed, you should be able to open a file in any of the following ways:
+Once Glance3D has been installed, you should be able to open a file in any of the following ways:
 
 - Open a file directly from your file manager.
-- Open the F3D application directly, then drag and drop a file into the application window.
-- Run F3D from the terminal with a set of command-line [options](03-OPTIONS.md).
-- Configure F3D as a [thumbnailer](11-DESKTOP_INTEGRATION.md) for supported file formats with certain file managers.
+- Open the Glance3D application directly, then drag and drop a file into the application window.
+- Run Glance3D from the terminal with a set of command-line [options](03-OPTIONS.md).
+- Configure Glance3D as a [thumbnailer](11-DESKTOP_INTEGRATION.md) for supported file formats with certain file managers.
 
-If you choose to run F3D from the terminal, you can open your file by running the following:
+If you choose to run Glance3D from the terminal, you can open your file by running the following:
 
 ```
 f3d /path/to/file.ext
@@ -36,9 +36,9 @@ f3d --help
 man f3d # Linux only
 ```
 
-Once you've opened your file in F3D, you're all set to start visualizing! Press <kbd>H</kbd> to open a list of shortcuts to help you interact with your scene.
+Once you've opened your file in Glance3D, you're all set to start visualizing! Press <kbd>H</kbd> to open a list of shortcuts to help you interact with your scene.
 
-See the [supported file formats](02-SUPPORTED_FORMATS.md) page for the full list of file types that F3D can open.
+See the [supported file formats](02-SUPPORTED_FORMATS.md) page for the full list of file types that Glance3D can open.
 
 ## Constructing scenes
 
@@ -66,7 +66,7 @@ They will be overridden when using corresponding [options](03-OPTIONS.md), eithe
 
 ## Interacting with your scene
 
-Once you've loaded your scene in F3D, you can interact with it by using your mouse and certain hotkeys.
+Once you've loaded your scene in Glance3D, you can interact with it by using your mouse and certain hotkeys.
 
 ### Moving the camera
 
@@ -85,9 +85,9 @@ For more information, see the [Interactions](04-INTERACTIONS.md) page.
 
 ## Playing animations
 
-F3D can play [animations](05-ANIMATIONS.md) for any [supported files](02-SUPPORTED_FORMATS.md) that contain them.
+Glance3D can play [animations](05-ANIMATIONS.md) for any [supported files](02-SUPPORTED_FORMATS.md) that contain them.
 
-With your file loaded into F3D, press the <kbd>W</kbd> hotkey to cycle through available animations. Then, press <kbd>Space</kbd> to play your selected animation.
+With your file loaded into Glance3D, press the <kbd>W</kbd> hotkey to cycle through available animations. Then, press <kbd>Space</kbd> to play your selected animation.
 
 Alternatively, you can use the command line to play animations. Use the `--animation-indices` [option](03-OPTIONS.md) to specify which animation you want to play. To play all animations at once, use `--animation-indices=-1`.
 
@@ -95,9 +95,9 @@ For more information, see the [Animations](05-ANIMATIONS.md) page.
 
 ## Further Reading
 
-- [A list of all F3D command-line options.](03-OPTIONS.md)
-- [How to interact with scenes in F3D.](04-INTERACTIONS.md)
-- [How to play animations in F3D.](05-ANIMATIONS.md)
-- [How to specify colormaps in F3D.](09-COLOR_MAPS.md)
-- [How to configure plugins in F3D.](12-PLUGINS.md)
-- [Limitations and how to troubleshoot F3D.](13-LIMITATIONS_AND_TROUBLESHOOTING.md)
+- [A list of all Glance3D command-line options.](03-OPTIONS.md)
+- [How to interact with scenes in Glance3D.](04-INTERACTIONS.md)
+- [How to play animations in Glance3D.](05-ANIMATIONS.md)
+- [How to specify colormaps in Glance3D.](09-COLOR_MAPS.md)
+- [How to configure plugins in Glance3D.](12-PLUGINS.md)
+- [Limitations and how to troubleshoot Glance3D.](13-LIMITATIONS_AND_TROUBLESHOOTING.md)
