@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "logFile": "../../../logs/browser-console.jsonl",
+  "levels": ["debug", "log", "info", "warn", "error"],
+  "maxPayloadBytes": 262144,
+  "devtools": {
+    "host": "127.0.0.1",
+    "port": 9222,
+    "urlPattern": "127.0.0.1",
+    "captureRuntimeConsole": true
+  }
+}

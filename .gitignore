@@ -30,6 +30,7 @@ vcpkg_installed/
 
 # local tool logs
 .codex-*.txt
+logs
 
 # local CMake presets
 CMakeUserPresets.json

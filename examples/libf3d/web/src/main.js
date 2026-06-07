@@ -1,6 +1,46 @@
 import "bulma/css/bulma.min.css";
 import "bulma-switch/dist/css/bulma-switch.min.css";
+import {
+  installBrowserConsoleLogger,
+  recordBrowserLog,
+} from "./browser-console-log.js";
 import f3d from "f3d";
+
+installBrowserConsoleLogger();
+
+const mapF3DLogLevel = (Module, level) => {
+  switch (level) {
+    case Module.LogVerboseLevel.DEBUG:
+      return "debug";
+    case Module.LogVerboseLevel.INFO:
+      return "info";
+    case Module.LogVerboseLevel.WARN:
+      return "warn";
+    case Module.LogVerboseLevel.ERROR:
+      return "error";
+    default:
+      return "log";
+  }
+};
+
+const installF3DLogForwarding = (Module) => {
+  if (!Module.Log?.forward || !Module.LogVerboseLevel) {
+    return;
+  }
+
+  Module.Log.forward((level, message) => {
+    try {
+      const mappedLevel = mapF3DLogLevel(Module, level);
+      recordBrowserLog(mappedLevel, "f3d", [message], {
+        f3dLevel: level,
+        f3dLevelName: mappedLevel,
+        stack: undefined,
+      });
+    } catch {
+      // Keep F3D's native logging path isolated from the browser log bridge.
+    }
+  });
+};
 
 const settings = {
   canvas: document.getElementById("canvas"),
@@ -31,6 +71,8 @@ const settings = {
 
 f3d(settings)
   .then(async (Module) => {
+    installF3DLogForwarding(Module);
+
     // write in the filesystem
     const defaultFile = await fetch("f3d.vtp").then((b) => b.arrayBuffer());
     Module.FS.writeFile("f3d.vtp", new Uint8Array(defaultFile));

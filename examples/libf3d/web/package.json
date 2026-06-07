@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "clear:browser-logs": "node scripts/clear-browser-logs.mjs",
+    "collect:browser-logs": "node scripts/collect-browser-devtools-logs.mjs"
   },
   "devDependencies": {
     "vite": "^8.0.16"
