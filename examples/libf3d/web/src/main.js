@@ -8,6 +8,10 @@ import f3d from "f3d";
 
 installBrowserConsoleLogger();
 
+const logViewerState = (message, details = {}) => {
+  console.debug("[viewer]", message, details);
+};
+
 const mapF3DLogLevel = (Module, level) => {
   switch (level) {
     case Module.LogVerboseLevel.DEBUG:
@@ -48,13 +52,10 @@ const settings = {
     // background must be set to black for proper blending with transparent canvas
     options.setAsString("render.background.color", "#000000");
 
-    // setup coloring
-    options.toggle("model.scivis.enable");
-    options.setAsString("model.scivis.array_name", "Colors");
-    options.setAsString("model.scivis.component", "-2");
-    options.toggle("model.scivis.cells");
-
     // make it look nice
+    options.setAsString("model.color.rgb", "0.9,0.32,0.18");
+    options.setAsString("model.unlit", "true");
+    options.setAsString("render.show_edges", "true");
     options.toggle("render.effect.antialiasing.enable");
     options.toggle("render.effect.tone_mapping");
     options.toggle("render.effect.ambient_occlusion");
@@ -73,27 +74,66 @@ f3d(settings)
   .then(async (Module) => {
     installF3DLogForwarding(Module);
 
+    logViewerState("runtime initialized", {
+      canvasFound: Boolean(settings.canvas),
+      devicePixelRatio: window.devicePixelRatio,
+    });
+
     // write in the filesystem
-    const defaultFile = await fetch("f3d.vtp").then((b) => b.arrayBuffer());
-    Module.FS.writeFile("f3d.vtp", new Uint8Array(defaultFile));
+    const defaultModelName = "f3d.obj";
+    const defaultResponse = await fetch(defaultModelName);
+    if (!defaultResponse.ok) {
+      throw new Error(
+        `Failed to fetch default model: ${defaultResponse.status} ${defaultResponse.statusText}`,
+      );
+    }
+    const defaultFile = new Uint8Array(await defaultResponse.arrayBuffer());
+    Module.FS.writeFile(defaultModelName, defaultFile);
+    logViewerState("default model fetched", {
+      bytes: defaultFile.byteLength,
+      contentType: defaultResponse.headers.get("content-type"),
+    });
 
     // automatically load all supported file format readers
     Module.Engine.autoloadPlugins();
 
     Module.engineInstance = Module.Engine.create();
 
-    const openFile = (name, stream) => {
+    let currentFile = {
+      name: defaultModelName,
+      path: defaultModelName,
+      stream: defaultFile,
+    };
+
+    const openFile = (file) => {
+      const { name, path, stream } = file;
       document.getElementById("file-name").innerHTML = name;
       const scene = Module.engineInstance.getScene();
       scene.clear();
       try {
-        scene.addBuffer(stream);
+        if (path) {
+          scene.add(path);
+        } else {
+          scene.addBuffer(stream);
+        }
+        currentFile = file;
+        logViewerState("scene loaded", {
+          name,
+          path,
+          bytes: stream?.byteLength ?? stream?.length ?? 0,
+        });
       } catch (e) {
         document.getElementById("file-name").innerHTML =
           '<strong class="has-text-danger">Unsupported file</strong>';
+        logViewerState("scene load failed", {
+          name,
+          path,
+          error: e?.message ?? String(e),
+        });
       }
       Module.engineInstance.getWindow().getCamera().resetToBounds(0.9);
       Module.engineInstance.getWindow().render();
+      logViewerState("scene rendered", { name });
     };
 
     // setup file open event
@@ -103,7 +143,7 @@ f3d(settings)
       for (const file of evt.target.files) {
         const reader = new FileReader();
         reader.addEventListener("loadend", (e) => {
-          openFile(file.name, new Uint8Array(reader.result));
+          openFile({ name: file.name, stream: new Uint8Array(reader.result) });
         });
         reader.readAsArrayBuffer(file);
       }
@@ -165,19 +205,19 @@ f3d(settings)
     document.querySelector("#z-up").addEventListener("click", (evt) => {
       Module.engineInstance
         .getOptions()
-        .set_as_string("scene.up_direction", "+Z");
+        .setAsString("scene.up_direction", "+Z");
       document.getElementById("z-up").classList.add("is-active");
       document.getElementById("y-up").classList.remove("is-active");
-      openFile(document.getElementById("file-name").innerHTML);
+      openFile(currentFile);
     });
 
     document.querySelector("#y-up").addEventListener("click", (evt) => {
       Module.engineInstance
         .getOptions()
-        .set_as_string("scene.up_direction", "+Y");
+        .setAsString("scene.up_direction", "+Y");
       document.getElementById("y-up").classList.add("is-active");
       document.getElementById("z-up").classList.remove("is-active");
-      openFile(document.getElementById("file-name").innerHTML);
+      openFile(currentFile);
     });
 
     // setup the window size based on the canvas size
@@ -186,9 +226,18 @@ f3d(settings)
     Module.engineInstance
       .getWindow()
       .setSize(scale * main.clientWidth, scale * main.clientHeight);
+    logViewerState("window sized", {
+      mainClientWidth: main.clientWidth,
+      mainClientHeight: main.clientHeight,
+      renderWidth: scale * main.clientWidth,
+      renderHeight: scale * main.clientHeight,
+    });
+
+    openFile(currentFile);
 
     // do a first render and start the interactor
     Module.engineInstance.getWindow().render();
     Module.engineInstance.getInteractor().start();
+    logViewerState("interactor started");
   })
   .catch((error) => console.error("Internal exception: " + error));
