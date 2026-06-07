@@ -274,12 +274,15 @@ macro(f3d_plugin_build)
   list(APPEND f3d_plugin_compile_options "${f3d_sanitizer_compile_options}")
   if(EMSCRIPTEN)
     # Exceptions are disabled by default in emscripten but we need them
-    list(APPEND f3d_plugin_compile_options "-fexceptions")
+    list(APPEND f3d_plugin_compile_options "-fwasm-exceptions")
   endif()
 
   set(f3d_plugin_link_options "")
   list(APPEND f3d_plugin_link_options "${f3d_coverage_link_options}")
   list(APPEND f3d_plugin_link_options "${f3d_sanitizer_link_options}")
+  if(EMSCRIPTEN)
+    list(APPEND f3d_plugin_link_options "-fwasm-exceptions")
+  endif()
 
   vtk_module_find_modules(vtk_module_files "${CMAKE_CURRENT_SOURCE_DIR}")
 

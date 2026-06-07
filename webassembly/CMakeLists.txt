@@ -7,9 +7,11 @@ set_target_properties(f3djs PROPERTIES
 )
 
 target_link_libraries(f3djs PRIVATE libf3d embind)
+target_compile_options(f3djs PRIVATE -fwasm-exceptions)
 
 target_link_options(f3djs PRIVATE
   "$<IF:$<CONFIG:Release>,-Oz,-O0>"
+  "-fwasm-exceptions"
   "--emit-tsd=f3d.d.ts"
   "SHELL:-sEXPORT_NAME=f3d"
   "SHELL:-sALLOW_MEMORY_GROWTH=1"
@@ -25,9 +27,8 @@ target_link_options(f3djs PRIVATE
   "SHELL:-sWASM_BIGINT"
 )
 
-# The tests rely on the presence of chromium
-# Since we rely on Docker, we know it's there so testing is always enabled
-# Moreover, we cannot use BUILD_TESTING since it enables testing in our VTK modules
-# and breaks the configuration (we should fix that properly at some point)
-enable_testing()
-add_subdirectory(testing)
+option(F3D_WASM_BUILD_TESTING "Build WebAssembly tests" OFF)
+if(F3D_WASM_BUILD_TESTING)
+  enable_testing()
+  add_subdirectory(testing)
+endif()

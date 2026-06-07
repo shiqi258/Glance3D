@@ -8,10 +8,9 @@
     "./dist/f3d.*"
   ],
   "scripts": {
-    "_docker": "${F3D_DOCKER_CLIENT:-docker} run --rm -e CMAKE_BUILD_PARALLEL_LEVEL -v $(pwd):/src ghcr.io/glance3d-app/glance3d-wasm:${F3D_DOCKER_TIMESTAMP:-latest}",
-    "clean": "npm run _docker -- rm -rf /src/dist /src/_wasm_build",
-    "build": "npm run _docker -- /src/webassembly/build.sh Release",
-    "test": "npm run _docker -- ctest --test-dir /src/_wasm_build/webassembly --output-on-failure",
+    "clean": "node webassembly/build-local.mjs clean",
+    "build": "node webassembly/build-local.mjs build Release",
+    "test": "node webassembly/build-local.mjs test",
     "prepare": "npm run clean && npm run build"
   },
   "repository": "github:glance3d-app/glance3d",

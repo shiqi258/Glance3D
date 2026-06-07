@@ -208,6 +208,11 @@ list(APPEND f3d_link_options_public ${f3d_coverage_link_options})
 list(APPEND f3d_compile_options_public ${f3d_sanitizer_compile_options})
 list(APPEND f3d_link_options_public ${f3d_sanitizer_link_options})
 
+if(EMSCRIPTEN)
+  list(APPEND f3d_compile_options_public -fwasm-exceptions)
+  list(APPEND f3d_link_options_public -fwasm-exceptions)
+endif()
+
 # Testing
 option(BUILD_TESTING "Build the tests" OFF)
 cmake_dependent_option(F3D_TESTING_ENABLE_RENDERING_TESTS "Enable rendering tests" ON "BUILD_TESTING" OFF)
