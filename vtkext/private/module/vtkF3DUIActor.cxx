@@ -1,0 +1,308 @@
+#include "vtkF3DUIActor.h"
+
+#include "vtkF3DRenderer.h"
+
+#include <vtkObjectFactory.h>
+#include <vtkOpenGLRenderWindow.h>
+#include <vtkRendererCollection.h>
+#include <vtkViewport.h>
+
+#include <algorithm>
+
+vtkObjectFactoryNewMacro(vtkF3DUIActor);
+
+//----------------------------------------------------------------------------
+vtkF3DUIActor::vtkF3DUIActor() = default;
+
+//----------------------------------------------------------------------------
+vtkF3DUIActor::~vtkF3DUIActor() = default;
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetDropZoneVisibility(bool show)
+{
+  this->DropZoneVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetDropZoneLogoVisibility(bool show)
+{
+  this->DropZoneLogoVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetDropText(const std::string& info)
+{
+  this->DropText = info;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetDropBinds(
+  const std::vector<std::pair<std::string, std::string>>& dropZoneBinds)
+{
+  this->DropBinds = dropZoneBinds;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetFileNameVisibility(bool show)
+{
+  this->FileNameVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetFileName(const std::string& filename)
+{
+  this->FileName = filename;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetHDRIFileNameVisibility(bool show)
+{
+  this->HDRIFileNameVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetHDRIFileName(const std::string& filename)
+{
+  this->HDRIFileName = filename;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetMetaDataVisibility(bool show)
+{
+  this->MetaDataVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetMetaData(const std::string& metadata)
+{
+  this->MetaData = metadata;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetSceneHierarchyVisibility(bool show)
+{
+  this->SceneHierarchyVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetCheatSheetVisibility(bool show)
+{
+  this->CheatSheetVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetConsoleVisibility(bool show)
+{
+  this->ConsoleVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetMinimalConsoleVisibility(bool show)
+{
+  this->MinimalConsoleVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetConsoleBadgeEnabled(bool enabled)
+{
+  this->ConsoleBadgeEnabled = enabled;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetCheatSheet(const std::vector<CheatSheetGroup>& cheatsheet)
+{
+  this->CheatSheet = cheatsheet;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetFpsCounterVisibility(bool show)
+{
+  this->FpsCounterVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetNotificationVisibility(bool show)
+{
+  this->NotificationVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetBindingsVisibility(bool show)
+{
+  this->BindingsVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::UpdateFpsValue(const double elapsedFrameTime)
+{
+  this->TotalFrameTimes += elapsedFrameTime;
+  this->FrameTimes.push_back(elapsedFrameTime);
+
+  while (this->TotalFrameTimes > 1.0)
+  {
+    double oldestFrameTime = this->FrameTimes.front();
+
+    this->FrameTimes.pop_front();
+    this->TotalFrameTimes -= oldestFrameTime;
+  }
+
+  double averageFrameTime = this->TotalFrameTimes / this->FrameTimes.size();
+  this->FpsValue = static_cast<int>(std::round(1.0 / averageFrameTime));
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetFontFile(const std::string& font)
+{
+  if (this->FontFile != font)
+  {
+    this->FontFile = font;
+    this->Initialized = false;
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetFontScale(const double fontScale)
+{
+  if (this->FontScale != fontScale)
+  {
+    this->FontScale = fontScale;
+    this->Initialized = false;
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetFontColor(const std::array<double, 3>& color)
+{
+  if (this->FontColor != color)
+  {
+    this->FontColor = color;
+    this->Initialized = false;
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetBackdropColor(const std::array<double, 3>& color)
+{
+  if (this->BackdropColor != color)
+  {
+    this->BackdropColor = color;
+    this->Initialized = false;
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetBackdropOpacity(const double backdropOpacity)
+{
+  if (this->BackdropOpacity != backdropOpacity)
+  {
+    this->BackdropOpacity = backdropOpacity;
+    this->Initialized = false;
+  }
+}
+
+//----------------------------------------------------------------------------
+int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
+{
+  vtkOpenGLRenderWindow* renWin = vtkOpenGLRenderWindow::SafeDownCast(vp->GetVTKWindow());
+
+  if (!this->Initialized)
+  {
+    this->Initialize(renWin);
+    this->Initialized = true;
+  }
+
+  this->StartFrame(renWin);
+
+  if (this->DropZoneVisible)
+  {
+    this->RenderDropZone();
+  }
+
+  if (this->ConsoleVisible)
+  {
+    // To improve user readability when console is visible, all other overlays won't be shown
+    this->RenderConsole(false);
+    this->EndFrame(renWin);
+    return 1;
+  }
+
+  if (this->MinimalConsoleVisible)
+  {
+    // To improve user readability when minimal console is visible cheatsheet and filename
+    // are not shown
+    this->RenderConsole(true);
+  }
+  else
+  {
+    if (this->FileNameVisible)
+    {
+      this->RenderFileName();
+    }
+    if (this->HDRIFileNameVisible)
+    {
+      this->RenderHDRIFileName();
+    }
+    if (this->CheatSheetVisible)
+    {
+      this->RenderCheatSheet();
+    }
+
+    if (this->SceneHierarchyVisible)
+    {
+      this->RenderSceneHierarchy(renWin);
+    }
+  }
+
+  if (this->ConsoleBadgeEnabled)
+  {
+    this->RenderConsoleBadge();
+  }
+
+  if (this->MetaDataVisible)
+  {
+    this->RenderMetaData();
+  }
+
+  if (this->FpsCounterVisible)
+  {
+    this->RenderFpsCounter();
+  }
+
+  vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+  assert(ren != nullptr);
+
+  double currentTime = ren->GetTotalTime();
+
+  // clear outdated notifications
+  while (!this->Notifications.empty() && currentTime >= this->Notifications.back().stopTime)
+  {
+    this->Notifications.pop_back();
+  }
+
+  if (this->NotificationVisible)
+  {
+    this->RenderNotifications(currentTime);
+  }
+
+  this->EndFrame(renWin);
+
+  return 1;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::AddNotification(const std::string& desc, const std::string& value,
+  const std::string& bind, double startTime, double duration)
+{
+  if (!this->Notifications.empty())
+  {
+    Notification& last = this->Notifications.front();
+    if (last.desc == desc && last.value != value)
+    {
+      last.value = value;
+      last.stopTime = startTime + duration;
+      return;
+    }
+  }
+  this->Notifications.emplace_front(
+    Notification{ desc, value, bind, startTime, startTime + duration });
+}

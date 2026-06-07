@@ -1,0 +1,70 @@
+on:
+  issue_comment:
+    types: created
+name: Labelize
+jobs:
+  #----------------------------------------------------------------------------
+  # Labelize
+  #----------------------------------------------------------------------------
+  labelize:
+    name: Labelize
+    runs-on: ubuntu-latest
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '\ci')
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.F3D_CI_LABEL }}
+
+    steps:
+      - name: Injection check
+        if: ${{contains(github.event.comment.body, '$')}}
+        shell: bash
+        run: exit 1
+
+      # Remove the first word
+      # Extract the second word
+      # Sanitize it
+      # Using an env var is a way to ensure user input is not an injection
+      # https://securitylab.github.com/resources/github-actions-untrusted-input/
+      - name: Analyze comment
+        env:
+          COMMENT: ${{github.event.comment.body}}
+        shell: bash
+        run: |
+          label="$COMMENT"
+          label=${label#* }
+          label=${label%% *}
+          label=${label//[^a-z-]/}
+          echo "F3D_LABEL_COMMENT=$label" >> $GITHUB_ENV
+
+      # Stop the job if cache is being added
+      - name: cache stop
+        if: env.F3D_LABEL_COMMENT == 'cache'
+        shell: bash
+        run: exit 0
+
+      - name: Add ack reaction
+        uses: GrantBirki/comment@v3.0.0
+        with:
+          comment-id: ${{ github.event.comment.id }}
+          reactions: eyes
+
+      - name: Add label on PR
+        if: ${{!contains(env.F3D_LABEL_COMMENT, '-')}}
+        shell: bash
+        run: gh issue edit ${{ github.event.issue.number }} --add-label "ci:${{env.F3D_LABEL_COMMENT}}"
+
+      - name: Remove label on PR
+        if: contains(env.F3D_LABEL_COMMENT, '-')
+        shell: bash
+        run: |
+          label="${{env.F3D_LABEL_COMMENT}}"
+          label=${label#*-}
+          gh issue edit ${{ github.event.issue.number }} --remove-label "ci:$label"
+
+      - name: Create comment for invalid command
+        if: failure()
+        uses: GrantBirki/comment@v3.0.0
+        with:
+          body: ‚ù?Invalid CI command "${{env.F3D_LABEL_COMMENT}}"

@@ -1,0 +1,67 @@
+name: Build docker images
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled]
+    branches:
+      - master
+      - release
+    paths-ignore:
+      - "doc/**"
+      - "_config.yml"
+
+jobs:
+  #----------------------------------------------------------------------------
+  # Build android/wasm docker images if needed
+  #----------------------------------------------------------------------------
+  build_docker_images:
+    name: Build docker images
+    if: contains(github.event.pull_request.labels.*.name, 'ci:cache')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+          path: "source"
+          fetch-depth: 1
+          lfs: false
+
+      - name: Extract docker timestamp
+        id: docker_timestamp
+        uses: f3d-app/extract-version-action@main
+        with:
+          file: ./source/.github/workflows/versions.json
+          special_name: docker_timestamp
+
+      - name: Check docker images exists
+        shell: bash
+        working-directory: ${{github.workspace}}
+        run: |
+          res=0
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-wasm:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-android-armeabi-v7a:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-android-arm64-v8a:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-android-x86:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          docker manifest inspect ghcr.io/glance3d-app/glance3d-android-x86_64:${{steps.docker_timestamp.outputs.extract}} || res=$?
+          echo "F3D_DOCKER_IMAGE_AVAILABLE=$res" >> $GITHUB_ENV
+
+      # This require a F3D_DOCKER_CI_DISPATCH secret contain a PAT with read and write admin access
+      - name: Trigger docker images build
+        if: ${{env.F3D_DOCKER_IMAGE_AVAILABLE == '1'}}
+        uses: convictional/trigger-workflow-and-wait@v1.6.5
+        with:
+          owner: f3d-app
+          repo: f3d-docker-images
+          github_token: ${{ secrets.F3D_DOCKER_CI_DISPATCH }}
+          workflow_file_name: build_docker_image.yml
+          wait_interval: 60
+          client_payload: '{"versions_file_url": "https://raw.githubusercontent.com/${{github.event.pull_request.head.repo.full_name}}/${{github.event.pull_request.head.ref}}/.github/workflows/versions.json"}'
+          propagate_failure: true
+          trigger_workflow: true
+          wait_workflow: true
+
+      - uses: marocchino/sticky-pull-request-comment@v3.0.4
+        if: ${{env.F3D_DOCKER_IMAGE_AVAILABLE == '1'}}
+        with:
+          message: New docker images have been generated

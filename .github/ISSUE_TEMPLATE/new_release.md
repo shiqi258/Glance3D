@@ -1,0 +1,171 @@
+---
+name: New release
+about: An issue to create a new release
+title: ""
+type: Release
+assignees: ""
+---
+
+When creating this issue
+
+- Edit `vX.Y.Z-RCN` to the right version
+- Edit `vX.Y.Z` to the right version
+
+Before release:
+
+- [ ] Force fetch origin remote tag with `git fetch origin --tags --force`
+- [ ] Write and format release notes from the pull requests since last release, including sponsors, returning contributors, contributors and packagers
+- [ ] Create a new [NPM token](https://www.npmjs.com/package/f3d) (user -> access tokens -> Bypass 2Fa + ReadWrite All package + ReadWrite f3d-app), copy the token
+- [ ] Replace the existing `NPM_TOKEN` in https://github.com/glance3d-app/glance3d-superbuild/settings/secrets/actions
+
+Release Split :
+
+- [ ] Create, review and merge a PR from `master` branch into `release`: https://github.com/glance3d-app/glance3d/compare/release...master
+
+Release Candidates :
+
+- [ ] Commit, review and merge a `vX.Y.Z-RCN` version change in https://github.com/glance3d-app/glance3d `CMakeLists.txt`, `pyproject.toml` and `package.json` in the `release` branch
+- [ ] Tag and push to https://github.com/glance3d-app/glance3d: `git tag vX.Y.Z-RCN -m vX.Y.Z-RCN`
+- [ ] Trigger a release build using https://github.com/glance3d-app/glance3d-superbuild actions with `vX.Y.Z-RCN` Glance3D version, superbuild `main` branch and prerelease publish `true`
+- [ ] Download the prerelease from https://github.com/glance3d-app/glance3d/releases
+- [ ] Locally test the prerelease on Linux
+- [ ] Locally test the prerelease on macOS (Intel)
+- [ ] Locally test the prerelease on macOS (Silicon)
+- [ ] Locally test the prerelease on Windows
+- [ ] Locally test the python wheels on Linux
+- [ ] Locally test the python wheels on macOS (Silicon)
+- [ ] Locally test the python wheels on Windows
+- [ ] Locally test the wasm package
+- [ ] Locally test the Android app
+- If it fails,
+  - [ ] Fix the issues in `release` branch,
+  - [ ] Edit this issue and increment `N`
+  - [ ] Merge Glance3D release into master: https://github.com/glance3d-app/glance3d/compare/master...release
+- [ ] Else proceed to the next part
+
+Release :
+
+- [ ] Commit, review and merge `vX.Y.Z` version change in https://github.com/glance3d-app/glance3d `CMakeLists.txt`, `pyproject.toml` and `package.json` in the `release` branch
+- [ ] Tag `vX.Y.Z` and push it to https://github.com/glance3d-app/glance3d: `git tag vX.Y.Z -m vX.Y.Z`
+- [ ] Commit, review and merge adding `X.Y.Z` in https://github.com/glance3d-app/glance3d-superbuild `versions.cmake` in the `main` branch
+- [ ] Tag `vX.Y.Z` and push it to https://github.com/glance3d-app/glance3d-superbuild: `git tag vX.Y.Z -m vX.Y.Z`
+- Update Android
+  - [ ] Run `./update_native_libs.sh --ref vX.Y.Z` and merge new libraries, jar file and lock file in https://github.com/glance3d-app/glance3d-android master branch
+  - [ ] Commit, review and merge the resulting changes in https://github.com/glance3d-app/glance3d-android
+  - [ ] Tag `vX.Y.Z` and push it to https://github.com/glance3d-app/glance3d-android: `git tag vX.Y.Z -m vX.Y.Z`
+- [ ] Merge Glance3D release into master: https://github.com/glance3d-app/glance3d/compare/master...release
+- [ ] Trigger a release build using https://github.com/glance3d-app/glance3d-superbuild actions with `vX.Y.Z` Glance3D version, `vX.Y.Z` sb version and prerelease publish true
+- [ ] Finalize release note and add them to the release
+- [ ] Format the release note into a changelog and commit/review/merge them into https://github.com/glance3d-app/glance3d
+- [ ] Add a **new versioned doc** as described [here](https://glance3d.app/dev/TOOLING#how-to-update-the-doc-for-a-new-release), commit/review/merge into https://github.com/glance3d-app/glance3d-website
+- [ ] Change f3d version to `^X.Y.Z` in `package.json` in f3d-website, then build locally as described above, then commit review and merge the resulting changes into https://github.com/glance3d-app/glance3d-website
+- [ ] Update **download links** using `GITHUB_TOKEN=$PAT F3D_RELEASE=vX.Y.Z npm run update-downloads`, commit/review/merge into https://github.com/glance3d-app/glance3d-website and then immediately
+- [ ] Release
+- [ ] Communicate on discord
+- [ ] Communicate on reddit
+- [ ] Communicate on hackernews
+- [ ] Communicate on linkedin
+- [ ] Communicate on mastodon
+- [ ] Communicate on bluesky
+- [ ] Communicate by email
+- [ ] Create next release milestone, move all issue from current milestone to next milestone and close current milestone
+- [ ] Commit review and merge an update of `doc/dev/ROADMAPS_AND_RELEASES.md` for next release in https://github.com/glance3d-app/glance3d
+- [ ] Create an issue for updating dependencies in third parties, CI, csb, superbuild, docker, and f3d-website
+- [ ] Commit review and merge an update of `.github/ISSUE_TEMPLATE/new_release.md` in https://github.com/glance3d-app/glance3d if needed
+
+Linux testing protocol:
+
+- Install F3D-X.Y.Z-RCN-Linux-x86_64-raytracing system wide
+- `f3d testing/data/cow.vtp` -> check render, orientation, press R and check raytracing
+- `f3d testing/data/f3d.stp` -> check render, orientation
+- `f3d testing/data/f3d.glb` -> press "Space", check animation is going smoothly and takes 4 seconds
+- `f3d /path/to/any/new/file.format` -> check render
+- `rm -rf ~/.cache/thumbnails`
+- `pcmanfm` (or another supported file manager)
+- Check that all supported files in testing/data have a generated thumbnails, especially for new file formats if any
+- Double click on supported file in testing/data, especially for new file formats if any and check it opens in F3D
+- Drag&Drop cow.vtp, Drag&Drop palermo_park.hdr, check render
+- Check that CTRL+O (file dialog) is working
+- Press "Esc" and check the following commands `reload_current_file_group`, `set_camera top`, `toggle_volume_rendering`, `exit`
+
+macOS testing protocol:
+
+- Install F3D-X.Y.Z-RCN-macOS-x86_64-raytracing.dmg
+- Double click on cow.vtp, check render and orientation, press R and check raytracing
+- Double click on f3d.stp, check render and orientation
+- Double click on f3d.glb, press "Space", check animation is going smoothly and takes 4 seconds
+- Double click on any new supported file.format, check render
+- Check all supported file in testing/data directory in finder have the f3d mark, if not, check that "open with" suggest F3D
+- Drag&Drop cow.vtp, Drag&Drop palermo_park.hdr, check render
+- Check that CTRL+O (file dialog) is working
+- Press "Esc" and check the following commands `reload_current_file_group`, `set_camera top`, `toggle_volume_rendering`, `exit`
+
+Windows testing protocol:
+
+- Install F3D-X.Y.Z-RCN-Windows-x86_64-raytracing.exe, add Glance3D to path for all users
+- Start -> Disk Cleanup -> select thumbnails -> Ok -> Delete Files
+- Open testing/data directory in file manager
+- Wait for thumbnails to be generated
+- Check that every supported file has a generated thumbnails, except .tif.
+- Check that every supported file has a small "f3d" mark, for those that don't check that "Open with" -> "Use another app" suggest F3D.
+- Double click on cow.vtp, check render and orientation, press R and check raytracing
+- Double click on f3d.stp, check render and orientation
+- Double click on f3d.glb, press "Space", check animation is going smoothly and takes 4 seconds
+- Double click on any new supported file format, check render
+- Check that CTRL+O (file dialog) is working
+- run `f3d-console --version` in a Windows command line and check it output the version
+- Press "Esc" and check the following commands `reload_current_file_group`, `set_camera top`, `toggle_volume_rendering`, `exit`
+
+Python testing protocol:
+
+- Use a venv or make sure f3d is not installed in your python environment
+- pip install f3d==X.Y.Z-RCN
+- python
+
+```
+import f3d
+eng = f3d.Engine.create()
+eng.scene.add("/path/to/cow.vtp")
+eng.window.render() # May have no effect on Windows
+eng.interactor.start()
+```
+
+- Check the following
+  - The name of the window is `f3d` at all time
+  - Python provides suggestions whenever the "Tab" key is pressed
+
+Android testing protocol:
+
+- Uninstall any existing Glance3D app
+- Download and install APK of your architecture (`arm64-v8a` most likely)
+- Open a supported file from a different app, select Glance3D and make sure you can interact with it
+- Touch the big `+` button, browse to a supported file and open it. Make sure you can interact with it
+
+Webassembly testing protocol:
+
+- Clone https://github.com/glance3d-app/glance3d-website
+
+```bash
+npm uninstall f3d
+npm install f3d --tag rc
+npm run start
+```
+
+Once a release cycle:
+
+- Check that completions are still working with `fish` and `zsh` when tab is pressed
+- Check that Glance3D is added for extensions on a fresh Windows installation
+- Check that Glance3D binary on linux works on ubuntu with almost nothing installed (libosmesa6 should NOT install Xorg, check it)
+
+```
+docker run -it ubuntu:latest /bin/bash
+apt update
+apt install wget xz-utils libosmesa6
+wget https://github.com/glance3d-app/glance3d/raw/refs/heads/master/testing/data/dragon.vtu
+wget https://github.com/glance3d-app/glance3d/releases/download/X.Y.Z/F3D-X.Y.Z-Linux-x86_64-raytracing.tar.xz
+tar -xzvf F3D-X.Y.Z-Linux-x86_64-raytracing.tar.xz
+apt autoremove wget xz-utils
+./F3D-X.Y.Z-Linux-x86_64-raytracing/bin/f3d dragon.vtu --output=img.png
+apt install catimg
+catimg img.png
+```

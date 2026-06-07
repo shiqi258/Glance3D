@@ -1,0 +1,143 @@
+name: "Python specific CI"
+description: "Python specific CI"
+inputs:
+  versions_file:
+    description: "File to recover versions from"
+    required: true
+  python_version:
+    description: "Python version"
+    required: true
+  lfs_sha:
+    description: "Cache LFS sha"
+    required: true
+  cpu:
+    description: "CPU architecture to build for"
+    required: false
+    default: "x86_64"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check required inputs
+      shell: bash
+      run: |
+        [[ "${{ inputs.versions_file }}" ]] || { echo "versions_file is empty" ; exit 1; }
+        [[ "${{ inputs.lfs_sha }}" ]] || { echo "lfs_sha input is empty" ; exit 1; }
+        [[ "${{ inputs.python_version }}" ]] || { echo "python input is empty" ; exit 1; }
+
+    - name: Recover LFS Data
+      uses: f3d-app/lfs-data-cache-action@v2
+      with:
+        type: "consumer"
+        lfs_sha: ${{inputs.lfs_sha}}
+        cache_postfix: cache-0
+
+    - name: Install all F3D dependencies
+      uses: ./source/.github/actions/generic-dependencies
+      with:
+        versions_file: ${{inputs.versions_file}}
+        cpu: ${{inputs.cpu}}
+
+    - name: Install VTK dependency
+      uses: ./source/.github/actions/vtk-install-dep
+      with:
+        versions_file: ${{inputs.versions_file}}
+        cpu: ${{inputs.cpu}}
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    # numpy pinned to 2.2.X until python 3.10 support is dropped
+    - name: Install Python dependencies
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install pytest==9.0.3
+        python -m pip install pyopengltk==0.0.4
+        python -m pip install PySide6==6.11.1
+        python -m pip install numpy==2.2.6
+
+    - name: Set PATH windows
+      if: runner.os == 'Windows'
+      shell: powershell
+      working-directory: ${{github.workspace}}
+      run: echo "PATH=$env:PATH;$(pwd)\dependencies\install\bin\;$(pwd)\install\bin\;"| Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Set CMAKE_PREFIX_PATH
+      shell: bash
+      working-directory: ${{github.workspace}}/dependencies/install
+      run: echo "CMAKE_PREFIX_PATH=$(pwd)" >> $GITHUB_ENV
+
+    - name: WORKSPACE env var with escaped backslashes Windows
+      if: runner.os == 'Windows'
+      shell: bash
+      run: echo "WORKSPACE=${{github.workspace}}" | tr '\\' '/' >> $GITHUB_ENV
+
+    - name: WORKSPACE env var not windows
+      if: runner.os != 'Windows'
+      shell: bash
+      run: echo "WORKSPACE=$(pwd)" >> $GITHUB_ENV
+
+    # VDB has some linking issue on macOS, disabling for now
+    - name: Set SKBUILD_CMAKE_ARGS
+      shell: bash
+      run: >
+        echo "SKBUILD_CMAKE_ARGS=
+        -DCMAKE_MODULE_PATH=${{ env.WORKSPACE }}/dependencies/install/lib/cmake/OpenVDB/;
+        -DF3D_DEPENDENCIES_DIR=${{ env.WORKSPACE }}/dependencies/install/bin;
+        -DF3D_PLUGIN_BUILD_ALEMBIC=ON;
+        -DF3D_PLUGIN_BUILD_ASSIMP=ON;
+        -DF3D_PLUGIN_BUILD_DRACO=ON;
+        -DF3D_PLUGIN_BUILD_OCCT=ON;
+        -DF3D_PLUGIN_BUILD_PDAL=ON;
+        -DF3D_PLUGIN_BUILD_USD=ON;
+        -DF3D_PLUGIN_BUILD_VDB=${{ runner.os == 'macOS' && 'OFF' || 'ON' }};
+        -DF3D_PLUGIN_BUILD_WEBIFC=ON;
+        -DF3D_MACOS_BUNDLE=OFF;
+        -DF3D_MODULE_EXR=ON;
+        -DF3D_MODULE_UI=ON;
+        -DF3D_MODULE_WEBP=ON;
+        -DF3D_BUILD_APPLICATION=OFF" >> $GITHUB_ENV
+
+    - name: Build wheel
+      shell: bash
+      working-directory: ${{github.workspace}}/source
+      run: python -m pip -v wheel .
+
+    - name: Upload wheel
+      uses: actions/upload-artifact@v7
+      with:
+        path: ./source/*.whl
+        name: ${{runner.os}}-${{inputs.python_version}}-wheel
+
+    - name: Install wheel
+      shell: bash
+      working-directory: ${{github.workspace}}/source
+      run: python -m pip -v install *.whl
+
+    - name: Run Xvfb ubuntu
+      if: runner.os == 'Linux'
+      shell: bash
+      run: Xvfb $DISPLAY -screen 0 1280x1024x24 &
+
+    - name: Install Mesa Windows
+      if: runner.os == 'Windows'
+      uses: f3d-app/install-mesa-windows-action@v2
+      with:
+        path: ${{ env.Python_ROOT_DIR }}
+
+    # Qt6 tests only supported on windows for now https://github.com/glance3d-app/glance3d/issues/2670
+    # `import numpy` crashes on Windows, excluding test_scene_zero_copy.py
+    - name: Test wheel (macOS/Linux)
+      if: runner.os != 'Windows'
+      shell: bash
+      working-directory: ${{github.workspace}}/source
+      run: python -m pytest -k "not test_minimal_qt6 and not test_minimal_qml"
+
+    - name: Test wheel (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      working-directory: ${{github.workspace}}/source
+      run: python -m pytest --ignore=python/testing/test_scene_zero_copy.py --ignore-glob="examples/libf3d/python/in-situ/*"

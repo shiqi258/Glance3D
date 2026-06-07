@@ -1,0 +1,118 @@
+{
+  "$comments": [
+    "Alembic is part of VFX reference platform (CY2025: 1.8.x)",
+    "OpenEXR is part of VFX reference platform (CY2025: 3.3.x)",
+    "OpenVDB is part of VFX reference platform (CY2025: 12.x)",
+    "OpenVDB min version is not enforced by F3D code and missing from VTK code",
+    "Python is part of VFX reference platform (CY2025: 3.11)",
+    "OSPRay is fixed at 2.12.0 until full support for OSPRay 3.0 is added in VTK",
+    "TBB is set at v2021.13.1 because OpenUSD seems to not support more recent versions: https://github.com/PixarAnimationStudios/OpenUSD/issues/3878 and https://github.com/PixarAnimationStudios/OpenUSD/issues/4078",
+    "sqlite is using a common-superbuild hash as it is not a CMake project",
+    "OpenEXR v3.0.1 is actually not using OpenJPH",
+    "zlib is fixed at v1.3.1 until https://github.com/madler/zlib/issues/1181 is fixed"
+  ],
+  "alembic": {
+    "version": "1.8.11",
+    "min_version": "1.8.5"
+  },
+  "assimp": {
+    "version": "v6.0.5",
+    "min_version": "v5.4.0"
+  },
+  "blosc": {
+    "version": "v1.21.6",
+    "min_version": "v1.17.0"
+  },
+  "curl": {
+    "version": "curl-8_20_0",
+    "min_version": "curl-7_74_0"
+  },
+  "draco": {
+    "version": "1.5.7",
+    "min_version": "1.5.6"
+  },
+  "gdal": {
+    "version": "v3.13.0",
+    "min_version": "v3.8.2"
+  },
+  "geotiff": {
+    "version": "1.7.4",
+    "min_version": "1.6.0"
+  },
+  "imath": {
+    "version": "v3.2.2",
+    "min_version": "v3.0.1"
+  },
+  "java": {
+    "version": "26",
+    "min_version": "17"
+  },
+  "occt": {
+    "version": "V8_0_0",
+    "min_version": "V7_6_3"
+  },
+  "openexr": {
+    "version": "v3.4.11",
+    "min_version": "v3.0.1"
+  },
+  "openjph": {
+    "version": "0.27.3",
+    "min_version": "0.27.3"
+  },
+  "openvdb": {
+    "version": "v13.0.0",
+    "min_version": "v12.0.0"
+  },
+  "ospray": {
+    "version": "v2.12.0",
+    "min_version": "v2.12.0"
+  },
+  "pdal": {
+    "version": "2.10.1",
+    "min_version": "2.9.0"
+  },
+  "proj": {
+    "version": "9.8.1",
+    "min_version": "9.0.0"
+  },
+  "pybind11": {
+    "version": "v3.0.4",
+    "min_version": "v3.0.0"
+  },
+  "python": {
+    "version": "3.14",
+    "min_version": "3.10"
+  },
+  "sqlite_csb": {
+    "version": "fee2c760fd54b08104d0c8e9d80f6d52d3a11106",
+    "min_version": "bb237f11ca039bd01314bb2252eb282086723c18"
+  },
+  "tbb": {
+    "version": "v2021.13.1",
+    "min_version": "v2021.10.0"
+  },
+  "tiff": {
+    "version": "v4.7.1",
+    "min_version": "v4.2.0"
+  },
+  "usd": {
+    "version": "v26.05",
+    "min_version": "v24.08"
+  },
+  "webifc": {
+    "version": "0.77",
+    "min_version": "0.75"
+  },
+  "webp": {
+    "version": "v1.6.0",
+    "min_version": "v1.2.4"
+  },
+  "zlib": {
+    "version": "v1.3.1",
+    "min_version": "v1.2.13"
+  },
+  "vtk_commit_sha": "31bcf57f7c6b2b1490f641837f8367a0d8b5277b",
+  "docker_timestamp": "20260531_0",
+  "global_cache_index": "2",
+  "vtk_matrix": "['commit', 'v9.6.2', 'v9.5.2', 'v9.4.2']"
+}

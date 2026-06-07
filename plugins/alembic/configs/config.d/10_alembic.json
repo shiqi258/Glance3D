@@ -1,0 +1,9 @@
+[
+  {
+    "match-type": "glob",
+    "match": "*.abc",
+    "options": {
+      "load-plugins": "alembic"
+    }
+  }
+]

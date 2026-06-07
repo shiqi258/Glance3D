@@ -1,0 +1,103 @@
+name: "Install Alembic Dependency"
+description: "Install Alembic Dependency using cache when possible"
+inputs:
+  versions_file:
+    description: "File to recover versions from"
+    required: true
+  mindeps_label:
+    description: "Label to flag for minimum versions dependencies"
+    required: false
+    default: "no-mindeps"
+  cpu:
+    description: "CPU architecture to build for"
+    required: false
+    default: "x86_64"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check required inputs
+      shell: bash
+      run: |
+        [[ "${{inputs.versions_file}}" ]] || { echo "versions_file is empty" ; exit 1; }
+
+    - name: Extract alembic version
+      id: alembic_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: alembic
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract imath version
+      id: imath_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: imath
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract global cache index
+      id: global_idx
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        special_name: global_cache_index
+
+    - name: Cache alembic
+      id: cache-alembic
+      continue-on-error: true # https://github.com/actions/cache/issues/1754
+      uses: actions/cache/restore@v5
+      with:
+        path: dependencies/alembic_install
+        key: alembic-${{steps.alembic_ver.outputs.extract}}-${{steps.imath_ver.outputs.extract}}-${{runner.os}}-${{inputs.cpu}}-${{steps.global_idx.outputs.extract}}-4
+
+    - name: Checkout Alembic
+      if: steps.cache-alembic.outputs.cache-hit != 'true'
+      uses: actions/checkout@v6
+      with:
+        repository: alembic/alembic
+        path: "./dependencies/alembic"
+        ref: ${{steps.alembic_ver.outputs.extract}}
+
+    - name: Setup Alembic
+      if: steps.cache-alembic.outputs.cache-hit != 'true'
+      working-directory: ${{github.workspace}}/dependencies
+      shell: bash
+      run: |
+        mkdir alembic_build
+        mkdir alembic_install
+
+    - name: Configure Alembic
+      if: steps.cache-alembic.outputs.cache-hit != 'true'
+      working-directory: ${{github.workspace}}/dependencies/alembic_build
+      shell: bash
+      run: >
+        cmake ../alembic
+        -DALEMBIC_LIB_INSTALL_DIR=${{ runner.os == 'Windows' && 'bin' || 'lib' }}
+        -DALEMBIC_SHARED_LIBS=ON
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX:PATH=../alembic_install
+        -DCMAKE_PREFIX_PATH:PATH=../install/
+        -DUSE_BINARIES=OFF
+        -DUSE_TESTS=OFF
+        ${{ runner.os == 'macOS' && '-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_MACOSX_RPATH=ON' || null }}
+        ${{ runner.os == 'Windows' && '-Ax64 -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL' || null }}
+
+    - name: Build Alembic
+      if: steps.cache-alembic.outputs.cache-hit != 'true'
+      working-directory: ${{github.workspace}}/dependencies/alembic_build
+      shell: bash
+      run: cmake --build . --parallel 2 --target install --config Release
+
+    - name: Copy to install
+      working-directory: ${{github.workspace}}/dependencies/alembic_install
+      shell: bash
+      run: cp -r ./* ../install/
+
+    - name: Save cache
+      if: steps.cache-alembic.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        key: ${{ steps.cache-alembic.outputs.cache-primary-key }}
+        path: dependencies/alembic_install

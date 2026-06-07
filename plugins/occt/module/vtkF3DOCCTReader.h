@@ -1,0 +1,152 @@
+/**
+ * @class   vtkF3DOCCTReader
+ * @brief   VTK Reader for STEP and IGES files using OpenCASCADE
+ *
+ * This reader is based on OpenCASCADE and use XCAF toolkits (TKXDESTEP and TKXDEIGES)
+ * if available to read the names and the colors. If not available, TKSTEP and TKIGES are
+ * used but no names or colors are read.
+ * The quality of the generated mesh is configured using RelativeDeflection, LinearDeflection,
+ * and LinearDeflection.
+ * Reading 1D cells (wires) is optional.
+ *
+ * This reader support reading streams for all supported formats but IGES.
+ * https://dev.opencascade.org/content/reading-iges-stream-seems-broken-770
+ *
+ */
+
+#ifndef vtkF3DOCCTReader_h
+#define vtkF3DOCCTReader_h
+
+#include <vtkMultiBlockDataSetAlgorithm.h>
+#include <vtkSmartPointer.h>
+#include <vtkVersion.h>
+
+#include <memory>
+
+class vtkInformationDoubleVectorKey;
+class vtkResourceStream;
+class vtkF3DOCCTReader : public vtkMultiBlockDataSetAlgorithm
+{
+public:
+  static vtkF3DOCCTReader* New();
+  vtkTypeMacro(vtkF3DOCCTReader, vtkMultiBlockDataSetAlgorithm);
+  void PrintSelf(ostream& os, vtkIndent indent) override;
+
+  enum FILE_FORMAT : unsigned char
+  {
+    BREP,
+    STEP,
+    IGES,
+    XBF,
+  };
+
+  ///@{
+  /**
+   * Set the file format to read.
+   * It can be either BREP, STEP, IGES, or XBF.
+   * Default is FILE_FORMAT::STEP
+   */
+  vtkSetMacro(FileFormat, FILE_FORMAT);
+  ///@}
+
+  ///@{
+  /**
+   * Set/Get the linear deflection.
+   * This value limits the distance between a curve and the resulting tessellation.
+   * Default is 0.1
+   */
+  vtkGetMacro(LinearDeflection, double);
+  vtkSetMacro(LinearDeflection, double);
+  ///@}
+
+  ///@{
+  /**
+   * Set/Get the angular deflection.
+   * This value limits the angle between two subsequent segments.
+   * Default is 0.5
+   */
+  vtkGetMacro(AngularDeflection, double);
+  vtkSetMacro(AngularDeflection, double);
+  ///@}
+
+  ///@{
+  /**
+   * Set/Get relative deflection.
+   * Determine if the deflection values are relative to object size.
+   * Default is false
+   */
+  vtkGetMacro(RelativeDeflection, bool);
+  vtkSetMacro(RelativeDeflection, bool);
+  vtkBooleanMacro(RelativeDeflection, bool);
+  ///@}
+
+  ///@{
+  /**
+   * Enable/Disable 1D cells read. If enabled, surface boundaries are read.
+   * Default is false
+   */
+  vtkGetMacro(ReadWire, bool);
+  vtkSetMacro(ReadWire, bool);
+  vtkBooleanMacro(ReadWire, bool);
+  ///@}
+
+  ///@{
+  /**
+   * Specify stream to read from
+   * When both `Stream` and `Filename` are set, stream is used.
+   */
+  void SetStream(vtkResourceStream* stream);
+  vtkResourceStream* GetStream();
+  ///@}
+
+  ///@{
+  /**
+   * Get/Set the file name.
+   */
+  vtkSetMacro(FileName, std::string);
+  vtkGetMacro(FileName, std::string);
+  ///@}
+
+  /**
+   * Overridden to take into account mtime from the internal vtkResourceStream.
+   */
+  vtkMTimeType GetMTime() override;
+
+  ///@{
+  /**
+   * Return true if, after a quick check of file header, it looks like the provided stream
+   * can be read. Return false if it is sure it cannot be read.
+   *
+   * format is provided to be used as a FileFormat in this reader.
+   */
+  static bool CanReadFile(vtkResourceStream* stream, vtkF3DOCCTReader::FILE_FORMAT& format);
+  static bool CanReadFile(vtkResourceStream* stream);
+  ///@}
+
+protected:
+  vtkF3DOCCTReader();
+  ~vtkF3DOCCTReader() override;
+
+  int RequestData(vtkInformation*, vtkInformationVector**, vtkInformationVector*) override;
+
+private:
+  vtkF3DOCCTReader(const vtkF3DOCCTReader&) = delete;
+  void operator=(const vtkF3DOCCTReader&) = delete;
+
+  class vtkInternals;
+  std::unique_ptr<vtkInternals> Internals;
+
+  std::string FileName;
+  vtkSmartPointer<vtkResourceStream> Stream;
+
+  double LinearDeflection = 0.1;
+  double AngularDeflection = 0.5;
+  bool RelativeDeflection = false;
+  bool ReadWire = false;
+  FILE_FORMAT FileFormat = FILE_FORMAT::STEP;
+
+  std::unique_ptr<std::streambuf> Streambuf;
+  std::unique_ptr<std::istream> Buffer;
+};
+
+#endif

@@ -1,0 +1,220 @@
+#ifndef PseudoUnitTest_h
+#define PseudoUnitTest_h
+
+#include "options.h"
+#include "types.h"
+
+#include <cmath>
+#include <concepts>
+#include <functional>
+#include <iostream>
+#include <ranges>
+#include <sstream>
+#include <string>
+#include <type_traits>
+
+namespace
+{
+template<typename T>
+concept container_type = std::ranges::input_range<T> && !std::same_as<T, std::string>;
+
+template<typename T>
+std::string toString(const T& value)
+{
+  std::stringstream ss;
+  ss << value;
+  return ss.str();
+}
+
+template<container_type T>
+std::string toString(const T& value)
+{
+  std::stringstream ss;
+
+  size_t i = 0;
+  for (const auto& item : value)
+  {
+    ss << (i++ ? ", " : "{ ") << ::toString(item);
+  }
+  ss << " }";
+
+  return ss.str();
+}
+}
+
+template<typename T>
+class approx
+{
+public:
+  explicit approx(T value, double tol = 128 * std::numeric_limits<double>::epsilon())
+    : Value(std::move(value))
+    , Tol(tol)
+  {
+  }
+  bool operator==(const T& rhs) const
+  {
+    auto fuzzyComp = [this](double a, double b) { return std::fabs(a - b) < this->Tol; };
+
+    if constexpr (container_type<T>)
+    {
+      return std::equal(this->Value.begin(), this->Value.end(), rhs.begin(), fuzzyComp);
+    }
+    else
+    {
+      return fuzzyComp(this->Value, rhs);
+    }
+  }
+
+  const T Value;
+  const double Tol;
+};
+
+/** Helper to perform multiple checks within the same `ctest` test.
+ * Checks are performed using the various overloads of `operator()`
+ * and their results are logged and tracked so that the `result()` method
+ * will return `EXIT_FAILURE` if any of them failed (and `EXIT_SUCCESS` otherwise).
+ */
+class PseudoUnitTest
+{
+public:
+  /** test a boolean condition */
+  void operator()(const std::string& label, bool condition)
+  {
+    this->record(condition, label);
+  }
+
+  /** test the execution of a function */
+  template<typename F>
+  void operator()(const std::string& label, F function)
+  {
+    this->testFunction<Dummy>(label, function);
+  }
+
+  /** test the execution of a function expecting a given exception */
+  template<typename E, typename F>
+  void expect(const std::string& label, F function)
+  {
+    this->testFunction<E>(label, function);
+  }
+
+  /** test the equality of two values */
+  template<typename T>
+  void operator()(const std::string& label, const T& actual, const T& expected)
+  {
+    const bool success = actual == expected;
+    this->record(success, label, this->comparisonMessage(actual, expected, success ? "==" : "!="));
+  }
+
+  /** test the equality of two values with fuzzy comparison */
+  template<typename T>
+  void operator()(const std::string& label, const T& actual, const approx<T>& expected_approx)
+  {
+    const bool success = expected_approx == actual;
+    this->record(success, label,
+      this->comparisonMessage(actual, expected_approx.Value, success ? "~=" : "!="));
+  }
+
+  int result()
+  {
+    const bool success = this->failCount == 0;
+    return success ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
+
+private:
+  size_t failCount = 0;
+  size_t passCount = 0;
+
+  /* execute `function` and:
+   * - *pass* on normal termination when `E` is `Dummy`
+   * - *fail* on normal termination when `E` is any other exception
+   * - *pass* when an exception of type `E` is caught
+   * - *fail* when anything else is caught
+   */
+  template<typename E, typename F>
+  void testFunction(const std::string& label, F function)
+  {
+    try
+    {
+      if constexpr (std::same_as<E, Dummy>)
+      {
+        if constexpr (std::same_as<std::invoke_result_t<F&>, bool>)
+        {
+          const bool success = function();
+          this->record(success, label, success ? "" : "returned false");
+        }
+        else
+        {
+          // ensure the function returns void
+          static_assert(
+            std::is_void_v<std::invoke_result_t<F&>>, "Function must return bool or void");
+
+          function();
+          this->record(true, label);
+        }
+      }
+      else
+      {
+        function();
+        this->record(false, label, "did not throw");
+      }
+    }
+    catch (const E& e)
+    {
+      this->record(true, label, e.what());
+    }
+    catch (const char* msg)
+    {
+      this->record(false, label, msg);
+    }
+    catch (const std::string& msg)
+    {
+      this->record(false, label, msg);
+    }
+    catch (const std::exception& e)
+    {
+      this->record(false, label, std::string("unexpected exception (") + e.what() + ")");
+    }
+    catch (...)
+    {
+      this->record(false, label, "unexpected exception");
+    }
+  }
+
+  void record(const bool success, const std::string& label, const std::string& message = "")
+  {
+    (success ? passCount : failCount)++;
+    this->log(success, label, message);
+  }
+
+protected:
+  template<typename T>
+  std::string comparisonMessage(const T& actual, const T& expected, const std::string& comp)
+  {
+    const std::string actualStr = ::toString(actual);
+    const std::string expectedStr = ::toString(expected);
+    if (actualStr != expectedStr)
+    {
+      std::stringstream ss;
+      ss << actualStr << " " << comp << " " << expectedStr;
+      return ss.str();
+    }
+    else
+    {
+      return "";
+    }
+  }
+
+  virtual void log(const bool success, const std::string& label, const std::string& message)
+  {
+    const std::string line = message.empty() ? label : (label + ": " + message);
+    const std::string icon = success ? "\u2714" : "\u2718";
+    (success ? std::cout : std::cerr) << icon << " " << line << "\n";
+  }
+
+private:
+  class Dummy : public std::exception
+  {
+  };
+};
+
+#endif

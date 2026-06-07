@@ -1,0 +1,160 @@
+name: "Install pdal Dependency"
+description: "Install pdal Dependency using cache when possible"
+inputs:
+  versions_file:
+    description: "File to recover versions from"
+    required: true
+  mindeps_label:
+    description: "Label to flag for minimum versions dependencies"
+    required: false
+    default: "no-mindeps"
+  cpu:
+    description: "CPU architecture to build for"
+    required: false
+    default: "x86_64"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check required inputs
+      shell: bash
+      run: |
+        [[ "${{inputs.versions_file}}" ]] || { echo "versions_file is empty" ; exit 1; }
+
+    - name: Extract pdal version
+      id: pdal_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: pdal
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract gdal version
+      id: gdal_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: gdal
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract geotiff version
+      id: geotiff_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: geotiff
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract proj version
+      id: proj_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: proj
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract sqlite_csb version
+      id: sqlite_csb_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: sqlite_csb
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract tiff version
+      id: tiff_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: tiff
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract zlib version
+      id: zlib_ver
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        name: zlib
+        minver_label: ${{inputs.mindeps_label == 'mindeps' && 'minver' || ''}}
+
+    - name: Extract global cache index
+      id: global_idx
+      uses: f3d-app/extract-version-action@main
+      with:
+        file: ${{inputs.versions_file}}
+        special_name: global_cache_index
+
+    - name: Cache pdal
+      id: cache-pdal
+      continue-on-error: true # https://github.com/actions/cache/issues/1754
+      uses: actions/cache/restore@v5
+      with:
+        path: dependencies/pdal_install
+        key: pdal-${{steps.pdal_ver.outputs.extract}}-${{steps.gdal_ver.outputs.extract}}-${{steps.geotiff_ver.outputs.extract}}-${{steps.proj_ver.outputs.extract}}-${{steps.sqlite_csb_ver.outputs.extract}}-${{steps.tiff_ver.outputs.extract}}-${{steps.zlib_ver.outputs.extract}}-${{runner.os}}-${{inputs.cpu}}-${{steps.global_idx.outputs.extract}}-7
+
+    # Dependents: vtk
+    - name: Checkout pdal
+      if: steps.cache-pdal.outputs.cache-hit != 'true'
+      uses: actions/checkout@v6
+      with:
+        repository: PDAL/PDAL
+        path: "./dependencies/pdal"
+        ref: ${{steps.pdal_ver.outputs.extract}}
+
+    # https://github.com/PDAL/PDAL/issues/4966
+    # https://github.com/PDAL/PDAL/pull/4989
+    - name: Patch pdal minver
+      if: steps.cache-pdal.outputs.cache-hit != 'true' && steps.pdal_ver.outputs.extract == '2.9.0'
+      working-directory: ${{github.workspace}}/dependencies/pdal
+      shell: bash
+      run: |
+        patch -p1 < $GITHUB_ACTION_PATH/fix_leak.patch
+        patch -p1 < $GITHUB_ACTION_PATH/remove_apps_tools_minver.patch
+
+    - name: Setup pdal
+      if: steps.cache-pdal.outputs.cache-hit != 'true'
+      working-directory: ${{github.workspace}}/dependencies
+      shell: bash
+      run: |
+        mkdir pdal_build
+        mkdir pdal_install
+
+    - name: Configure pdal
+      if: steps.cache-pdal.outputs.cache-hit != 'true'
+      working-directory: ${{github.workspace}}/dependencies/pdal_build
+      shell: bash
+      run: >
+        cmake ../pdal
+        -DBUILD_PLUGIN_E57=OFF
+        -DBUILD_PLUGIN_HDF=OFF
+        -DBUILD_PLUGIN_PGPOINTCLOUD=OFF
+        -DBUILD_TOOLS_LASDUMP=OFF
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX=../pdal_install
+        -DCMAKE_PREFIX_PATH:PATH=$(pwd)/../install/
+        -DWITH_BACKTRACE=OFF
+        -DWITH_GCS=OFF
+        -DWITH_LZMA=OFF
+        -DWITH_TESTS=OFF
+        -DWITH_ZLIB=ON
+        -DWITH_ZSTD=OFF
+        ${{ runner.os == 'macOS' && '-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0' || null }}
+        ${{ runner.os == 'Windows' && '-Ax64 -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL' || null }}
+
+    - name: Build pdal
+      if: steps.cache-pdal.outputs.cache-hit != 'true'
+      working-directory: ${{github.workspace}}/dependencies/pdal_build
+      shell: bash
+      run: cmake --build . --parallel 2 --target install --config Release
+
+    - name: Copy to install
+      working-directory: ${{github.workspace}}/dependencies/pdal_install
+      shell: bash
+      run: cp -r ./* ../install/
+
+    - name: Save cache
+      if: steps.cache-pdal.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        key: ${{ steps.cache-pdal.outputs.cache-primary-key }}
+        path: dependencies/pdal_install
