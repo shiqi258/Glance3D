@@ -232,7 +232,14 @@ function installGLTFHelpers(Module) {
       scene.addBufferAsync = async (buffer, options) => {
         const inspection = Module.GLTF.inspectBuffer(buffer);
         const prepared = await Module.GLTF.prepareBuffer(buffer, options);
-        if (inspection.recommendedCapabilityPack) {
+        if (inspection.isGlb) {
+          Module.onCapabilityEvent?.({
+            type: "gltf-buffer-filesystem-load",
+            pack: inspection.recommendedCapabilityPack,
+            extensions: inspection.advancedExtensions,
+            inputByteLength: toUint8Array(buffer).byteLength,
+            outputByteLength: prepared.byteLength,
+          });
           return addPreparedGLBFromFilesystem(Module, scene, prepared);
         }
 
