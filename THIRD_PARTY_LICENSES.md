@@ -1,5 +1,19 @@
 # Third Party Copyrights and License within Glance3D application source
 
+## meshoptimizer decoder
+
+```
+This file is part of meshoptimizer library and is distributed under the terms of MIT License.
+Copyright (C) 2016-2022, by Arseny Kapoulkine (arseny.kapoulkine@gmail.com)
+```
+
+## Basis Universal transcoder
+
+```
+Basis Universal is distributed under the terms of the Apache License 2.0.
+Project: https://github.com/BinomialLLC/basis_universal
+```
+
 ## cxxopts.hpp:
 
 ```

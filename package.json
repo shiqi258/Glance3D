@@ -5,7 +5,7 @@
   "exports": "./dist/f3d.js",
   "types": "./dist/f3d.d.ts",
   "files": [
-    "./dist/f3d.*"
+    "./dist/*"
   ],
   "scripts": {
     "clean": "node webassembly/build-local.mjs clean",

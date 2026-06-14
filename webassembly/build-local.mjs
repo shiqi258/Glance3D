@@ -7,6 +7,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const buildDir = path.join(repoRoot, "_wasm_build");
 const distDir = path.join(repoRoot, "dist");
+const runtimeDir = path.join(scriptDir, "runtime");
 
 const command = process.argv[2] ?? "build";
 const buildType = process.argv[3] ?? "Release";
@@ -44,9 +45,57 @@ function copyBuildArtifacts() {
   fs.rmSync(distDir, { recursive: true, force: true });
   fs.mkdirSync(distDir, { recursive: true });
 
-  for (const entry of fs.readdirSync(binDir)) {
-    fs.cpSync(path.join(binDir, entry), path.join(distDir, entry), { recursive: true });
+  const requiredCoreArtifacts = ["f3d.js", "f3d.wasm", "f3d.d.ts"];
+  for (const artifact of requiredCoreArtifacts) {
+    const input = path.join(binDir, artifact);
+    if (!fs.existsSync(input)) {
+      throw new Error(`Missing WebAssembly artifact: ${input}`);
+    }
   }
+
+  fs.copyFileSync(path.join(binDir, "f3d.js"), path.join(distDir, "f3d-core.js"));
+  fs.copyFileSync(path.join(binDir, "f3d.wasm"), path.join(distDir, "f3d.wasm"));
+  fs.copyFileSync(path.join(scriptDir, "f3d-wrapper.js"), path.join(distDir, "f3d.js"));
+  fs.copyFileSync(
+    path.join(scriptDir, "f3d-gltf-advanced.js"),
+    path.join(distDir, "f3d-gltf-advanced.js"),
+  );
+  fs.copyFileSync(
+    path.join(scriptDir, "f3d.capabilities.json"),
+    path.join(distDir, "f3d.capabilities.json"),
+  );
+  fs.copyFileSync(
+    path.join(runtimeDir, "meshopt_decoder.module.js"),
+    path.join(distDir, "meshopt_decoder.module.js"),
+  );
+  fs.copyFileSync(
+    path.join(runtimeDir, "basis_transcoder.wasm"),
+    path.join(distDir, "basis_transcoder.wasm"),
+  );
+
+  const basisTranscoder = fs.readFileSync(
+    path.join(runtimeDir, "basis_transcoder.js"),
+    "utf8",
+  );
+  fs.writeFileSync(
+    path.join(distDir, "basis_transcoder.module.js"),
+    `${basisTranscoder}\nexport default BASIS;\n`,
+  );
+
+  patchTypes(path.join(binDir, "f3d.d.ts"), path.join(distDir, "f3d.d.ts"));
+}
+
+function patchTypes(inputPath, outputPath) {
+  let types = fs.readFileSync(inputPath, "utf8");
+  types = types.replace(
+    /  addBuffer\(_0: any\): Scene;\r?\n/,
+    "  addBuffer(_0: any): Scene;\n  addBufferAsync(_0: any, _1?: GLTFPrepareOptions): Promise<Scene>;\n",
+  );
+  types = types.replace(
+    /export type MainModule = WasmModule & typeof RuntimeExports & EmbindModule;\r?\n/,
+    `export type GLTFCapabilityPack = "gltf-advanced";\n\nexport interface GLTFInspection {\n  isGlb: boolean;\n  usedExtensions: string[];\n  requiredExtensions: string[];\n  advancedExtensions: string[];\n  recommendedCapabilityPack: GLTFCapabilityPack | null;\n}\n\nexport interface GLTFPrepareOptions {\n  locateFile?: (path: string) => string;\n}\n\nexport interface GLTFNamespace {\n  inspectBuffer(buffer: ArrayBuffer | ArrayBufferView): GLTFInspection;\n  prepareBuffer(buffer: ArrayBuffer | ArrayBufferView, options?: GLTFPrepareOptions): Promise<Uint8Array>;\n}\n\nexport interface GLTFCapabilityEvent {\n  type: "capability-loading" | "capability-loaded" | "capability-prepared";\n  pack: GLTFCapabilityPack;\n  extensions: string[];\n  inputByteLength?: number;\n  outputByteLength?: number;\n  remainingRequiredExtensions?: string[];\n  remainingAdvancedExtensions?: string[];\n}\n\nexport type MainModule = WasmModule & typeof RuntimeExports & EmbindModule & {\n  GLTF: GLTFNamespace;\n  onCapabilityEvent?: (event: GLTFCapabilityEvent) => void;\n};\n`,
+  );
+  fs.writeFileSync(outputPath, types);
 }
 
 function build() {
@@ -102,6 +151,9 @@ switch (command) {
   case "clean":
     clean();
     break;
+  case "package":
+    copyBuildArtifacts();
+    break;
   case "build":
     build();
     break;
@@ -110,6 +162,6 @@ switch (command) {
     break;
   default:
     console.error(`Unknown command: ${command}`);
-    console.error("Usage: node webassembly/build-local.mjs <clean|build|test> [build-type]");
+    console.error("Usage: node webassembly/build-local.mjs <clean|package|build|test> [build-type]");
     process.exit(1);
 }

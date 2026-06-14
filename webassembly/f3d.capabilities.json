@@ -1,0 +1,19 @@
+{
+  "version": "3.5.0",
+  "packs": {
+    "gltf-advanced": {
+      "entry": "f3d-gltf-advanced.js",
+      "wasm": ["basis_transcoder.wasm"],
+      "runtime": [
+        "meshopt_decoder.module.js",
+        "basis_transcoder.module.js",
+        "basis_transcoder.wasm"
+      ],
+      "triggers": [
+        "EXT_meshopt_compression",
+        "KHR_texture_basisu",
+        "KHR_mesh_quantization"
+      ]
+    }
+  }
+}
