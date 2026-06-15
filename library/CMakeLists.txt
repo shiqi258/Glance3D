@@ -182,8 +182,12 @@ target_link_options(libf3d PUBLIC ${f3d_link_options_public})
 if(WIN32)
   # Static plugins can still bring shared runtime dependencies (eg. assimp and its helper DLLs).
   # Copy them next to f3d.dll so the application is directly runnable from the build tree.
+  # When every dependency is static (eg. a fully static VTK), TARGET_RUNTIME_DLLS is empty and
+  # `cmake -E copy_if_different` would be called with only a destination, which errors out. Fall
+  # back to a no-op (`cmake -E true`) in that case.
   add_custom_command(TARGET libf3d POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    COMMAND ${CMAKE_COMMAND} -E
+      $<IF:$<BOOL:$<TARGET_RUNTIME_DLLS:libf3d>>,copy_if_different,true>
       $<TARGET_RUNTIME_DLLS:libf3d>
       $<TARGET_FILE_DIR:libf3d>
     COMMAND_EXPAND_LISTS)
