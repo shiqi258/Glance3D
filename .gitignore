@@ -34,3 +34,6 @@ logs
 
 # local CMake presets
 CMakeUserPresets.json
+
+# local machine dependency paths (copy from the committed *.example files)
+webassembly/deps.local.json

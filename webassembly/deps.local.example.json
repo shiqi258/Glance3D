@@ -1,0 +1,15 @@
+{
+  "//": "Per-machine WebAssembly build config. Copy this file to deps.local.json (git-ignored) and edit the paths for THIS machine. Then build with: npm run build (no environment variables needed).",
+
+  "//wasmDepsDir": "Install prefix that holds the WebAssembly build of VTK (the folder containing lib/cmake/vtk-9.6). Required.",
+  "wasmDepsDir": "C:/path/to/vtk-wasm/install",
+
+  "//emsdkDir": "Emscripten SDK root (the folder with emsdk_env.bat). The build auto-activates it; omit if emsdk is already on PATH. Optional.",
+  "emsdkDir": "C:/path/to/emsdk",
+
+  "//ninjaDir": "Folder containing ninja(.exe). Prepended to PATH for the build; omit if Ninja is already on PATH. Optional.",
+  "ninjaDir": "C:/path/to/ninja",
+
+  "//fullPlugins": "Set true to build the full plugin set (needs WASM Assimp/Draco/OCCT/web-ifc/WebP in wasmDepsDir). Optional, default false.",
+  "fullPlugins": false
+}

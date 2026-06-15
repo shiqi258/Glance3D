@@ -1,0 +1,22 @@
+{
+  "//": "Per-machine CMake config. Copy this file to CMakeUserPresets.json (which is git-ignored) and edit the paths below to match THIS machine. Then configure with: cmake --preset native-local",
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "native-local",
+      "displayName": "Native desktop (this machine)",
+      "inherits": "native",
+      "cacheVariables": {
+        "//": "Path to the VTK (>= 9.4) install: the folder that contains vtk-config.cmake",
+        "VTK_DIR": "C:/path/to/vtk/install/lib/cmake/vtk"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "native-local",
+      "configurePreset": "native-local",
+      "configuration": "Release"
+    }
+  ]
+}

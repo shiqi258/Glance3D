@@ -2,6 +2,17 @@
   "version": 3,
   "configurePresets": [
     {
+      "name": "native",
+      "displayName": "Native desktop (Windows / VS2022)",
+      "description": "Desktop app + library build. Uses the Visual Studio generator so no vcvars/Ninja setup is needed. Provide VTK_DIR via CMakeUserPresets.json (copy CMakeUserPresets.json.example).",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "F3D_BUILD_APPLICATION": "ON"
+      }
+    },
+    {
       "name": "dev",
       "displayName": "Developer config",
       "description": "Developer build in debug mode and with testing activated",

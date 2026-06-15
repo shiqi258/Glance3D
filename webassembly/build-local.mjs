@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +13,76 @@ const runtimeDir = path.join(scriptDir, "runtime");
 const command = process.argv[2] ?? "build";
 const buildType = process.argv[3] ?? "Release";
 const isWindows = process.platform === "win32";
+
+// --- Machine-local dependency configuration --------------------------------
+// WebAssembly dependency locations are machine-specific. Rather than requiring
+// the user to export environment variables every time, read them from a
+// git-ignored `webassembly/deps.local.json` (copy `deps.local.example.json` and
+// edit the paths). Environment variables, when present, always take precedence
+// so CI and manual `emsdk_env` setups keep working unchanged.
+function loadLocalConfig() {
+  const configPath = path.join(scriptDir, "deps.local.json");
+  if (!fs.existsSync(configPath)) {
+    return {};
+  }
+  try {
+    return JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch (err) {
+    throw new Error(`Failed to parse ${configPath}: ${err.message}`);
+  }
+}
+
+// Capture the environment produced by emsdk's own activation script and merge it
+// into process.env, so child build commands see an activated Emscripten toolchain
+// (emcc/emcmake on PATH, EMSDK set) without the user activating it manually.
+function activateEmsdk(emsdkDir) {
+  if (!emsdkDir) {
+    return;
+  }
+  if (!fs.existsSync(emsdkDir)) {
+    throw new Error(`emsdkDir does not exist: ${emsdkDir}`);
+  }
+  const marker = "__GLANCE3D_ENV__";
+  let result;
+  if (isWindows) {
+    // Run the activation + `set` from a temp .bat invoked through cmd.exe
+    // explicitly. Inlining the quoted path into a shell command is fragile
+    // (Node escapes the inner quotes in a way cmd misparses), and `shell: true`
+    // may resolve to a non-cmd shell, so a plain batch file is the robust path.
+    const tmpBat = path.join(os.tmpdir(), `glance3d_emsdk_env_${process.pid}.bat`);
+    fs.writeFileSync(
+      tmpBat,
+      `@echo off\r\ncall "${path.join(emsdkDir, "emsdk_env.bat")}" >nul 2>nul\r\necho ${marker}\r\nset\r\n`,
+    );
+    try {
+      result = spawnSync("cmd.exe", ["/d", "/c", tmpBat], { encoding: "utf8" });
+    } finally {
+      fs.rmSync(tmpBat, { force: true });
+    }
+  } else {
+    result = spawnSync("bash", ["-c", `. "${path.join(emsdkDir, "emsdk_env.sh")}" >/dev/null 2>&1 && echo ${marker} && env`], { encoding: "utf8" });
+  }
+  const out = result.stdout ?? "";
+  const markerIndex = out.indexOf(marker);
+  const envText = markerIndex >= 0 ? out.slice(markerIndex + marker.length) : out;
+  for (const line of envText.split(/\r?\n/)) {
+    const eq = line.indexOf("=");
+    if (eq <= 0) {
+      continue;
+    }
+    process.env[line.slice(0, eq).trim()] = line.slice(eq + 1);
+  }
+}
+
+function prependToPath(dir) {
+  if (!dir) {
+    return;
+  }
+  if (!fs.existsSync(dir)) {
+    throw new Error(`Configured tool directory does not exist: ${dir}`);
+  }
+  process.env.PATH = `${dir}${path.delimiter}${process.env.PATH ?? ""}`;
+}
 
 function run(cmd, args, options = {}) {
   const result = spawnSync(cmd, args, {
@@ -99,18 +170,28 @@ function patchTypes(inputPath, outputPath) {
 }
 
 function build() {
-  const depsDir = process.env.F3D_WASM_DEPS_DIR;
-  const generator = process.env.F3D_WASM_CMAKE_GENERATOR ?? "Ninja";
-  const fullPlugins = process.env.F3D_WASM_FULL_PLUGINS === "ON";
+  const config = loadLocalConfig();
+
+  // Make `npm run build` work without any manually exported environment:
+  // activate Emscripten and put Ninja on PATH using the configured locations.
+  // Skip activation if the shell already has Emscripten active (EMSDK set).
+  if (!process.env.EMSDK) {
+    activateEmsdk(config.emsdkDir);
+  }
+  prependToPath(config.ninjaDir);
+
+  const depsDir = process.env.F3D_WASM_DEPS_DIR ?? config.wasmDepsDir;
+  const generator = process.env.F3D_WASM_CMAKE_GENERATOR ?? config.cmakeGenerator ?? "Ninja";
+  const fullPlugins = (process.env.F3D_WASM_FULL_PLUGINS ?? (config.fullPlugins ? "ON" : "")) === "ON";
 
   if (!depsDir) {
     throw new Error(
-      "F3D_WASM_DEPS_DIR must point to a local install prefix containing WebAssembly builds of VTK and optional dependencies.",
+      "WebAssembly dependency prefix is not configured. Set \"wasmDepsDir\" in webassembly/deps.local.json (copy deps.local.example.json), or export F3D_WASM_DEPS_DIR.",
     );
   }
 
   if (!fs.existsSync(depsDir)) {
-    throw new Error(`F3D_WASM_DEPS_DIR does not exist: ${depsDir}`);
+    throw new Error(`WebAssembly dependency prefix does not exist: ${depsDir}`);
   }
 
   const configureArgs = [
