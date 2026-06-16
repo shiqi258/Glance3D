@@ -1,4 +1,5 @@
 #include "F3DException.h"
+#include "F3DLogFile.h"
 #include "F3DStarter.h"
 
 #include "log.h"
@@ -6,6 +7,10 @@
 int main(int argc, char** argv)
 {
   int res = EXIT_FAILURE;
+
+  // Mirror all logs to a per-session file. Created before the try block so it
+  // outlives F3DStarter and captures the top-level exception handler logs.
+  F3DLogFile logFile(argc, argv);
 
   try
   {

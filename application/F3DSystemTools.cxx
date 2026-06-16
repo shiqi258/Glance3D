@@ -175,6 +175,47 @@ fs::path F3DSystemTools::GetUserConfigFileDirectory()
 }
 
 //----------------------------------------------------------------------------
+fs::path F3DSystemTools::GetUserCacheDirectory()
+{
+  std::string applicationName = "f3d";
+  fs::path dirPath;
+#if defined(_WIN32)
+  std::optional<std::string> appData =
+    f3d::utils::getKnownFolder(f3d::utils::KnownFolder::LOCALAPPDATA);
+  if (!appData.has_value() || appData.value().empty())
+  {
+    return {};
+  }
+  dirPath = fs::path(appData.value());
+#else
+#if defined(__unix__)
+  // Implementing XDG specifications
+  std::optional<std::string> xdgCacheHome = f3d::utils::getEnv("XDG_CACHE_HOME");
+  if (xdgCacheHome.has_value() && !xdgCacheHome.value().empty())
+  {
+    dirPath = fs::path(xdgCacheHome.value());
+  }
+  else
+#endif
+  {
+    std::optional<std::string> home = f3d::utils::getEnv("HOME");
+    if (!home.has_value() || home.value().empty())
+    {
+      return {};
+    }
+    dirPath = fs::path(home.value());
+#if defined(__APPLE__)
+    dirPath = dirPath / "Library" / "Caches";
+#elif defined(__unix__)
+    dirPath /= ".cache";
+#endif
+  }
+#endif
+  dirPath /= applicationName;
+  return dirPath;
+}
+
+//----------------------------------------------------------------------------
 fs::path F3DSystemTools::GetBinaryResourceDirectory()
 {
   fs::path dirPath;
