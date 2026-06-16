@@ -118,7 +118,7 @@ f3d(settings)
       stream: defaultFile,
     };
 
-    const openFile = (file) => {
+    const openFile = async (file) => {
       const { name, path, stream } = file;
       document.getElementById("file-name").innerHTML = name;
       const scene = Module.engineInstance.getScene();
@@ -126,7 +126,16 @@ f3d(settings)
       try {
         if (path) {
           scene.add(path);
+        } else if (typeof scene.addBufferAsync === "function") {
+          // Route uploaded buffers through the wrapper's async loader: it writes
+          // them to the in-memory filesystem and loads by file name (extension-
+          // based reader detection). The raw addBuffer memory path throws
+          // "No force reader set ..." on the bundled VTK (< 9.6.20260128).
+          await scene.addBufferAsync(stream, { fileName: name });
         } else {
+          logViewerState("addBufferAsync unavailable, using raw addBuffer", {
+            name,
+          });
           scene.addBuffer(stream);
         }
         currentFile = file;

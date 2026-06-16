@@ -193,7 +193,23 @@ function clearPreparedFiles(Module) {
   }
 }
 
-function addPreparedGLBFromFilesystem(Module, scene, prepared) {
+// Extract the file-name extension (including the leading dot, e.g. ".glb"),
+// or "" when the name has none. Strips any directory portion first.
+function extensionFromName(fileName) {
+  if (typeof fileName !== "string") {
+    return "";
+  }
+  const base = fileName.split(/[\\/]/).pop() ?? "";
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(dot) : "";
+}
+
+// Load a prepared buffer through the in-memory filesystem: write it under a
+// temporary path that preserves the original extension, then `scene.add(path)`
+// so the reader is picked by file name. This mirrors how the desktop app and
+// the default model load files, and avoids the raw memory path's requirement
+// for `scene.force_reader` on VTK < 9.6.20260128.
+function addPreparedFileFromFilesystem(Module, scene, prepared, extension) {
   const directory = "/__glance3d_prepared";
   try {
     Module.FS.mkdir(directory);
@@ -202,7 +218,7 @@ function addPreparedGLBFromFilesystem(Module, scene, prepared) {
   }
 
   clearPreparedFiles(Module);
-  const path = `${directory}/prepared-${++preparedFileCounter}.glb`;
+  const path = `${directory}/upload-${++preparedFileCounter}${extension || ""}`;
   Module.FS.writeFile(path, prepared);
   preparedFilePaths.push(path);
   return scene.add(path);
@@ -240,7 +256,16 @@ function installGLTFHelpers(Module) {
             inputByteLength: toUint8Array(buffer).byteLength,
             outputByteLength: prepared.byteLength,
           });
-          return addPreparedGLBFromFilesystem(Module, scene, prepared);
+          return addPreparedFileFromFilesystem(Module, scene, prepared, ".glb");
+        }
+
+        // Non-GLB: load via the in-memory filesystem using the original
+        // extension so the reader is picked by file name. The raw memory path
+        // (addBuffer) requires `scene.force_reader` on VTK < 9.6.20260128 and
+        // throws "No force reader set ..." otherwise.
+        const extension = extensionFromName(options?.fileName);
+        if (extension) {
+          return addPreparedFileFromFilesystem(Module, scene, prepared, extension);
         }
 
         return addBuffer(prepared);
