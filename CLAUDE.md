@@ -57,3 +57,24 @@ ctest -L assimp -L piped    # 标签可叠加
 
 新增应用层测试：在 `application/testing/` 的 CMakeLists 里加 `f3d_test(NAME ... DATA ... ARGS ...)`，首次运行会失败并生成图，目检后把图放进 `testing/baselines/` 再跑过。所有 `f3d_test` 关键字见 `cmake/f3dTest.cmake`。
 
+## 日志 / 排查
+
+桌面应用**每次启动都会自动写一个日志文件**，无需任何开关。排查问题时直接去读最新的日志文件即可，不必向用户索要。
+
+- **位置**：用户缓存目录下的 `f3d/logs/`
+  - Windows：`%LOCALAPPDATA%\f3d\logs\`
+  - Linux：`$XDG_CACHE_HOME/f3d/logs/` 或 `~/.cache/f3d/logs/`
+  - macOS：`~/Library/Caches/f3d/logs/`
+- **文件名**：`f3d_YYYYMMDD_HHMMSS_mmm.log`，每次运行一个独立文件，按时间戳排序。默认保留最近 10 个（`F3D_LOG_KEEP` 可改）。
+- **内容**：记录**全部级别（含 DEBUG）**，**与控制台 `--verbose` 无关**——即使用户没开 verbose，文件里也有完整 debug 链路。含毫秒时间戳、级别标签、启动命令行；WARN/ERROR 立即落盘，能保留崩溃前最后的错误。
+
+读最新一条日志（Windows PowerShell）：
+
+```powershell
+Get-Content (Get-ChildItem "$env:LOCALAPPDATA\f3d\logs\f3d_*.log" | Sort-Object Name | Select-Object -Last 1).FullName
+```
+
+环境变量开关：`F3D_LOG_FILE=0` 关闭文件日志；`F3D_LOG_DIR=<path>` 改目录；`F3D_LOG_KEEP=<n>` 改保留数。
+
+实现见 `application/F3DLogFile.cxx`（通过 `f3d::log::forward()` 挂接）。**已知限制**：VTK 第三方内部告警（`vtkWarningMacro` 等）直接写 `vtkOutputWindow`、不经过 `F3DLog::Print`，故不进文件——这类只在 `--verbose=debug` 的控制台输出里能看到。
+
