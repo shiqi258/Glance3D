@@ -61,20 +61,45 @@ ctest -L assimp -L piped    # 标签可叠加
 
 桌面应用**每次启动都会自动写一个日志文件**，无需任何开关。排查问题时直接去读最新的日志文件即可，不必向用户索要。
 
-- **位置**：用户缓存目录下的 `f3d/logs/`
-  - Windows：`%LOCALAPPDATA%\f3d\logs\`
-  - Linux：`$XDG_CACHE_HOME/f3d/logs/` 或 `~/.cache/f3d/logs/`
-  - macOS：`~/Library/Caches/f3d/logs/`
-- **文件名**：`f3d_YYYYMMDD_HHMMSS_mmm.log`，每次运行一个独立文件，按时间戳排序。默认保留最近 10 个（`F3D_LOG_KEEP` 可改）。
+- **位置**：用户缓存目录下的 `Glance3D/logs/`
+  - Windows：`%LOCALAPPDATA%\Glance3D\logs\`
+  - Linux：`$XDG_CACHE_HOME/Glance3D/logs/` 或 `~/.cache/Glance3D/logs/`
+  - macOS：`~/Library/Caches/Glance3D/logs/`
+- **文件名**：`g3d_YYYYMMDD_HHMMSS_mmm.log`，每次运行一个独立文件，按时间戳排序。默认保留最近 10 个（`G3D_LOG_KEEP` 可改）。
 - **内容**：记录**全部级别（含 DEBUG）**，**与控制台 `--verbose` 无关**——即使用户没开 verbose，文件里也有完整 debug 链路。含毫秒时间戳、级别标签、启动命令行；WARN/ERROR 立即落盘，能保留崩溃前最后的错误。
 
 读最新一条日志（Windows PowerShell）：
 
 ```powershell
-Get-Content (Get-ChildItem "$env:LOCALAPPDATA\f3d\logs\f3d_*.log" | Sort-Object Name | Select-Object -Last 1).FullName
+Get-Content (Get-ChildItem "$env:LOCALAPPDATA\Glance3D\logs\g3d_*.log" | Sort-Object Name | Select-Object -Last 1).FullName
 ```
 
-环境变量开关：`F3D_LOG_FILE=0` 关闭文件日志；`F3D_LOG_DIR=<path>` 改目录；`F3D_LOG_KEEP=<n>` 改保留数。
+环境变量开关：`G3D_LOG_FILE=0` 关闭文件日志；`G3D_LOG_DIR=<path>` 改目录；`G3D_LOG_KEEP=<n>` 改保留数。
 
 实现见 `application/F3DLogFile.cxx`（通过 `f3d::log::forward()` 挂接）。**已知限制**：VTK 第三方内部告警（`vtkWarningMacro` 等）直接写 `vtkOutputWindow`、不经过 `F3DLog::Print`，故不进文件——这类只在 `--verbose=debug` 的控制台输出里能看到。
+
+### 网页查看器（WebAssembly）日志
+
+网页查看器在 `examples/libf3d/web`（Vite + 上游 wasm 绑定）。浏览器 JS 不能直接写本地磁盘，所以网页日志靠**本地采集进程**落盘。**排查网页问题时直接读最新的 `g3d_*_web.log` 即可，不必向用户索要。**
+
+- **位置 / 文件名**：和桌面**同一目录**（`%LOCALAPPDATA%\Glance3D\logs\` 等），文件名 `g3d_YYYYMMDD_HHMMSS_mmm_web.log`，每次采集一个独立文件，沿用同一套 `G3D_LOG_FILE` / `G3D_LOG_DIR` / `G3D_LOG_KEEP` 开关（默认保留 10）。`_web.log` 后缀用于和桌面 `g3d_*.log` 区分。
+- **行格式**：`[HH:MM:SS.mmm] [LEVEL] [来源] 消息`。`来源` 取值 `console`（JS/WASM 经 console）、`rendering`（**WebGL/GPU 底层告警**）、`network` / `security` / `deprecation`、`exception`（未捕获异常）等。
+
+启动（一条命令同时起 dev server + 带调试端口的浏览器 + CDP 采集器）：
+
+```bash
+cd examples/libf3d/web
+npm run dev:logged
+```
+
+读最新一条网页日志（Windows PowerShell）：
+
+```powershell
+Get-Content (Get-ChildItem "$env:LOCALAPPDATA\Glance3D\logs\g3d_*_web.log" | Sort-Object Name | Select-Object -Last 1).FullName
+```
+
+**采集机制（两层）**：
+
+- **主通道 = CDP DevTools 镜像**（`scripts/collect-browser-devtools-logs.mjs`，`dev:logged` 自动拉起）。通过 Chrome DevTools 协议订阅 `Log.entryAdded` / `Runtime.consoleAPICalled` / `Runtime.exceptionThrown`，把**整个 DevTools 控制台**镜像到 `g3d_*_web.log`——**这是唯一能抓到浏览器原生 WebGL 底层日志的路径**。落点/格式逻辑在 `scripts/glance3d-weblog.mjs`（桌面 `F3DLogFile` 的 JS 移植）。
+- **辅通道 = 页面内钩子**（`src/browser-console-log.js` + `vite.config.js` 中间件，`browser-log.config.json` 控制）。劫持 `console.*` / `onerror` / `unhandledrejection`，并经 `main.js` 的 `Module.Log.forward()` 接入 f3d 日志，批量 POST 到 Vite，写 `logs/browser-console.jsonl`。**已知限制**：猴补丁 `console.*` **抓不到浏览器原生日志**（WebGL/CSP/弃用等由浏览器引擎直接写控制台，不经过 JS）——这类只有主通道（CDP）能记录。普通 `npm run dev` 只有辅通道。
 

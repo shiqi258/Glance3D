@@ -15,9 +15,9 @@
  * it never affects the application.
  *
  * Behaviour can be tuned through environment variables:
- * - F3D_LOG_FILE=0|false|off|no  disables file logging entirely
- * - F3D_LOG_DIR=<path>           overrides the log directory
- * - F3D_LOG_KEEP=<n>             number of log files to keep (default 10)
+ * - G3D_LOG_FILE=0|false|off|no  disables file logging entirely
+ * - G3D_LOG_DIR=<path>           overrides the log directory
+ * - G3D_LOG_KEEP=<n>             number of log files to keep (default 10)
  *
  * Construct this object in main(), before the application is started and
  * outside the try/catch block, so that early logs and the top-level
@@ -60,7 +60,7 @@ private:
   void Write(f3d::log::VerboseLevel level, const std::string& msg);
 
   /**
-   * Remove old `f3d_*.log` files from logDir, keeping at most the most recent
+   * Remove old `g3d_*.log` files from logDir, keeping at most the most recent
    * ones (so that, once the new file is created, the total stays within the
    * configured limit). Best-effort, never throws.
    */

@@ -177,7 +177,8 @@ fs::path F3DSystemTools::GetUserConfigFileDirectory()
 //----------------------------------------------------------------------------
 fs::path F3DSystemTools::GetUserCacheDirectory()
 {
-  std::string applicationName = "f3d";
+  // Per-user cache/log root for Glance3D (currently only used for the log file).
+  std::string applicationName = "Glance3D";
   fs::path dirPath;
 #if defined(_WIN32)
   std::optional<std::string> appData =

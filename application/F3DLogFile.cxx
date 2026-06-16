@@ -62,7 +62,7 @@ F3DLogFile::F3DLogFile(int argc, char** argv)
 void F3DLogFile::Initialize(int argc, char** argv)
 {
   // Opt-out via environment variable
-  std::optional<std::string> disable = ::GetEnvLower("F3D_LOG_FILE");
+  std::optional<std::string> disable = ::GetEnvLower("G3D_LOG_FILE");
   if (disable.has_value())
   {
     const std::string& val = disable.value();
@@ -74,7 +74,7 @@ void F3DLogFile::Initialize(int argc, char** argv)
 
   // Resolve the log directory: explicit override, else the user cache directory
   fs::path logDir;
-  std::optional<std::string> dirOverride = f3d::utils::getEnv("F3D_LOG_DIR");
+  std::optional<std::string> dirOverride = f3d::utils::getEnv("G3D_LOG_DIR");
   if (dirOverride.has_value() && !dirOverride.value().empty())
   {
     logDir = fs::path(dirOverride.value());
@@ -100,7 +100,7 @@ void F3DLogFile::Initialize(int argc, char** argv)
   // Prune old logs before adding a new one
   F3DLogFile::PruneOldLogs(logDir);
 
-  // Build a timestamped filename: f3d_YYYYMMDD_HHMMSS_mmm.log. The millisecond
+  // Build a timestamped filename: g3d_YYYYMMDD_HHMMSS_mmm.log. The millisecond
   // suffix keeps it unique even when two instances start in the same second.
   const auto nowTp = std::chrono::system_clock::now();
   const std::time_t now = std::chrono::system_clock::to_time_t(nowTp);
@@ -108,7 +108,7 @@ void F3DLogFile::Initialize(int argc, char** argv)
     std::chrono::duration_cast<std::chrono::milliseconds>(nowTp.time_since_epoch()) % 1000;
   std::tm* localNow = std::localtime(&now);
   std::stringstream nameStream;
-  nameStream << "f3d_" << std::put_time(localNow, "%Y%m%d_%H%M%S") << '_' << std::setfill('0')
+  nameStream << "g3d_" << std::put_time(localNow, "%Y%m%d_%H%M%S") << '_' << std::setfill('0')
              << std::setw(3) << nowMs.count() << ".log";
   fs::path logPath = logDir / nameStream.str();
 
@@ -120,7 +120,7 @@ void F3DLogFile::Initialize(int argc, char** argv)
   }
 
   // Header block
-  this->Stream << "==== F3D " << F3D::AppVersionFull << " ====\n";
+  this->Stream << "==== Glance3D " << F3D::AppVersionFull << " ====\n";
   this->Stream << "Session start: " << std::put_time(localNow, "%Y-%m-%d %H:%M:%S") << "\n";
   this->Stream << "Command line:";
   for (int i = 0; i < argc; i++)
@@ -193,7 +193,7 @@ void F3DLogFile::PruneOldLogs(const fs::path& logDir)
 {
   // Number of log files to keep (including the one about to be created)
   int keep = 10;
-  std::optional<std::string> keepEnv = f3d::utils::getEnv("F3D_LOG_KEEP");
+  std::optional<std::string> keepEnv = f3d::utils::getEnv("G3D_LOG_KEEP");
   if (keepEnv.has_value())
   {
     try
@@ -209,14 +209,14 @@ void F3DLogFile::PruneOldLogs(const fs::path& logDir)
 
   try
   {
-    // Collect existing f3d_*.log files
+    // Collect existing g3d_*.log files
     std::vector<fs::path> logs;
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator(logDir, ec))
     {
       const fs::path& p = entry.path();
       const std::string name = p.filename().string();
-      if (name.rfind("f3d_", 0) == 0 && p.extension() == ".log")
+      if (name.rfind("g3d_", 0) == 0 && p.extension() == ".log")
       {
         logs.push_back(p);
       }

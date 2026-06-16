@@ -1,13 +1,28 @@
+// Mirror the *entire* browser DevTools console to a desktop-aligned log file
+// via the Chrome DevTools Protocol (CDP). Unlike the in-page console hook, this
+// captures browser-native messages too: WebGL / GPU diagnostics (source
+// "rendering"), network, security, CSP and deprecation warnings — anything that
+// shows up in DevTools, including things page JavaScript can never observe.
+//
+// Run a Chromium browser with remote debugging first, e.g.:
+//   msedge --remote-debugging-port=9222 --user-data-dir="%TEMP%\glance3d-cdp" http://localhost:5173/
+// then start this collector. `npm run dev:logged` wires all of that up for you.
+
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+
+import {
+  normalizeLevel,
+  resolveLogDir,
+  startWebLogSession,
+} from "./glance3d-weblog.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const scriptsDir = path.dirname(__filename);
 const webDir = path.resolve(scriptsDir, "..");
 const configPath = path.join(webDir, "browser-log.config.json");
 const defaultConfig = {
-  logFile: "../../../logs/browser-console.jsonl",
   devtools: {
     host: "127.0.0.1",
     port: 9222,
@@ -28,10 +43,15 @@ const args = new Map(
 
 if (args.has("help")) {
   console.log(`Usage:
-  npm run collect:browser-logs -- [--host=127.0.0.1] [--port=9222] [--url=127.0.0.1:5175]
+  npm run collect:browser-logs -- [--host=127.0.0.1] [--port=9222] [--url=localhost] [--log-file=PATH]
 
-Before running this collector, start Edge or Chrome with remote debugging, for example:
-  msedge --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir="%TEMP%\\glance3d-edge-cdp"
+Captures the full DevTools console (console API, uncaught exceptions, and
+browser-native messages such as WebGL/GPU warnings) to a desktop-aligned log
+file under %LOCALAPPDATA%\\Glance3D\\logs\\g3d_*_web.log (override with G3D_LOG_DIR,
+disable with G3D_LOG_FILE=0, keep count via G3D_LOG_KEEP).
+
+Before running this collector, start Edge or Chrome with remote debugging:
+  msedge --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir="%TEMP%\\glance3d-cdp"
 `);
   process.exit(0);
 }
@@ -64,35 +84,18 @@ const captureRuntimeConsole =
   args.get("runtime-console") === "false"
     ? false
     : devtoolsConfig.captureRuntimeConsole !== false;
-const logFile = path.resolve(
-  webDir,
-  args.get("log-file") || config.logFile || defaultConfig.logFile,
-);
+const explicitLogFile = args.has("log-file")
+  ? path.resolve(webDir, args.get("log-file"))
+  : undefined;
 const targetListUrl = `http://${host}:${port}/json/list`;
 let shuttingDown = false;
 
+if (!explicitLogFile && resolveLogDir() === null) {
+  console.log("File logging disabled via G3D_LOG_FILE; nothing to collect to.");
+  process.exit(0);
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const appendEntry = async (entry) => {
-  await fs.promises.mkdir(path.dirname(logFile), { recursive: true });
-  await fs.promises.appendFile(logFile, `${JSON.stringify(entry)}\n`, "utf8");
-};
-
-const levelFromDevTools = (levelOrType) => {
-  switch (levelOrType) {
-    case "debug":
-      return "debug";
-    case "warning":
-    case "warn":
-      return "warn";
-    case "error":
-      return "error";
-    case "info":
-      return "info";
-    default:
-      return "log";
-  }
-};
 
 const remoteObjectValue = (arg) => {
   if (!arg || typeof arg !== "object") {
@@ -105,6 +108,23 @@ const remoteObjectValue = (arg) => {
     return arg.value;
   }
   return arg.description || arg.className || arg.type;
+};
+
+const stringifyArg = (value) => {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return String(value);
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 };
 
 const loadTargets = async () => {
@@ -185,34 +205,55 @@ class CDPConnection {
 }
 
 const connectAndCollect = async (target) => {
+  const session = startWebLogSession({
+    source: "cdp-devtools",
+    explicitFile: explicitLogFile,
+    meta: [
+      `Source: CDP DevTools mirror (${host}:${port})`,
+      `Page: ${target.url}`,
+    ],
+  });
+
+  if (!session) {
+    console.log("Could not open a log file; aborting.");
+    process.exit(1);
+  }
+
   const connection = new CDPConnection(target.webSocketDebuggerUrl);
   await connection.open();
 
+  // Browser-native messages: WebGL/GPU ("rendering"), network, security, etc.
   connection.on("Log.entryAdded", ({ entry }) => {
-    appendEntry({
-      ts: new Date().toISOString(),
-      level: levelFromDevTools(entry.level),
-      kind: "devtools",
-      source: "cdp.Log.entryAdded",
-      cdpSource: entry.source,
-      args: [entry.text],
-      url: entry.url || target.url,
-      lineNumber: entry.lineNumber,
-      stackTrace: entry.stackTrace,
-    }).catch(() => {});
+    let message = entry.text || "";
+    if (entry.url) {
+      message += ` (${entry.url}${
+        entry.lineNumber != null ? `:${entry.lineNumber}` : ""
+      })`;
+    }
+    session.write(normalizeLevel(entry.level), entry.source || "other", message);
   });
 
+  // Uncaught exceptions and unhandled rejections with their stacks.
+  connection.on("Runtime.exceptionThrown", ({ exceptionDetails }) => {
+    const details = exceptionDetails || {};
+    const exception = details.exception || {};
+    const message =
+      exception.description ||
+      details.text ||
+      remoteObjectValue(exception) ||
+      "Uncaught exception";
+    session.write("ERROR", "exception", message);
+  });
+
+  // console.* calls (covers WASM/f3d stdout/stderr that Emscripten routes to
+  // console, plus the in-page viewer logs).
   if (captureRuntimeConsole) {
     connection.on("Runtime.consoleAPICalled", (event) => {
-      appendEntry({
-        ts: new Date(event.timestamp).toISOString(),
-        level: levelFromDevTools(event.type),
-        kind: "devtools",
-        source: "cdp.Runtime.consoleAPICalled",
-        args: (event.args || []).map(remoteObjectValue),
-        url: event.stackTrace?.callFrames?.[0]?.url || target.url,
-        stackTrace: event.stackTrace,
-      }).catch(() => {});
+      const message = (event.args || [])
+        .map(remoteObjectValue)
+        .map(stringifyArg)
+        .join(" ");
+      session.write(normalizeLevel(event.type), "console", message);
     });
   }
 
@@ -220,7 +261,7 @@ const connectAndCollect = async (target) => {
   await connection.call("Runtime.enable");
 
   console.log(`Collecting DevTools logs from ${target.url}`);
-  console.log(`Writing to ${logFile}`);
+  console.log(`Writing to ${session.file}`);
 
   if (args.has("once")) {
     await sleep(Number(args.get("timeout") || 3000));

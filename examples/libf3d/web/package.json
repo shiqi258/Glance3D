@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:logged": "node scripts/dev-with-logs.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "clear:browser-logs": "node scripts/clear-browser-logs.mjs",
