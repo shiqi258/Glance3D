@@ -97,6 +97,23 @@ if (!explicitLogFile && resolveLogDir() === null) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Render a CDP RemoteObjectPreview (the shallow property snapshot Chrome
+// attaches to console-API object args) instead of dropping it. Without this,
+// objects logged as a separate console arg collapse to a bare "Object".
+const previewToString = (preview) => {
+  if (!preview || !Array.isArray(preview.properties)) {
+    return undefined;
+  }
+  const parts = preview.properties.map((prop) =>
+    prop.value !== undefined ? `${prop.name}: ${prop.value}` : `${prop.name}: ${prop.type}`,
+  );
+  const body = parts.join(", ");
+  if (Array.isArray(preview.entries) || preview.subtype === "array") {
+    return preview.overflow ? `[${body}, …]` : `[${body}]`;
+  }
+  return preview.overflow ? `{${body}, …}` : `{${body}}`;
+};
+
 const remoteObjectValue = (arg) => {
   if (!arg || typeof arg !== "object") {
     return arg;
@@ -106,6 +123,10 @@ const remoteObjectValue = (arg) => {
   }
   if ("value" in arg) {
     return arg.value;
+  }
+  const previewed = previewToString(arg.preview);
+  if (previewed !== undefined) {
+    return previewed;
   }
   return arg.description || arg.className || arg.type;
 };

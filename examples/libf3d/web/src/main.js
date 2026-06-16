@@ -9,7 +9,20 @@ import f3d from "f3d";
 installBrowserConsoleLogger();
 
 const logViewerState = (message, details = {}) => {
-  console.debug("[viewer]", message, details);
+  // Fold `details` into the message string. The CDP DevTools mirror records
+  // console args by their RemoteObject `description`, which collapses any plain
+  // object to a bare "Object" — so an object passed as a separate arg loses all
+  // its fields in g3d_*_web.log. Serializing here keeps the values legible in
+  // both log channels (CDP mirror + in-page JSONL hook).
+  let detailText = "";
+  if (details && Object.keys(details).length > 0) {
+    try {
+      detailText = " " + JSON.stringify(details);
+    } catch {
+      detailText = " [unserializable details]";
+    }
+  }
+  console.debug("[viewer]", message + detailText);
 };
 
 const mapF3DLogLevel = (Module, level) => {
