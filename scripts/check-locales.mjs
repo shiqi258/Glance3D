@@ -23,9 +23,22 @@ const SOURCE_DIRS = [
 ];
 
 // A C++ double-quoted string literal: handles \" and other escapes.
-const STR = String.raw`"((?:[^"\\]|\\.)*)"`;
-// translate(...) / Translate(...) / tr(...) with a single string-literal first arg.
-const CALL_RE = new RegExp(String.raw`(?:\bt(?:ranslate|r)|\bTranslate)\s*\(\s*${STR}`, 'g');
+const STR = String.raw`"(?:[^"\\]|\\.)*"`;
+// translate(...) / Translate(...) / tr(...) whose first argument is one or more
+// adjacent string literals (C++ concatenates them, e.g. "part 1 " "part 2").
+const CALL_RE = new RegExp(
+  String.raw`(?:\bt(?:ranslate|r)|\bTranslate)\s*\(\s*(${STR}(?:\s*${STR})*)`, 'g');
+
+// Concatenate the adjacent string literals captured as one source-key.
+function literalsToKey(seq) {
+  const re = /"((?:[^"\\]|\\.)*)"/g;
+  let out = '';
+  let m;
+  while ((m = re.exec(seq)) !== null) {
+    out += unescapeLiteral(m[1]);
+  }
+  return out;
+}
 
 function walk(dir, out) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -133,7 +146,7 @@ for (const d of SOURCE_DIRS) {
     const txt = fs.readFileSync(file, 'utf8');
     let m;
     while ((m = CALL_RE.exec(txt)) !== null) {
-      keys.add(unescapeLiteral(m[1]));
+      keys.add(literalsToKey(m[1]));
     }
   }
 }

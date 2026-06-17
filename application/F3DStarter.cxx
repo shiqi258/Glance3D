@@ -245,14 +245,17 @@ public:
     }
     else
     {
-      f3d::log::warn("Unrecognized verbose level: ", level,
-        ", Ignoring. Possible values are quiet, error, warning, info, debug");
+      f3d::log::warn(g3d::locale::translate(
+        "Unrecognized verbose level: {level}, Ignoring. Possible values are quiet, error, warning, "
+        "info, debug",
+        { { "level", level } }));
     }
 
     if (forceStdErr)
     {
-      f3d::log::info("Output image will be saved to stdout, all log types including debug and info "
-                     "levels are redirected to stderr");
+      f3d::log::info(g3d::locale::translate(
+        "Output image will be saved to stdout, all log types including debug and info levels are "
+        "redirected to stderr"));
     }
   }
 
@@ -414,7 +417,8 @@ public:
         std::string formatted = ss.str();
         if (formatted == fmt)
         {
-          f3d::log::warn("invalid date format for \"", var, "\"");
+          f3d::log::warn(
+            g3d::locale::translate("invalid date format for \"{var}\"", { { "var", var } }));
         }
         return formatted;
       }
@@ -448,7 +452,8 @@ public:
       {
         if (!frame.has_value())
         {
-          f3d::log::warn("{frame} variable can only be used when outputting animation frames");
+          f3d::log::warn(g3d::locale::translate(
+            "{frame} variable can only be used when outputting animation frames"));
           throw f3d::utils::string_template::lookup_error(var);
         }
         std::stringstream formattedFrame;
@@ -461,7 +466,8 @@ public:
         {
           if (!fmt.empty())
           {
-            f3d::log::warn("ignoring invalid frame format for \"", var, "\"");
+            f3d::log::warn(
+              g3d::locale::translate("ignoring invalid frame format for \"{var}\"", { { "var", var } }));
           }
           formattedFrame << std::setw(0) << frame.value();
         }
@@ -494,7 +500,8 @@ public:
           {
             if (!fmt.empty() && number == 1) /* avoid spamming the log */
             {
-              f3d::log::warn("ignoring invalid number format for \"", var, "\"");
+              f3d::log::warn(g3d::locale::translate(
+                "ignoring invalid number format for \"{var}\"", { { "var", var } }));
             }
             formattedNumber << std::setw(0) << number;
           }
@@ -540,8 +547,9 @@ public:
       {
         if (auto [it, inserted] = erroredPatterns.emplace(match); inserted)
         {
-          f3d::log::error("There was an error in the config ", source, " for glob pattern `", match,
-            "`: ", ex.what());
+          f3d::log::error(g3d::locale::translate(
+            "There was an error in the config {source} for glob pattern `{match}`: {error}",
+            { { "source", source }, { "match", match }, { "error", ex.what() } }));
         }
         return false;
       }
@@ -549,8 +557,10 @@ public:
       {
         if (auto [it, inserted] = erroredPatterns.emplace(match); inserted)
         {
-          f3d::log::error("There was an error in the config ", source, " for ", matchType,
-            " pattern `", match, "`: ", ex.what());
+          f3d::log::error(g3d::locale::translate(
+            "There was an error in the config {source} for {type} pattern `{match}`: {error}",
+            { { "source", source }, { "type", matchType }, { "match", match },
+              { "error", ex.what() } }));
         }
         return false;
       }
@@ -638,7 +648,8 @@ public:
               // Handle CLI options deprecation simple warnings
               if (key == "animation-index")
               {
-                f3d::log::warn("animation-index is deprecated, please use animation-indices");
+                f3d::log::warn(
+                  g3d::locale::translate("animation-index is deprecated, please use animation-indices"));
               }
 
               // Convert key into a libf3d option name if possible
@@ -661,8 +672,9 @@ public:
                   }
                   else
                   {
-                    f3d::log::warn("Invalid option: 'reset' must be followed by a valid option "
-                                   "name, ignoring entry");
+                    f3d::log::warn(g3d::locale::translate(
+                      "Invalid option: 'reset' must be followed by a valid option name, ignoring "
+                      "entry"));
                     continue;
                   }
                 }
@@ -700,8 +712,10 @@ public:
                   if (!quiet)
                   {
                     const std::string origin = F3DInternals::FormatOrigin(source, matchType, match);
-                    f3d::log::warn("Could not set '", keyForLog, "' to '", libf3dOptionValue,
-                      "' from ", origin, " because: ", ex.what());
+                    f3d::log::warn(g3d::locale::translate(
+                      "Could not set '{key}' to '{value}' from {origin} because: {error}",
+                      { { "key", keyForLog }, { "value", libf3dOptionValue }, { "origin", origin },
+                        { "error", ex.what() } }));
                   }
                 }
                 catch (const f3d::options::inexistent_exception&)
@@ -711,8 +725,9 @@ public:
                     const std::string origin = F3DInternals::FormatOrigin(source, matchType, match);
                     auto [closestName, dist] =
                       F3DOptionsTools::GetClosestOption(libf3dOptionName, true);
-                    f3d::log::warn("'", keyForLog, "' option from ", origin,
-                      " does not exists , did you mean '", closestName, "'?");
+                    f3d::log::warn(g3d::locale::translate(
+                      "'{key}' option from {origin} does not exists , did you mean '{closest}'?",
+                      { { "key", keyForLog }, { "origin", origin }, { "closest", closestName } }));
                   }
                 }
               }
@@ -753,7 +768,8 @@ public:
   {
     if (!F3DOptionsTools::Parse(appOptions.at(name), option))
     {
-      f3d::log::warn("Could not parse '" + appOptions.at(name) + "' into '" + name + "' option");
+      f3d::log::warn(g3d::locale::translate("Could not parse '{value}' into '{name}' option",
+        { { "value", appOptions.at(name) }, { "name", name } }));
     }
   }
 
@@ -877,7 +893,7 @@ public:
       }
       else if (!this->AppOptions.Resolution.empty())
       {
-        f3d::log::warn("Provided resolution could not be applied");
+        f3d::log::warn(g3d::locale::translate("Provided resolution could not be applied"));
       }
 
       if (this->AppOptions.Position.size() == 2)
@@ -888,7 +904,7 @@ public:
       {
         if (!this->AppOptions.Position.empty())
         {
-          f3d::log::warn("Provided position could not be applied");
+          f3d::log::warn(g3d::locale::translate("Provided position could not be applied"));
         }
 
 #ifdef __APPLE__
@@ -1119,8 +1135,9 @@ int F3DStarter::Start(int argc, char** argv)
   {
     if (!F3DOptionsTools::Parse(iter->second, noConfig))
     {
-      f3d::log::warn(
-        "Could not parse '" + iter->second + "' into 'no-config' option, assuming false");
+      f3d::log::warn(g3d::locale::translate(
+        "Could not parse '{value}' into 'no-config' option, assuming false",
+        { { "value", iter->second } }));
     }
   }
 
@@ -1204,7 +1221,8 @@ int F3DStarter::Start(int argc, char** argv)
   const auto& mode = this->Internals->AppOptions.MultiFileMode;
   if (mode != "single" && mode != "all" && mode != "dir")
   {
-    f3d::log::warn("Unrecognized multi-file-mode: ", mode, ". Assuming \"single\" mode.");
+    f3d::log::warn(g3d::locale::translate(
+      "Unrecognized multi-file-mode: {mode}. Assuming \"single\" mode.", { { "mode", mode } }));
     this->Internals->AppOptions.MultiFileMode = "single";
   }
 
@@ -1216,8 +1234,8 @@ int F3DStarter::Start(int argc, char** argv)
     }
     catch (const std::regex_error&)
     {
-      f3d::log::error(
-        "invalid regular expression: ", std::quoted(this->Internals->AppOptions.MultiFileRegex));
+      f3d::log::error(g3d::locale::translate("invalid regular expression: \"{regex}\"",
+        { { "regex", this->Internals->AppOptions.MultiFileRegex } }));
       this->Internals->AppOptions.MultiFileRegex = "";
     }
   }
@@ -1262,7 +1280,8 @@ int F3DStarter::Start(int argc, char** argv)
       {
         if (this->Internals->AppOptions.RenderingBackend != "auto")
         {
-          f3d::log::warn("--rendering-backend value is invalid, falling back to \"auto\"");
+          f3d::log::warn(g3d::locale::translate(
+            "--rendering-backend value is invalid, falling back to \"auto\""));
         }
         this->Internals->Engine = std::make_unique<f3d::engine>(f3d::engine::create(offscreen));
       }
@@ -1281,12 +1300,14 @@ int F3DStarter::Start(int argc, char** argv)
     }
     catch (const f3d::engine::no_window_exception& ex)
     {
-      f3d::log::error("Could not create the window: ", ex.what());
+      f3d::log::error(
+        g3d::locale::translate("Could not create the window: {error}", { { "error", ex.what() } }));
       return EXIT_FAILURE;
     }
     catch (const f3d::engine::cache_exception& ex)
     {
-      f3d::log::error("Could not use default cache directory: ", ex.what());
+      f3d::log::error(g3d::locale::translate(
+        "Could not use default cache directory: {error}", { { "error", ex.what() } }));
       return EXIT_FAILURE;
     }
 
@@ -1317,10 +1338,10 @@ int F3DStarter::Start(int argc, char** argv)
     // Print bindings list and exits if needed
     if (this->Internals->AppOptions.BindingsList)
     {
-      f3d::log::info("Bindings:");
+      f3d::log::info(g3d::locale::translate("Bindings:"));
       for (const std::string& group : interactor.getBindGroups())
       {
-        f3d::log::info(" ", group, ":");
+        f3d::log::info(" ", g3d::locale::translate(group), ":");
         for (const f3d::interaction_bind_t& bind : interactor.getBindsForGroup(group))
         {
           // XXX: Formatting could be improved here
@@ -1373,7 +1394,8 @@ int F3DStarter::Start(int argc, char** argv)
             // as neither libf3d nor F3D has command that can trigger it
             if (!interactor.triggerCommand(command))
             {
-              f3d::log::error("Error in command script, stopping script execution");
+              f3d::log::error(
+                g3d::locale::translate("Error in command script, stopping script execution"));
               break;
             }
           }
@@ -1382,7 +1404,7 @@ int F3DStarter::Start(int argc, char** argv)
       }
       else
       {
-        f3d::log::error("Unable to open command script file");
+        f3d::log::error(g3d::locale::translate("Unable to open command script file"));
         return EXIT_FAILURE;
       }
     }
@@ -1409,9 +1431,10 @@ int F3DStarter::Start(int argc, char** argv)
         {
           if (output.empty())
           {
-            f3d::log::error("Reference image ", reference,
-              " does not exist, use the output option to output current rendering into an image "
-              "file.\n");
+            f3d::log::error(g3d::locale::translate(
+              "Reference image {ref} does not exist, use the output option to output current "
+              "rendering into an image file.\n",
+              { { "ref", reference.string() } }));
           }
           else
           {
@@ -1426,15 +1449,18 @@ int F3DStarter::Start(int argc, char** argv)
               return EXIT_FAILURE;
             }
 
-            f3d::log::error("Reference image ", reference,
-              " does not exist, current rendering has been outputted to ", output, ".\n");
+            f3d::log::error(g3d::locale::translate(
+              "Reference image {ref} does not exist, current rendering has been outputted to "
+              "{output}.\n",
+              { { "ref", reference.string() }, { "output", output.string() } }));
           }
           return EXIT_FAILURE;
         }
       }
       catch (const fs::filesystem_error& ex)
       {
-        f3d::log::error("Error reading reference image: ", ex.what());
+        f3d::log::error(
+          g3d::locale::translate("Error reading reference image: {error}", { { "error", ex.what() } }));
         return EXIT_FAILURE;
       }
 
@@ -1447,13 +1473,16 @@ int F3DStarter::Start(int argc, char** argv)
       {
         if (output.empty())
         {
-          f3d::log::error("Use the --output option to be able to output current rendering and diff "
-                          "images into files.\n");
+          f3d::log::error(g3d::locale::translate(
+            "Use the --output option to be able to output current rendering and diff images into "
+            "files.\n"));
         }
         else
         {
-          f3d::log::error("Current rendering difference with reference image: ", error,
-            " is higher than the threshold of ", threshold, ".\n");
+          f3d::log::error(g3d::locale::translate(
+            "Current rendering difference with reference image: {diff} is higher than the "
+            "threshold of {threshold}.\n",
+            { { "diff", std::to_string(error) }, { "threshold", std::to_string(threshold) } }));
 
           try
           {
@@ -1470,13 +1499,16 @@ int F3DStarter::Start(int argc, char** argv)
       }
       else
       {
-        f3d::log::info("Image comparison success with an error difference of: ", error);
+        f3d::log::info(g3d::locale::translate(
+          "Image comparison success with an error difference of: {diff}",
+          { { "diff", std::to_string(error) } }));
       }
 
       if (this->Internals->FilesGroups.size() > 1)
       {
-        f3d::log::warn("Image comparison was performed using a single 3D file, other provided "
-                       "3D files were ignored.");
+        f3d::log::warn(g3d::locale::translate(
+          "Image comparison was performed using a single 3D file, other provided 3D files were "
+          "ignored."));
       }
     }
     // Render to file if needed
@@ -1484,7 +1516,7 @@ int F3DStarter::Start(int argc, char** argv)
     {
       if (this->Internals->LoadedFiles.empty() && !noDataForceRender.has_value())
       {
-        f3d::log::error("No files loaded, no rendering performed");
+        f3d::log::error(g3d::locale::translate("No files loaded, no rendering performed"));
         return EXIT_FAILURE;
       }
 
@@ -1502,14 +1534,17 @@ int F3DStarter::Start(int argc, char** argv)
 
         if (count == 1)
         {
-          f3d::log::warn("No animation available or animation has zero duration, outputting single "
-                         "frame");
+          f3d::log::warn(g3d::locale::translate(
+            "No animation available or animation has zero duration, outputting single frame"));
         }
 
         const double timeStep = 1.0 / this->Internals->AppOptions.FrameRate;
 
-        f3d::log::info(
-          "Saving ", count, " animation frame(s) from time ", startTime, " to ", endTime);
+        f3d::log::info(g3d::locale::translate(
+          "Saving {n, plural, one{# animation frame} other{# animation frames}} from time {start} "
+          "to {end}",
+          { { "n", std::to_string(count) }, { "start", std::to_string(startTime) },
+            { "end", std::to_string(endTime) } }));
 
         for (int frame = 0; frame < count; ++frame)
         {
@@ -1522,7 +1557,9 @@ int F3DStarter::Start(int argc, char** argv)
           }
         }
 
-        f3d::log::info("Saved ", count, " animation frame(s)");
+        f3d::log::info(
+          g3d::locale::translate("Saved {n, plural, one{# animation frame} other{# animation frames}}",
+            { { "n", std::to_string(count) } }));
       }
       else
       {
@@ -1534,21 +1571,23 @@ int F3DStarter::Start(int argc, char** argv)
 
       if (this->Internals->FilesGroups.size() > 1)
       {
-        f3d::log::warn("An output image was saved using a single 3D file, other provided 3D "
-                       "files were ignored.");
+        f3d::log::warn(g3d::locale::translate(
+          "An output image was saved using a single 3D file, other provided 3D files were "
+          "ignored."));
       }
     }
     // Start interaction
     else
     {
 #ifdef F3D_HEADLESS_BUILD
-      f3d::log::error("This is a headless build of F3D, interactive rendering is not supported");
+      f3d::log::error(g3d::locale::translate(
+        "This is a headless build of F3D, interactive rendering is not supported"));
       return EXIT_FAILURE;
 #else
       if (this->Internals->Engine->getWindow().isOffscreen())
       {
-        f3d::log::warn(
-          "You are using an offscreen configuration, interactive rendering is disabled");
+        f3d::log::warn(g3d::locale::translate(
+          "You are using an offscreen configuration, interactive rendering is disabled"));
         return EXIT_SUCCESS;
       }
       else
@@ -1766,7 +1805,8 @@ void F3DStarter::LoadFileGroupInternal(
             auto forceReader = this->Internals->LibOptions.scene.force_reader;
             if (forceReader)
             {
-              f3d::log::warn("Forced reader ", *forceReader, " doesn't exist");
+              f3d::log::warn(g3d::locale::translate(
+                "Forced reader {reader} doesn't exist", { { "reader", *forceReader } }));
             }
             else
             {
@@ -1832,7 +1872,8 @@ void F3DStarter::LoadFileGroupInternal(
         }
         catch (const f3d::scene::load_failure_exception& ex)
         {
-          f3d::log::error("Input stream could not be loaded: ", ex.what());
+          f3d::log::error(
+            g3d::locale::translate("Input stream could not be loaded: {error}", { { "error", ex.what() } }));
         }
       }
 
@@ -1973,11 +2014,13 @@ void F3DStarter::SaveScreenshot(const std::string& filenameTemplate, bool minima
     path = this->Internals->finalizeFilenameTemplate(
       this->Internals->prepareFilenameTemplate(f3d::utils::collapsePath(filenameTemplate, dir)));
     fs::create_directories(path.parent_path());
-    f3d::log::info("saving screenshot to " + path.string());
+    f3d::log::info(
+      g3d::locale::translate("saving screenshot to {path}", { { "path", path.string() } }));
   }
   catch (const fs::filesystem_error& ex)
   {
-    f3d::log::error("Error recovering screenshot path: ", ex.what());
+    f3d::log::error(g3d::locale::translate(
+      "Error recovering screenshot path: {error}", { { "error", ex.what() } }));
     return;
   }
 
@@ -2101,7 +2144,7 @@ int F3DStarter::AddFile(const fs::path& path, bool quiet)
   {
     if (!quiet)
     {
-      f3d::log::error("Error adding file: ", ex.what());
+      f3d::log::error(g3d::locale::translate("Error adding file: {error}", { { "error", ex.what() } }));
     }
     return -1;
   }
@@ -2292,7 +2335,8 @@ void F3DStarter::AddCommands()
     }
     catch (const fs::filesystem_error& ex)
     {
-      f3d::log::error("Error completing a filesystem path: ", ex.what());
+      f3d::log::error(g3d::locale::translate(
+        "Error completing a filesystem path: {error}", { { "error", ex.what() } }));
     }
 
     // Multi args, reconstruct the full candidates

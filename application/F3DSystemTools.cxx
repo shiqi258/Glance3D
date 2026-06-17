@@ -1,5 +1,6 @@
 #include "F3DSystemTools.h"
 
+#include "g3dLocale.h"
 #include "log.h"
 #include "utils.h"
 
@@ -33,7 +34,7 @@ fs::path GetApplicationPath()
   {
     return fs::path(wc.data());
   }
-  f3d::log::error("Cannot retrieve application path");
+  f3d::log::error(g3d::locale::translate("Cannot retrieve application path"));
   return {};
 #else
 #ifdef __APPLE__
@@ -41,7 +42,7 @@ fs::path GetApplicationPath()
   std::array<char, 1024> buffer;
   if (_NSGetExecutablePath(buffer.data(), &size) != 0)
   {
-    f3d::log::error("Executable is too long to recover application path");
+    f3d::log::error(g3d::locale::translate("Executable is too long to recover application path"));
     return {};
   }
   return fs::path(buffer.data());
@@ -64,7 +65,8 @@ fs::path GetApplicationPath()
   }
   catch (const std::exception& ex)
   {
-    f3d::log::error("Cannot retrieve application path: ", ex.what());
+    f3d::log::error(
+      g3d::locale::translate("Cannot retrieve application path: {error}", { { "error", ex.what() } }));
     return {};
   }
 #endif

@@ -2,6 +2,7 @@
 
 #include "F3DSystemTools.h"
 
+#include "g3dLocale.h"
 #include "image.h"
 #include "log.h"
 #include "utils.h"
@@ -69,7 +70,8 @@ fs::path Find(const std::string& str)
   }
   catch (const fs::filesystem_error& ex)
   {
-    f3d::log::error("Unable to look for color map ", str, ": ", ex.what());
+    f3d::log::error(g3d::locale::translate(
+      "Unable to look for color map {name}: {error}", { { "name", str }, { "error", ex.what() } }));
   }
 
   return {};
@@ -86,16 +88,20 @@ std::vector<double> Read1DMap(const fs::path& path, MapType type)
 
     if (channels < expectedChannels)
     {
-      f3d::log::error("The specified ", (type == MapType::Color ? "color" : "opacity"),
-        " map must have at least ", expectedChannels,
-        " channel" + std::string(expectedChannels > 1 ? "s" : ""));
+      f3d::log::error(g3d::locale::translate(
+        "The specified {map, select, color{color} opacity{opacity} other{}} map must have at "
+        "least {n, plural, one{# channel} other{# channels}}",
+        { { "map", type == MapType::Color ? "color" : "opacity" },
+          { "n", std::to_string(expectedChannels) } }));
       return {};
     }
 
     if (img.getHeight() != 1)
     {
-      f3d::log::warn("The specified ", (type == MapType::Color ? "color" : "opacity"),
-        " map height is not equal to 1, only the first row is taken into account");
+      f3d::log::warn(g3d::locale::translate(
+        "The specified {map, select, color{color} opacity{opacity} other{}} map height is not "
+        "equal to 1, only the first row is taken into account",
+        { { "map", type == MapType::Color ? "color" : "opacity" } }));
     }
 
     const int w = img.getWidth();
@@ -118,8 +124,9 @@ std::vector<double> Read1DMap(const fs::path& path, MapType type)
   }
   catch (const f3d::image::read_exception&)
   {
-    f3d::log::error(
-      "Cannot read ", (type == MapType::Color ? "colormap" : "opacity map"), " at ", path);
+    f3d::log::error(g3d::locale::translate(
+      "Cannot read {map, select, color{colormap} opacity{opacity map} other{}} at {path}",
+      { { "map", type == MapType::Color ? "color" : "opacity" }, { "path", path.string() } }));
     return {};
   }
 }

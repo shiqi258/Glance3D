@@ -79,7 +79,7 @@ void PrintHelp(const std::string& execName, const cxxopts::Options& cxxOptions)
 void PrintPluginsScan()
 {
 #if F3D_MACOS_BUNDLE
-  f3d::log::error("option not supported with the macOS bundle");
+  f3d::log::error(g3d::locale::translate("option not supported with the macOS bundle"));
 #else
   auto appPath = F3DSystemTools::GetApplicationPath();
   appPath = appPath.parent_path().parent_path();
@@ -88,7 +88,8 @@ void PrintPluginsScan()
 
   auto plugins = f3d::engine::getPluginsList(appPath);
 
-  f3d::log::info("Found ", plugins.size(), " plugins:");
+  f3d::log::info(g3d::locale::translate("Found {n, plural, one{# plugin:} other{# plugins:}}",
+    { { "n", std::to_string(plugins.size()) } }));
 
   for (const std::string& p : plugins)
   {
@@ -104,20 +105,23 @@ void PrintVersion()
   f3d::log::info(F3D::AppName + " " + F3D::AppVersion + "\n");
   f3d::log::info(F3D::AppTitle);
   auto libInfo = f3d::engine::getLibInfo();
-  f3d::log::info("Version: " + libInfo.VersionFull + ".");
-  f3d::log::info("Build date: " + libInfo.BuildDate + ".");
-  f3d::log::info("Build system: " + libInfo.BuildSystem + ".");
-  f3d::log::info("Compiler: " + libInfo.Compiler + ".");
+  f3d::log::info(g3d::locale::translate("Version: {value}.", { { "value", libInfo.VersionFull } }));
+  f3d::log::info(g3d::locale::translate("Build date: {value}.", { { "value", libInfo.BuildDate } }));
+  f3d::log::info(
+    g3d::locale::translate("Build system: {value}.", { { "value", libInfo.BuildSystem } }));
+  f3d::log::info(g3d::locale::translate("Compiler: {value}.", { { "value", libInfo.Compiler } }));
   for (const auto& [name, enabled] : libInfo.Modules)
   {
-    f3d::log::info("Module " + name + ": " + (enabled ? "ON." : "OFF."));
+    f3d::log::info(g3d::locale::translate("Module {name}: {status}.",
+      { { "name", name }, { "status", g3d::locale::translate(enabled ? "ON" : "OFF") } }));
   }
-  f3d::log::info("VTK version: " + libInfo.VTKVersion + ".");
+  f3d::log::info(
+    g3d::locale::translate("VTK version: {value}.", { { "value", libInfo.VTKVersion } }));
   for (const auto& cr : libInfo.Copyrights)
   {
-    f3d::log::info("Copyright (C) " + cr + ".");
+    f3d::log::info(g3d::locale::translate("Copyright (C) {value}.", { { "value", cr } }));
   }
-  f3d::log::info("License " + libInfo.License + ".");
+  f3d::log::info(g3d::locale::translate("License {value}.", { { "value", libInfo.License } }));
   f3d::log::setUseColoring(true);
 }
 
@@ -127,10 +131,10 @@ void PrintRenderingBackendList()
   auto backends = f3d::engine::getRenderingBackendList();
 
   f3d::log::setUseColoring(false);
-  f3d::log::info("Rendering backends:");
+  f3d::log::info(g3d::locale::translate("Rendering backends:"));
   for (const auto& [name, available] : backends)
   {
-    f3d::log::info(name + ": " + (available ? "available" : "unavailable"));
+    f3d::log::info(name + ": " + g3d::locale::translate(available ? "available" : "unavailable"));
   }
 }
 
@@ -148,7 +152,7 @@ void PrintReadersList()
   std::vector<f3d::engine::readerInformation> readersInfo = f3d::engine::getReadersInfo();
   if (readersInfo.empty())
   {
-    f3d::log::warn("No registered reader found!");
+    f3d::log::warn(g3d::locale::translate("No registered reader found!"));
     return;
   }
   // Compute the size of the 5 columns
@@ -423,7 +427,8 @@ F3DOptionsTools::OptionsDict F3DOptionsTools::ParseCLIOptions(
     bool foundUnknownOption = false;
     for (const std::string& unknownOption : unmatched)
     {
-      f3d::log::error("Unknown option '", unknownOption, "'");
+      f3d::log::error(
+        g3d::locale::translate("Unknown option '{option}'", { { "option", unknownOption } }));
       foundUnknownOption = true;
 
       // check if it's a long option
@@ -440,7 +445,8 @@ F3DOptionsTools::OptionsDict F3DOptionsTools::ParseCLIOptions(
           ? closestName
           : closestName + unknownOption.substr(equalPos);
 
-        f3d::log::error("Did you mean '--", closestOption, "'?");
+        f3d::log::error(
+          g3d::locale::translate("Did you mean '--{option}'?", { { "option", closestOption } }));
       }
     }
     if (foundUnknownOption)
@@ -465,7 +471,8 @@ F3DOptionsTools::OptionsDict F3DOptionsTools::ParseCLIOptions(
       std::string::size_type sepIdx = define.find_first_of('=');
       if (sepIdx == std::string::npos)
       {
-        f3d::log::warn("Could not parse a define '", define, "'");
+        f3d::log::warn(
+          g3d::locale::translate("Could not parse a define '{define}'", { { "define", define } }));
         continue;
       }
       cliOptionsDict[define.substr(0, sepIdx)] = define.substr(sepIdx + 1);
@@ -481,7 +488,8 @@ F3DOptionsTools::OptionsDict F3DOptionsTools::ParseCLIOptions(
   }
   catch (const cxxopts::exceptions::exception& ex)
   {
-    f3d::log::error("Error parsing command line arguments: ", ex.what());
+    f3d::log::error(g3d::locale::translate(
+      "Error parsing command line arguments: {error}", { { "error", ex.what() } }));
     throw F3DExFailure("Could not parse command line arguments");
   }
 }
@@ -522,8 +530,9 @@ std::vector<std::pair<std::string, std::string>> F3DOptionsTools::ConvertToLibf3
       bool deprecatedBooleanOption;
       if (F3DOptionsTools::Parse(value, deprecatedBooleanOption))
       {
-        f3d::log::warn("--anti-aliasing is a now a string, please specify the type of "
-                       "anti-aliasing or use the implicit default");
+        f3d::log::warn(
+          g3d::locale::translate("--anti-aliasing is a now a string, please specify the type of "
+                                 "anti-aliasing or use the implicit default"));
         libf3dOptions.emplace_back(std::make_pair("render.effect.antialiasing.enable", value));
       }
       else
@@ -541,7 +550,7 @@ std::vector<std::pair<std::string, std::string>> F3DOptionsTools::ConvertToLibf3
   // handle deprecated anti-aliasing option
   else if (key == "anti-aliasing-mode")
   {
-    f3d::log::warn("--anti-aliasing-mode is deprecated");
+    f3d::log::warn(g3d::locale::translate("--anti-aliasing-mode is deprecated"));
     libf3dOptions.emplace_back(std::make_pair("render.effect.antialiasing.mode", value));
   }
 
@@ -562,7 +571,8 @@ std::vector<std::pair<std::string, std::string>> F3DOptionsTools::ConvertToLibf3
   // handle deprecated translucency support
   else if (key == "translucency-support")
   {
-    f3d::log::warn("--translucency-support is deprecated, please use --blending instead");
+    f3d::log::warn(
+      g3d::locale::translate("--translucency-support is deprecated, please use --blending instead"));
     libf3dOptions.emplace_back(std::make_pair("render.effect.blending.enable", value));
   }
 
@@ -575,8 +585,9 @@ std::vector<std::pair<std::string, std::string>> F3DOptionsTools::ConvertToLibf3
       bool deprecatedBooleanOption;
       if (F3DOptionsTools::Parse(value, deprecatedBooleanOption))
       {
-        f3d::log::warn("--point-sprites is a now a string, please specify the type of "
-                       "point sprites to use or use the implicit default");
+        f3d::log::warn(
+          g3d::locale::translate("--point-sprites is a now a string, please specify the type of "
+                                 "point sprites to use or use the implicit default"));
         libf3dOptions.emplace_back(std::make_pair("model.point_sprites.enable", value));
       }
       else
@@ -594,19 +605,20 @@ std::vector<std::pair<std::string, std::string>> F3DOptionsTools::ConvertToLibf3
   // handle deprecated point-sprites-type option
   else if (key == "point-sprites-type")
   {
-    f3d::log::warn("--point-sprites-type is deprecated");
+    f3d::log::warn(g3d::locale::translate("--point-sprites-type is deprecated"));
     libf3dOptions.emplace_back(std::make_pair("model.point_sprites.type", value));
   }
 
   // handle deprecated interaction-trackball option
   else if (key == "interaction-trackball")
   {
-    f3d::log::warn(
-      "--interaction-trackball is deprecated, please use --interaction-style=trackball instead");
+    f3d::log::warn(g3d::locale::translate(
+      "--interaction-trackball is deprecated, please use --interaction-style=trackball instead"));
     bool trackball;
     if (!F3DOptionsTools::Parse(value, trackball))
     {
-      f3d::log::error("Cannot parse --interaction-trackball value: " + value);
+      f3d::log::error(g3d::locale::translate(
+        "Cannot parse --interaction-trackball value: {value}", { { "value", value } }));
     }
     else if (trackball)
     {

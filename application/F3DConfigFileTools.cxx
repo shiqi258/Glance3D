@@ -59,7 +59,7 @@ std::vector<fs::path> F3DConfigFileTools::GetConfigPaths(const std::string& conf
     }
     catch (const fs::filesystem_error&)
     {
-      f3d::log::error("Error recovering configuration file path");
+      f3d::log::error(g3d::locale::translate("Error recovering configuration file path"));
     }
   }
 
@@ -71,7 +71,7 @@ void F3DConfigFileTools::PrintConfigInfo(const std::vector<fs::path>& configPath
 {
   if (!configPaths.empty())
   {
-    f3d::log::info("Found available config path");
+    f3d::log::info(g3d::locale::translate("Found available config path"));
   }
 
   for (const fs::path& path : configPaths)
@@ -81,15 +81,18 @@ void F3DConfigFileTools::PrintConfigInfo(const std::vector<fs::path>& configPath
 
     if (ec)
     {
-      f3d::log::info("Error while checking config path: ", path, " : ", ec.message());
+      f3d::log::info(g3d::locale::translate("Error while checking config path: {path} : {message}",
+        { { "path", path.string() }, { "message", ec.message() } }));
     }
     else if (exists)
     {
-      f3d::log::info("Config file found: ", path);
+      f3d::log::info(
+        g3d::locale::translate("Config file found: {path}", { { "path", path.string() } }));
     }
     else
     {
-      f3d::log::info("Candidate config file not found: ", path);
+      f3d::log::info(g3d::locale::translate(
+        "Candidate config file not found: {path}", { { "path", path.string() } }));
     }
   }
 }
@@ -171,14 +174,16 @@ F3DConfigFileTools::ParsedConfigFiles F3DConfigFileTools::ReadConfigFiles(
     }
     catch (const fs::filesystem_error& e)
     {
-      f3d::log::error("Error while locating config path: ", e.what());
+      f3d::log::error(
+        g3d::locale::translate("Error while locating config path: {error}", { { "error", e.what() } }));
     }
   }
 
   // If we used a configSearch but did not find any, inform the user
   if (!configSearch.empty() && actualConfigFilePaths.empty())
   {
-    f3d::log::info("Configuration file for \"", configSearch, "\" could not be found");
+    f3d::log::info(g3d::locale::translate(
+      "Configuration file for \"{name}\" could not be found", { { "name", configSearch } }));
   }
 
   // Read config files
@@ -191,8 +196,9 @@ F3DConfigFileTools::ParsedConfigFiles F3DConfigFileTools::ReadConfigFiles(
     if (!file.is_open())
     {
       // Cannot be tested
-      f3d::log::warn(
-        "Unable to open the configuration file: ", configFilePath.string(), " , ignoring it");
+      f3d::log::warn(g3d::locale::translate(
+        "Unable to open the configuration file: {file} , ignoring it",
+        { { "file", configFilePath.string() } }));
       continue;
     }
 
@@ -204,8 +210,9 @@ F3DConfigFileTools::ParsedConfigFiles F3DConfigFileTools::ReadConfigFiles(
     }
     catch (const nlohmann::json::parse_error& ex)
     {
-      f3d::log::error(
-        "Unable to parse the configuration file ", configFilePath.string(), " , ignoring it");
+      f3d::log::error(g3d::locale::translate(
+        "Unable to parse the configuration file {file} , ignoring it",
+        { { "file", configFilePath.string() } }));
       f3d::log::error(ex.what());
       continue;
     }
@@ -222,8 +229,10 @@ F3DConfigFileTools::ParsedConfigFiles F3DConfigFileTools::ReadConfigFiles(
           matchType = configBlock.at("match-type");
           if (matchType != "regex" && matchType != "glob" && matchType != "exact")
           {
-            f3d::log::warn("A config block in config file ", configFilePath.string(),
-              " has an unknown match-type (", matchType, "), defaulting to regex");
+            f3d::log::warn(g3d::locale::translate(
+              "A config block in config file {file} has an unknown match-type ({type}), defaulting "
+              "to regex",
+              { { "file", configFilePath.string() }, { "type", matchType } }));
             matchType = "regex";
           }
         }
@@ -244,8 +253,10 @@ F3DConfigFileTools::ParsedConfigFiles F3DConfigFileTools::ReadConfigFiles(
           // No match defined, use a catch all regex
           if (matchType != "regex")
           {
-            f3d::log::warn("A config block in config file ", configFilePath.string(),
-              " has match-type ", matchType, " but no match expression, using a catch-all regex");
+            f3d::log::warn(g3d::locale::translate(
+              "A config block in config file {file} has match-type {type} but no match expression, "
+              "using a catch-all regex",
+              { { "file", configFilePath.string() }, { "type", matchType } }));
             matchType = "regex";
           }
           match = ".*";
@@ -348,15 +359,18 @@ F3DConfigFileTools::ParsedConfigFiles F3DConfigFileTools::ReadConfigFiles(
         if (optionsBlock.empty() && bindingsBlock.empty())
         {
           // To help users figure out issues with configuration files
-          f3d::log::warn("A config block in config file: ", configFilePath.string(),
-            " does not contains options nor bindings, ignoring block");
+          f3d::log::warn(g3d::locale::translate(
+            "A config block in config file: {file} does not contains options nor bindings, "
+            "ignoring block",
+            { { "file", configFilePath.string() } }));
         }
       }
     }
     catch (const nlohmann::json::type_error& ex)
     {
-      f3d::log::warn("Error processing config file: ", configFilePath.string(),
-        ", configuration may be incorrect");
+      f3d::log::warn(
+        g3d::locale::translate("Error processing config file: {file}, configuration may be incorrect",
+          { { "file", configFilePath.string() } }));
       f3d::log::error(ex.what());
     }
   }

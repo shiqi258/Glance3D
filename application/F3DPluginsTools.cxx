@@ -4,6 +4,7 @@
 #include "F3DSystemTools.h"
 
 #include <engine.h>
+#include <g3dLocale.h>
 #include <log.h>
 
 namespace fs = std::filesystem;
@@ -54,6 +55,6 @@ void F3DPluginsTools::LoadPlugins(
   }
   catch (const f3d::engine::plugin_exception& e)
   {
-    f3d::log::warn("Plugin failed to load: ", e.what());
+    f3d::log::warn(g3d::locale::translate("Plugin failed to load: {error}", { { "error", e.what() } }));
   }
 }
