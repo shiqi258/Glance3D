@@ -57,35 +57,6 @@ ctest -L assimp -L piped    # 标签可叠加
 
 新增应用层测试：在 `application/testing/` 的 CMakeLists 里加 `f3d_test(NAME ... DATA ... ARGS ...)`，首次运行会失败并生成图，目检后把图放进 `testing/baselines/` 再跑过。所有 `f3d_test` 关键字见 `cmake/f3dTest.cmake`。
 
-## 国际化（i18n）
-
-桌面端多语言方案＝**源串即 key（gettext 学派）＋ ICU MessageFormat 子集**。首批 en + zh-CN，默认按系统语言自动选，`--lang` / `G3D_LANG` / config 可覆盖。
-
-**架构（保持不动）**：翻译核心 `G3DLocaleCore`（单例）在最底层模块 `vtkext/private/module/G3DLocaleCore.{h,cxx}`，三层都能直达。libf3d 导出公共门面 `g3d::locale`（`library/public/g3dLocale.h`）转发到核心：application 只用门面，library/vtkext internal 直接用 `G3DLocaleCore`。词表 `resources/locales/{en,zh-CN}.json` 经 `f3d_embed_file` 嵌入（`G3DLocaleEn`/`G3DLocaleZhCN`），外部 `share/f3d/locales/<lang>.json` 可热覆盖（`LoadFromDirectory`）。缺失回退链：active → en → key 本身。
-
-**key 体系＝英文源串本身**（`translate("Number of points: {n, number}")`）。**en.json 仅含 `_meta.*`**——英文就是 key，无需维护完整 en master；只维护 `zh-CN.json`（镜像同 key → 中文）。**不要造 `ui.xxx`/`cli.xxx` 式符号 key**（那是将来 Option C 的事，见末尾）。CLI `--help` 在 `F3DOptionsTools` 把每个 `cli-options.json` 的 `helpText` 当 key 查译。
-
-**消息格式＝ICU MessageFormat 子集**，由自研解析器 `G3DLocaleCore::FormatMessage(tmpl, args, lang)` 实现（无外部依赖，桌面 + WASM 通用）。支持：
-
-- `{name}` —— 命名参数替换（与旧 `{name}` 完全兼容）。
-- `{n, number}` —— 整数千分位分组（按 lang 取分隔符，en/zh 为 `,`）。
-- `{n, plural, =0{…} one{# …} other{# …}}` —— 复数；`=N` 精确匹配优先，否则按 `PluralCategory(lang,n)` 选类目，缺失回退 `other`；子消息内 `#` = 格式化后的数字，可再嵌 `{name}`。
-- `{x, select, key{…} other{…}}` —— 按参数字符串值选分支。
-- 健壮性：括号不配对/未知类型/缺参 → 原样输出不崩。**不支持** ICU 单引号转义，消息体内别写裸 `{`/`}`。
-
-参数仍是 `Args = vector<pair<string,string>>`（值为字符串，number/plural 解析时按需转数字），全部调用点签名不变。
-
-**加一种语言**：① `SupportedLanguages()` 加码；② `NormalizeLocale()` 认系统 locale 拼写；③ 加 `resources/locales/<lang>.json` 并在 `vtkext/private/module/CMakeLists.txt` 加一组 `f3d_embed_file`；④ `PluralCategory()` 把该语言映射到复数族（germanic=只有 1 是 one；french=0 和 1 是 one；asian=恒 other）；⑤ 需要时在 `GroupingSeparator()` 加分隔符（de=`.`、fr=窄空格）；⑥ CJK 语言由 `NeedsCJK()` 识别并合并 CJK 字体（见下方"CJK 字体"约定）。
-
-**CJK 字体**：`resources/fonts/NotoSansSC-Regular.ttf`（SIL OFL），仅 CJK 语言激活时 merge；字形范围 = ImGui 常用简中 + **当前词表实际字符**（否则生僻字显示成方框）。路径经 `g3d::locale::setCJKFontPath` 设入核心，actor（`vtkF3DImguiActor`）读 `G3DLocaleCore`。
-
-**校验**：`node scripts/check-locales.mjs` —— ① 覆盖/孤儿（缺 zh 翻译会 fail）；② **ICU lint**：源 key 与 zh 值的括号配对、plural/select 必含 `other`、**key 与 value 的参数名一致**。
-
-**单测**：`ctest -R TestG3DLocaleFormat -VV`（需 `BUILD_TESTING=ON`，如 `dev` 预设；纯字符串逻辑，`NO_DATA`）。覆盖 argument/number/plural(en·fr·zh)/select/`#`/`=N`/坏输入。
-
-**何时升级到符号 key（Option C，暂不做）**：接外部翻译外包 / 上 XLIFF 工具链 / 语言数破 8–10、或需上下文消歧时，再把 230 调用点 re-key 成 `域.区域.名` 并维护完整 en master。本解析器届时 100% 复用。
-
-实现见 `vtkext/private/module/G3DLocaleCore.cxx`。
 
 ## 日志 / 排查
 
