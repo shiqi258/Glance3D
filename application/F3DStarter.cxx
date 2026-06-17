@@ -1083,7 +1083,9 @@ int F3DStarter::Start(int argc, char** argv)
       // Optional external catalogs override the embedded built-in en/zh-CN.
       g3d::locale::loadFromDirectory((resourceDir / "locales").string());
       // CJK-capable font, merged into the viewport font atlas for CJK languages.
-      g3d::locale::setCJKFontPath((resourceDir / "fonts" / "NotoSansSC-Regular.ttf").string());
+      // Medium (wght=500) static instance: the matching weight to the Latin UI font,
+      // and far more legible on the dark overlay than the thin default.
+      g3d::locale::setCJKFontPath((resourceDir / "fonts" / "NotoSansSC-Medium.ttf").string());
     }
     // Highest priority even for early messages (CLI parsing, --help): an explicit
     // --lang on the command line. Scanned manually here since cxxopts has not run yet.

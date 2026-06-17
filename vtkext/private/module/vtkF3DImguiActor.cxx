@@ -528,7 +528,14 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
     }
     ImFontConfig cjkConfig;
     cjkConfig.MergeMode = true; // merge into the most recently added font
-    io.Fonts->AddFontFromFileTTF(cjkFontPath.c_str(), size, &cjkConfig, cjkRanges.Data);
+    // ImGui sizes a font by its total height (ascent - descent) via stbtt_ScaleForPixelHeight,
+    // not by the em. Noto Sans SC has tall CJK vertical metrics (~1.45em), so at the same pixel
+    // size its ideographs render ~0.611x the size, smaller than the Latin base font's caps
+    // (Monaspace Neon, ~0.638x). Scale the merged CJK font up to rebalance: cap-height parity
+    // is ~1.04 (0.638/0.611), nudged higher so the denser ideographs read on par with the Latin
+    // text. The merged glyphs share the base font's baseline.
+    constexpr float cjkSizeScale = 1.2f;
+    io.Fonts->AddFontFromFileTTF(cjkFontPath.c_str(), size * cjkSizeScale, &cjkConfig, cjkRanges.Data);
   };
 
   ImFont* font = nullptr;
