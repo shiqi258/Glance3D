@@ -343,5 +343,18 @@
   "Unable to open the configuration file: {file} , ignoring it": "无法打开配置文件：{file} ，已忽略",
   "Unable to parse the configuration file {file} , ignoring it": "无法解析配置文件 {file} ，已忽略",
   "Could not parse '{value}' into 'no-config' option, assuming false": "无法将 '{value}' 解析为 'no-config' 选项，按 false 处理",
-  "invalid regular expression: \"{regex}\"": "无效的正则表达式：\"{regex}\""
+  "invalid regular expression: \"{regex}\"": "无效的正则表达式：\"{regex}\"",
+
+  "No animation": "无动画",
+  "No animation available, cannot load a specific animation time": "无可用动画，无法加载指定的动画时间",
+  "Scene bounding box:": "场景包围盒：",
+  "Camera position:": "相机位置：",
+  "Camera focal point:": "相机焦点：",
+  "Camera view up:": "相机上方向：",
+  "Camera view angle:": "相机视角：",
+  "Coloring using {field, select, cell{cell} point{point} other{}} array named {name}{forced, select, yes{ (forced)} other{}}, {component}": "使用{field, select, cell{单元} point{点} other{}}数组 {name} 着色{forced, select, yes{（强制）} other{}}，{component}",
+  "Not coloring": "未着色",
+  "Direct Scalars": "直接标量",
+  "Magnitude": "模长",
+  "Component #{n}": "分量 #{n}"
 }

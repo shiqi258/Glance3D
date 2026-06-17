@@ -7,6 +7,7 @@
 #include "window_impl.h"
 
 #include "F3DStyle.h"
+#include "G3DLocaleCore.h"
 #include "vtkF3DMetaImporter.h"
 #include "vtkF3DRenderer.h"
 
@@ -260,7 +261,8 @@ bool animationManager::LoadAtTime(double timeValue)
 
   if (this->AvailAnimations == 0)
   {
-    log::warn("No animation available, cannot load a specific animation time");
+    log::warn(G3DLocaleCore::GetInstance().Translate(
+      "No animation available, cannot load a specific animation time"));
     this->Playing = false;
     return false;
   }

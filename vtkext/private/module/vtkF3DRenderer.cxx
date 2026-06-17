@@ -4,6 +4,7 @@
 #include "F3DColoringInfoHandler.h"
 #include "F3DDefaultHDRI.h"
 #include "F3DLog.h"
+#include "G3DLocaleCore.h"
 #include "F3DUtils.h"
 #include "vtkF3DCachedLUTTexture.h"
 #include "vtkF3DCachedSpecularTexture.h"
@@ -594,7 +595,8 @@ std::string vtkF3DRenderer::GetSceneDescription()
   double bounds[6];
   this->ComputeVisiblePropBounds(bounds);
 
-  stream << "Scene bounding box: "                                //
+  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
+  stream << locale.Translate("Scene bounding box:") << " "        //
          << bounds[0] << " \u2264 x \u2264 " << bounds[1] << ", " //
          << bounds[2] << " \u2264 y \u2264 " << bounds[3] << ", " //
          << bounds[4] << " \u2264 z \u2264 " << bounds[5] << "\n\n";
@@ -608,10 +610,13 @@ std::string vtkF3DRenderer::GetSceneDescription()
   cam->GetFocalPoint(focal);
   cam->GetViewUp(up);
 
-  stream << "Camera position: " << position[0] << ", " << position[1] << ", " << position[2] << "\n"
-         << "Camera focal point: " << focal[0] << ", " << focal[1] << ", " << focal[2] << "\n"
-         << "Camera view up: " << up[0] << ", " << up[1] << ", " << up[2] << "\n"
-         << "Camera view angle: " << cam->GetViewAngle() << "\n\n";
+  stream << locale.Translate("Camera position:") << " " << position[0] << ", " << position[1]
+         << ", " << position[2] << "\n"
+         << locale.Translate("Camera focal point:") << " " << focal[0] << ", " << focal[1] << ", "
+         << focal[2] << "\n"
+         << locale.Translate("Camera view up:") << " " << up[0] << ", " << up[1] << ", " << up[2]
+         << "\n"
+         << locale.Translate("Camera view angle:") << " " << cam->GetViewAngle() << "\n\n";
   descr += stream.str();
 
   // Grid Info
@@ -3252,13 +3257,16 @@ std::string vtkF3DRenderer::GetColoringDescription()
   auto info = this->Importer->GetColoringInfoHandler().GetCurrentColoringInfo();
   if (info.has_value())
   {
-    stream << "Coloring using " << (this->UseCellColoring ? "cell" : "point") << " array named "
-           << info.value().Name << (this->EnableColoring ? ", " : " (forced), ")
-           << vtkF3DRenderer::ComponentToString(this->ComponentForColoring);
+    stream << G3DLocaleCore::GetInstance().Translate(
+      "Coloring using {field, select, cell{cell} point{point} other{}} array named {name}{forced, "
+      "select, yes{ (forced)} other{}}, {component}",
+      { { "field", this->UseCellColoring ? "cell" : "point" }, { "name", info.value().Name },
+        { "forced", this->EnableColoring ? "no" : "yes" },
+        { "component", vtkF3DRenderer::ComponentToString(this->ComponentForColoring) } });
   }
   else
   {
-    stream << "Not coloring";
+    stream << G3DLocaleCore::GetInstance().Translate("Not coloring");
   }
   return stream.str();
 }
@@ -3634,11 +3642,11 @@ std::string vtkF3DRenderer::ComponentToString(int component)
 
   if (component == -2)
   {
-    return "Direct Scalars";
+    return G3DLocaleCore::GetInstance().Translate("Direct Scalars");
   }
   else if (component == -1)
   {
-    return "Magnitude";
+    return G3DLocaleCore::GetInstance().Translate("Magnitude");
   }
   else
   {
@@ -3659,8 +3667,8 @@ std::string vtkF3DRenderer::ComponentToString(int component)
     }
     if (componentName.empty())
     {
-      componentName = "Component #";
-      componentName += std::to_string(component);
+      componentName = G3DLocaleCore::GetInstance().Translate(
+        "Component #{n}", { { "n", std::to_string(component) } });
     }
     return componentName;
   }
