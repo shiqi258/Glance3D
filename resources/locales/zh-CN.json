@@ -4,10 +4,10 @@
 
   "Drop a file to open it": "拖入文件以打开",
 
-  "Number of files: {n}": "文件数：{n}",
-  "Number of actors: {n}": "Actor 数：{n}",
-  "Number of points: {n}": "点数：{n}",
-  "Number of cells: {n}": "单元数：{n}",
+  "Number of files: {n, number}": "文件数：{n, number}",
+  "Number of actors: {n, number}": "Actor 数：{n, number}",
+  "Number of points: {n, number}": "点数：{n, number}",
+  "Number of cells: {n, number}": "单元数：{n, number}",
 
   "No file loaded, no rendering performed": "未加载任何文件，未执行渲染",
   "Interface language set to {lang}": "界面语言已设为 {lang}",

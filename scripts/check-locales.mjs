@@ -45,6 +45,82 @@ function unescapeLiteral(s) {
     c === 'n' ? '\n' : c === 't' ? '\t' : c);
 }
 
+// --- ICU MessageFormat subset lint ------------------------------------------
+// Mirrors G3DLocaleCore::FormatMessage: validates `{name}`, `{n, number}`,
+// `{n, plural, ...}`, `{x, select, ...}` and collects the argument names used.
+
+// Index of the '}' matching the '{' at `open`, honoring nesting; -1 if unbalanced.
+function matchBrace(s, open) {
+  let depth = 0;
+  for (let i = open; i < s.length; i++) {
+    if (s[i] === '{') depth++;
+    else if (s[i] === '}' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+// Parse a plural/select body into [{ selector, message }].
+function parseSubs(body) {
+  const subs = [];
+  let i = 0;
+  while (i < body.length) {
+    while (i < body.length && /\s/.test(body[i])) i++;
+    if (i >= body.length) break;
+    const start = i;
+    while (i < body.length && body[i] !== '{' && !/\s/.test(body[i])) i++;
+    const selector = body.slice(start, i);
+    while (i < body.length && /\s/.test(body[i])) i++;
+    if (body[i] !== '{') break;
+    const close = matchBrace(body, i);
+    if (close === -1) break;
+    subs.push({ selector, message: body.slice(i + 1, close) });
+    i = close + 1;
+  }
+  return subs;
+}
+
+// Collect argument names and structural errors from an ICU message.
+function lintIcu(msg) {
+  const args = new Set();
+  const errors = [];
+  function walk(s) {
+    let i = 0;
+    while (i < s.length) {
+      const c = s[i];
+      if (c === '{') {
+        const close = matchBrace(s, i);
+        if (close === -1) { errors.push('unbalanced "{"'); return; }
+        handle(s.slice(i + 1, close));
+        i = close + 1;
+      } else {
+        if (c === '}') { errors.push('unexpected "}"'); return; }
+        i++;
+      }
+    }
+  }
+  function handle(inner) {
+    const c1 = inner.indexOf(',');
+    const name = (c1 === -1 ? inner : inner.slice(0, c1)).trim();
+    if (name) args.add(name);
+    if (c1 === -1) return; // simple {name}
+    const rest = inner.slice(c1 + 1);
+    const c2 = rest.indexOf(',');
+    const type = (c2 === -1 ? rest : rest.slice(0, c2)).trim();
+    if (type === 'number') return;
+    if (type === 'plural' || type === 'select') {
+      const subs = parseSubs(c2 === -1 ? '' : rest.slice(c2 + 1));
+      if (!subs.some((sub) => sub.selector === 'other')) {
+        errors.push(`${type} {${name}} has no "other" branch`);
+      }
+      for (const sub of subs) walk(sub.message); // nested placeholders / args
+    } else {
+      errors.push(`unknown arg type "${type}" in {${name}}`);
+    }
+  }
+  walk(msg);
+  return { args, errors };
+}
+
 const keys = new Set();
 
 // 1) Translation calls in the source.
@@ -88,4 +164,28 @@ for (const k of missing) console.log(`  - ${JSON.stringify(k)}`);
 console.log(`Orphan (unused zh):  ${orphan.length}`);
 for (const k of orphan) console.log(`  ~ ${JSON.stringify(k)}`);
 
-process.exit(missing.length > 0 ? 1 : 0);
+// 3) ICU lint: source keys must be structurally valid; each zh value must be
+//    valid and reference exactly the argument names its key declares.
+const lintErrors = [];
+for (const k of keys) {
+  for (const e of lintIcu(k).errors) lintErrors.push(`key ${JSON.stringify(k)}: ${e}`);
+}
+for (const [k, v] of Object.entries(zh)) {
+  if (k.startsWith('_meta') || typeof v !== 'string') continue;
+  const keyArgs = lintIcu(k).args;
+  const val = lintIcu(v);
+  for (const e of val.errors) lintErrors.push(`value ${JSON.stringify(k)}: ${e}`);
+  const extra = [...val.args].filter((a) => !keyArgs.has(a));
+  const dropped = [...keyArgs].filter((a) => !val.args.has(a));
+  if (extra.length || dropped.length) {
+    const parts = [];
+    if (extra.length) parts.push(`value uses unknown {${extra.join('}, {')}}`);
+    if (dropped.length) parts.push(`value omits {${dropped.join('}, {')}}`);
+    lintErrors.push(`args ${JSON.stringify(k)}: ${parts.join('; ')}`);
+  }
+}
+
+console.log(`ICU lint errors:     ${lintErrors.length}`);
+for (const e of lintErrors) console.log(`  ! ${e}`);
+
+process.exit(missing.length > 0 || lintErrors.length > 0 ? 1 : 0);

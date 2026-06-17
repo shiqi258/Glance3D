@@ -1,4 +1,5 @@
 set(test_sources
+  TestG3DLocaleFormat.cxx
   TestF3DCachedTexturesPrint.cxx
   TestF3DGenericImporter.cxx
   TestF3DInteractorEventRecorder.cxx

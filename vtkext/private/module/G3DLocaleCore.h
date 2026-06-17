@@ -85,6 +85,23 @@ public:
   /// Substitute `{name}` placeholders in @p tmpl with the values in @p args.
   static std::string FormatNamed(const std::string& tmpl, const Args& args);
 
+  /**
+   * Format @p tmpl as an ICU MessageFormat subset in language @p lang, substituting
+   * @p args. Beyond simple `{name}` it understands `{n, number}` (grouped integer),
+   * `{n, plural, =N{…} one{…} other{…}}`, `{x, select, key{…} other{…}}`, and `#`
+   * (the plural number) inside plural sub-messages. The plural category and the
+   * grouping separator depend on @p lang. Best effort: malformed templates and
+   * missing args are emitted unchanged, never throwing.
+   *
+   * Note: ICU single-quote escaping is not supported; do not put literal `{`/`}`
+   * in message bodies.
+   */
+  static std::string FormatMessage(
+    const std::string& tmpl, const Args& args, const std::string& lang);
+
+  /// CLDR cardinal plural category ("one"/"other"/…) for integer @p n in @p lang.
+  static std::string PluralCategory(const std::string& lang, long long n);
+
 private:
   G3DLocaleCore();
   G3DLocaleCore(const G3DLocaleCore&) = delete;

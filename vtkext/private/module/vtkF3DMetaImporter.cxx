@@ -812,11 +812,11 @@ std::string vtkF3DMetaImporter::GetMetaDataDescription() const
   if (this->Pimpl->Importers.size() > 1)
   {
     description += locale.Translate(
-      "Number of files: {n}", { { "n", std::to_string(this->Pimpl->Importers.size()) } });
+      "Number of files: {n, number}", { { "n", std::to_string(this->Pimpl->Importers.size()) } });
     description += "\n";
   }
 
-  description += locale.Translate("Number of actors: {n}",
+  description += locale.Translate("Number of actors: {n, number}",
     { { "n", std::to_string(this->ActorCollection->GetNumberOfItems()) } });
   description += "\n";
 
@@ -831,9 +831,11 @@ std::string vtkF3DMetaImporter::GetMetaDataDescription() const
     nCells += surface->GetNumberOfCells();
   }
 
-  description += locale.Translate("Number of points: {n}", { { "n", std::to_string(nPoints) } });
+  description +=
+    locale.Translate("Number of points: {n, number}", { { "n", std::to_string(nPoints) } });
   description += "\n";
-  description += locale.Translate("Number of cells: {n}", { { "n", std::to_string(nCells) } });
+  description +=
+    locale.Translate("Number of cells: {n, number}", { { "n", std::to_string(nCells) } });
   return description;
 }
 
