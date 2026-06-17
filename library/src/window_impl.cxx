@@ -9,6 +9,7 @@
 #include "utils.h"
 
 #include "F3DStyle.h"
+#include "G3DLocaleCore.h"
 #include "vtkF3DExternalRenderWindow.h"
 
 #include "vtkF3DGenericImporter.h"
@@ -671,7 +672,9 @@ void window_impl::UpdateDynamicOptions()
             std::make_tuple(bind.format(), doc, val, vtkF3DUIActor::CheatSheetBindingType(type)));
         }
       }
-      cheatsheet.emplace_back(std::make_pair(group, std::move(groupList)));
+      // Translate the group name for display only; the raw name stays the identifier.
+      cheatsheet.emplace_back(
+        std::make_pair(G3DLocaleCore::GetInstance().Translate(group), std::move(groupList)));
     }
     renderer->ConfigureCheatSheet(cheatsheet);
   }

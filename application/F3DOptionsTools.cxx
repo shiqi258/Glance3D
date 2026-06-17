@@ -7,6 +7,7 @@
 #include "F3DSystemTools.h"
 
 #include "engine.h"
+#include "g3dLocale.h"
 #include "interactor.h"
 #include "log.h"
 #include "utils.h"
@@ -52,12 +53,12 @@ void PrintHelp(const std::string& execName, const cxxopts::Options& cxxOptions)
 {
   const std::array<std::pair<std::string, std::string>, 4> examples = { {
     { execName + " file.vtu -xtgans",
-      "View a unstructured mesh in a typical nice looking sciviz style" },
+      g3d::locale::translate("View a unstructured mesh in a typical nice looking sciviz style") },
     { execName + " file.glb -tuqap --hdri-file=file.hdr --hdri-ambient --hdri-skybox",
-      "View a gltf file in a realistic environment" },
+      g3d::locale::translate("View a gltf file in a realistic environment") },
     { execName + " file.ply -so --point-size=0 --coloring-component=-2",
-      "View a point cloud file with direct scalars rendering" },
-    { execName + " folder", "View all files in folder" },
+      g3d::locale::translate("View a point cloud file with direct scalars rendering") },
+    { execName + " folder", g3d::locale::translate("View all files in folder") },
   } };
 
   f3d::log::setUseColoring(false);
@@ -65,12 +66,12 @@ void PrintHelp(const std::string& execName, const cxxopts::Options& cxxOptions)
   std::ranges::transform(F3D::CLIOptions, orderedCLIGroupNames.begin(),
     [](const F3D::CLIGroup& cliGroup) { return cliGroup.GroupName; });
   f3d::log::info(cxxOptions.help(orderedCLIGroupNames));
-  f3d::log::info("\nExamples:");
+  f3d::log::info(g3d::locale::translate("\nExamples:"));
   for (const auto& [cmd, desc] : examples)
   {
     F3DOptionsTools::PrintHelpPair(cmd, desc, 50);
   }
-  f3d::log::info("\nReport bugs to https://github.com/glance3d-app/glance3d/issues");
+  f3d::log::info(g3d::locale::translate("\nReport bugs to https://github.com/glance3d-app/glance3d/issues"));
   f3d::log::setUseColoring(true);
 }
 
@@ -293,9 +294,11 @@ F3DOptionsTools::OptionsDict F3DOptionsTools::ParseCLIOptions(
       // Positional option, `--input` require a custom implementation
       if (std::string(optionGroup.GroupName) == "Applicative")
       {
-        group("input", "Input files", cxxoptsInputPositionals, "<files>");
-        group("D,define", "Define libf3d options", cxxoptsDefines, "libf3d.option=value");
-        group("R,reset", "Reset libf3d options", cxxoptsResets, "libf3d.option");
+        group("input", g3d::locale::translate("Input files"), cxxoptsInputPositionals, "<files>");
+        group("D,define", g3d::locale::translate("Define libf3d options"), cxxoptsDefines,
+          "libf3d.option=value");
+        group(
+          "R,reset", g3d::locale::translate("Reset libf3d options"), cxxoptsResets, "libf3d.option");
       }
 
       // Add each option to cxxopts
@@ -305,13 +308,13 @@ F3DOptionsTools::OptionsDict F3DOptionsTools::ParseCLIOptions(
         {
           // No ValueHelper means its a true boolean option like `--help` or `--version`
           group(::CollapseName(cliOption.LongName, cliOption.ShortName),
-            std::string(cliOption.HelpText));
+            g3d::locale::translate(std::string(cliOption.HelpText)));
         }
         else
         {
           // Add the default value to the help text if any
           std::string defaultValue;
-          std::string helpText(cliOption.HelpText);
+          std::string helpText = g3d::locale::translate(std::string(cliOption.HelpText));
           std::string longName(cliOption.LongName);
 
           // Recover default value from app options

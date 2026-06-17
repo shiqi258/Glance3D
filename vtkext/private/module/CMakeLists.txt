@@ -22,6 +22,22 @@ f3d_embed_file(
 list(APPEND sources ${CMAKE_CURRENT_BINARY_DIR}/F3DCheckerBoard.cxx)
 list(APPEND private_headers ${CMAKE_CURRENT_BINARY_DIR}/F3DCheckerBoard.h)
 
+# Embed the built-in i18n catalogs so translation works even without installed
+# resource files. External locales/<lang>.json files override these at runtime.
+f3d_embed_file(
+  INPUT "${F3D_SOURCE_DIR}/resources/locales/en.json"
+  NAME G3DLocaleEn)
+f3d_embed_file(
+  INPUT "${F3D_SOURCE_DIR}/resources/locales/zh-CN.json"
+  NAME G3DLocaleZhCN)
+
+list(APPEND sources
+  ${CMAKE_CURRENT_BINARY_DIR}/G3DLocaleEn.cxx
+  ${CMAKE_CURRENT_BINARY_DIR}/G3DLocaleZhCN.cxx)
+list(APPEND private_headers
+  ${CMAKE_CURRENT_BINARY_DIR}/G3DLocaleEn.h
+  ${CMAKE_CURRENT_BINARY_DIR}/G3DLocaleZhCN.h)
+
 if(F3D_MODULE_UI)
   set(F3D_FONT_FILE "${F3D_SOURCE_DIR}/resources/MonaspaceNeon-Regular.otf" CACHE PATH "Font used in UI widgets")
   mark_as_advanced(F3D_FONT_FILE)
@@ -69,6 +85,7 @@ endforeach()
 
 set(classes
   F3DLog
+  G3DLocaleCore
   F3DColoringInfoHandler
   vtkF3DCachedLUTTexture
   vtkF3DCachedSpecularTexture
@@ -172,6 +189,15 @@ if (F3D_MODULE_UI)
       PRIVATE
         "${F3D_SOURCE_DIR}/external/imgui")
   endif ()
+endif ()
+
+# nlohmann_json (used by G3DLocale to parse i18n catalogs)
+if (F3D_USE_EXTERNAL_NLOHMANN_JSON)
+  vtk_module_link(f3d::vtkextPrivate PRIVATE nlohmann_json::nlohmann_json)
+else ()
+  vtk_module_include(f3d::vtkextPrivate
+    PRIVATE
+      "${F3D_SOURCE_DIR}/external/nlohmann_json")
 endif ()
 
 # UTF-8 encoding for MSVC

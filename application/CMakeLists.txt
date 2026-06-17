@@ -230,6 +230,18 @@ list(APPEND F3D_SOURCE_FILES "${F3D_SOURCE_DIR}/external/tinyfiledialogs/tinyfil
 # Create the f3d application
 f3d_create_exec(f3d)
 
+# Stage runtime resources (i18n catalogs + CJK font) into the build tree so the app
+# finds them when run from the build directory. GetBinaryResourceDirectory() resolves
+# resources at <exe>/../share/f3d; mirror that layout next to the build output.
+add_custom_command(TARGET f3d POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${F3D_SOURCE_DIR}/resources/locales"
+    "$<TARGET_FILE_DIR:f3d>/../share/f3d/locales"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${F3D_SOURCE_DIR}/resources/fonts"
+    "$<TARGET_FILE_DIR:f3d>/../share/f3d/fonts"
+  COMMENT "Staging Glance3D locales and fonts into the build tree")
+
 # Create f3d-console on Windows
 if(WIN32 AND F3D_WINDOWS_BUILD_CONSOLE_APPLICATION)
   f3d_create_exec(f3d-console)
@@ -306,6 +318,20 @@ install(
   DIRECTORY "${F3D_SOURCE_DIR}/resources/colormaps/"
   DESTINATION "${f3d_resources_dir}/colormaps"
   COMPONENT colormaps
+  EXCLUDE_FROM_ALL)
+
+# i18n catalogs (override the embedded built-in en/zh-CN at runtime)
+install(
+  DIRECTORY "${F3D_SOURCE_DIR}/resources/locales/"
+  DESTINATION "${f3d_resources_dir}/locales"
+  COMPONENT locales
+  EXCLUDE_FROM_ALL)
+
+# Bundled CJK font, merged into the viewport font atlas only for CJK languages
+install(
+  DIRECTORY "${F3D_SOURCE_DIR}/resources/fonts/"
+  DESTINATION "${f3d_resources_dir}/fonts"
+  COMPONENT fonts
   EXCLUDE_FROM_ALL)
 
 # Other ressoure files

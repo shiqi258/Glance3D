@@ -51,6 +51,7 @@ set(F3D_SOURCE_FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/src/context.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/src/engine.cxx
   ${CMAKE_CURRENT_BINARY_DIR}/src/factory.cxx
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/g3dLocale.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/src/image.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/src/init.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/src/interactor.cxx
@@ -78,6 +79,7 @@ set(F3D_PUBLIC_HEADERS
   ${CMAKE_CURRENT_SOURCE_DIR}/public/context.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/engine.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/exception.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/public/g3dLocale.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/image.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/interactor.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/log.h

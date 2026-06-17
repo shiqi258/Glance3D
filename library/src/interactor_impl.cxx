@@ -7,6 +7,7 @@
 #include "utils.h"
 #include "window_impl.h"
 
+#include "G3DLocaleCore.h"
 #include "vtkF3DConsoleOutputWindow.h"
 
 #if F3D_MODULE_UI
@@ -1548,6 +1549,11 @@ interactor& interactor_impl::initBindings()
   this->Internals->OrderedBindGroups.clear();
   f3d::options& opts = this->Internals->Options;
 
+  // Translate a UI string using the source string itself as the catalog key.
+  // The interface language is fixed at startup, so binding descriptions are
+  // translated once here at registration time.
+  auto tr = [](const std::string& s) { return G3DLocaleCore::GetInstance().Translate(s); };
+
   // Define lambdas used for documentation
 
   // Shorten a long name
@@ -1575,7 +1581,7 @@ interactor& interactor_impl::initBindings()
     {
       desc = this->Internals->Options.render.effect.antialiasing.mode;
     }
-    return std::pair("Anti-aliasing", std::move(desc));
+    return std::pair(tr("Anti-aliasing"), tr(desc));
   };
 
   // "Cycle point sprites" , "none/sphere/gaussian"
@@ -1590,7 +1596,7 @@ interactor& interactor_impl::initBindings()
     {
       desc = this->Internals->Options.model.point_sprites.type;
     }
-    return std::pair("Point sprites", std::move(desc));
+    return std::pair(tr("Point sprites"), tr(desc));
   };
 
   // "Cycle blending" , "none/ddp/sort/stochastic"
@@ -1605,16 +1611,16 @@ interactor& interactor_impl::initBindings()
     {
       desc = this->Internals->Options.render.effect.blending.mode;
     }
-    return std::pair("Blending", std::move(desc));
+    return std::pair(tr("Blending"), tr(desc));
   };
 
   // "Cycle animation" , "animationName"
   auto docAnim = [&]()
-  { return std::pair("Animation", this->Internals->AnimationManager->GetAnimationName()); };
+  { return std::pair(tr("Animation"), this->Internals->AnimationManager->GetAnimationName()); };
 
   // "Cycle point/cell data coloring" , "POINT/CELL"
   auto docField = [&]()
-  { return std::pair(std::string("Data coloring"), (opts.model.scivis.cells ? "CELL" : "POINT")); };
+  { return std::pair(tr("Data coloring"), tr(opts.model.scivis.cells ? "CELL" : "POINT")); };
 
   // "Cycle array to color with" , "arrayName"
   auto docArray = [&]()
@@ -1623,12 +1629,12 @@ interactor& interactor_impl::initBindings()
     // enable + array : array
     // no enable + array : array (forced)
     // no enable + no array : OFF
-    return std::pair("Color array",
+    return std::pair(tr("Color array"),
       (opts.model.scivis.array_name.has_value()
           ? shortName(opts.model.scivis.array_name.value(), 15) +
-            (opts.model.scivis.enable ? "" : " (forced)")
-          : opts.model.scivis.enable ? "ON"
-                                     : "OFF"));
+            (opts.model.scivis.enable ? std::string() : " " + tr("(forced)"))
+          : opts.model.scivis.enable ? tr("ON")
+                                     : tr("OFF")));
   };
 
   // "Cycle component to color with" , "component"
@@ -1636,7 +1642,7 @@ interactor& interactor_impl::initBindings()
   {
     vtkRenderWindow* renWin = this->Internals->Window.GetRenderWindow();
     vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
-    return std::pair("Color component", ren->ComponentToString(opts.model.scivis.component));
+    return std::pair(tr("Color component"), ren->ComponentToString(opts.model.scivis.component));
   };
 
   // "doc", "value"
@@ -1654,7 +1660,7 @@ interactor& interactor_impl::initBindings()
   };
 
   // "doc", "value/Unset"
-  auto docDblOpt = [](const std::string& doc, const std::optional<double>& val)
+  auto docDblOpt = [&tr](const std::string& doc, const std::optional<double>& val)
   {
     std::stringstream valStream;
     valStream.precision(2);
@@ -1665,24 +1671,24 @@ interactor& interactor_impl::initBindings()
     }
     else
     {
-      valStream << "Unset";
+      valStream << tr("Unset");
     }
     return std::pair(doc, valStream.str());
   };
 
   // "doc", "ON/OFF"
-  auto docTgl = [](const std::string& doc, const bool& val)
-  { return std::pair(doc, (val ? "ON" : "OFF")); };
+  auto docTgl = [&tr](const std::string& doc, const bool& val)
+  { return std::pair(doc, tr(val ? "ON" : "OFF")); };
 
   // "doc", "ON/OFF/Unset"
-  auto docTglOpt = [](const std::string& doc, const std::optional<bool>& val)
-  { return std::pair(doc, (val.has_value() ? (val.value() ? "ON" : "OFF") : "Unset")); };
+  auto docTglOpt = [&tr](const std::string& doc, const std::optional<bool>& val)
+  { return std::pair(doc, (val.has_value() ? (val.value() ? tr("ON") : tr("OFF")) : tr("Unset"))); };
 
   // "Cycle verbose level", "current_level"
   auto docVerbose = [&]()
   {
     return std::pair(
-      "Verbose level", this->Internals->VerboseLevelToString(log::getVerboseLevel()));
+      tr("Verbose level"), this->Internals->VerboseLevelToString(log::getVerboseLevel()));
   };
 
   // clang-format off
@@ -1690,61 +1696,61 @@ interactor& interactor_impl::initBindings()
   this->addBinding({mod_t::NONE, "C"}, "cycle_coloring field", "Scene", docField, f3d::interactor::BindingType::CYCLIC);
   this->addBinding({mod_t::NONE, "S"}, "cycle_coloring array", "Scene", docArray, f3d::interactor::BindingType::CYCLIC);
   this->addBinding({mod_t::NONE, "Y"}, "cycle_coloring component", "Scene", docComp, f3d::interactor::BindingType::CYCLIC);
-  this->addBinding({mod_t::NONE, "B"}, "toggle ui.scalar_bar", "Scene", std::bind(docTgl, "Scalar bar", std::cref(opts.ui.scalar_bar)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "B"}, "toggle ui.scalar_bar", "Scene", std::bind(docTgl, tr("Scalar bar"), std::cref(opts.ui.scalar_bar)), f3d::interactor::BindingType::TOGGLE);
   this->addBinding({mod_t::NONE, "P"}, "cycle_blending", "Scene", docBlend, f3d::interactor::BindingType::CYCLIC);
-  this->addBinding({mod_t::NONE, "Q"}, "toggle render.effect.ambient_occlusion","Scene", std::bind(docTgl, "Ambient occlusion", std::cref(opts.render.effect.ambient_occlusion)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "Q"}, "toggle render.effect.ambient_occlusion","Scene", std::bind(docTgl, tr("Ambient occlusion"), std::cref(opts.render.effect.ambient_occlusion)), f3d::interactor::BindingType::TOGGLE);
   this->addBinding({mod_t::NONE, "A"}, "cycle_anti_aliasing","Scene", docAA, f3d::interactor::BindingType::CYCLIC);
-  this->addBinding({mod_t::NONE, "T"}, "toggle render.effect.tone_mapping","Scene", std::bind(docTgl, "Toggle tone mapping", std::cref(opts.render.effect.tone_mapping)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "E"}, "toggle render.show_edges","Scene", std::bind(docTglOpt, "Toggle edges display", std::cref(opts.render.show_edges)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "X"}, "toggle ui.axis","Scene", std::bind(docTgl, "Toggle axes display", std::cref(opts.ui.axis)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "G"}, "toggle render.grid.enable","Scene", std::bind(docTgl, "Toggle grid display", std::cref(opts.render.grid.enable)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::SHIFT, "X"}, "toggle render.axes_grid.enable", "Scene", std::bind(docTgl, "Toggle axes grid display", std::cref(opts.render.axes_grid.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "T"}, "toggle render.effect.tone_mapping","Scene", std::bind(docTgl, tr("Toggle tone mapping"), std::cref(opts.render.effect.tone_mapping)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "E"}, "toggle render.show_edges","Scene", std::bind(docTglOpt, tr("Toggle edges display"), std::cref(opts.render.show_edges)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "X"}, "toggle ui.axis","Scene", std::bind(docTgl, tr("Toggle axes display"), std::cref(opts.ui.axis)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "G"}, "toggle render.grid.enable","Scene", std::bind(docTgl, tr("Toggle grid display"), std::cref(opts.render.grid.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::SHIFT, "X"}, "toggle render.axes_grid.enable", "Scene", std::bind(docTgl, tr("Toggle axes grid display"), std::cref(opts.render.axes_grid.enable)), f3d::interactor::BindingType::TOGGLE);
 #if F3D_MODULE_UI
-  this->addBinding({mod_t::NONE, "N"}, "toggle ui.filename","Scene", std::bind(docTgl, "Filename", std::cref(opts.ui.filename)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "M"}, "toggle ui.metadata","Scene", std::bind(docTgl, "Metadata", std::cref(opts.ui.metadata)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::SHIFT, "N"}, "toggle ui.hdri_filename","Scene", std::bind(docTgl, "HDRI filename", std::cref(opts.ui.hdri_filename)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::SHIFT, "H"}, "toggle ui.scene_hierarchy","Scene", std::bind(docTgl, "Scene hierarchy", std::cref(opts.ui.scene_hierarchy)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "Z"}, "toggle ui.fps","Scene", std::bind(docTgl, "FPS Counter", std::cref(opts.ui.fps)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "N"}, "toggle ui.filename","Scene", std::bind(docTgl, tr("Filename"), std::cref(opts.ui.filename)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "M"}, "toggle ui.metadata","Scene", std::bind(docTgl, tr("Metadata"), std::cref(opts.ui.metadata)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::SHIFT, "N"}, "toggle ui.hdri_filename","Scene", std::bind(docTgl, tr("HDRI filename"), std::cref(opts.ui.hdri_filename)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::SHIFT, "H"}, "toggle ui.scene_hierarchy","Scene", std::bind(docTgl, tr("Scene hierarchy"), std::cref(opts.ui.scene_hierarchy)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "Z"}, "toggle ui.fps","Scene", std::bind(docTgl, tr("FPS Counter"), std::cref(opts.ui.fps)), f3d::interactor::BindingType::TOGGLE);
 #endif
 #if F3D_MODULE_RAYTRACING
-  this->addBinding({mod_t::NONE, "R"}, "toggle render.raytracing.enable","Scene", std::bind(docTgl, "Raytracing rendering", std::cref(opts.render.raytracing.enable)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "D"}, "toggle render.raytracing.denoise","Scene", std::bind(docTgl, "Denoising when raytracing", std::cref(opts.render.raytracing.denoise)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "R"}, "toggle render.raytracing.enable","Scene", std::bind(docTgl, tr("Raytracing rendering"), std::cref(opts.render.raytracing.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "D"}, "toggle render.raytracing.denoise","Scene", std::bind(docTgl, tr("Denoising when raytracing"), std::cref(opts.render.raytracing.denoise)), f3d::interactor::BindingType::TOGGLE);
 #endif
-  this->addBinding({mod_t::NONE, "V"}, "toggle_volume_rendering","Scene", std::bind(docTgl, "Volume rendering", std::cref(opts.model.volume.enable)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "I"}, "toggle model.volume.inverse","Scene", std::bind(docTgl, "Inverse volume opacity", std::cref(opts.model.volume.inverse)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::CTRL, "N"}, "toggle model.normal_glyphs.enable","Scene", std::bind(docTgl, "Normal glyphs", std::cref(opts.model.normal_glyphs.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "V"}, "toggle_volume_rendering","Scene", std::bind(docTgl, tr("Volume rendering"), std::cref(opts.model.volume.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "I"}, "toggle model.volume.inverse","Scene", std::bind(docTgl, tr("Inverse volume opacity"), std::cref(opts.model.volume.inverse)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::CTRL, "N"}, "toggle model.normal_glyphs.enable","Scene", std::bind(docTgl, tr("Normal glyphs"), std::cref(opts.model.normal_glyphs.enable)), f3d::interactor::BindingType::TOGGLE);
   this->addBinding({mod_t::NONE, "O"}, "cycle_point_sprites","Scene", docPS, f3d::interactor::BindingType::CYCLIC);
-  this->addBinding({mod_t::NONE, "U"}, "toggle render.background.blur.enable","Scene", std::bind(docTgl, "Blur background", std::cref(opts.render.background.blur.enable)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "K"}, "cycle_interactor_style","Scene", std::bind(docStr, "Interaction style", std::cref(opts.interactor.style)), f3d::interactor::BindingType::CYCLIC);
-  this->addBinding({mod_t::NONE, "F"}, "toggle render.hdri.ambient","Scene", std::bind(docTgl, "HDRI ambient lighting", std::cref(opts.render.hdri.ambient)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "J"}, "toggle render.background.skybox","Scene", std::bind(docTgl, "HDRI skybox", std::cref(opts.render.background.skybox)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::NONE, "L"}, "increase_light_intensity", "Scene", std::bind(docDbl, "Increase lights intensity", std::cref(opts.render.light.intensity)), f3d::interactor::BindingType::NUMERICAL);
-  this->addBinding({mod_t::SHIFT, "L"}, "decrease_light_intensity", "Scene", std::bind(docDbl, "Decrease lights intensity", std::cref(opts.render.light.intensity)), f3d::interactor::BindingType::NUMERICAL);
-  this->addBinding({mod_t::CTRL, "P"}, "increase_opacity", "Scene", std::bind(docDblOpt, "Increase opacity", std::cref(opts.model.color.opacity)), f3d::interactor::BindingType::NUMERICAL);
-  this->addBinding({mod_t::SHIFT, "P"}, "decrease_opacity", "Scene", std::bind(docDblOpt, "Decrease opacity", std::cref(opts.model.color.opacity)), f3d::interactor::BindingType::NUMERICAL);
-  this->addBinding({mod_t::SHIFT, "A"}, "toggle render.armature.enable","Scene", std::bind(docTgl, "Armature", std::cref(opts.render.armature.enable)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::ANY, "1"}, "set_camera front", "Camera", std::bind(docStr, "Front View camera"));
-  this->addBinding({mod_t::ANY, "2"}, "elevation_camera -90", "Camera", std::bind(docStr, "Rotate camera down"));
-  this->addBinding({mod_t::ANY, "3"}, "set_camera right", "Camera", std::bind(docStr, "Right View camera"));
-  this->addBinding({mod_t::ANY, "4"}, "roll_camera -90", "Camera", std::bind(docStr, "Rotate camera right"));
-  this->addBinding({mod_t::ANY, "5"}, "toggle scene.camera.orthographic", "Camera", std::bind(docTglOpt, "Orthographic Projection", std::cref(opts.scene.camera.orthographic)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::ANY, "6"}, "roll_camera 90", "Camera", std::bind(docStr, "Rotate camera left"));
-  this->addBinding({mod_t::ANY, "7"}, "set_camera top", "Camera", std::bind(docStr, "Top View camera"));
-  this->addBinding({mod_t::ANY, "8"}, "elevation_camera 90", "Camera", std::bind(docStr, "Rotate camera up"));
-  this->addBinding({mod_t::ANY, "9"}, "set_camera isometric", "Camera", std::bind(docStr, "Isometric View camera"));
-  this->addBinding({mod_t::CTRL, "Y"}, "set scene.up_direction +Y", "Scene", std::bind(docStr, "Set scene up direction to +Y"));
-  this->addBinding({mod_t::CTRL, "Z"}, "set scene.up_direction +Z", "Scene", std::bind(docStr, "Set scene up direction to +Z"));
+  this->addBinding({mod_t::NONE, "U"}, "toggle render.background.blur.enable","Scene", std::bind(docTgl, tr("Blur background"), std::cref(opts.render.background.blur.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "K"}, "cycle_interactor_style","Scene", std::bind(docStr, tr("Interaction style"), std::cref(opts.interactor.style)), f3d::interactor::BindingType::CYCLIC);
+  this->addBinding({mod_t::NONE, "F"}, "toggle render.hdri.ambient","Scene", std::bind(docTgl, tr("HDRI ambient lighting"), std::cref(opts.render.hdri.ambient)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "J"}, "toggle render.background.skybox","Scene", std::bind(docTgl, tr("HDRI skybox"), std::cref(opts.render.background.skybox)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "L"}, "increase_light_intensity", "Scene", std::bind(docDbl, tr("Increase lights intensity"), std::cref(opts.render.light.intensity)), f3d::interactor::BindingType::NUMERICAL);
+  this->addBinding({mod_t::SHIFT, "L"}, "decrease_light_intensity", "Scene", std::bind(docDbl, tr("Decrease lights intensity"), std::cref(opts.render.light.intensity)), f3d::interactor::BindingType::NUMERICAL);
+  this->addBinding({mod_t::CTRL, "P"}, "increase_opacity", "Scene", std::bind(docDblOpt, tr("Increase opacity"), std::cref(opts.model.color.opacity)), f3d::interactor::BindingType::NUMERICAL);
+  this->addBinding({mod_t::SHIFT, "P"}, "decrease_opacity", "Scene", std::bind(docDblOpt, tr("Decrease opacity"), std::cref(opts.model.color.opacity)), f3d::interactor::BindingType::NUMERICAL);
+  this->addBinding({mod_t::SHIFT, "A"}, "toggle render.armature.enable","Scene", std::bind(docTgl, tr("Armature"), std::cref(opts.render.armature.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::ANY, "1"}, "set_camera front", "Camera", std::bind(docStr, tr("Front View camera"), ""));
+  this->addBinding({mod_t::ANY, "2"}, "elevation_camera -90", "Camera", std::bind(docStr, tr("Rotate camera down"), ""));
+  this->addBinding({mod_t::ANY, "3"}, "set_camera right", "Camera", std::bind(docStr, tr("Right View camera"), ""));
+  this->addBinding({mod_t::ANY, "4"}, "roll_camera -90", "Camera", std::bind(docStr, tr("Rotate camera right"), ""));
+  this->addBinding({mod_t::ANY, "5"}, "toggle scene.camera.orthographic", "Camera", std::bind(docTglOpt, tr("Orthographic Projection"), std::cref(opts.scene.camera.orthographic)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::ANY, "6"}, "roll_camera 90", "Camera", std::bind(docStr, tr("Rotate camera left"), ""));
+  this->addBinding({mod_t::ANY, "7"}, "set_camera top", "Camera", std::bind(docStr, tr("Top View camera"), ""));
+  this->addBinding({mod_t::ANY, "8"}, "elevation_camera 90", "Camera", std::bind(docStr, tr("Rotate camera up"), ""));
+  this->addBinding({mod_t::ANY, "9"}, "set_camera isometric", "Camera", std::bind(docStr, tr("Isometric View camera"), ""));
+  this->addBinding({mod_t::CTRL, "Y"}, "set scene.up_direction +Y", "Scene", std::bind(docStr, tr("Set scene up direction to +Y"), ""));
+  this->addBinding({mod_t::CTRL, "Z"}, "set scene.up_direction +Z", "Scene", std::bind(docStr, tr("Set scene up direction to +Z"), ""));
 #if F3D_MODULE_UI
-  this->addBinding({mod_t::NONE, "H"}, "toggle ui.cheatsheet", "Others", std::bind(docStr, "Cheatsheet"), f3d::interactor::BindingType::OTHER, true);
-  this->addBinding({mod_t::NONE, "Escape"}, "toggle ui.console", "Others", std::bind(docStr, "Console"), f3d::interactor::BindingType::OTHER, true);
-  this->addBinding({mod_t::ANY, "Colon"}, "toggle ui.minimal_console", "Others", std::bind(docStr, "Minimal console"), f3d::interactor::BindingType::OTHER, true);
-  this->addBinding({mod_t::CTRL, "K"}, "toggle ui.notifications.enable", "Others", std::bind(docTgl, "Notifications", std::cref(opts.ui.notifications.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "H"}, "toggle ui.cheatsheet", "Others", std::bind(docStr, tr("Cheatsheet"), ""), f3d::interactor::BindingType::OTHER, true);
+  this->addBinding({mod_t::NONE, "Escape"}, "toggle ui.console", "Others", std::bind(docStr, tr("Console"), ""), f3d::interactor::BindingType::OTHER, true);
+  this->addBinding({mod_t::ANY, "Colon"}, "toggle ui.minimal_console", "Others", std::bind(docStr, tr("Minimal console"), ""), f3d::interactor::BindingType::OTHER, true);
+  this->addBinding({mod_t::CTRL, "K"}, "toggle ui.notifications.enable", "Others", std::bind(docTgl, tr("Notifications"), std::cref(opts.ui.notifications.enable)), f3d::interactor::BindingType::TOGGLE);
 #endif
-  this->addBinding({mod_t::CTRL, "Q"}, "stop_interactor", "Others", std::bind(docStr, "Stop the interactor"), f3d::interactor::BindingType::OTHER, true);
-  this->addBinding({mod_t::NONE, "Return"}, "reset_camera", "Others", std::bind(docStr, "Reset camera to initial parameters"));
-  this->addBinding({mod_t::NONE, "Space"}, "toggle_animation", "Others", std::bind(docStr, "Play/Pause animation if any"));
-  this->addBinding({mod_t::CTRL_SHIFT, "Space"}, "toggle_animation_backward", "Others", std::bind(docStr, "Play/Pause animation backward if any"));
-  this->addBinding({mod_t::NONE, "Drop"}, "add_files", "Others", std::bind(docStr, "Add files to the scene"), f3d::interactor::BindingType::OTHER, true);
+  this->addBinding({mod_t::CTRL, "Q"}, "stop_interactor", "Others", std::bind(docStr, tr("Stop the interactor"), ""), f3d::interactor::BindingType::OTHER, true);
+  this->addBinding({mod_t::NONE, "Return"}, "reset_camera", "Others", std::bind(docStr, tr("Reset camera to initial parameters"), ""));
+  this->addBinding({mod_t::NONE, "Space"}, "toggle_animation", "Others", std::bind(docStr, tr("Play/Pause animation if any"), ""));
+  this->addBinding({mod_t::CTRL_SHIFT, "Space"}, "toggle_animation_backward", "Others", std::bind(docStr, tr("Play/Pause animation backward if any"), ""));
+  this->addBinding({mod_t::NONE, "Drop"}, "add_files", "Others", std::bind(docStr, tr("Add files to the scene"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::SHIFT, "V"}, "cycle_verbose_level", "Others", docVerbose, f3d::interactor::BindingType::CYCLIC);
   // clang-format on
 

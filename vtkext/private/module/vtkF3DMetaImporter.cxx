@@ -1,6 +1,7 @@
 #include "vtkF3DMetaImporter.h"
 
 #include "F3DLog.h"
+#include "G3DLocaleCore.h"
 #include "vtkF3DGenericImporter.h"
 #include "vtkF3DImporter.h"
 
@@ -806,16 +807,17 @@ void vtkF3DMetaImporter::UpdateInfoForColoring()
 //----------------------------------------------------------------------------
 std::string vtkF3DMetaImporter::GetMetaDataDescription() const
 {
+  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
   std::string description;
   if (this->Pimpl->Importers.size() > 1)
   {
-    description += "Number of files: ";
-    description += std::to_string(this->Pimpl->Importers.size());
+    description += locale.Translate(
+      "Number of files: {n}", { { "n", std::to_string(this->Pimpl->Importers.size()) } });
     description += "\n";
   }
 
-  description += "Number of actors: ";
-  description += std::to_string(this->ActorCollection->GetNumberOfItems());
+  description += locale.Translate("Number of actors: {n}",
+    { { "n", std::to_string(this->ActorCollection->GetNumberOfItems()) } });
   description += "\n";
 
   vtkIdType nPoints = 0;
@@ -829,11 +831,9 @@ std::string vtkF3DMetaImporter::GetMetaDataDescription() const
     nCells += surface->GetNumberOfCells();
   }
 
-  description += "Number of points: ";
-  description += std::to_string(nPoints);
+  description += locale.Translate("Number of points: {n}", { { "n", std::to_string(nPoints) } });
   description += "\n";
-  description += "Number of cells: ";
-  description += std::to_string(nCells);
+  description += locale.Translate("Number of cells: {n}", { { "n", std::to_string(nCells) } });
   return description;
 }
 

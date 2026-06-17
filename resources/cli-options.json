@@ -40,6 +40,11 @@
           "helpText": "Print version details"
         },
         {
+          "longName": "lang",
+          "helpText": "Interface language code, e.g. en or zh-CN. Defaults to the system language.",
+          "valueHelper": "<lang>"
+        },
+        {
           "longName": "list-readers",
           "helpText": "Print the list of readers"
         },

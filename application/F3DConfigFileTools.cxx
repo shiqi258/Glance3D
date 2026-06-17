@@ -4,6 +4,7 @@
 
 #include "nlohmann/json.hpp"
 
+#include "g3dLocale.h"
 #include "log.h"
 #include "utils.h"
 
@@ -143,7 +144,7 @@ F3DConfigFileTools::ParsedConfigFiles F3DConfigFileTools::ReadConfigFiles(
       {
         if (!explicitConfigMissing && !userConfig.empty() && configSearch.empty())
         {
-          f3d::log::error("Configuration file does not exist");
+          f3d::log::error(g3d::locale::translate("Configuration file does not exist"));
           explicitConfigMissing = true;
         }
         continue;

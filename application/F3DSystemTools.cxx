@@ -217,6 +217,37 @@ fs::path F3DSystemTools::GetUserCacheDirectory()
 }
 
 //----------------------------------------------------------------------------
+std::string F3DSystemTools::GetSystemLocale()
+{
+#if defined(_WIN32)
+  std::array<wchar_t, LOCALE_NAME_MAX_LENGTH> buffer{};
+  if (GetUserDefaultLocaleName(buffer.data(), LOCALE_NAME_MAX_LENGTH) > 0)
+  {
+    // Windows locale names are ASCII BCP-47 tags (e.g. "zh-CN"), safe to narrow.
+    const std::wstring wide(buffer.data());
+    std::string narrow;
+    narrow.reserve(wide.size());
+    for (const wchar_t wc : wide)
+    {
+      narrow.push_back(static_cast<char>(wc));
+    }
+    return narrow;
+  }
+  return {};
+#else
+  for (const char* envVar : { "LC_ALL", "LC_MESSAGES", "LANG" })
+  {
+    std::optional<std::string> value = f3d::utils::getEnv(envVar);
+    if (value.has_value() && !value.value().empty())
+    {
+      return value.value();
+    }
+  }
+  return {};
+#endif
+}
+
+//----------------------------------------------------------------------------
 fs::path F3DSystemTools::GetBinaryResourceDirectory()
 {
   fs::path dirPath;

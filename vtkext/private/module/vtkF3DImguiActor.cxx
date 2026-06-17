@@ -3,6 +3,7 @@
 #include "F3DDefaultLogo.h"
 #include "F3DFontBuffer.h"
 #include "F3DStyle.h"
+#include "G3DLocaleCore.h"
 #include "vtkF3DImguiConsole.h"
 #include "vtkF3DImguiFS.h"
 #include "vtkF3DImguiVS.h"
@@ -41,6 +42,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <numeric>
 #include <optional>
@@ -500,6 +502,35 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   builder.AddChar(0x2264); // Less-Than or Equal To
   builder.BuildRanges(&ranges);
 
+  // When a CJK language is active, merge a CJK-capable font on top of the base font
+  // so Chinese/Japanese/Korean renders instead of missing-glyph boxes. The base font
+  // keeps Latin glyphs (first-added font wins for overlapping codepoints).
+  const std::string cjkFontPath = G3DLocaleCore::GetInstance().GetCJKFontPath();
+  const bool mergeCJKFont = G3DLocaleCore::GetInstance().NeedsCJK() && !cjkFontPath.empty() &&
+    std::filesystem::exists(cjkFontPath);
+
+  // Glyph range = the generic common CJK set (for incidental user text) plus every
+  // character actually used in the active catalog (so even uncommon translated
+  // characters that the "common" range omits are guaranteed covered).
+  ImVector<ImWchar> cjkRanges;
+  if (mergeCJKFont)
+  {
+    ImFontGlyphRangesBuilder cjkBuilder;
+    cjkBuilder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+    cjkBuilder.AddText(G3DLocaleCore::GetInstance().GetActiveCatalogText().c_str());
+    cjkBuilder.BuildRanges(&cjkRanges);
+  }
+  auto mergeCJK = [&](float size)
+  {
+    if (!mergeCJKFont)
+    {
+      return;
+    }
+    ImFontConfig cjkConfig;
+    cjkConfig.MergeMode = true; // merge into the most recently added font
+    io.Fonts->AddFontFromFileTTF(cjkFontPath.c_str(), size, &cjkConfig, cjkRanges.Data);
+  };
+
   ImFont* font = nullptr;
   if (this->FontFile.empty())
   {
@@ -508,17 +539,21 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
     font = io.Fonts->AddFontFromMemoryTTF(
       const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer),
       18 * this->FontScale, &fontConfig, ranges.Data);
+    mergeCJK(18 * this->FontScale);
     ImFont* notiFont = io.Fonts->AddFontFromMemoryTTF(
       const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer),
       18 * this->FontScale * .8f, &fontConfig, ranges.Data);
+    mergeCJK(18 * this->FontScale * .8f);
     Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
   else
   {
     font = io.Fonts->AddFontFromFileTTF(
       this->FontFile.c_str(), 18 * this->FontScale, &fontConfig, ranges.Data);
+    mergeCJK(18 * this->FontScale);
     ImFont* notiFont = io.Fonts->AddFontFromFileTTF(
       this->FontFile.c_str(), 18 * this->FontScale * .8f, &fontConfig, ranges.Data);
+    mergeCJK(18 * this->FontScale * .8f);
     Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
 
@@ -1009,22 +1044,27 @@ void vtkF3DImguiActor::RenderCheatSheet()
     ImGui::SetKeyboardFocusHere();
     this->Pimpl->SearchFocusRequested = false;
   }
+  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
+  const std::string searchHint = locale.Translate("Search...");
+  const std::string descModeLabel = locale.Translate("Description") + "##searchModeDescription";
+  const std::string keybindModeLabel = locale.Translate("Keybind") + "##searchModeKeybind";
+
   ImGui::PushStyleColor(ImGuiCol_FrameBg, F3DStyle::imgui::GetMidColor());
   ImGui::PushItemWidth(-1);
-  ImGui::InputTextWithHint("##SearchFilter", "Search...", this->Pimpl->SearchFilter.data(),
+  ImGui::InputTextWithHint("##SearchFilter", searchHint.c_str(), this->Pimpl->SearchFilter.data(),
     this->Pimpl->SearchFilter.size(), ImGuiInputTextFlags_EscapeClearsAll);
   ImGui::PopItemWidth();
   ImGui::PopStyleColor();
 
   if (ImGui::RadioButton(
-        "Description", this->Pimpl->CurrentSearchMode == Internals::SearchMode::Description))
+        descModeLabel.c_str(), this->Pimpl->CurrentSearchMode == Internals::SearchMode::Description))
   {
     this->Pimpl->CurrentSearchMode = Internals::SearchMode::Description;
     this->Pimpl->SearchFocusRequested = true;
   }
   ImGui::SameLine();
   if (ImGui::RadioButton(
-        "Keybind", this->Pimpl->CurrentSearchMode == Internals::SearchMode::Keybind))
+        keybindModeLabel.c_str(), this->Pimpl->CurrentSearchMode == Internals::SearchMode::Keybind))
   {
     this->Pimpl->CurrentSearchMode = Internals::SearchMode::Keybind;
     this->Pimpl->SearchFocusRequested = true;

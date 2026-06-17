@@ -34,6 +34,7 @@
 #endif
 
 #include "engine.h"
+#include "g3dLocale.h"
 #include "interactor.h"
 #include "log.h"
 #include "options.h"
@@ -108,6 +109,7 @@ public:
     std::string PluginsPath;
     std::string ScreenshotFilename;
     std::string VerboseLevel;
+    std::string Lang;
     std::string MultiFileMode;
     std::string MultiFileRegex;
     bool RecursiveDirAdd;
@@ -315,7 +317,8 @@ public:
       }
       catch (const f3d::image::write_exception& ex)
       {
-        f3d::log::error("Could not write output: ", ex.what());
+        f3d::log::error(
+          g3d::locale::translate("Could not write output: {error}", { { "error", ex.what() } }));
         return false;
       }
       f3d::log::debug("Output image saved to ", outputPath);
@@ -791,6 +794,7 @@ public:
     this->ParseOption(appOptions, "plugins-path", this->AppOptions.PluginsPath);
     this->ParseOption(appOptions, "screenshot-filename", this->AppOptions.ScreenshotFilename);
     this->ParseOption(appOptions, "verbose", this->AppOptions.VerboseLevel);
+    this->ParseOption(appOptions, "lang", this->AppOptions.Lang);
     this->ParseOption(appOptions, "multi-file-mode", this->AppOptions.MultiFileMode);
     this->ParseOption(appOptions, "multi-file-regex", this->AppOptions.MultiFileRegex);
     this->ParseOption(appOptions, "recursive-dir-add", this->AppOptions.RecursiveDirAdd);
@@ -835,7 +839,8 @@ public:
       }
       else
       {
-        f3d::log::error("Cannot find the colormap ", colorMapFile);
+        f3d::log::error(g3d::locale::translate(
+          "Cannot find the colormap {path}", { { "path", colorMapFile } }));
         this->LibOptions.model.scivis.colormap = f3d::colormap_t();
       }
     }
@@ -851,7 +856,8 @@ public:
       std::vector<double>& opacityMap = this->LibOptions.model.scivis.opacity_map;
       if (opacityMap.empty())
       {
-        f3d::log::error("Cannot read the opacity map ", opacityMapFile);
+        f3d::log::error(g3d::locale::translate(
+          "Cannot read the opacity map {path}", { { "path", opacityMapFile } }));
         this->LibOptions.model.scivis.opacity_map = { 0.0, 0.0, 1.0, 1.0 };
       }
     }
@@ -925,26 +931,26 @@ public:
       interactor.initBindings();
 
       // clang-format off
-      interactor.addBinding({ mod_t::NONE, "Left" }, "load_previous_file_group", "Others", std::bind(docString, "Load previous file group"));
-      interactor.addBinding({ mod_t::NONE, "Right" }, "load_next_file_group", "Others", std::bind(docString, "Load next file group"));
-      interactor.addBinding({ mod_t::CTRL, "Left" }, "load_previous_file_group true", "Others", std::bind(docString, "Load previous file group, keeping camera"));
-      interactor.addBinding({ mod_t::CTRL, "Right" }, "load_next_file_group true", "Others", std::bind(docString, "Load next file group, keeping camera"));
-      interactor.addBinding({ mod_t::NONE, "Up" }, "reload_current_file_group", "Others", std::bind(docString, "Reload current file group"));
-      interactor.addBinding({ mod_t::NONE, "Down" }, "add_current_directories", "Others", std::bind(docString, "Add files from dir of current file"));
-      interactor.addBinding({ mod_t::NONE, "F12" }, "take_screenshot", "Others", std::bind(docString, "Take a screenshot"));
+      interactor.addBinding({ mod_t::NONE, "Left" }, "load_previous_file_group", "Others", std::bind(docString, g3d::locale::translate("Load previous file group")));
+      interactor.addBinding({ mod_t::NONE, "Right" }, "load_next_file_group", "Others", std::bind(docString, g3d::locale::translate("Load next file group")));
+      interactor.addBinding({ mod_t::CTRL, "Left" }, "load_previous_file_group true", "Others", std::bind(docString, g3d::locale::translate("Load previous file group, keeping camera")));
+      interactor.addBinding({ mod_t::CTRL, "Right" }, "load_next_file_group true", "Others", std::bind(docString, g3d::locale::translate("Load next file group, keeping camera")));
+      interactor.addBinding({ mod_t::NONE, "Up" }, "reload_current_file_group", "Others", std::bind(docString, g3d::locale::translate("Reload current file group")));
+      interactor.addBinding({ mod_t::NONE, "Down" }, "add_current_directories", "Others", std::bind(docString, g3d::locale::translate("Add files from dir of current file")));
+      interactor.addBinding({ mod_t::NONE, "F12" }, "take_screenshot", "Others", std::bind(docString, g3d::locale::translate("Take a screenshot")));
 #if F3D_MODULE_TINYFILEDIALOGS
-      interactor.addBinding({ mod_t::CTRL, "O" }, "open_file_dialog", "Others", std::bind(docString, "Open File Dialog"), f3d::interactor::BindingType::OTHER, true);
+      interactor.addBinding({ mod_t::CTRL, "O" }, "open_file_dialog", "Others", std::bind(docString, g3d::locale::translate("Open File Dialog")), f3d::interactor::BindingType::OTHER, true);
 #endif
-      interactor.addBinding({ mod_t::CTRL, "F12" }, "take_minimal_screenshot", "Others", std::bind(docString, "Take a minimal screenshot"));
+      interactor.addBinding({ mod_t::CTRL, "F12" }, "take_minimal_screenshot", "Others", std::bind(docString, g3d::locale::translate("Take a minimal screenshot")));
 
       // This replace an existing default binding command in the libf3d
       interactor.removeBinding({ mod_t::NONE, "Drop" });
-      interactor.addBinding({ mod_t::NONE, "Drop" }, "add_files_or_set_hdri", "Others", std::bind(docString, "Load dropped files, folder or HDRI"), f3d::interactor::BindingType::OTHER, true);
-      interactor.addBinding({ mod_t::CTRL, "Drop" }, "add_files", "Others", std::bind(docString, "Load dropped files or folder"), f3d::interactor::BindingType::OTHER, true);
-      interactor.addBinding({ mod_t::SHIFT, "Drop" }, "set_hdri", "Others", std::bind(docString, "Set HDRI and use it"), f3d::interactor::BindingType::OTHER, true);
+      interactor.addBinding({ mod_t::NONE, "Drop" }, "add_files_or_set_hdri", "Others", std::bind(docString, g3d::locale::translate("Load dropped files, folder or HDRI")), f3d::interactor::BindingType::OTHER, true);
+      interactor.addBinding({ mod_t::CTRL, "Drop" }, "add_files", "Others", std::bind(docString, g3d::locale::translate("Load dropped files or folder")), f3d::interactor::BindingType::OTHER, true);
+      interactor.addBinding({ mod_t::SHIFT, "Drop" }, "set_hdri", "Others", std::bind(docString, g3d::locale::translate("Set HDRI and use it")), f3d::interactor::BindingType::OTHER, true);
 
       interactor.removeBinding({mod_t::CTRL, "Q"});
-      interactor.addBinding({mod_t::CTRL, "Q"}, "exit", "Others", std::bind(docString, "Quit"), f3d::interactor::BindingType::OTHER, true);
+      interactor.addBinding({mod_t::CTRL, "Q"}, "exit", "Others", std::bind(docString, g3d::locale::translate("Quit")), f3d::interactor::BindingType::OTHER, true);
       // clang-format on
 
       f3d::log::debug("Adding config defined bindings if any: ");
@@ -1051,6 +1057,48 @@ F3DStarter::~F3DStarter()
 //----------------------------------------------------------------------------
 int F3DStarter::Start(int argc, char** argv)
 {
+  // Seed the interface language from G3D_LANG or the system locale before any
+  // output, so even CLI parsing messages are localized. Refined once the config
+  // and CLI options are merged (see the language resolution below).
+  {
+    const std::filesystem::path resourceDir = F3DSystemTools::GetBinaryResourceDirectory();
+    if (!resourceDir.empty())
+    {
+      // Optional external catalogs override the embedded built-in en/zh-CN.
+      g3d::locale::loadFromDirectory((resourceDir / "locales").string());
+      // CJK-capable font, merged into the viewport font atlas for CJK languages.
+      g3d::locale::setCJKFontPath((resourceDir / "fonts" / "NotoSansSC-Regular.ttf").string());
+    }
+    // Highest priority even for early messages (CLI parsing, --help): an explicit
+    // --lang on the command line. Scanned manually here since cxxopts has not run yet.
+    std::string cliLang;
+    for (int i = 1; i < argc; ++i)
+    {
+      const std::string arg = argv[i];
+      if (arg.rfind("--lang=", 0) == 0)
+      {
+        cliLang = arg.substr(7);
+      }
+      else if (arg == "--lang" && i + 1 < argc)
+      {
+        cliLang = argv[i + 1];
+      }
+    }
+    const std::optional<std::string> envLang = f3d::utils::getEnv("G3D_LANG");
+    if (!cliLang.empty())
+    {
+      g3d::locale::setLanguage(cliLang);
+    }
+    else if (envLang.has_value() && !envLang.value().empty())
+    {
+      g3d::locale::setLanguage(envLang.value());
+    }
+    else
+    {
+      g3d::locale::setLanguage(g3d::locale::normalizeLocale(F3DSystemTools::GetSystemLocale()));
+    }
+  }
+
   // Parse CLI Options into an option dict
   std::vector<std::string> inputFiles;
   F3DOptionsTools::OptionsDict cliOptionsDict =
@@ -1131,6 +1179,28 @@ int F3DStarter::Start(int argc, char** argv)
       this->Internals->ImperativeConfigOptionsEntries },
     { "" }, true);
 
+  // Resolve the interface language now that config and CLI are merged:
+  // CLI --lang > G3D_LANG env > config lang > system locale (the early seed above).
+  {
+    const auto langIter = cliOptionsDict.find("lang");
+    const std::optional<std::string> envLang = f3d::utils::getEnv("G3D_LANG");
+    if (langIter != cliOptionsDict.end() && !langIter->second.empty())
+    {
+      g3d::locale::setLanguage(langIter->second);
+    }
+    else if (envLang.has_value() && !envLang.value().empty())
+    {
+      g3d::locale::setLanguage(envLang.value());
+    }
+    else if (!this->Internals->AppOptions.Lang.empty())
+    {
+      g3d::locale::setLanguage(this->Internals->AppOptions.Lang);
+    }
+    // else keep the early system-locale seed.
+    f3d::log::debug(g3d::locale::translate(
+      "Interface language set to {lang}", { { "lang", g3d::locale::getLanguage() } }));
+  }
+
   const auto& mode = this->Internals->AppOptions.MultiFileMode;
   if (mode != "single" && mode != "all" && mode != "dir")
   {
@@ -1199,12 +1269,14 @@ int F3DStarter::Start(int argc, char** argv)
     }
     catch (const f3d::context::loading_exception& ex)
     {
-      f3d::log::error("Could not load graphic library: ", ex.what());
+      f3d::log::error(g3d::locale::translate(
+        "Could not load graphic library: {error}", { { "error", ex.what() } }));
       return EXIT_FAILURE;
     }
     catch (const f3d::context::symbol_exception& ex)
     {
-      f3d::log::error("Could not find needed symbol in graphic library: ", ex.what());
+      f3d::log::error(g3d::locale::translate(
+        "Could not find needed symbol in graphic library: {error}", { { "error", ex.what() } }));
       return EXIT_FAILURE;
     }
     catch (const f3d::engine::no_window_exception& ex)
@@ -1327,7 +1399,7 @@ int F3DStarter::Start(int argc, char** argv)
     {
       if (this->Internals->LoadedFiles.empty() && !noDataForceRender.has_value())
       {
-        f3d::log::error("No file loaded, no rendering performed");
+        f3d::log::error(g3d::locale::translate("No file loaded, no rendering performed"));
         return EXIT_FAILURE;
       }
       const fs::path output = this->Internals->finalizeFilenameTemplate(outputTemplate);
@@ -1349,7 +1421,8 @@ int F3DStarter::Start(int argc, char** argv)
             }
             catch (const f3d::image::write_exception& ex)
             {
-              f3d::log::error("Could not write output: ", ex.what());
+              f3d::log::error(
+          g3d::locale::translate("Could not write output: {error}", { { "error", ex.what() } }));
               return EXIT_FAILURE;
             }
 
@@ -1388,7 +1461,8 @@ int F3DStarter::Start(int argc, char** argv)
           }
           catch (const f3d::image::write_exception& ex)
           {
-            f3d::log::error("Could not write output: ", ex.what());
+            f3d::log::error(
+          g3d::locale::translate("Could not write output: {error}", { { "error", ex.what() } }));
             return EXIT_FAILURE;
           }
         }
@@ -1706,7 +1780,8 @@ void F3DStarter::LoadFileGroupInternal(
         catch (const fs::filesystem_error& ex)
         {
           // Unreachable
-          f3d::log::error("Error loading file: ", ex.what());
+          f3d::log::error(
+            g3d::locale::translate("Error loading file: {error}", { { "error", ex.what() } }));
         }
       }
     }
@@ -1781,7 +1856,8 @@ void F3DStarter::LoadFileGroupInternal(
         }
         catch (const f3d::scene::load_failure_exception& ex)
         {
-          f3d::log::error("Some of these files could not be loaded: ", ex.what());
+          f3d::log::error(g3d::locale::translate(
+            "Some of these files could not be loaded: {error}", { { "error", ex.what() } }));
           for (const fs::path& tmpPath : localPaths)
           {
             f3d::log::error("  ", tmpPath.string());

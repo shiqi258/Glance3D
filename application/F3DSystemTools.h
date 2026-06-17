@@ -19,6 +19,13 @@ std::filesystem::path GetUserConfigFileDirectory();
 std::filesystem::path GetUserCacheDirectory();
 std::filesystem::path GetUserScreenshotDirectory();
 std::filesystem::path GetBinaryResourceDirectory();
+
+/**
+ * Recover the user's system locale as a raw string (e.g. "zh-CN", "zh_CN.UTF-8"),
+ * or an empty string when it cannot be determined. Normalize it with
+ * g3d::locale::normalizeLocale before use.
+ */
+std::string GetSystemLocale();
 }
 
 #endif
