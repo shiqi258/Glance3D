@@ -23,6 +23,7 @@
 #include <vtkVersion.h>
 
 #include <cassert>
+#include <chrono>
 #include <iostream>
 #include <numeric>
 #include <vector>
@@ -243,9 +244,25 @@ bool vtkF3DMetaImporter::Update()
   this->Renderer = this->RenderWindow->GetRenderers()->GetFirstRenderer();
   assert(this->Renderer);
 
-  vtkIdType localCameraIndex = -1;
-
   this->Pimpl->UpdateTime.Modified();
+
+  // [G3D-PERF] Two-phase load: BuildGeometry() runs the heavy parse/build (CPU, no renderer
+  // registration); CommitToRenderer() registers the resulting actors with the renderer. Split so
+  // the parse can later move off the render thread. Single-threaded behavior is unchanged.
+  if (!this->BuildGeometry())
+  {
+    return false;
+  }
+  this->CommitToRenderer();
+
+  // XXX: UpdateStatus is not set, but libf3d does not use it
+  return true;
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DMetaImporter::BuildGeometry()
+{
+  vtkIdType localCameraIndex = -1;
 
   if (this->Pimpl->CameraIndex.has_value())
   {
@@ -278,12 +295,47 @@ bool vtkF3DMetaImporter::Update()
       importer->SetCamera(localCameraIndex);
     }
 
+    // [G3D-PERF] Time the VTK importer itself: file parse + build of vtkPolyData (CPU, no GPU).
+    const auto g3dParseStart = std::chrono::steady_clock::now();
     if (!importer->Update())
     {
       return false;
     }
+    const auto g3dParseEnd = std::chrono::steady_clock::now();
+    F3DLog::Print(F3DLog::Severity::Debug,
+      "[G3D-PERF]   importer->Update (VTK parse+build polydata) [" + importerInfo.Name + "] = " +
+        std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+          g3dParseEnd - g3dParseStart)
+                         .count()) +
+        " ms");
 
     localCameraIndex -= importer->GetNumberOfCameras();
+  }
+
+  if (localCameraIndex > 0)
+  {
+    // Here we know that CameraIndex has a value
+    F3DLog::Print(F3DLog::Severity::Warning,
+      "Camera index " + std::to_string(this->Pimpl->CameraIndex.value()) +
+        " is higher than the number of available camera in the files. Camera may be incorrect.");
+  }
+
+  return true;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DMetaImporter::CommitToRenderer()
+{
+  for (auto& importerInfo : this->Pimpl->Importers)
+  {
+    // Already committed to the renderer by a previous Update()
+    if (importerInfo.Updated)
+    {
+      continue;
+    }
+
+    vtkImporter* importer = importerInfo.Importer;
+    const auto g3dCommitStart = std::chrono::steady_clock::now();
 
     vtkActorCollection* actorCollection = importer->GetImportedActors();
 
@@ -447,19 +499,18 @@ bool vtkF3DMetaImporter::Update()
       actorIndex++;
     }
 
+    // [G3D-PERF] Time the F3D-side per-actor setup: mapper creation, PBR/material conversion,
+    // coloring/glyph/sprite struct allocation and renderer registration (CPU; GPU upload is
+    // still deferred to the first render).
+    F3DLog::Print(F3DLog::Severity::Debug,
+      "[G3D-PERF]   F3D actor/mapper/renderer setup [" + importerInfo.Name + "] = " +
+        std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - g3dCommitStart)
+                         .count()) +
+        " ms");
+
     importerInfo.Updated = true;
   }
-
-  if (localCameraIndex > 0)
-  {
-    // Here we know that CameraIndex has a value
-    F3DLog::Print(F3DLog::Severity::Warning,
-      "Camera index " + std::to_string(this->Pimpl->CameraIndex.value()) +
-        " is higher than the number of available camera in the files. Camera may be incorrect.");
-  }
-
-  // XXX: UpdateStatus is not set, but libf3d does not use it
-  return true;
 }
 
 //----------------------------------------------------------------------------

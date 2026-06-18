@@ -219,6 +219,21 @@ private:
   using vtkImporter::SetCamera;
 
   /**
+   * Build phase of Update(): run each not-yet-updated importer's parse/build (CPU heavy, produces
+   * vtkPolyData; no renderer registration here). Also handles camera index selection. Returns
+   * false if any importer fails. Split from CommitToRenderer() so this heavy parse can later be
+   * moved off the render thread.
+   */
+  bool BuildGeometry();
+
+  /**
+   * Commit phase of Update(): for each not-yet-updated importer, build its scene-graph assembly
+   * and register its actors (coloring/glyph/sprite/volume) with the renderer, then mark it
+   * Updated. Must run on the render thread (touches this->Renderer).
+   */
+  void CommitToRenderer();
+
+  /**
    * Recover coloring information from each individual importer
    * and store result in internal fields
    */

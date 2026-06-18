@@ -35,6 +35,7 @@
 #include <vtkStridedArray.h>
 #endif
 
+#include <chrono>
 #include <numeric>
 #include <vector>
 
@@ -137,7 +138,17 @@ public:
     }
 
     // Update the meta importer, the will only update importers that have not been updated before
-    if (!this->MetaImporter->Update())
+    // [G3D-PERF] Whole synchronous import cost (parse + build polydata + actor setup). This is the
+    // window that currently blocks the UI thread; the per-importer breakdown is logged inside
+    // vtkF3DMetaImporter::Update.
+    const auto g3dImportStart = std::chrono::steady_clock::now();
+    const bool g3dImportOk = this->MetaImporter->Update();
+    log::debug("[G3D-PERF] scene::add total MetaImporter::Update (parse+build+actor setup) = ",
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - g3dImportStart)
+        .count(),
+      " ms");
+    if (!g3dImportOk)
     {
       this->MetaImporter->RemoveObservers(vtkCommand::ProgressEvent);
       progressWidget->Off();

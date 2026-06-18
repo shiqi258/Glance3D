@@ -16,6 +16,8 @@
 #include "vtkF3DNoRenderWindow.h"
 #include "vtkF3DRenderer.h"
 
+#include <chrono>
+
 #include <vtkCamera.h>
 #include <vtkF3DRenderPass.h>
 #include <vtkImageData.h>
@@ -713,7 +715,18 @@ bool window_impl::render()
     // options will enable successful reset of camera
     this->Internals->Camera->resetToBounds();
   }
+  // [G3D-PERF] Time the actual VTK render. The first render after a load triggers lazy GPU upload
+  // of all freshly built geometry, so it is far heavier than a steady-state frame. Threshold-gate
+  // the log so the per-frame interactor loop stays silent and only the costly upload shows up.
+  const auto g3dRenderStart = std::chrono::steady_clock::now();
   this->Internals->RenWin->Render();
+  const auto g3dRenderMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - g3dRenderStart)
+                             .count();
+  if (g3dRenderMs > 50)
+  {
+    log::debug("[G3D-PERF] window::render (incl. lazy GPU upload) = ", g3dRenderMs, " ms");
+  }
   return true;
 }
 
