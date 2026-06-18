@@ -19,6 +19,7 @@
   "Could not find needed symbol in graphic library: {error}": "在图形库中找不到所需符号：{error}",
   "Error loading file: {error}": "加载文件出错：{error}",
   "Some of these files could not be loaded: {error}": "其中部分文件无法加载：{error}",
+  "Loading {percent}%": "加载中 {percent}%",
   "Glance3D encountered an unexpected exception:": "Glance3D 遇到意外异常：",
 
   "Scene": "场景",

@@ -1889,9 +1889,20 @@ void F3DStarter::LoadFileGroupInternal(
           // while we keep pumping OS events so the window stays responsive, then finalize (commit
           // to the renderer) on this (the render) thread. Mirrors the behavior of scene.add().
           f3d::interactor& asyncInteractor = this->Internals->Engine->getInteractor();
+          f3d::window& asyncWindow = this->Internals->Engine->getWindow();
           scene.addAsync(localPaths);
+          int lastShownPercent = -1;
           while (scene.getAsyncState() == f3d::scene::AsyncState::LOADING)
           {
+            // Surface progress in the window title: the title bar keeps being painted by the OS
+            // even while we are busy, so it is a reliable, dependency-free progress indicator.
+            const int percent = static_cast<int>(scene.getAsyncProgress() * 100.0);
+            if (percent != lastShownPercent)
+            {
+              lastShownPercent = percent;
+              asyncWindow.setWindowName(g3d::locale::translate(
+                "Loading {percent}%", { { "percent", std::to_string(percent) } }));
+            }
             asyncInteractor.processEvents();
             // Cap the pump rate (~120 Hz): processEvents() renders each iteration, so without this
             // the loop would busy-spin on empty frames while the background build runs.
