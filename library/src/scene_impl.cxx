@@ -35,8 +35,10 @@
 #include <vtkStridedArray.h>
 #endif
 
+#include <atomic>
 #include <chrono>
 #include <numeric>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -54,6 +56,15 @@ public:
     this->MetaImporter->SetRenderWindow(this->Window.GetRenderWindow());
     this->Window.SetImporter(this->MetaImporter);
     this->AnimationManager.SetImporter(this->MetaImporter);
+  }
+
+  ~internals()
+  {
+    // Ensure any in-flight asynchronous build finishes before tearing down.
+    if (this->AsyncBuildThread.joinable())
+    {
+      this->AsyncBuildThread.join();
+    }
   }
 
   struct ProgressDataStruct
@@ -103,7 +114,9 @@ public:
     data->timer->StartTimer();
   }
 
-  void Load(const std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>>& importers)
+  // Add importers and run the pre-build setup shared by synchronous and asynchronous loads.
+  void LoadAddAndPrepare(
+    const std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>>& importers)
   {
     for (const auto& importer : importers)
     {
@@ -123,6 +136,30 @@ public:
     {
       this->MetaImporter->SetCameraIndex(this->Options.scene.camera.index.value());
     }
+  }
+
+  // Post-build setup shared by synchronous and asynchronous loads. Touches the window/renderer, so
+  // it must run on the render thread.
+  void LoadPostProcess()
+  {
+    // Initialize the animation using temporal information from the importer
+    this->AnimationManager.UpdateDynamicOptions();
+    this->AnimationManager.Initialize();
+
+    // Update all window options and reset camera to bounds if needed
+    this->Window.UpdateDynamicOptions();
+    if (!this->Options.scene.camera.index.has_value())
+    {
+      this->Window.getCamera().resetToBounds();
+    }
+
+    scene_impl::internals::DisplayAllInfo(this->MetaImporter, this->Window);
+  }
+
+  // Synchronous load: prepare, build + commit (blocking), post-process.
+  void Load(const std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>>& importers)
+  {
+    this->LoadAddAndPrepare(importers);
 
     // Manage progress bar
     vtkNew<vtkProgressBarWidget> progressWidget;
@@ -162,18 +199,142 @@ public:
     this->MetaImporter->RemoveObservers(vtkCommand::ProgressEvent);
     progressWidget->Off();
 
-    // Initialize the animation using temporal information from the importer
-    this->AnimationManager.UpdateDynamicOptions();
-    this->AnimationManager.Initialize();
+    this->LoadPostProcess();
+  }
 
-    // Update all window options and reset camera to bounds if needed
-    this->Window.UpdateDynamicOptions();
-    if (!this->Options.scene.camera.index.has_value())
+  // Recover a vtkImporter for each provided path (synchronous, throws on unsupported file).
+  // Shared by the synchronous add() and the asynchronous addAsync().
+  std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>> RecoverImporters(
+    const std::vector<fs::path>& filePaths)
+  {
+    std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>> importers;
+    for (const fs::path& filePath : filePaths)
     {
-      this->Window.getCamera().resetToBounds();
+      if (filePath.empty())
+      {
+        log::debug("An empty file to load was provided\n");
+        continue;
+      }
+
+      if (!vtksys::SystemTools::FileExists(filePath.string(), true))
+      {
+        throw scene::load_failure_exception(filePath.string() + " does not exists");
+      }
+      std::optional<std::string> forceReader = this->Options.scene.force_reader;
+      // Recover the importer for the provided file path
+      const f3d::reader* reader =
+        f3d::factory::instance()->getReader(filePath.string(), forceReader);
+      if (reader)
+      {
+        if (forceReader)
+        {
+          log::debug("Forcing reader ", (*forceReader), " for ", filePath.string());
+        }
+        else
+        {
+          log::debug("Found a reader for \"", filePath.string(), "\" : \"", reader->getName(), "\"");
+        }
+      }
+      else
+      {
+        if (forceReader)
+        {
+          throw scene::load_failure_exception(*forceReader + " is not a valid force reader");
+        }
+        throw scene::load_failure_exception(filePath.string() +
+          " is not a file of a supported 3D scene file format, use force reader to force a specific "
+          "reader");
+      }
+
+      vtkSmartPointer<vtkImporter> importer = reader->createSceneReader(filePath.string());
+      if (!importer)
+      {
+        // XXX: F3D Plugin CMake logic ensure there is either a scene reader or a geometry reader
+        auto vtkReader = reader->createGeometryReader(filePath.string());
+        assert(vtkReader);
+        vtkSmartPointer<vtkF3DGenericImporter> genericImporter =
+          vtkSmartPointer<vtkF3DGenericImporter>::New();
+        genericImporter->SetInternalReader(vtkReader);
+        importer = genericImporter;
+      }
+      importers.emplace_back(filePath.filename().string(), importer);
     }
 
-    scene_impl::internals::DisplayAllInfo(this->MetaImporter, this->Window);
+    log::debug("\nLoading files: ");
+    if (filePaths.size() == 1)
+    {
+      log::debug(filePaths[0].string());
+    }
+    else
+    {
+      for (const fs::path& filePathStr : filePaths)
+      {
+        log::debug("- ", filePathStr.string());
+      }
+    }
+    log::debug("");
+
+    return importers;
+  }
+
+  // Kick off an asynchronous load: prepare on the calling thread, then run the heavy BuildGeometry()
+  // on a worker thread. Completion is observed via AsyncState; finalize with LoadFinalize().
+  void LoadStart(
+    const std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>>& importers)
+  {
+    this->LoadAddAndPrepare(importers);
+
+    // Thread-safe progress: the callback only records the value (no GL), so it is safe to fire from
+    // the worker thread; getAsyncProgress() reports it.
+    this->AsyncProgress = 0.0;
+    vtkNew<vtkCallbackCommand> progressCallback;
+    progressCallback->SetClientData(this);
+    progressCallback->SetCallback(
+      [](vtkObject*, unsigned long, void* clientData, void* callData)
+      {
+        auto* self = static_cast<scene_impl::internals*>(clientData);
+        self->AsyncProgress = *static_cast<double*>(callData);
+      });
+    this->AsyncProgressTag =
+      this->MetaImporter->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+
+    this->AsyncState = scene::AsyncState::LOADING;
+    this->AsyncBuildThread = std::thread(
+      [this]
+      {
+        const bool ok = this->MetaImporter->BuildGeometry();
+        this->AsyncState = ok ? scene::AsyncState::READY : scene::AsyncState::FAILED;
+      });
+  }
+
+  // Finalize an asynchronous load on the render thread: commit the built geometry (or fail).
+  void LoadFinalize()
+  {
+    const scene::AsyncState state = this->AsyncState.load();
+    if (state != scene::AsyncState::READY && state != scene::AsyncState::FAILED)
+    {
+      return; // nothing to finalize (IDLE or still LOADING)
+    }
+    if (this->AsyncBuildThread.joinable())
+    {
+      this->AsyncBuildThread.join();
+    }
+    this->MetaImporter->RemoveObserver(this->AsyncProgressTag);
+    this->AsyncProgressTag = 0;
+
+    if (state == scene::AsyncState::FAILED)
+    {
+      this->MetaImporter->Clear();
+      this->Window.Initialize();
+      this->AsyncProgress = 0.0;
+      this->AsyncState = scene::AsyncState::IDLE;
+      throw scene::load_failure_exception("failed to load scene");
+    }
+
+    this->MetaImporter->CommitToRenderer();
+    this->LoadPostProcess();
+    this->AsyncProgress = 1.0;
+    this->AsyncState = scene::AsyncState::IDLE;
   }
 
   static void DisplayImporterDescription(log::VerboseLevel level, vtkImporter* importer)
@@ -214,6 +375,13 @@ public:
   animationManager AnimationManager;
 
   vtkNew<vtkF3DMetaImporter> MetaImporter;
+
+  // Asynchronous load state (see scene::addAsync). AsyncState/AsyncProgress are written by the
+  // worker thread and read by the render thread, hence atomic.
+  std::thread AsyncBuildThread;
+  std::atomic<scene::AsyncState> AsyncState{ scene::AsyncState::IDLE };
+  std::atomic<double> AsyncProgress{ 0.0 };
+  unsigned long AsyncProgressTag = 0;
 };
 
 //----------------------------------------------------------------------------
@@ -249,73 +417,43 @@ scene& scene_impl::add(const std::vector<fs::path>& filePaths)
     return *this;
   }
 
-  std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>> importers;
-  for (const fs::path& filePath : filePaths)
+  this->Internals->Load(this->Internals->RecoverImporters(filePaths));
+  return *this;
+}
+
+//----------------------------------------------------------------------------
+scene& scene_impl::addAsync(const std::vector<fs::path>& filePaths)
+{
+  if (this->Internals->AsyncState.load() == scene::AsyncState::LOADING)
   {
-    if (filePath.empty())
-    {
-      log::debug("An empty file to load was provided\n");
-      continue;
-    }
-
-    if (!vtksys::SystemTools::FileExists(filePath.string(), true))
-    {
-      throw scene::load_failure_exception(filePath.string() + " does not exists");
-    }
-    std::optional<std::string> forceReader = this->Internals->Options.scene.force_reader;
-    // Recover the importer for the provided file path
-    const f3d::reader* reader = f3d::factory::instance()->getReader(filePath.string(), forceReader);
-    if (reader)
-    {
-      if (forceReader)
-      {
-        log::debug("Forcing reader ", (*forceReader), " for ", filePath.string());
-      }
-      else
-      {
-        log::debug("Found a reader for \"", filePath.string(), "\" : \"", reader->getName(), "\"");
-      }
-    }
-    else
-    {
-      if (forceReader)
-      {
-        throw scene::load_failure_exception(*forceReader + " is not a valid force reader");
-      }
-      throw scene::load_failure_exception(filePath.string() +
-        " is not a file of a supported 3D scene file format, use force reader to force a specific "
-        "reader");
-    }
-
-    vtkSmartPointer<vtkImporter> importer = reader->createSceneReader(filePath.string());
-    if (!importer)
-    {
-      // XXX: F3D Plugin CMake logic ensure there is either a scene reader or a geometry reader
-      auto vtkReader = reader->createGeometryReader(filePath.string());
-      assert(vtkReader);
-      vtkSmartPointer<vtkF3DGenericImporter> genericImporter =
-        vtkSmartPointer<vtkF3DGenericImporter>::New();
-      genericImporter->SetInternalReader(vtkReader);
-      importer = genericImporter;
-    }
-    importers.emplace_back(filePath.filename().string(), importer);
+    throw scene::load_failure_exception("an asynchronous load is already in progress");
+  }
+  if (filePaths.empty())
+  {
+    log::debug("No file to load a full scene provided\n");
+    return *this;
   }
 
-  log::debug("\nLoading files: ");
-  if (filePaths.size() == 1)
-  {
-    log::debug(filePaths[0].string());
-  }
-  else
-  {
-    for (const fs::path& filePathStr : filePaths)
-    {
-      log::debug("- ", filePathStr.string());
-    }
-  }
-  log::debug("");
+  this->Internals->LoadStart(this->Internals->RecoverImporters(filePaths));
+  return *this;
+}
 
-  this->Internals->Load(importers);
+//----------------------------------------------------------------------------
+scene::AsyncState scene_impl::getAsyncState()
+{
+  return this->Internals->AsyncState.load();
+}
+
+//----------------------------------------------------------------------------
+double scene_impl::getAsyncProgress()
+{
+  return this->Internals->AsyncProgress.load();
+}
+
+//----------------------------------------------------------------------------
+scene& scene_impl::finalizeAsync()
+{
+  this->Internals->LoadFinalize();
   return *this;
 }
 

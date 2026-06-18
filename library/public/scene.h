@@ -47,6 +47,17 @@ public:
       : exception(what) {};
   };
 
+  /**
+   * State of an asynchronous load started with addAsync().
+   */
+  enum class AsyncState : unsigned char
+  {
+    IDLE,    ///< no async load in progress
+    LOADING, ///< background parse/build is running
+    READY,   ///< background build finished; call finalizeAsync() on the render thread
+    FAILED   ///< background build failed; finalizeAsync() will throw
+  };
+
   ///@{
   /**
    * Add and load provided files into the scene
@@ -100,6 +111,49 @@ public:
     return this->add(std::vector<std::filesystem::path>(list));
   }
   ///@}
+
+  ///@{
+  /**
+   * Asynchronously add and load provided files into the scene.
+   *
+   * The heavy parsing and geometry build run on a background thread, leaving the calling
+   * (UI/render) thread free; addAsync() returns immediately. Drive completion from the thread that
+   * owns the window/GL context: poll getAsyncState() and, once it returns AsyncState::READY (or
+   * FAILED), call finalizeAsync() to commit the result on the render thread.
+   *
+   * Only one async load may run at a time; calling addAsync() while one is in progress throws a
+   * load_failure_exception. Files that fail extension/reader detection are rejected synchronously
+   * (throwing as add() does); errors during the background build are reported via
+   * AsyncState::FAILED and re-thrown by finalizeAsync(). Already added files are NOT reloaded.
+   */
+  virtual scene& addAsync(const std::vector<std::filesystem::path>& filePaths) = 0;
+  scene& addAsync(const std::vector<std::string>& filePathStrings)
+  {
+    return this->addAsync(
+      std::vector<std::filesystem::path>(filePathStrings.begin(), filePathStrings.end()));
+  }
+  ///@}
+
+  /**
+   * Return the state of the current/most-recent asynchronous load. See addAsync().
+   */
+  [[nodiscard]] virtual AsyncState getAsyncState() = 0;
+
+  /**
+   * Return the progress in [0, 1] of the current asynchronous load, 0 if none is running.
+   */
+  [[nodiscard]] virtual double getAsyncProgress() = 0;
+
+  /**
+   * Finalize an asynchronous load by committing the background-built geometry to the renderer.
+   * MUST be called on the thread that owns the window/GL context.
+   *
+   * - If getAsyncState() == READY: commits, the scene becomes renderable and the state returns to
+   *   IDLE.
+   * - If getAsyncState() == FAILED: clears the scene and throws load_failure_exception (as add()).
+   * - Otherwise (IDLE/LOADING): does nothing.
+   */
+  virtual scene& finalizeAsync() = 0;
 
   /**
    * Clear the scene of all added files

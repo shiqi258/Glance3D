@@ -242,15 +242,9 @@ vtkF3DMetaImporter::ImporterInfo vtkF3DMetaImporter::GetImporterInfo(int index)
 //----------------------------------------------------------------------------
 bool vtkF3DMetaImporter::Update()
 {
-  assert(this->RenderWindow);
-  this->Renderer = this->RenderWindow->GetRenderers()->GetFirstRenderer();
-  assert(this->Renderer);
-
-  this->Pimpl->UpdateTime.Modified();
-
-  // [G3D-PERF] Two-phase load: BuildGeometry() runs the heavy parse/build (CPU, no renderer
-  // registration); CommitToRenderer() registers the resulting actors with the renderer. Split so
-  // the parse can later move off the render thread. Single-threaded behavior is unchanged.
+  // [G3D] Two-phase load: BuildGeometry() runs the heavy parse off the renderer; CommitToRenderer()
+  // registers the actors. Both are public so the parse can be driven on a worker thread (see
+  // scene_impl::addAsync); Update() chains them for synchronous callers.
   if (!this->BuildGeometry())
   {
     return false;
@@ -264,6 +258,8 @@ bool vtkF3DMetaImporter::Update()
 //----------------------------------------------------------------------------
 bool vtkF3DMetaImporter::BuildGeometry()
 {
+  this->Pimpl->UpdateTime.Modified();
+
   // [G3D-S2] Build geometry against a GL-free render window so this phase can later run off the
   // render thread. The VTK importers add their actors to this build window's renderer; they are
   // re-homed onto the real renderer in CommitToRenderer(). The importers keep a strong reference
@@ -336,6 +332,10 @@ bool vtkF3DMetaImporter::BuildGeometry()
 //----------------------------------------------------------------------------
 void vtkF3DMetaImporter::CommitToRenderer()
 {
+  assert(this->RenderWindow);
+  this->Renderer = this->RenderWindow->GetRenderers()->GetFirstRenderer();
+  assert(this->Renderer);
+
   for (auto& importerInfo : this->Pimpl->Importers)
   {
     // Already committed to the renderer by a previous Update()

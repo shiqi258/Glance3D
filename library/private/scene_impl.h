@@ -37,6 +37,10 @@ public:
   scene& add(const mesh_t& mesh) override;
   scene& add(std::shared_ptr<mesh_view> mesh) override;
   scene& add(const std::byte* buffer, std::size_t size) override;
+  scene& addAsync(const std::vector<std::filesystem::path>& filePaths) override;
+  AsyncState getAsyncState() override;
+  double getAsyncProgress() override;
+  scene& finalizeAsync() override;
   scene& clear() override;
   int addLight(const light_state_t& lightState) const override;
   int getLightCount() const override;
