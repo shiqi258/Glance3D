@@ -193,10 +193,22 @@ const wasmMiddleware = () => {
   };
 };
 
+// Cross-origin isolation headers. The threaded (pthreads) wasm build needs SharedArrayBuffer,
+// which the browser only exposes when the document is cross-origin isolated. Without these the
+// threaded f3d module fails to initialize, so serve them for both `vite` (serve) and `vite preview`.
+// NOTE: production hosting must send the same two headers (or use a coi-serviceworker shim on
+// static hosts like GitHub Pages); otherwise the threaded build will not load.
+const crossOriginIsolationHeaders = {
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp",
+};
+
 export default defineConfig(({ command }) => {
   const browserLogConfig = loadBrowserLogConfig(command === "serve");
 
   return {
+    server: { headers: crossOriginIsolationHeaders },
+    preview: { headers: crossOriginIsolationHeaders },
     plugins: [wasmMiddleware(), browserConsoleLogMiddleware(browserLogConfig)],
     define: {
       __BROWSER_CONSOLE_LOG_CONFIG__: JSON.stringify({

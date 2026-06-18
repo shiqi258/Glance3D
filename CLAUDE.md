@@ -43,6 +43,10 @@ npm run clean      # 清理 _wasm_build/ 和 dist/
 npm run test       # ctest 跑 wasm 测试
 ```
 
+**默认构建是线程版（Emscripten pthreads）**：解析跑 Web Worker，网页打开大文件时浏览器主线程不卡（DOM 可响应、显示进度）。代价是**线程版 wasm 靠 SharedArrayBuffer，站点必须发 COOP/COEP 跨源隔离头才能加载**（`examples/libf3d/web` 的 Vite dev/preview 已自动发；生产部署须自备，静态托管用 `coi-serviceworker` 垫片）。线程版依赖一个用 `VTK_WEBASSEMBLY_THREADS=ON` 编出的 VTK（路径 `deps.local.json` 的 `wasmThreadsDepsDir`），产物在 `_wasm_build_threads/`。
+
+无法发 COOP/COEP 的环境可 **opt-out 回单线程**：`F3D_WASM_THREADS=OFF npm run build`（用 `wasmDepsDir` 的非线程 VTK，产物在 `_wasm_build/`）。架构与实测见自动记忆 `load-perf-breakdown` / `load-blocking-mainthread`。
+
 ## 测试
 
 测试用 CTest，主要是**渲染输出图与 `testing/baselines/` 基线图做差异比较**（超阈值即失败）。需要 `BUILD_TESTING=ON`（默认关），克隆时需 git LFS。

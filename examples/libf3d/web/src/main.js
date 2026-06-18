@@ -90,6 +90,10 @@ f3d(settings)
     logViewerState("runtime initialized", {
       canvasFound: Boolean(settings.canvas),
       devicePixelRatio: window.devicePixelRatio,
+      // Cross-origin isolation gates SharedArrayBuffer, which the threaded (pthreads) wasm build
+      // needs to run the parse off the main thread. If false here, the threaded load path is skipped.
+      crossOriginIsolated: self.crossOriginIsolated === true,
+      sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
     });
 
     // write in the filesystem
@@ -118,14 +122,39 @@ f3d(settings)
       stream: defaultFile,
     };
 
+    // Loading progress bar, driven by the threaded async loader (fraction in [0, 1]).
+    const loadProgressEl = document.querySelector("#load-progress");
+    const setLoadProgress = (fraction) => {
+      if (!loadProgressEl) {
+        return;
+      }
+      loadProgressEl.hidden = false;
+      loadProgressEl.value = Math.round((fraction ?? 0) * 100);
+    };
+    const hideLoadProgress = () => {
+      if (loadProgressEl) {
+        loadProgressEl.hidden = true;
+      }
+    };
+
     const openFile = async (file) => {
       const { name, path, stream } = file;
       document.getElementById("file-name").innerHTML = name;
       const scene = Module.engineInstance.getScene();
       scene.clear();
+      // The threaded wasm build parses on a worker thread so the browser main thread (DOM, progress
+      // bar) stays responsive. It needs a cross-origin-isolated context (COOP/COEP) for the pthreads
+      // to initialize, so feature-detect both that and the threaded loader before using it.
+      const useThreadedLoad =
+        !path &&
+        self.crossOriginIsolated === true &&
+        typeof scene.addBufferAsyncThreaded === "function";
       try {
         if (path) {
           scene.add(path);
+        } else if (useThreadedLoad) {
+          logViewerState("scene loading (threaded, off-main-thread)", { name });
+          await scene.addBufferAsyncThreaded(stream, { fileName: name }, setLoadProgress);
         } else if (typeof scene.addBufferAsync === "function") {
           // Route uploaded buffers through the wrapper's async loader: it writes
           // them to the in-memory filesystem and loads by file name (extension-
@@ -143,6 +172,7 @@ f3d(settings)
           name,
           path,
           bytes: stream?.byteLength ?? stream?.length ?? 0,
+          threaded: useThreadedLoad,
         });
       } catch (e) {
         document.getElementById("file-name").innerHTML =
@@ -152,6 +182,8 @@ f3d(settings)
           path,
           error: e?.message ?? String(e),
         });
+      } finally {
+        hideLoadProgress();
       }
       Module.engineInstance.getWindow().getCamera().resetToBounds(0.9);
       Module.engineInstance.getWindow().render();
@@ -159,7 +191,6 @@ f3d(settings)
     };
 
     // setup file open event
-    const progressEl = document.querySelector("#progressEl");
     const fileSelector = document.querySelector("#file-selector");
     fileSelector.addEventListener("change", (evt) => {
       for (const file of evt.target.files) {

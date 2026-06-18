@@ -6,7 +6,15 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
-const buildDir = path.join(repoRoot, "_wasm_build");
+// The threaded build (Emscripten pthreads) parses off the browser main thread, so it is the DEFAULT
+// — the web viewer loads large files without freezing the UI. It links against a thread-enabled VTK
+// (wasmThreadsDepsDir) and emits pthread-tagged objects that cannot mix with the non-threaded build,
+// so each flavor gets its own build tree. The threaded wasm REQUIRES the site to serve COOP/COEP
+// cross-origin isolation headers (Vite dev/preview do; production must too). Opt out — for hosts that
+// cannot set those headers — with F3D_WASM_THREADS=OFF (also accepts 0/false).
+const threadsEnv = (process.env.F3D_WASM_THREADS ?? "ON").toUpperCase();
+const threads = threadsEnv !== "OFF" && threadsEnv !== "0" && threadsEnv !== "FALSE";
+const buildDir = path.join(repoRoot, threads ? "_wasm_build_threads" : "_wasm_build");
 const distDir = path.join(repoRoot, "dist");
 const runtimeDir = path.join(scriptDir, "runtime");
 
@@ -180,13 +188,15 @@ function build() {
   }
   prependToPath(config.ninjaDir);
 
-  const depsDir = process.env.F3D_WASM_DEPS_DIR ?? config.wasmDepsDir;
+  const depsDir =
+    process.env.F3D_WASM_DEPS_DIR ?? (threads ? config.wasmThreadsDepsDir : config.wasmDepsDir);
   const generator = process.env.F3D_WASM_CMAKE_GENERATOR ?? config.cmakeGenerator ?? "Ninja";
   const fullPlugins = (process.env.F3D_WASM_FULL_PLUGINS ?? (config.fullPlugins ? "ON" : "")) === "ON";
 
   if (!depsDir) {
+    const key = threads ? "wasmThreadsDepsDir" : "wasmDepsDir";
     throw new Error(
-      "WebAssembly dependency prefix is not configured. Set \"wasmDepsDir\" in webassembly/deps.local.json (copy deps.local.example.json), or export F3D_WASM_DEPS_DIR.",
+      `WebAssembly dependency prefix is not configured. Set "${key}" in webassembly/deps.local.json (copy deps.local.example.json), or export F3D_WASM_DEPS_DIR.`,
     );
   }
 
@@ -215,6 +225,7 @@ function build() {
     "-DF3D_PLUGIN_BUILD_PDAL=OFF",
     `-DF3D_PLUGIN_BUILD_WEBIFC=${fullPlugins ? "ON" : "OFF"}`,
     "-DF3D_STRICT_BUILD=ON",
+    `-DF3D_WASM_THREADS=${threads ? "ON" : "OFF"}`,
   ];
 
   configureArgs.push(`-DCMAKE_FIND_ROOT_PATH:PATH=${path.resolve(depsDir)}`);

@@ -209,7 +209,7 @@ function extensionFromName(fileName) {
 // so the reader is picked by file name. This mirrors how the desktop app and
 // the default model load files, and avoids the raw memory path's requirement
 // for `scene.force_reader` on VTK < 9.6.20260128.
-function addPreparedFileFromFilesystem(Module, scene, prepared, extension) {
+function writePreparedFileToFilesystem(Module, prepared, extension) {
   const directory = "/__glance3d_prepared";
   try {
     Module.FS.mkdir(directory);
@@ -221,7 +221,11 @@ function addPreparedFileFromFilesystem(Module, scene, prepared, extension) {
   const path = `${directory}/upload-${++preparedFileCounter}${extension || ""}`;
   Module.FS.writeFile(path, prepared);
   preparedFilePaths.push(path);
-  return scene.add(path);
+  return path;
+}
+
+function addPreparedFileFromFilesystem(Module, scene, prepared, extension) {
+  return scene.add(writePreparedFileToFilesystem(Module, prepared, extension));
 }
 
 function installGLTFHelpers(Module) {
@@ -270,6 +274,51 @@ function installGLTFHelpers(Module) {
 
         return addBuffer(prepared);
       };
+
+      // Background (worker-thread) variant for the threaded wasm build: prepare the buffer, write it
+      // to the in-memory filesystem, kick off scene.addAsync() (which parses on a pthread), then poll
+      // on this (the main/render) thread until the build finishes and commit it. The browser UI stays
+      // responsive throughout because the heavy parse is off the main thread. `onProgress(fraction)`
+      // receives values in [0, 1]. Only defined on the threaded build (scene.addAsync bound); callers
+      // must also be cross-origin isolated, so feature-detect before using it.
+      if (typeof scene.addAsync === "function") {
+        scene.addBufferAsyncThreaded = async (buffer, options, onProgress) => {
+          const inspection = Module.GLTF.inspectBuffer(buffer);
+          const prepared = await Module.GLTF.prepareBuffer(buffer, options);
+          const extension = inspection.isGlb
+            ? ".glb"
+            : extensionFromName(options?.fileName);
+          if (!extension) {
+            // addAsync picks the reader by file extension; with none, use the sync memory path.
+            return addBuffer(prepared);
+          }
+
+          const path = writePreparedFileToFilesystem(Module, prepared, extension);
+          scene.addAsync([path]); // returns immediately; parsing runs on a worker thread
+
+          const States = Module.SceneAsyncState;
+          await new Promise((resolve, reject) => {
+            const poll = () => {
+              if (scene.getAsyncState() === States.LOADING) {
+                onProgress?.(scene.getAsyncProgress());
+                requestAnimationFrame(poll);
+                return;
+              }
+              // READY commits, FAILED throws, IDLE is a no-op — finalize on the render thread.
+              try {
+                scene.finalizeAsync();
+                onProgress?.(1);
+                resolve();
+              } catch (error) {
+                reject(error);
+              }
+            };
+            requestAnimationFrame(poll);
+          });
+
+          return scene;
+        };
+      }
 
       return scene;
     }

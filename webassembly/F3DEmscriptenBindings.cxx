@@ -134,6 +134,13 @@ EMSCRIPTEN_BINDINGS(f3d)
       { return o.removeValue(name); }, emscripten::return_value_policy::reference());
 
   // f3d::scene
+  // State of an asynchronous load started with scene.addAsync(); poll with getAsyncState().
+  emscripten::enum_<f3d::scene::AsyncState>("SceneAsyncState")
+    .value("IDLE", f3d::scene::AsyncState::IDLE)
+    .value("LOADING", f3d::scene::AsyncState::LOADING)
+    .value("READY", f3d::scene::AsyncState::READY)
+    .value("FAILED", f3d::scene::AsyncState::FAILED);
+
   // TODO:
   // - add lights support
   // - add f3d::mesh_t support
@@ -163,6 +170,23 @@ EMSCRIPTEN_BINDINGS(f3d)
         return scene.add(reinterpret_cast<std::byte*>(data.data()), data.size());
       },
       emscripten::return_value_policy::reference())
+    .function(
+      "addAsync",
+      +[](f3d::scene& scene, emscripten::val arg) -> f3d::scene&
+      {
+        // Kick off a background (worker-thread) parse and return immediately. Drive completion
+        // from JS: poll getAsyncState()/getAsyncProgress(), then call finalizeAsync() once READY.
+        if (arg.isArray())
+        {
+          return scene.addAsync(emscripten::vecFromJSArray<std::string>(arg));
+        }
+        return scene.addAsync(std::vector<std::string>{ arg.as<std::string>() });
+      },
+      emscripten::return_value_policy::reference())
+    .function("getAsyncState", &f3d::scene::getAsyncState)
+    .function("getAsyncProgress", &f3d::scene::getAsyncProgress)
+    .function(
+      "finalizeAsync", &f3d::scene::finalizeAsync, emscripten::return_value_policy::reference())
     .function("clear", &f3d::scene::clear, emscripten::return_value_policy::reference())
     .function("loadAnimationTime", &f3d::scene::loadAnimationTime,
       emscripten::return_value_policy::reference())

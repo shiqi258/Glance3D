@@ -211,6 +211,17 @@ list(APPEND f3d_link_options_public ${f3d_sanitizer_link_options})
 if(EMSCRIPTEN)
   list(APPEND f3d_compile_options_public -fwasm-exceptions)
   list(APPEND f3d_link_options_public -fwasm-exceptions)
+
+  # Threaded wasm build: enable Emscripten pthreads (Web Workers + SharedArrayBuffer) so the async
+  # scene loader (scene::addAsync) can parse off the browser main thread. Requires a VTK wasm built
+  # with VTK_WEBASSEMBLY_THREADS=ON and the site serving COOP/COEP cross-origin isolation headers.
+  # -pthread must reach every f3d object (not just the module) for atomics/shared-memory ABI
+  # consistency with the threaded VTK libs; the module-level -s flags live in webassembly/.
+  option(F3D_WASM_THREADS "Build the WebAssembly module with pthreads (needs threaded VTK + COOP/COEP)" OFF)
+  if(F3D_WASM_THREADS)
+    list(APPEND f3d_compile_options_public -pthread)
+    list(APPEND f3d_link_options_public -pthread)
+  endif()
 endif()
 
 # Testing
