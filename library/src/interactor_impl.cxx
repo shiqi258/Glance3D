@@ -2165,6 +2165,17 @@ interactor& interactor_impl::requestStop()
 }
 
 //----------------------------------------------------------------------------
+interactor& interactor_impl::processEvents()
+{
+  // Pump pending OS/UI events (platform-specific; this is what keeps the window from being marked
+  // "not responding") and render a single frame, without entering the blocking event loop. Used to
+  // keep the window responsive while driving a long operation such as polling an async scene load.
+  this->Internals->VTKInteractor->ProcessEvents();
+  this->Internals->Window.render();
+  return *this;
+}
+
+//----------------------------------------------------------------------------
 void interactor_impl::SetAnimationManager(animationManager* manager)
 {
   this->Internals->AnimationManager = manager;

@@ -90,6 +90,7 @@ public:
   interactor& stop() override;
   interactor& requestRender() override;
   interactor& requestStop() override;
+  interactor& processEvents() override;
   ///@}
 
   /**

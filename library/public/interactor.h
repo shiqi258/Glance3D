@@ -433,6 +433,21 @@ public:
   virtual interactor& requestStop() = 0;
 
   /**
+   * Process pending OS/UI events and render a single frame, without entering the blocking event
+   * loop started by start(). Use this to keep the window responsive while driving a long operation
+   * on the calling thread, e.g. polling an asynchronous scene load (scene::addAsync):
+   * \code{.cpp}
+   *   scene.addAsync(paths);
+   *   while (scene.getAsyncState() == f3d::scene::AsyncState::LOADING)
+   *   {
+   *     interactor.processEvents();
+   *   }
+   *   scene.finalizeAsync();
+   * \endcode
+   */
+  virtual interactor& processEvents() = 0;
+
+  /**
    * An exception that can be thrown by the interactor
    * when adding something that already exists internally
    */

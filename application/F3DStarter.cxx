@@ -44,6 +44,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <csignal>
 #include <filesystem>
@@ -55,6 +56,7 @@
 #include <numeric>
 #include <regex>
 #include <set>
+#include <thread>
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -1883,8 +1885,19 @@ void F3DStarter::LoadFileGroupInternal(
       {
         try
         {
-          // Add files to the scene
-          scene.add(localPaths);
+          // Add files to the scene asynchronously: the heavy parse runs on a background thread
+          // while we keep pumping OS events so the window stays responsive, then finalize (commit
+          // to the renderer) on this (the render) thread. Mirrors the behavior of scene.add().
+          f3d::interactor& asyncInteractor = this->Internals->Engine->getInteractor();
+          scene.addAsync(localPaths);
+          while (scene.getAsyncState() == f3d::scene::AsyncState::LOADING)
+          {
+            asyncInteractor.processEvents();
+            // Cap the pump rate (~120 Hz): processEvents() renders each iteration, so without this
+            // the loop would busy-spin on empty frames while the background build runs.
+            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+          }
+          scene.finalizeAsync();
 
           if (this->Internals->AppOptions.AnimationTime.has_value())
           {
