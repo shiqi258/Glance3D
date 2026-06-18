@@ -4,6 +4,7 @@
 #include "G3DLocaleCore.h"
 #include "vtkF3DGenericImporter.h"
 #include "vtkF3DImporter.h"
+#include "vtkF3DNoRenderWindow.h"
 
 #include <vtkActorCollection.h>
 #include <vtkArrowSource.h>
@@ -17,6 +18,7 @@
 #include <vtkPointData.h>
 #include <vtkPolyData.h>
 #include <vtkRenderWindow.h>
+#include <vtkRenderer.h>
 #include <vtkRendererCollection.h>
 #include <vtkSmartPointer.h>
 #include <vtkTexture.h>
@@ -262,6 +264,14 @@ bool vtkF3DMetaImporter::Update()
 //----------------------------------------------------------------------------
 bool vtkF3DMetaImporter::BuildGeometry()
 {
+  // [G3D-S2] Build geometry against a GL-free render window so this phase can later run off the
+  // render thread. The VTK importers add their actors to this build window's renderer; they are
+  // re-homed onto the real renderer in CommitToRenderer(). The importers keep a strong reference
+  // to buildWindow (vtkSetObjectMacro), so it stays alive past this scope.
+  vtkNew<vtkF3DNoRenderWindow> buildWindow;
+  vtkNew<vtkRenderer> buildRenderer;
+  buildWindow->AddRenderer(buildRenderer);
+
   vtkIdType localCameraIndex = -1;
 
   if (this->Pimpl->CameraIndex.has_value())
@@ -286,7 +296,7 @@ bool vtkF3DMetaImporter::BuildGeometry()
       continue;
     }
 
-    importer->SetRenderWindow(this->RenderWindow);
+    importer->SetRenderWindow(buildWindow);
 
     // This is required to avoid updating two times
     // but may cause a warning in VTK
@@ -377,6 +387,11 @@ void vtkF3DMetaImporter::CommitToRenderer()
     actorCollection->InitTraversal(ait);
     while (vtkActor* actor = actorCollection->GetNextActor(ait))
     {
+      // [G3D-S2] BuildGeometry() added imported actors to a GL-free build window, so re-home every
+      // imported actor (non-poly ones included) onto the real renderer here. This reproduces what
+      // vtkImporter::ImportActors used to do directly against the real renderer during build.
+      this->Renderer->AddActor(actor);
+
       // Check for actor's poly data mapper, skip if none exists
       vtkPolyDataMapper* pdMapper = vtkPolyDataMapper::SafeDownCast(actor->GetMapper());
       if (pdMapper == nullptr)
