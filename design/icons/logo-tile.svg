@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- transparent background; aperture enlarged to ~fill the frame -->
-  <g transform="translate(256,256) scale(1.46) translate(-256,-256)" stroke-linejoin="round">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2233"/><stop offset="1" stop-color="#12141d"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  <g stroke="#12141d" stroke-width="2.5" stroke-linejoin="round">
     <path d="M408,256 L332,387.6 L256,320 L311.4,288 Z" fill="#6e7da8"/>
     <path d="M332,387.6 L180,387.6 L200.6,288 L256,320 Z" fill="#49567c"/>
     <path d="M180,387.6 L104,256 L200.6,224 L200.6,288 Z" fill="#6e7da8"/>
