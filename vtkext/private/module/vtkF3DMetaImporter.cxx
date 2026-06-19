@@ -247,6 +247,22 @@ bool HasG3DSceneTreeActorNode(vtkDataAssembly* assembly, int nodeId)
   return false;
 }
 
+int CollapseG3DSceneTreeSnapshotNode(vtkDataAssembly* assembly, int nodeId)
+{
+  while (nodeId != assembly->GetRootNode() && assembly->GetNumberOfChildren(nodeId) == 1)
+  {
+    const int childNodeId = assembly->GetChild(nodeId, 0);
+    if (GetG3DSceneTreeNodeLabel(assembly, nodeId) !=
+      GetG3DSceneTreeNodeLabel(assembly, childNodeId))
+    {
+      break;
+    }
+    nodeId = childNodeId;
+  }
+
+  return nodeId;
+}
+
 std::string GetG3DActorFallbackNodeName(vtkActor* actor, int actorIndex)
 {
   if (actor)
@@ -574,6 +590,8 @@ vtkF3DMetaImporter::G3DSceneTreeNode BuildG3DSceneTreeNode(
   vtkDataAssembly* assembly, vtkImporter* importer, int importerIndex, int nodeId,
   const std::string& parentPath)
 {
+  nodeId = CollapseG3DSceneTreeSnapshotNode(assembly, nodeId);
+
   vtkF3DMetaImporter::G3DSceneTreeNode node;
   node.Id = MakeG3DSceneTreeNodeId(importerIndex, nodeId);
   node.Label = GetG3DSceneTreeNodeLabel(assembly, nodeId);
