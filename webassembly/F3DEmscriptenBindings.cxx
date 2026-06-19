@@ -51,6 +51,68 @@ emscripten::val pairToJSArray(const std::pair<U, V>& p)
   return jsArray;
 }
 
+const char* g3dSceneTreeNodeKindToString(f3d::g3d_scene_tree_node_kind kind)
+{
+  switch (kind)
+  {
+    case f3d::g3d_scene_tree_node_kind::ROOT:
+      return "root";
+    case f3d::g3d_scene_tree_node_kind::GROUP:
+      return "group";
+    case f3d::g3d_scene_tree_node_kind::OBJECT:
+      return "object";
+  }
+  return "object";
+}
+
+emscripten::val g3dSceneTreeNodeToJSObject(const f3d::g3d_scene_tree_node& node)
+{
+  emscripten::val jsNode = emscripten::val::object();
+  jsNode.set("id", node.id);
+  jsNode.set("label", node.label);
+  jsNode.set("kind", g3dSceneTreeNodeKindToString(node.kind));
+  jsNode.set("visible", node.visible);
+  jsNode.set("partiallyVisible", node.partiallyVisible);
+  jsNode.set("collapsedByDefault", node.collapsedByDefault);
+  jsNode.set("path", node.path);
+
+  if (node.hasBounds)
+  {
+    jsNode.set("bounds", containerToJSArray(node.bounds));
+  }
+
+  emscripten::val children = emscripten::val::array();
+  for (const f3d::g3d_scene_tree_node& child : node.children)
+  {
+    children.call<void>("push", g3dSceneTreeNodeToJSObject(child));
+  }
+  jsNode.set("children", children);
+  return jsNode;
+}
+
+emscripten::val g3dSceneTreeSnapshotToJSObject(const f3d::g3d_scene_tree_snapshot& snapshot)
+{
+  emscripten::val jsSnapshot = emscripten::val::object();
+  jsSnapshot.set("schemaVersion", snapshot.schemaVersion);
+
+  emscripten::val capabilities = emscripten::val::object();
+  capabilities.set("visibility", snapshot.capabilities.visibility);
+  capabilities.set("solo", snapshot.capabilities.solo);
+  capabilities.set("focus", snapshot.capabilities.focus);
+  capabilities.set("selection", snapshot.capabilities.selection);
+  capabilities.set("bounds", snapshot.capabilities.bounds);
+  capabilities.set("stats", snapshot.capabilities.stats);
+  jsSnapshot.set("capabilities", capabilities);
+
+  emscripten::val children = emscripten::val::array();
+  for (const f3d::g3d_scene_tree_node& child : snapshot.children)
+  {
+    children.call<void>("push", g3dSceneTreeNodeToJSObject(child));
+  }
+  jsSnapshot.set("children", children);
+  return jsSnapshot;
+}
+
 EMSCRIPTEN_BINDINGS(f3d)
 {
   // f3d::options
@@ -200,7 +262,15 @@ EMSCRIPTEN_BINDINGS(f3d)
     .function("getAnimationName", &f3d::scene::getAnimationName)
     .function(
       "getAnimationNames",
-      +[](f3d::scene& scene) { return containerToJSArray(scene.getAnimationNames()); });
+      +[](f3d::scene& scene) { return containerToJSArray(scene.getAnimationNames()); })
+    .function(
+      "getG3DSceneTree",
+      +[](f3d::scene& scene) { return g3dSceneTreeSnapshotToJSObject(scene.getG3DSceneTree()); })
+    .function("setG3DSceneTreeNodeVisibility", &f3d::scene::setG3DSceneTreeNodeVisibility)
+    .function("setOnlyG3DSceneTreeNodeVisible", &f3d::scene::setOnlyG3DSceneTreeNodeVisible)
+    .function("resetG3DSceneTreeVisibility", &f3d::scene::resetG3DSceneTreeVisibility,
+      emscripten::return_value_policy::reference())
+    .function("focusG3DSceneTreeNode", &f3d::scene::focusG3DSceneTreeNode);
 
   // f3d::image
   emscripten::enum_<f3d::image::SaveFormat>("ImageSaveFormat")

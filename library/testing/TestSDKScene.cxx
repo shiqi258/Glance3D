@@ -44,6 +44,12 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
   std::string invalidDefaultScene = std::string(argv[1]) + "data/" + invalidDefaultSceneFilename;
   std::string invalidFullScene = std::string(argv[1]) + "data/" + invalidFullSceneFilename;
 
+  test("empty Glance3D scene tree", [&]() {
+    f3d::g3d_scene_tree_snapshot tree = sce.getG3DSceneTree();
+    return tree.schemaVersion == 1 && tree.children.empty() && tree.capabilities.visibility &&
+      tree.capabilities.solo && tree.capabilities.focus;
+  });
+
   // supports method
   test("not supported with empty filename", !sce.supports(empty));
   test("not supported with dummy filename", !sce.supports(dummy));
@@ -92,7 +98,26 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
   test("add with empty file", [&]() { sce.add(std::vector<std::string>{}); });
   test("add with empty file", [&]() { sce.add(empty); });
   test("add with a single path", [&]() { sce.add(fs::path(logo)); });
+  test("Glance3D scene tree after load", [&]() {
+    f3d::g3d_scene_tree_snapshot tree = sce.getG3DSceneTree();
+    return tree.schemaVersion == 1 && !tree.children.empty() && !tree.children[0].id.empty() &&
+      !tree.children[0].label.empty() && tree.children[0].visible && tree.children[0].hasBounds;
+  });
+  test("Glance3D scene tree visibility toggle", [&]() {
+    const std::string nodeId = sce.getG3DSceneTree().children[0].id;
+    bool updated = sce.setG3DSceneTreeNodeVisibility(nodeId, false);
+    f3d::g3d_scene_tree_snapshot hiddenTree = sce.getG3DSceneTree();
+    bool reset = static_cast<bool>(&sce.resetG3DSceneTreeVisibility());
+    f3d::g3d_scene_tree_snapshot visibleTree = sce.getG3DSceneTree();
+    return updated && reset && !hiddenTree.children[0].visible && visibleTree.children[0].visible;
+  });
+  test("Glance3D scene tree solo and focus", [&]() {
+    const std::string nodeId = sce.getG3DSceneTree().children[0].id;
+    return sce.setOnlyG3DSceneTreeNodeVisible(nodeId) && sce.focusG3DSceneTreeNode(nodeId);
+  });
   test("add with multiples filepaths", [&]() { sce.add({ fs::path(sphere2), fs::path(cube) }); });
+  test("Glance3D scene tree with multiple loaded files",
+    [&]() { return sce.getG3DSceneTree().children.size() >= 2; });
   test("add with multiples file strings", [&]() { sce.add({ sphere1, world }); });
 
   // render test
