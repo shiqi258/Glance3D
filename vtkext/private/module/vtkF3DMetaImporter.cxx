@@ -34,6 +34,7 @@
 #include <iostream>
 #include <numeric>
 #include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -258,6 +259,126 @@ std::string GetG3DActorFallbackNodeName(vtkActor* actor, int actorIndex)
   }
 
   return "object" + std::to_string(actorIndex);
+}
+
+bool IsG3DGenericSceneTreeLabel(const std::string& label)
+{
+  return label.empty() || label == "<group>" || label == "<object>";
+}
+
+std::string CleanG3DOutputName(std::string name)
+{
+  constexpr std::string_view primitiveSuffix = "Primitive";
+  if (name.size() > primitiveSuffix.size() &&
+    name.compare(name.size() - primitiveSuffix.size(), primitiveSuffix.size(), primitiveSuffix) == 0)
+  {
+    name.erase(name.size() - primitiveSuffix.size());
+  }
+  return name;
+}
+
+std::vector<std::string> ExtractG3DOutputNames(vtkImporter* importer)
+{
+  std::vector<std::string> outputNames;
+  if (importer == nullptr)
+  {
+    return outputNames;
+  }
+
+  std::istringstream stream(importer->GetOutputsDescription());
+  std::string line;
+  constexpr std::string_view geometrySuffix = " Geometry:";
+  while (std::getline(stream, line))
+  {
+    if (line.size() <= geometrySuffix.size() ||
+      line.compare(line.size() - geometrySuffix.size(), geometrySuffix.size(), geometrySuffix) != 0)
+    {
+      continue;
+    }
+
+    line.erase(line.size() - geometrySuffix.size());
+    line = CleanG3DOutputName(line);
+    if (!line.empty())
+    {
+      outputNames.emplace_back(std::move(line));
+    }
+  }
+
+  return outputNames;
+}
+
+void SetG3DSceneTreeNodeLabelIfGeneric(
+  vtkDataAssembly* assembly, int nodeId, const std::string& label)
+{
+  if (assembly == nullptr || label.empty())
+  {
+    return;
+  }
+
+  const std::string currentLabel = assembly->GetAttributeOrDefault(nodeId, "label", "");
+  if (IsG3DGenericSceneTreeLabel(currentLabel))
+  {
+    assembly->SetAttribute(nodeId, "label", label.c_str());
+  }
+}
+
+void SetG3DSceneTreeAncestorLabelIfGeneric(
+  vtkDataAssembly* assembly, int nodeId, const std::string& label)
+{
+  if (assembly == nullptr || label.empty())
+  {
+    return;
+  }
+
+  const int parentNodeId = assembly->GetParent(nodeId);
+  if (parentNodeId < 0 || parentNodeId == assembly->GetRootNode() ||
+    assembly->GetNumberOfChildren(parentNodeId) != 1)
+  {
+    return;
+  }
+
+  SetG3DSceneTreeNodeLabelIfGeneric(assembly, parentNodeId, label);
+}
+
+void RelabelG3DSceneTreeActorNodes(
+  vtkDataAssembly* assembly, vtkImporter* importer, int nodeId,
+  const std::vector<std::string>& outputNames)
+{
+  if (assembly == nullptr)
+  {
+    return;
+  }
+
+  const int flatActorIndex = assembly->GetAttributeOrDefault(nodeId, "flat_actor_id", -1);
+  if (flatActorIndex >= 0)
+  {
+    std::string actorName;
+    if (importer)
+    {
+      vtkActorCollection* actors = importer->GetImportedActors();
+      vtkActor* actor = vtkActor::SafeDownCast(actors->GetItemAsObject(flatActorIndex));
+      actorName = GetG3DActorFallbackNodeName(actor, flatActorIndex);
+      if (actorName == "object" + std::to_string(flatActorIndex))
+      {
+        actorName.clear();
+      }
+    }
+
+    if (actorName.empty() && flatActorIndex < static_cast<int>(outputNames.size()))
+    {
+      actorName = outputNames[static_cast<size_t>(flatActorIndex)];
+    }
+
+    SetG3DSceneTreeNodeLabelIfGeneric(assembly, nodeId, actorName);
+    SetG3DSceneTreeAncestorLabelIfGeneric(assembly, nodeId, actorName);
+  }
+
+  const int numberOfChildren = assembly->GetNumberOfChildren(nodeId);
+  for (int childIndex = 0; childIndex < numberOfChildren; childIndex++)
+  {
+    RelabelG3DSceneTreeActorNodes(
+      assembly, importer, assembly->GetChild(nodeId, childIndex), outputNames);
+  }
 }
 
 void AddG3DActorFallbackSceneTreeNodes(vtkDataAssembly* assembly, vtkActorCollection* actors)
@@ -751,6 +872,11 @@ void vtkF3DMetaImporter::CommitToRenderer()
         "[G3D] Scene hierarchy for " + importerInfo.Name +
           " did not expose renderable actor nodes; generated actor fallback nodes: " +
           std::to_string(actorCollection->GetNumberOfItems()));
+    }
+    else
+    {
+      RelabelG3DSceneTreeActorNodes(importerInfo.DataAssembly, importer,
+        importerInfo.DataAssembly->GetRootNode(), ExtractG3DOutputNames(importer));
     }
 
     importerInfo.DataAssembly->SetAttribute(

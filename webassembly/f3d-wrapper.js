@@ -209,7 +209,17 @@ function extensionFromName(fileName) {
 // so the reader is picked by file name. This mirrors how the desktop app and
 // the default model load files, and avoids the raw memory path's requirement
 // for `scene.force_reader` on VTK < 9.6.20260128.
-function writePreparedFileToFilesystem(Module, prepared, extension) {
+function safePreparedFileBaseName(fileName) {
+  if (typeof fileName !== "string") {
+    return "";
+  }
+
+  return (fileName.split(/[\\/]/).pop() ?? "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/^\.+/, "");
+}
+
+function writePreparedFileToFilesystem(Module, prepared, extension, fileName) {
   const directory = "/__glance3d_prepared";
   try {
     Module.FS.mkdir(directory);
@@ -218,14 +228,23 @@ function writePreparedFileToFilesystem(Module, prepared, extension) {
   }
 
   clearPreparedFiles(Module);
-  const path = `${directory}/upload-${++preparedFileCounter}${extension || ""}`;
+  let baseName = safePreparedFileBaseName(fileName);
+  if (
+    baseName &&
+    extension &&
+    !baseName.toLowerCase().endsWith(extension.toLowerCase())
+  ) {
+    baseName += extension;
+  }
+  const fallbackName = `upload-${++preparedFileCounter}${extension || ""}`;
+  const path = `${directory}/${baseName || fallbackName}`;
   Module.FS.writeFile(path, prepared);
   preparedFilePaths.push(path);
   return path;
 }
 
-function addPreparedFileFromFilesystem(Module, scene, prepared, extension) {
-  return scene.add(writePreparedFileToFilesystem(Module, prepared, extension));
+function addPreparedFileFromFilesystem(Module, scene, prepared, extension, fileName) {
+  return scene.add(writePreparedFileToFilesystem(Module, prepared, extension, fileName));
 }
 
 function installGLTFHelpers(Module) {
@@ -260,7 +279,7 @@ function installGLTFHelpers(Module) {
             inputByteLength: toUint8Array(buffer).byteLength,
             outputByteLength: prepared.byteLength,
           });
-          return addPreparedFileFromFilesystem(Module, scene, prepared, ".glb");
+          return addPreparedFileFromFilesystem(Module, scene, prepared, ".glb", options?.fileName);
         }
 
         // Non-GLB: load via the in-memory filesystem using the original
@@ -269,7 +288,7 @@ function installGLTFHelpers(Module) {
         // throws "No force reader set ..." otherwise.
         const extension = extensionFromName(options?.fileName);
         if (extension) {
-          return addPreparedFileFromFilesystem(Module, scene, prepared, extension);
+          return addPreparedFileFromFilesystem(Module, scene, prepared, extension, options?.fileName);
         }
 
         return addBuffer(prepared);
@@ -293,7 +312,7 @@ function installGLTFHelpers(Module) {
             return addBuffer(prepared);
           }
 
-          const path = writePreparedFileToFilesystem(Module, prepared, extension);
+          const path = writePreparedFileToFilesystem(Module, prepared, extension, options?.fileName);
           scene.addAsync([path]); // returns immediately; parsing runs on a worker thread
 
           const States = Module.SceneAsyncState;
