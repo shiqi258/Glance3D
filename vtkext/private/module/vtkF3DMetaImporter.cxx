@@ -226,6 +226,51 @@ vtkF3DMetaImporter::G3DSceneTreeNodeKind GetG3DSceneTreeNodeKind(
     ? vtkF3DMetaImporter::G3DSceneTreeNodeKind::GROUP
     : vtkF3DMetaImporter::G3DSceneTreeNodeKind::OBJECT;
 }
+
+bool HasG3DSceneTreeActorNode(vtkDataAssembly* assembly, int nodeId)
+{
+  if (assembly->GetAttributeOrDefault(nodeId, "flat_actor_id", -1) >= 0)
+  {
+    return true;
+  }
+
+  const int numberOfChildren = assembly->GetNumberOfChildren(nodeId);
+  for (int childIndex = 0; childIndex < numberOfChildren; childIndex++)
+  {
+    if (HasG3DSceneTreeActorNode(assembly, assembly->GetChild(nodeId, childIndex)))
+    {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+std::string GetG3DActorFallbackNodeName(vtkActor* actor, int actorIndex)
+{
+  if (actor)
+  {
+    const std::string objectName = actor->GetObjectName();
+    if (!objectName.empty())
+    {
+      return objectName;
+    }
+  }
+
+  return "object" + std::to_string(actorIndex);
+}
+
+void AddG3DActorFallbackSceneTreeNodes(vtkDataAssembly* assembly, vtkActorCollection* actors)
+{
+  for (int actorIndex = 0; actorIndex < actors->GetNumberOfItems(); actorIndex++)
+  {
+    vtkActor* actor = vtkActor::SafeDownCast(actors->GetItemAsObject(actorIndex));
+    const std::string actorName = GetG3DActorFallbackNodeName(actor, actorIndex);
+    const int nodeid = assembly->AddNode(actorName.c_str(), assembly->GetRootNode());
+    assembly->SetAttribute(nodeid, "flat_actor_id", actorIndex);
+    assembly->SetAttribute(nodeid, "label", actorName.c_str());
+  }
+}
 }
 
 //----------------------------------------------------------------------------
@@ -690,21 +735,22 @@ void vtkF3DMetaImporter::CommitToRenderer()
 
     vtkActorCollection* actorCollection = importer->GetImportedActors();
 
-    // copy the scene hierarchy if it exists, or create a generic one otherwise
+    // Copy the scene hierarchy if it exists and maps renderable actors. Some readers expose an
+    // empty/root-only hierarchy; in that case, use the actor fallback so external tree UIs remain
+    // useful and interactive.
     if (importer->GetSceneHierarchy() != nullptr)
     {
       importerInfo.DataAssembly->DeepCopy(importer->GetSceneHierarchy());
     }
-    else
+
+    if (!HasG3DSceneTreeActorNode(
+          importerInfo.DataAssembly, importerInfo.DataAssembly->GetRootNode()))
     {
-      // add one node per actor
-      for (int actorIndex = 0; actorIndex < actorCollection->GetNumberOfItems(); actorIndex++)
-      {
-        std::string actorName = "object" + std::to_string(actorIndex);
-        const int nodeid = importerInfo.DataAssembly->AddNode(
-          actorName.c_str(), importerInfo.DataAssembly->GetRootNode());
-        importerInfo.DataAssembly->SetAttribute(nodeid, "flat_actor_id", actorIndex);
-      }
+      AddG3DActorFallbackSceneTreeNodes(importerInfo.DataAssembly, actorCollection);
+      F3DLog::Print(F3DLog::Severity::Debug,
+        "[G3D] Scene hierarchy for " + importerInfo.Name +
+          " did not expose renderable actor nodes; generated actor fallback nodes: " +
+          std::to_string(actorCollection->GetNumberOfItems()));
     }
 
     importerInfo.DataAssembly->SetAttribute(
