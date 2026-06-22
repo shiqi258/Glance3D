@@ -456,6 +456,7 @@ void window_impl::UpdateDynamicOptions()
   renderer->SetPointSize(opt.render.point_size);
   renderer->ShowEdge(opt.render.show_edges);
   renderer->ShowTimer(opt.ui.fps);
+  renderer->ShowControlPanel(opt.ui.control_panel);
   renderer->ShowFilename(opt.ui.filename);
   renderer->SetFilenameInfo(opt.ui.filename_info);
   renderer->ShowMetaData(opt.ui.metadata);

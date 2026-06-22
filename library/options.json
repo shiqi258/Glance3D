@@ -221,6 +221,10 @@
       "type": "bool",
       "default_value": "false"
     },
+    "control_panel": {
+      "type": "bool",
+      "default_value": "false"
+    },
     "cheatsheet": {
       "type": "bool",
       "default_value": "false"

@@ -93,6 +93,7 @@ public:
   void ShowAxesGrid(bool show);
   void ShowEdge(const std::optional<bool>& show);
   void ShowTimer(bool show);
+  void ShowControlPanel(bool show);
   void ShowMetaData(bool show);
   void ShowFilename(bool show);
   void ShowHDRIFilename(bool show);
@@ -738,6 +739,7 @@ private:
 #endif
   std::optional<bool> EdgeVisible;
   bool TimerVisible = false;
+  bool ControlPanelVisible = false;
   bool FilenameVisible = false;
   bool MetaDataVisible = false;
   bool HDRIFilenameVisible = false;

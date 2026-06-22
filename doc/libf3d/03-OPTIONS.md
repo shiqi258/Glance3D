@@ -543,6 +543,11 @@ Display a _frame per second counter_.
 
 CLI: `--fps`.
 
+### `ui.control_panel` (_bool_, default: `false`)
+
+Open the _control panel_ (placeholder inspector docked to the right edge). A floating toggle
+button (top-right) and the `` ` `` key toggle this option as well.
+
 ### `ui.loader_progress` (_bool_, default: `false`, **on load**)
 
 Show a _progress bar_ when loading the file.

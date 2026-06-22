@@ -1287,6 +1287,158 @@ void vtkF3DImguiActor::RenderFpsCounter()
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DImguiActor::RenderControlToggle()
+{
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  if (viewport->WorkSize.x < 10 || viewport->WorkSize.y < 10)
+  {
+    return;
+  }
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // The interactive event loop re-renders the UI every tick, so reading a steady_clock here is
+  // enough to fade the FAB out once the viewport goes idle: no dedicated timer is needed. (Must not
+  // rely on io.DeltaTime/renderer time, same reasoning as RenderLoadingOverlay.)
+  const double nowSec =
+    std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+  const bool mouseActive = io.MouseDelta.x != 0.f || io.MouseDelta.y != 0.f || io.MouseDown[0] ||
+    io.MouseDown[1] || io.MouseDown[2];
+  if (this->ControlToggleLastActiveSec < 0.0 || mouseActive)
+  {
+    this->ControlToggleLastActiveSec = nowSec;
+  }
+
+  // Fade out after an idle delay; stay fully visible whenever the panel is open.
+  constexpr double idleDelaySec = 2.5;
+  constexpr double fadeSec = 0.4;
+  float alpha = 1.f;
+  if (!this->ControlPanelVisible)
+  {
+    const double idle = nowSec - this->ControlToggleLastActiveSec;
+    if (idle > idleDelaySec + fadeSec)
+    {
+      return; // fully hidden once idle
+    }
+    if (idle > idleDelaySec)
+    {
+      alpha = 1.f - static_cast<float>((idle - idleDelaySec) / fadeSec);
+    }
+  }
+
+  constexpr float margin = F3DStyle::GetDefaultMargin();
+  constexpr float fabSize = 40.f;
+  // Sit one row below the very top-right corner so the FAB never collides with the fps counter or
+  // the console warning badge, which both anchor there.
+  const float rowH = ImGui::GetTextLineHeight() + 2.f * ImGui::GetStyle().WindowPadding.y;
+  const ImVec2 pos(viewport->WorkPos.x + viewport->WorkSize.x - fabSize - margin,
+    viewport->WorkPos.y + margin + rowH + margin);
+
+  ::SetupNextWindow(pos, ImVec2(fabSize, fabSize));
+  ImGui::SetNextWindowBgAlpha(0.f); // we draw our own rounded glass background
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+
+  constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+    ImGuiWindowFlags_NoMove;
+  ImGui::Begin("ControlToggle", nullptr, flags);
+
+  const ImVec2 p0 = ImGui::GetWindowPos();
+  const ImVec2 p1(p0.x + fabSize, p0.y + fabSize);
+
+  if (ImGui::InvisibleButton("##ControlToggleBtn", ImVec2(fabSize, fabSize)))
+  {
+    vtkOutputWindow::GetInstance()->InvokeEvent(
+      vtkF3DUserEvents::TriggerEvent, const_cast<char*>("toggle ui.control_panel"));
+  }
+  const bool hovered = ImGui::IsItemHovered();
+  if (hovered)
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+
+  ImDrawList* drawList = ImGui::GetWindowDrawList();
+  const ImDrawListFlags savedFlags = drawList->Flags;
+  drawList->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
+
+  // Rounded "glass" background: highlight tint when the panel is open, neutral backdrop otherwise.
+  const ImVec4 hl = F3DStyle::imgui::GetHighlightColor();
+  const float bgBoost = hovered ? 0.18f : 0.f;
+  ImU32 bg;
+  if (this->ControlPanelVisible)
+  {
+    bg = IM_COL32(static_cast<int>(hl.x * 255), static_cast<int>(hl.y * 255),
+      static_cast<int>(hl.z * 255), static_cast<int>((0.85f + bgBoost) * alpha * 255.f));
+  }
+  else
+  {
+    bg = IM_COL32(static_cast<int>(this->BackdropColor[0] * 255),
+      static_cast<int>(this->BackdropColor[1] * 255),
+      static_cast<int>(this->BackdropColor[2] * 255),
+      static_cast<int>((0.55f + bgBoost) * alpha * 255.f));
+  }
+  drawList->AddRectFilled(p0, p1, bg, 9.f);
+
+  // Sliders icon (three rows of line + knob), tinted with the font color.
+  const ImU32 fg = IM_COL32(static_cast<int>(this->FontColor[0] * 255),
+    static_cast<int>(this->FontColor[1] * 255), static_cast<int>(this->FontColor[2] * 255),
+    static_cast<int>(alpha * 255.f));
+  const float lx0 = p0.x + fabSize * 0.27f;
+  const float lx1 = p0.x + fabSize * 0.73f;
+  const float cy = p0.y + fabSize * 0.5f;
+  const float gap = fabSize * 0.17f;
+  const float rows[3] = { cy - gap, cy, cy + gap };
+  const float knobX[3] = { p0.x + fabSize * 0.62f, p0.x + fabSize * 0.40f, p0.x + fabSize * 0.58f };
+  for (int i = 0; i < 3; ++i)
+  {
+    drawList->AddLine(ImVec2(lx0, rows[i]), ImVec2(lx1, rows[i]), fg, 1.7f);
+    drawList->AddCircleFilled(ImVec2(knobX[i], rows[i]), 2.5f, fg, 12);
+  }
+
+  drawList->Flags = savedFlags;
+
+  ImGui::End();
+  ImGui::PopStyleVar(2);
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::RenderControlPanel()
+{
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  if (viewport->WorkSize.x < 10 || viewport->WorkSize.y < 10)
+  {
+    return;
+  }
+
+  const float panelWidth = std::min(300.f, viewport->WorkSize.x * 0.5f);
+  const ImVec2 pos(viewport->WorkPos.x + viewport->WorkSize.x - panelWidth, viewport->WorkPos.y);
+  const ImVec2 size(panelWidth, viewport->WorkSize.y);
+
+  ::SetupNextWindow(pos, size);
+  ImGuiStyle& style = ImGui::GetStyle();
+  style.Colors[ImGuiCol_WindowBg] = ImVec4(
+    this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2], this->BackdropOpacity);
+
+  constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings |
+    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
+    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
+
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  ImGui::Begin(loc.Translate("Inspector (placeholder)").c_str(), nullptr, flags);
+  ImGui::TextWrapped(
+    "%s", loc.Translate("The professional control panel will live here.").c_str());
+  ImGui::Separator();
+  if (ImGui::Button(loc.Translate("Collapse").c_str()))
+  {
+    vtkOutputWindow::GetInstance()->InvokeEvent(
+      vtkF3DUserEvents::TriggerEvent, const_cast<char*>("toggle ui.control_panel"));
+  }
+  ImGui::End();
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderConsole(bool minimal)
 {
   vtkF3DImguiConsole* console = vtkF3DImguiConsole::SafeDownCast(vtkOutputWindow::GetInstance());

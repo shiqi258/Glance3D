@@ -4,6 +4,7 @@ import {
   installBrowserConsoleLogger,
   recordBrowserLog,
 } from "./browser-console-log.js";
+import { initG3DControlPanel } from "./g3dControlPanel.js";
 import f3d from "f3d";
 
 installBrowserConsoleLogger();
@@ -310,6 +311,9 @@ f3d(settings)
     });
 
     openFile(currentFile);
+
+    // control panel mode toggle (FAB + placeholder panel), DOM presenter over the canvas
+    initG3DControlPanel(Module.engineInstance);
 
     // do a first render and start the interactor
     Module.engineInstance.getWindow().render();

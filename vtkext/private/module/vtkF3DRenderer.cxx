@@ -1812,6 +1812,17 @@ void vtkF3DRenderer::ShowTimer(bool show)
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DRenderer::ShowControlPanel(bool show)
+{
+  if (this->ControlPanelVisible != show)
+  {
+    this->ControlPanelVisible = show;
+    this->UIActor->SetControlPanelVisibility(show);
+    this->CheatSheetConfigured = false;
+  }
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DRenderer::ShowFilename(bool show)
 {
   if (this->FilenameVisible != show)

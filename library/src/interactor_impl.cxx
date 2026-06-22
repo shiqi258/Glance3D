@@ -1745,6 +1745,7 @@ interactor& interactor_impl::initBindings()
   this->addBinding({mod_t::NONE, "Escape"}, "toggle ui.console", "Others", std::bind(docStr, tr("Console"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::ANY, "Colon"}, "toggle ui.minimal_console", "Others", std::bind(docStr, tr("Minimal console"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::CTRL, "K"}, "toggle ui.notifications.enable", "Others", std::bind(docTgl, tr("Notifications"), std::cref(opts.ui.notifications.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::NONE, "grave"}, "toggle ui.control_panel", "Others", std::bind(docTgl, tr("Control panel"), std::cref(opts.ui.control_panel)), f3d::interactor::BindingType::TOGGLE);
 #endif
   this->addBinding({mod_t::CTRL, "Q"}, "stop_interactor", "Others", std::bind(docStr, tr("Stop the interactor"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::NONE, "Return"}, "reset_camera", "Others", std::bind(docStr, tr("Reset camera to initial parameters"), ""));

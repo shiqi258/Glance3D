@@ -139,6 +139,12 @@ void vtkF3DUIActor::SetFpsCounterVisibility(bool show)
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DUIActor::SetControlPanelVisibility(bool show)
+{
+  this->ControlPanelVisible = show;
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DUIActor::SetNotificationVisibility(bool show)
 {
   this->NotificationVisible = show;
@@ -294,6 +300,14 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   {
     this->RenderFpsCounter();
   }
+
+  // The control panel mode toggle (FAB) and its placeholder panel. The panel is submitted first so
+  // the FAB draws on top of it; RenderControlToggle handles its own idle auto-hide.
+  if (this->ControlPanelVisible)
+  {
+    this->RenderControlPanel();
+  }
+  this->RenderControlToggle();
 
   vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
   assert(ren != nullptr);

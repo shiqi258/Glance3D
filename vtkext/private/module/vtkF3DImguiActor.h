@@ -97,6 +97,16 @@ private:
   void RenderFpsCounter() override;
 
   /**
+   * Render the control panel mode toggle button (FAB) anchored top-right
+   */
+  void RenderControlToggle() override;
+
+  /**
+   * Render the (placeholder) control panel docked to the right edge
+   */
+  void RenderControlPanel() override;
+
+  /**
    * Render the console widget
    */
   void RenderConsole(bool) override;
@@ -125,6 +135,12 @@ private:
    * Compute the width of a badge
    */
   float CalcBadgeWidth(const std::string& text);
+
+  /**
+   * steady_clock seconds at the last viewport interaction, driving the control toggle (FAB) idle
+   * auto-hide. Negative until the first frame initializes it.
+   */
+  double ControlToggleLastActiveSec = -1.0;
 };
 
 #endif

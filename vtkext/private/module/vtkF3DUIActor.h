@@ -178,6 +178,12 @@ public:
   void SetFpsCounterVisibility(bool show);
 
   /**
+   * Set the control panel visibility
+   * False by default
+   */
+  void SetControlPanelVisibility(bool show);
+
+  /**
    * Set the notification visibility
    * False by default
    */
@@ -315,6 +321,20 @@ protected:
   }
 
   /**
+   * Render the control panel mode toggle button (FAB) anchored top-right
+   */
+  virtual void RenderControlToggle()
+  {
+  }
+
+  /**
+   * Render the (placeholder) control panel docked to the right edge
+   */
+  virtual void RenderControlPanel()
+  {
+  }
+
+  /**
    * Render the console widget
    */
   virtual void RenderConsole(bool)
@@ -363,6 +383,8 @@ protected:
   bool ConsoleBadgeEnabled = false;
 
   bool FpsCounterVisible = false;
+
+  bool ControlPanelVisible = false;
 
   // deque instead of queue to allow for iteration
   std::deque<double> FrameTimes;
