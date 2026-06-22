@@ -18,6 +18,39 @@ const settings = {
 
   runAfter: (Module) => {
     const scene = Module.engineInstance.getScene();
+    const tree = scene.getG3DSceneTree();
+
+    utils.assert(
+      tree.schemaVersion === 1,
+      "Glance3D scene tree schema should be version 1",
+    );
+
+    utils.assert(
+      tree.children.length > 0,
+      "Glance3D scene tree should expose loaded content",
+    );
+
+    utils.assert(
+      typeof JSON.stringify(tree) === "string",
+      "Glance3D scene tree should be JSON serializable",
+    );
+
+    utils.assert(
+      scene.setG3DSceneTreeNodeVisibility(tree.children[0].id, false),
+      "Glance3D scene tree visibility should be settable",
+    );
+
+    utils.assert(
+      scene.getG3DSceneTree().children[0].visible === false,
+      "Glance3D scene tree snapshot should reflect hidden nodes",
+    );
+
+    scene.resetG3DSceneTreeVisibility();
+
+    utils.assert(
+      scene.getG3DSceneTree().children[0].visible === true,
+      "Glance3D scene tree visibility should reset",
+    );
 
     utils.assert(
       scene.availableAnimations() == 10,

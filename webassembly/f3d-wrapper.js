@@ -11,7 +11,10 @@ const ADVANCED_GLTF_EXTENSIONS = new Set([
 let capabilityManifestPromise;
 let advancedGltfPromise;
 let preparedFileCounter = 0;
+let preparedPackageCounter = 0;
 const preparedFilePaths = [];
+const preparedPackageFilePaths = [];
+const preparedPackageDirectoryPaths = [];
 
 function readAscii(bytes, offset, length) {
   return Array.from(bytes.slice(offset, offset + length), (byte) =>
@@ -193,6 +196,26 @@ function clearPreparedFiles(Module) {
   }
 }
 
+function clearPreparedPackages(Module) {
+  while (preparedPackageFilePaths.length > 0) {
+    const path = preparedPackageFilePaths.pop();
+    try {
+      Module.FS?.unlink(path);
+    } catch {
+      // The scene or caller may already have removed the temporary file.
+    }
+  }
+
+  while (preparedPackageDirectoryPaths.length > 0) {
+    const path = preparedPackageDirectoryPaths.pop();
+    try {
+      Module.FS?.rmdir(path);
+    } catch {
+      // Ignore non-empty or already removed directories.
+    }
+  }
+}
+
 // Extract the file-name extension (including the leading dot, e.g. ".glb"),
 // or "" when the name has none. Strips any directory portion first.
 function extensionFromName(fileName) {
@@ -209,7 +232,62 @@ function extensionFromName(fileName) {
 // so the reader is picked by file name. This mirrors how the desktop app and
 // the default model load files, and avoids the raw memory path's requirement
 // for `scene.force_reader` on VTK < 9.6.20260128.
-function writePreparedFileToFilesystem(Module, prepared, extension) {
+function safePreparedFileBaseName(fileName) {
+  if (typeof fileName !== "string") {
+    return "";
+  }
+
+  return (fileName.split(/[\\/]/).pop() ?? "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/^\.+/, "");
+}
+
+function safePreparedPackageName(packageName) {
+  const name = safePreparedFileBaseName(packageName);
+  return name || `package-${++preparedPackageCounter}`;
+}
+
+function normalizeVirtualRelativePath(path) {
+  if (typeof path !== "string") {
+    throw new Error("Glance3D file-set path must be a string");
+  }
+
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\/+/, "");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[a-zA-Z]:/.test(normalized) ||
+    normalized.endsWith("/")
+  ) {
+    throw new Error(`Invalid Glance3D file-set path: ${path}`);
+  }
+
+  const parts = normalized.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`Invalid Glance3D file-set path: ${path}`);
+  }
+
+  return parts
+    .map((part) => part.replace(/[^a-zA-Z0-9._ -]/g, "_"))
+    .join("/");
+}
+
+function ensureVirtualDirectory(Module, path) {
+  const parts = path.split("/").filter(Boolean);
+  let current = "";
+
+  for (const part of parts) {
+    current += `/${part}`;
+    try {
+      Module.FS.mkdir(current);
+      preparedPackageDirectoryPaths.push(current);
+    } catch {
+      // The directory may already exist.
+    }
+  }
+}
+
+function writePreparedFileToFilesystem(Module, prepared, extension, fileName) {
   const directory = "/__glance3d_prepared";
   try {
     Module.FS.mkdir(directory);
@@ -218,14 +296,86 @@ function writePreparedFileToFilesystem(Module, prepared, extension) {
   }
 
   clearPreparedFiles(Module);
-  const path = `${directory}/upload-${++preparedFileCounter}${extension || ""}`;
+  clearPreparedPackages(Module);
+  let baseName = safePreparedFileBaseName(fileName);
+  if (
+    baseName &&
+    extension &&
+    !baseName.toLowerCase().endsWith(extension.toLowerCase())
+  ) {
+    baseName += extension;
+  }
+  const fallbackName = `upload-${++preparedFileCounter}${extension || ""}`;
+  const path = `${directory}/${baseName || fallbackName}`;
   Module.FS.writeFile(path, prepared);
   preparedFilePaths.push(path);
   return path;
 }
 
-function addPreparedFileFromFilesystem(Module, scene, prepared, extension) {
-  return scene.add(writePreparedFileToFilesystem(Module, prepared, extension));
+function addPreparedFileFromFilesystem(Module, scene, prepared, extension, fileName) {
+  return scene.add(writePreparedFileToFilesystem(Module, prepared, extension, fileName));
+}
+
+function writeFileSetToFilesystem(Module, files, options = {}) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error("Glance3D file-set load requires at least one file");
+  }
+
+  const packageRoot = `/__glance3d_packages/${safePreparedPackageName(options.packageName)}`;
+  const normalizedFiles = files.map((file) => {
+    const relativePath = normalizeVirtualRelativePath(file?.path);
+    return {
+      relativePath,
+      data: toUint8Array(file?.data),
+    };
+  });
+  const normalizedPrimaryPath = options.primaryPath
+    ? normalizeVirtualRelativePath(options.primaryPath)
+    : normalizedFiles[0].relativePath;
+  const primaryFile = normalizedFiles.find(
+    (file) => file.relativePath === normalizedPrimaryPath,
+  );
+
+  if (!primaryFile) {
+    throw new Error(
+      `Glance3D file-set primaryPath was not found in files: ${options.primaryPath}`,
+    );
+  }
+
+  clearPreparedFiles(Module);
+  clearPreparedPackages(Module);
+  ensureVirtualDirectory(Module, "/__glance3d_packages");
+  ensureVirtualDirectory(Module, packageRoot);
+
+  let totalByteLength = 0;
+  for (const file of normalizedFiles) {
+    const virtualPath = `${packageRoot}/${file.relativePath}`;
+    const directory = virtualPath.split("/").slice(0, -1).join("/");
+    ensureVirtualDirectory(Module, directory);
+    Module.FS.writeFile(virtualPath, file.data);
+    preparedPackageFilePaths.push(virtualPath);
+    totalByteLength += file.data.byteLength;
+  }
+
+  const primaryVirtualPath = `${packageRoot}/${normalizedPrimaryPath}`;
+  Module.onCapabilityEvent?.({
+    type: "file-set-filesystem-load",
+    primaryPath: normalizedPrimaryPath,
+    fileCount: normalizedFiles.length,
+    totalByteLength,
+  });
+
+  return {
+    primaryVirtualPath,
+    fileCount: normalizedFiles.length,
+    totalByteLength,
+  };
+}
+
+function addFileSetFromFilesystem(Module, scene, files, options) {
+  const prepared = writeFileSetToFilesystem(Module, files, options);
+  scene.add(prepared.primaryVirtualPath);
+  return scene;
 }
 
 function installGLTFHelpers(Module) {
@@ -244,11 +394,12 @@ function installGLTFHelpers(Module) {
     const getScene = engine.getScene?.bind(engine);
 
     function decorateScene(scene) {
-      if (!scene || typeof scene.addBuffer !== "function" || scene.addBufferAsync) {
+      if (!scene || typeof scene.addBuffer !== "function") {
         return scene;
       }
 
       const addBuffer = scene.addBuffer.bind(scene);
+      if (!scene.addBufferAsync) {
       scene.addBufferAsync = async (buffer, options) => {
         const inspection = Module.GLTF.inspectBuffer(buffer);
         const prepared = await Module.GLTF.prepareBuffer(buffer, options);
@@ -260,7 +411,7 @@ function installGLTFHelpers(Module) {
             inputByteLength: toUint8Array(buffer).byteLength,
             outputByteLength: prepared.byteLength,
           });
-          return addPreparedFileFromFilesystem(Module, scene, prepared, ".glb");
+          return addPreparedFileFromFilesystem(Module, scene, prepared, ".glb", options?.fileName);
         }
 
         // Non-GLB: load via the in-memory filesystem using the original
@@ -269,11 +420,17 @@ function installGLTFHelpers(Module) {
         // throws "No force reader set ..." otherwise.
         const extension = extensionFromName(options?.fileName);
         if (extension) {
-          return addPreparedFileFromFilesystem(Module, scene, prepared, extension);
+          return addPreparedFileFromFilesystem(Module, scene, prepared, extension, options?.fileName);
         }
 
         return addBuffer(prepared);
       };
+      }
+
+      if (!scene.addFileSetAsync) {
+        scene.addFileSetAsync = async (files, options) =>
+          addFileSetFromFilesystem(Module, scene, files, options);
+      }
 
       // Background (worker-thread) variant for the threaded wasm build: prepare the buffer, write it
       // to the in-memory filesystem, kick off scene.addAsync() (which parses on a pthread), then poll
@@ -293,7 +450,7 @@ function installGLTFHelpers(Module) {
             return addBuffer(prepared);
           }
 
-          const path = writePreparedFileToFilesystem(Module, prepared, extension);
+          const path = writePreparedFileToFilesystem(Module, prepared, extension, options?.fileName);
           scene.addAsync([path]); // returns immediately; parsing runs on a worker thread
 
           // This rAF poll loop is the web driver of the shared "loading-progress layer": it reads
@@ -323,6 +480,34 @@ function installGLTFHelpers(Module) {
 
           return scene;
         };
+
+        if (!scene.addFileSetAsyncThreaded) {
+          scene.addFileSetAsyncThreaded = async (files, options, onProgress) => {
+            const prepared = writeFileSetToFilesystem(Module, files, options);
+            scene.addAsync([prepared.primaryVirtualPath]);
+
+            const States = Module.SceneAsyncState;
+            await new Promise((resolve, reject) => {
+              const poll = () => {
+                if (scene.getAsyncState() === States.LOADING) {
+                  onProgress?.(scene.getAsyncProgress());
+                  requestAnimationFrame(poll);
+                  return;
+                }
+                try {
+                  scene.finalizeAsync();
+                  onProgress?.(1);
+                  resolve();
+                } catch (error) {
+                  reject(error);
+                }
+              };
+              requestAnimationFrame(poll);
+            });
+
+            return scene;
+          };
+        }
       }
 
       return scene;

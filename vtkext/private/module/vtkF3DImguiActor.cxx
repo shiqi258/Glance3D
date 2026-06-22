@@ -88,70 +88,6 @@ static std::vector<std::string> SplitBindings(const std::string& s, const char d
 }
 
 /**
- * Visitor used to traverse a subtree when a checkbox is toggled.
- * It will add an attribute `f3d_visible` on each node to the value of the checkbox.
- * It will also add (or remove) a `ACTOR_HIDDEN()` information key on nodes associated with actors.
- */
-class vtkF3DVisibilityDataAssemblyVisitor : public vtkDataAssemblyVisitor
-{
-public:
-  static vtkF3DVisibilityDataAssemblyVisitor* New();
-  vtkTypeMacro(vtkF3DVisibilityDataAssemblyVisitor, vtkDataAssemblyVisitor);
-
-  void SetVisibleAttribute(int visible)
-  {
-    this->Visible = visible;
-  }
-
-  void SetImporter(vtkImporter* importer)
-  {
-    this->Importer = importer;
-  }
-
-protected:
-  void Visit(int nodeid) override
-  {
-    // add the visibility state in the current node
-    // `GetAssembly()` is a const method, but we need to modify it, so the cast is needed
-    vtkDataAssembly* mutableAssembly = const_cast<vtkDataAssembly*>(this->GetAssembly());
-    mutableAssembly->SetAttribute(nodeid, "f3d_visible", this->Visible);
-
-    const int flatActorIndex =
-      this->GetAssembly()->GetAttributeOrDefault(nodeid, "flat_actor_id", -1);
-
-    if (flatActorIndex >= 0)
-    {
-      vtkActorCollection* actors = this->Importer->GetImportedActors();
-      vtkActor* actor = vtkActor::SafeDownCast(actors->GetItemAsObject(flatActorIndex));
-
-      vtkSmartPointer<vtkInformation> keys = actor->GetPropertyKeys();
-
-      // if there's no property keys yet, create one
-      if (!keys)
-      {
-        keys = vtkSmartPointer<vtkInformation>::New();
-        actor->SetPropertyKeys(keys);
-      }
-
-      // this key will be used in the renderer to know if the actor rendering should be skipped
-      if (this->Visible == 1)
-      {
-        keys->Remove(vtkF3DMetaImporter::ACTOR_HIDDEN());
-      }
-      else
-      {
-        keys->Set(vtkF3DMetaImporter::ACTOR_HIDDEN(), 1);
-      }
-    }
-  }
-
-private:
-  int Visible = 0;
-  vtkImporter* Importer = nullptr;
-};
-vtkStandardNewMacro(vtkF3DVisibilityDataAssemblyVisitor);
-
-/**
  * Visitor used to traverse a full tree (one per importer).
  * It will take care of rendering the tree with imgui.
  * If a checkbox is toggled, it triggers another traversal of a subtree to change the internal
@@ -193,7 +129,7 @@ protected:
   {
     int flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DrawLinesToNodes;
 
-    if (!this->GetAssembly()->GetAttributeOrDefault(nodeid, "f3d_collapsed", 0))
+    if (!this->GetAssembly()->GetAttributeOrDefault(nodeid, "g3d_collapsed", 0))
     {
       flags |= ImGuiTreeNodeFlags_DefaultOpen;
     }
@@ -212,7 +148,7 @@ protected:
     ImGui::SameLine();
 
     // get the current visibility state
-    bool visible = (this->GetAssembly()->GetAttributeOrDefault(nodeid, "f3d_visible", 1) != 0);
+    bool visible = (this->GetAssembly()->GetAttributeOrDefault(nodeid, "g3d_visible", 1) != 0);
 
     const char* defaultLabel =
       this->GetAssembly()->GetNumberOfChildren(nodeid) > 0 ? "<group>" : "<object>";
@@ -221,11 +157,8 @@ protected:
     if (ImGui::Checkbox(
           this->GetAssembly()->GetAttributeOrDefault(nodeid, "label", defaultLabel), &visible))
     {
-      // if the checkbox is toggled, trigger a traversal of the subtree to change each node state
-      vtkNew<vtkF3DVisibilityDataAssemblyVisitor> attrVisitor;
-      attrVisitor->SetImporter(this->Importer);
-      attrVisitor->SetVisibleAttribute(visible ? 1 : 0);
-      this->GetAssembly()->Visit(nodeid, attrVisitor);
+      vtkF3DMetaImporter::SetG3DDataAssemblyNodeVisibility(
+        const_cast<vtkDataAssembly*>(this->GetAssembly()), this->Importer, nodeid, visible);
 
       this->RenderWindow->GetInteractor()->InvokeEvent(
         vtkF3DUserEvents::SceneHierarchyChangedEvent, nullptr);

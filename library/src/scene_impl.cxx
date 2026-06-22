@@ -37,6 +37,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <limits>
 #include <numeric>
 #include <thread>
 #include <vector>
@@ -45,6 +47,64 @@ namespace fs = std::filesystem;
 
 namespace f3d::detail
 {
+namespace
+{
+g3d_scene_tree_node_kind ConvertG3DSceneTreeNodeKind(
+  vtkF3DMetaImporter::G3DSceneTreeNodeKind kind)
+{
+  switch (kind)
+  {
+    case vtkF3DMetaImporter::G3DSceneTreeNodeKind::ROOT:
+      return g3d_scene_tree_node_kind::ROOT;
+    case vtkF3DMetaImporter::G3DSceneTreeNodeKind::GROUP:
+      return g3d_scene_tree_node_kind::GROUP;
+    case vtkF3DMetaImporter::G3DSceneTreeNodeKind::OBJECT:
+      return g3d_scene_tree_node_kind::OBJECT;
+  }
+  return g3d_scene_tree_node_kind::OBJECT;
+}
+
+g3d_scene_tree_node ConvertG3DSceneTreeNode(
+  const vtkF3DMetaImporter::G3DSceneTreeNode& source)
+{
+  g3d_scene_tree_node node;
+  node.id = source.Id;
+  node.label = source.Label;
+  node.kind = ConvertG3DSceneTreeNodeKind(source.Kind);
+  node.visible = source.Visible;
+  node.partiallyVisible = source.PartiallyVisible;
+  node.collapsedByDefault = source.CollapsedByDefault;
+  node.path = source.Path;
+  node.hasBounds = source.HasBounds;
+  node.bounds = source.Bounds;
+  node.children.reserve(source.Children.size());
+  for (const vtkF3DMetaImporter::G3DSceneTreeNode& child : source.Children)
+  {
+    node.children.emplace_back(ConvertG3DSceneTreeNode(child));
+  }
+  return node;
+}
+
+g3d_scene_tree_snapshot ConvertG3DSceneTreeSnapshot(
+  const vtkF3DMetaImporter::G3DSceneTreeSnapshot& source)
+{
+  g3d_scene_tree_snapshot snapshot;
+  snapshot.schemaVersion = source.SchemaVersion;
+  snapshot.capabilities.visibility = source.Capabilities.Visibility;
+  snapshot.capabilities.solo = source.Capabilities.Solo;
+  snapshot.capabilities.focus = source.Capabilities.Focus;
+  snapshot.capabilities.selection = source.Capabilities.Selection;
+  snapshot.capabilities.bounds = source.Capabilities.Bounds;
+  snapshot.capabilities.stats = source.Capabilities.Stats;
+  snapshot.children.reserve(source.Children.size());
+  for (const vtkF3DMetaImporter::G3DSceneTreeNode& child : source.Children)
+  {
+    snapshot.children.emplace_back(ConvertG3DSceneTreeNode(child));
+  }
+  return snapshot;
+}
+}
+
 class scene_impl::internals
 {
 public:
@@ -1040,6 +1100,93 @@ std::string scene_impl::getAnimationName(int index)
 std::vector<std::string> scene_impl::getAnimationNames()
 {
   return this->Internals->AnimationManager.GetAnimationNames();
+}
+
+//----------------------------------------------------------------------------
+g3d_scene_tree_snapshot scene_impl::getG3DSceneTree() const
+{
+  return ConvertG3DSceneTreeSnapshot(this->Internals->MetaImporter->GetG3DSceneTree());
+}
+
+//----------------------------------------------------------------------------
+bool scene_impl::setG3DSceneTreeNodeVisibility(const std::string& nodeId, bool visible)
+{
+  const bool updated = this->Internals->MetaImporter->SetG3DSceneTreeNodeVisibility(
+    nodeId, visible);
+  if (updated)
+  {
+    this->Internals->Window.UpdateActorsVisibility();
+  }
+  return updated;
+}
+
+//----------------------------------------------------------------------------
+bool scene_impl::setOnlyG3DSceneTreeNodeVisible(const std::string& nodeId)
+{
+  const bool updated = this->Internals->MetaImporter->SetOnlyG3DSceneTreeNodeVisible(nodeId);
+  if (updated)
+  {
+    this->Internals->Window.UpdateActorsVisibility();
+  }
+  return updated;
+}
+
+//----------------------------------------------------------------------------
+scene& scene_impl::resetG3DSceneTreeVisibility()
+{
+  this->Internals->MetaImporter->ResetG3DSceneTreeVisibility();
+  this->Internals->Window.UpdateActorsVisibility();
+  return *this;
+}
+
+//----------------------------------------------------------------------------
+bool scene_impl::focusG3DSceneTreeNode(const std::string& nodeId)
+{
+  double bounds[6];
+  if (!this->Internals->MetaImporter->GetG3DSceneTreeNodeBounds(nodeId, bounds))
+  {
+    log::debug("[G3D] Cannot focus scene tree node without valid bounds: ", nodeId);
+    return false;
+  }
+
+  camera_state_t state = this->Internals->Window.getCamera().getState();
+  point3_t center = {
+    (bounds[0] + bounds[1]) * 0.5,
+    (bounds[2] + bounds[3]) * 0.5,
+    (bounds[4] + bounds[5]) * 0.5,
+  };
+
+  double direction[3] = {
+    state.position[0] - state.focalPoint[0],
+    state.position[1] - state.focalPoint[1],
+    state.position[2] - state.focalPoint[2],
+  };
+  double directionLength =
+    std::sqrt(direction[0] * direction[0] + direction[1] * direction[1] +
+      direction[2] * direction[2]);
+  if (directionLength <= std::numeric_limits<double>::epsilon())
+  {
+    direction[0] = 0.0;
+    direction[1] = 0.0;
+    direction[2] = 1.0;
+    directionLength = 1.0;
+  }
+
+  const double dx = bounds[1] - bounds[0];
+  const double dy = bounds[3] - bounds[2];
+  const double dz = bounds[5] - bounds[4];
+  const double diagonal = std::sqrt(dx * dx + dy * dy + dz * dz);
+  const double distance = std::max(diagonal * 1.6, 1e-6);
+
+  state.focalPoint = center;
+  state.position = {
+    center[0] + (direction[0] / directionLength) * distance,
+    center[1] + (direction[1] / directionLength) * distance,
+    center[2] + (direction[2] / directionLength) * distance,
+  };
+
+  this->Internals->Window.getCamera().setState(state);
+  return true;
 }
 
 //----------------------------------------------------------------------------
