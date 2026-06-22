@@ -62,6 +62,58 @@ ctest -L assimp -L piped    # 标签可叠加
 新增应用层测试：在 `application/testing/` 的 CMakeLists 里加 `f3d_test(NAME ... DATA ... ARGS ...)`，首次运行会失败并生成图，目检后把图放进 `testing/baselines/` 再跑过。所有 `f3d_test` 关键字见 `cmake/f3dTest.cmake`。
 
 
+## 自动视觉自检（无头渲染出图 + 读图分析）
+
+桌面端**可全自动跑视觉验证，无需用户开窗交互、无需用户操作**：命令行 `--output` 把"加载文件→渲染→写 PNG→退出"一气呵成，Claude 随后直接 `Read` 这张 PNG 即可用视觉判断结果。改了渲染/加载逻辑后想确认效果时，直接执行下面的步骤即可，**不必请用户手动截图或描述**。
+
+**前提**：已有现成可执行文件 `build/bin_Release/f3d.exe`（注意文件名仍是 `f3d.exe`；这是 Release 非测试构建，故没有 ctest 用例）。若不存在，先 `cmake --build --preset native-local`。测试素材在 `testing/data/`（glb/obj/ply/stl/step/vtu 等各格式齐全）。
+
+**步骤**（命令从仓库根目录执行）：
+
+```bash
+# 1) 无头渲染出图
+build/bin_Release/f3d.exe testing/data/f3d.glb --output shot.png --resolution 800,600 -x -g
+# 2) 用 Read 工具读 shot.png 做视觉分析
+# 3) 看完删除临时图：rm -f shot.png
+```
+
+常用开关（按需叠加，全部 `--help` 可查）：
+
+- `--output <png>` 渲染到文件（核心，触发无头模式）
+- `--resolution W,H` 固定分辨率
+- `--no-background` 透明背景出图
+- `-x` 坐标轴 gizmo、`-g` 地面网格、`--up <dir>` 上方向
+- `-D libf3d.option=value` 任意调渲染参数（相机/材质/光照…），可多次
+- `--no-render --verbose` 只解析、打印文件信息不渲染（验证"能否正确读入"而非"长什么样"时用）
+- `--rendering-backend <auto|wgl|egl|osmesa>` 切换渲染后端（默认 `auto`，走真实 GPU/OpenGL）
+
+**两种用法定位**：① 即时视觉抽查——上面的 `--output` + 读图，用于"对不对/像不像"的人眼级确认；② 严格像素回归——走 `## 测试` 的 ctest 基线比对（需 `dev` 预设开 `BUILD_TESTING` 重新构建）。批量冒烟时可对 `testing/data/` 多个文件循环出图逐张读。
+
+### 交互回放 / 命令脚本驱动（模拟手动操作）+ 正误判断
+
+上面的 `--output` 是静态出图，**不走 UI/鼠标/事件循环**。要验证"和用户手动操作一样"的交互，用下面两条（现成 Release 二进制即支持，无需重建）：
+
+- `--interaction-test-play <log>`：回放录制的**真实输入事件**（鼠标移动/点击控件/滚轮缩放/拖拽旋转平移/键盘/拖放文件），走和真人**同一条** VTK interactor 路径。录制在 `testing/recordings/`，纯文本格式 `事件名 x y ctrl shift keycode repeat keysym`，键盘/控制台/相机拖拽序列可手写或裁剪；新建"精确点击某 UI 控件"需实时布局坐标，从零不可靠，优先复用已有录制或让用户录一次。
+- `--command-script <file>`：纯文本高层命令，走和控制台（Esc）**同一套命令分发**，可从零写。命令清单见 `doc/user/07-COMMANDS.md`，例：`set_camera top` / `toggle render.axes_grid.enable` / `cycle_coloring array` / `take_screenshot out.png`。
+
+**正误判断**：每个录制对应一张人工验证基线 `testing/baselines/<测试名>.png`。
+
+- 客观比对：加 `--reference <baseline> [--reference-threshold <t>]`，二进制算误差并打印（如 `图像对比成功，误差差异为：0.0003`）。**比对通过时只打印误差、不写 `--output`；失败才写图供检查**。
+- 语义判断：单独用 `--output`（不带 `--reference`）强制出图，再 `Read` 实际图 + 基线图，肉眼判断交互效果是否发生。
+
+复刻 ctest 的固定调用范式（默认分辨率 `300,300`，改了会和基线尺寸不符）：
+
+```bash
+build/bin_Release/f3d.exe testing/data/<data> --no-config --resolution=300,300 \
+  --interaction-test-play=testing/recordings/<Name>.log \
+  --output=<actual>.png --reference=testing/baselines/<Name>.png --rendering-backend=auto [ARGS]
+```
+
+每个录制对应的数据文件、`ARGS`、是否需 UI、以及行尾 `#...`（该录制的人类可读手势）见 `application/testing/tests.interaction.cmake`。
+
+**坑**：① 误差大 ≠ 一定是代码缺陷——VTK 版本 / GPU / 分辨率差异会产生非缺陷性误差，须结合读图 + `--verbose=debug` 判断，别只看数字。② UI 类录制（控制台 / 场景树 / 点击控件）需带 `F3D_MODULE_UI` 的构建（现成 Release 二进制已含）。
+
+
 ## 日志 / 排查
 
 桌面应用**每次启动都会自动写一个日志文件**，无需任何开关。排查问题时直接去读最新的日志文件即可，不必向用户索要。
