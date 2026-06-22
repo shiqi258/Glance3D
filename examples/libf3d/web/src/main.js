@@ -297,18 +297,34 @@ f3d(settings)
       openFile(currentFile);
     });
 
-    // setup the window size based on the canvas size
+    // Keep the WebGL drawing buffer in sync with the canvas's displayed size.
+    // The canvas now fills the page via CSS (#main flexes to fill the viewport),
+    // so the render size must track the layout — both at startup and on every
+    // window/layout resize. devicePixelRatio scaling keeps the output crisp on
+    // HiDPI displays.
     const main = document.getElementById("main");
-    const scale = window.devicePixelRatio;
-    Module.engineInstance
-      .getWindow()
-      .setSize(scale * main.clientWidth, scale * main.clientHeight);
-    logViewerState("window sized", {
-      mainClientWidth: main.clientWidth,
-      mainClientHeight: main.clientHeight,
-      renderWidth: scale * main.clientWidth,
-      renderHeight: scale * main.clientHeight,
-    });
+    const resizeWindowToCanvas = () => {
+      const scale = window.devicePixelRatio || 1;
+      const renderWidth = Math.max(1, Math.round(scale * main.clientWidth));
+      const renderHeight = Math.max(1, Math.round(scale * main.clientHeight));
+      Module.engineInstance.getWindow().setSize(renderWidth, renderHeight);
+      Module.engineInstance.getWindow().render();
+      logViewerState("window sized", {
+        mainClientWidth: main.clientWidth,
+        mainClientHeight: main.clientHeight,
+        renderWidth,
+        renderHeight,
+      });
+    };
+    resizeWindowToCanvas();
+
+    if (typeof ResizeObserver !== "undefined") {
+      // ResizeObserver fires an initial callback on observe() and again whenever
+      // the canvas box changes (window resize, sidebar/devtools toggling, etc.).
+      new ResizeObserver(() => resizeWindowToCanvas()).observe(main);
+    } else {
+      window.addEventListener("resize", resizeWindowToCanvas);
+    }
 
     openFile(currentFile);
 
