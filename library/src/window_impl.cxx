@@ -328,6 +328,16 @@ window& window_impl::setWindowName(std::string_view windowName)
 }
 
 //----------------------------------------------------------------------------
+window& window_impl::setLoadingState(bool visible, double progress, const std::string& message)
+{
+  // Forward to the renderer, which owns the UI actor. The loading state is not part of options,
+  // so UpdateDynamicOptions (run every render) never resets it; the value set here survives until
+  // the next call. Drawn on the next render().
+  this->Internals->Renderer->ShowLoading(visible, progress, message);
+  return *this;
+}
+
+//----------------------------------------------------------------------------
 point3_t window_impl::getWorldFromDisplay(const point3_t& displayPoint) const
 {
   point3_t out = { 0.0, 0.0, 0.0 };

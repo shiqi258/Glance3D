@@ -1932,6 +1932,16 @@ void vtkF3DRenderer::ShowDropZoneLogo(bool show)
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DRenderer::ShowLoading(bool show, double progress, const std::string& message)
+{
+  // Forwarded unconditionally (no gate-on-change): progress/message change every pump frame.
+  // Loading state is not part of options, so UpdateDynamicOptions never clobbers it.
+  this->UIActor->SetLoadingVisibility(show);
+  this->UIActor->SetLoadingProgress(progress);
+  this->UIActor->SetLoadingMessage(message);
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DRenderer::ShowHDRISkybox(bool show)
 {
   if (this->HDRISkyboxVisible != show)

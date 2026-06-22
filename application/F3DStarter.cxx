@@ -1883,31 +1883,82 @@ void F3DStarter::LoadFileGroupInternal(
 
       if (!localPaths.empty())
       {
+        f3d::interactor& asyncInteractor = this->Internals->Engine->getInteractor();
+        f3d::window& asyncWindow = this->Internals->Engine->getWindow();
+
+        // RAII: always clear the centered loading overlay on scope exit, whether the load
+        // succeeds, throws (finalizeAsync rethrows build failures), or returns early. The hide
+        // takes visible effect on the next render() (the post-load Render() or the interactor loop).
+        struct LoadingOverlayGuard
+        {
+          f3d::window& Window;
+          ~LoadingOverlayGuard()
+          {
+            this->Window.setLoadingState(false, 0.0, "");
+          }
+        } loadingGuard{ asyncWindow };
+
+        // Staged, localized status line for the overlay. prog is the already-shaped display value.
+        const auto makeLoadingMessage = [](const std::string& file, double prog) -> std::string
+        {
+          const int percent = static_cast<int>(prog * 100.0);
+          std::string stage;
+          if (prog < 0.05)
+          {
+            stage = g3d::locale::translate("Loading {file}...", { { "file", file } });
+          }
+          else if (prog < 0.85)
+          {
+            stage = g3d::locale::translate("Parsing...");
+          }
+          else
+          {
+            stage = g3d::locale::translate("Almost done...");
+          }
+          return stage + "  " + std::to_string(percent) + "%";
+        };
+
         try
         {
           // Add files to the scene asynchronously: the heavy parse runs on a background thread
           // while we keep pumping OS events so the window stays responsive, then finalize (commit
           // to the renderer) on this (the render) thread. Mirrors the behavior of scene.add().
-          f3d::interactor& asyncInteractor = this->Internals->Engine->getInteractor();
-          f3d::window& asyncWindow = this->Internals->Engine->getWindow();
           scene.addAsync(localPaths);
-          int lastShownPercent = -1;
+
+          const std::string displayName = localPaths.front().filename().string();
+          const auto loadStart = std::chrono::steady_clock::now();
+          constexpr auto showDelay = std::chrono::milliseconds(300);
+          double displayProgress = 0.0; // monotonic: never moves backwards
+          bool overlayShown = false;
+
           while (scene.getAsyncState() == f3d::scene::AsyncState::LOADING)
           {
-            // Surface progress in the window title: the title bar keeps being painted by the OS
-            // even while we are busy, so it is a reliable, dependency-free progress indicator.
-            const int percent = static_cast<int>(scene.getAsyncProgress() * 100.0);
-            if (percent != lastShownPercent)
+            // After a short delay (so quick opens don't flash a loader), show a centered overlay.
+            // The raw build progress only covers the CPU parse; map it into [0, 0.9] and reserve
+            // the last 10% for finalize + first-frame GPU upload (which report no progress). Clamp
+            // so the ring never moves backwards even if a format reports jumpy progress.
+            if (std::chrono::steady_clock::now() - loadStart >= showDelay)
             {
-              lastShownPercent = percent;
-              asyncWindow.setWindowName(g3d::locale::translate(
-                "Loading {percent}%", { { "percent", std::to_string(percent) } }));
+              const double raw = std::clamp(scene.getAsyncProgress(), 0.0, 1.0);
+              displayProgress = std::max(displayProgress, raw * 0.9);
+              asyncWindow.setLoadingState(
+                true, displayProgress, makeLoadingMessage(displayName, displayProgress));
+              overlayShown = true;
             }
             asyncInteractor.processEvents();
             // Cap the pump rate (~120 Hz): processEvents() renders each iteration, so without this
             // the loop would busy-spin on empty frames while the background build runs.
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
           }
+
+          // Paint one 95% frame before the (synchronous, UI-frozen) finalize so the ring isn't
+          // stuck at 90% while the geometry commits and the first model frame uploads to the GPU.
+          if (overlayShown)
+          {
+            asyncWindow.setLoadingState(true, 0.95, makeLoadingMessage(displayName, 0.95));
+            asyncInteractor.processEvents();
+          }
+
           scene.finalizeAsync();
 
           if (this->Internals->AppOptions.AnimationTime.has_value())

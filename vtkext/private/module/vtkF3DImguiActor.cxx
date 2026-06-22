@@ -41,6 +41,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -57,6 +59,17 @@ constexpr float DROPZONE_LOGO_TEXT_PADDING = 20.f;
 constexpr float DROPZONE_MARGIN = 0.5f;
 constexpr float DROPZONE_PADDING_X = 5.0f;
 constexpr float DROPZONE_PADDING_Y = 2.0f;
+
+// Centered loading overlay geometry (pixels). Grouped here so the look is easy to retune.
+constexpr float LOADING_LOGO_SIZE = 96.f;       // center logo edge length
+constexpr float LOADING_RING_RADIUS = 78.f;     // determinate progress ring radius
+constexpr float LOADING_HALO_RADIUS = 96.f;     // rotating halo arc radius (outside the ring)
+constexpr float LOADING_RING_THICKNESS = 6.f;
+constexpr float LOADING_HALO_THICKNESS = 4.f;
+constexpr float LOADING_HALO_ARC_FRAC = 0.28f;  // halo sweep as fraction of a full turn
+constexpr float LOADING_TEXT_PADDING = 24.f;    // gap between halo and the status text
+constexpr float LOADING_TWO_PI = 6.2831853071795864769f;
+constexpr float LOADING_SPIN_PERIOD_SEC = 2.0f; // seconds per halo revolution
 
 const inline ImVec4 ColorToImVec4(const std::array<double, 3>& color)
 {
@@ -845,6 +858,80 @@ void vtkF3DImguiActor::RenderDropZone()
       }
       cursor.y += rowHeight;
     }
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::RenderLoadingOverlay()
+{
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  if (viewport->WorkSize.x < 10 || viewport->WorkSize.y < 10)
+  {
+    return;
+  }
+
+  const ImVec2 center = viewport->GetWorkCenter();
+
+  // Rotation phase from a wall clock. This MUST NOT use the renderer TotalTime or ImGui
+  // io.DeltaTime: the async load pump (interactor::processEvents) never advances them, so a
+  // spinner driven by those would freeze for the whole load. steady_clock keeps spinning.
+  const double nowSec =
+    std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+  const float phase = static_cast<float>(
+    std::fmod(nowSec, ::LOADING_SPIN_PERIOD_SEC) / ::LOADING_SPIN_PERIOD_SEC * ::LOADING_TWO_PI);
+
+  // Draw straight onto the background draw list so the overlay ignores window focus/z-order
+  // (same list the dropzone uses). No ImGui window needed.
+  ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+
+  // 1) Dimmed full-viewport backdrop, reusing the actor's shared backdrop color/opacity.
+  const ImU32 backdrop = IM_COL32(static_cast<int>(this->BackdropColor[0] * 255),
+    static_cast<int>(this->BackdropColor[1] * 255), static_cast<int>(this->BackdropColor[2] * 255),
+    static_cast<int>(this->BackdropOpacity * 255));
+  drawList->AddRectFilled(ImVec2(viewport->WorkPos.x, viewport->WorkPos.y),
+    ImVec2(viewport->WorkPos.x + viewport->WorkSize.x, viewport->WorkPos.y + viewport->WorkSize.y),
+    backdrop);
+
+  const ImVec4 hl = F3DStyle::imgui::GetHighlightColor();
+  const ImU32 haloColor = IM_COL32(hl.x * 255, hl.y * 255, hl.z * 255, 230);
+  const ImU32 trackColor = IM_COL32(hl.x * 255, hl.y * 255, hl.z * 255, 60);  // faint full ring
+  const ImU32 ringColor = IM_COL32(hl.x * 255, hl.y * 255, hl.z * 255, 255);  // progress fill
+
+  // 2) Center logo (reuse the dropzone logo texture; same UV flip).
+  if (this->Pimpl->LogoTexture)
+  {
+    ImTextureID texID = reinterpret_cast<ImTextureID>(this->Pimpl->LogoTexture.Get());
+    const float half = ::LOADING_LOGO_SIZE * 0.5f;
+    drawList->AddImage(texID, ImVec2(center.x - half, center.y - half),
+      ImVec2(center.x + half, center.y + half), ImVec2(0, 1), ImVec2(1, 0));
+  }
+
+  // 3) Faint full track, then the determinate progress arc (12 o'clock start, clockwise).
+  constexpr int segments = 64;
+  drawList->PathArcTo(center, ::LOADING_RING_RADIUS, 0.f, ::LOADING_TWO_PI, segments);
+  drawList->PathStroke(trackColor, ImDrawFlags_None, ::LOADING_RING_THICKNESS);
+
+  const float ringStart = -::LOADING_TWO_PI * 0.25f; // -90 deg => top
+  const float sweep =
+    static_cast<float>(std::clamp(this->LoadingProgress, 0.0, 1.0)) * ::LOADING_TWO_PI;
+  if (sweep > 0.0001f)
+  {
+    drawList->PathArcTo(center, ::LOADING_RING_RADIUS, ringStart, ringStart + sweep, segments);
+    drawList->PathStroke(ringColor, ImDrawFlags_None, ::LOADING_RING_THICKNESS);
+  }
+
+  // 4) Rotating halo arc on the outside, spinning independently of progress => always "alive".
+  const float haloSweep = ::LOADING_HALO_ARC_FRAC * ::LOADING_TWO_PI;
+  drawList->PathArcTo(center, ::LOADING_HALO_RADIUS, phase, phase + haloSweep, 32);
+  drawList->PathStroke(haloColor, ImDrawFlags_None, ::LOADING_HALO_THICKNESS);
+
+  // 5) Centered status line below the halo.
+  if (!this->LoadingMessage.empty())
+  {
+    const ImVec2 textSize = ImGui::CalcTextSize(this->LoadingMessage.c_str());
+    const ImVec2 textPos(center.x - textSize.x * 0.5f,
+      center.y + ::LOADING_HALO_RADIUS + ::LOADING_TEXT_PADDING);
+    drawList->AddText(textPos, ImColor(::ColorToImVec4(this->FontColor)), this->LoadingMessage.c_str());
   }
 }
 

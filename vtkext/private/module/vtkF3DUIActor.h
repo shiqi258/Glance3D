@@ -81,6 +81,24 @@ public:
   void SetDropBinds(const std::vector<std::pair<std::string, std::string>>& dropZoneBinds);
 
   /**
+   * Set the loading overlay visibility
+   * False by default
+   */
+  void SetLoadingVisibility(bool show);
+
+  /**
+   * Set the loading progress, clamped to [0, 1] when rendered
+   * 0 by default
+   */
+  void SetLoadingProgress(double progress);
+
+  /**
+   * Set the loading status message shown below the indicator
+   * Empty by default
+   */
+  void SetLoadingMessage(const std::string& message);
+
+  /**
    * Set the filename visibility
    * False by default
    */
@@ -248,6 +266,13 @@ protected:
   }
 
   /**
+   * Render the centered loading overlay UI widget
+   */
+  virtual void RenderLoadingOverlay()
+  {
+  }
+
+  /**
    * Render the scene hierarchy UI widget
    */
   virtual void RenderSceneHierarchy(vtkOpenGLRenderWindow*)
@@ -314,6 +339,10 @@ protected:
   bool DropZoneVisible = false;
   std::string DropText = "";
   std::vector<std::pair<std::string, std::string>> DropBinds;
+
+  bool LoadingVisible = false;
+  double LoadingProgress = 0.0;
+  std::string LoadingMessage = "";
 
   bool FileNameVisible = false;
   std::string FileName = "";

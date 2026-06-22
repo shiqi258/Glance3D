@@ -122,7 +122,30 @@ f3d(settings)
       stream: defaultFile,
     };
 
-    // Loading progress bar, driven by the threaded async loader (fraction in [0, 1]).
+    // ----------------------------------------------------------------------------------------
+    // Loading-progress layer — pluggable presenter architecture (see plan: 统一加载进度层)
+    //
+    // The shared, headless progress MODEL lives in the libf3d core and is identical across
+    // frontends: `scene.getAsyncState()` (IDLE/LOADING/READY/FAILED) + `scene.getAsyncProgress()`
+    // ([0,1], covers only the CPU parse/build phase). Both desktop (C++) and this web viewer plug
+    // into that same model; each owns its own PRESENTER (animation / position / copy are
+    // intentionally frontend-specific and swappable).
+    //
+    // The desktop presenter is a centered ImGui overlay (logo + rotating halo + progress ring).
+    // The web build has F3D_MODULE_UI=OFF (no ImGui), so the web presenter must be DOM/CSS/JS.
+    //
+    // TODO(web-loader): replace the sidebar Bulma bar below with a centered DOM overlay presenter,
+    // e.g. `createLoadingOverlay({ host: '#main' })` exposing { show(context), update(progress,
+    // phase), hide() }, mounted over #canvas. Drive it from the same `onProgress(fraction)`
+    // callback passed to addBufferAsyncThreaded() (derive FINALIZING from fraction >= 1), and call
+    // show()/hide() in openFile()'s try/finally. To stay consistent with desktop, the presenter
+    // should implement the shared BEHAVIOR SPEC: ~300ms show-delay (no flash on fast loads), map
+    // raw[0..1]→display[0..0.9] reserving the last 10% for finalize, monotonic clamp (never
+    // decrease), and phase→localized copy ("Loading {file}…" / "Parsing…" / "Almost done…").
+    // ----------------------------------------------------------------------------------------
+
+    // Current (interim) presenter: the sidebar Bulma progress bar, driven by the threaded async
+    // loader (fraction in [0, 1]). Kept until the centered DOM overlay above is implemented.
     const loadProgressEl = document.querySelector("#load-progress");
     const setLoadProgress = (fraction) => {
       if (!loadProgressEl) {

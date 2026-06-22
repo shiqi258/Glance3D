@@ -110,6 +110,15 @@ public:
   virtual window& setWindowName(std::string_view windowName) = 0;
 
   /**
+   * Set the state of the centered loading overlay drawn over the viewport.
+   * When visible is true, a branded loading indicator is shown; progress is clamped to [0, 1]
+   * and message is the status line displayed below it. Call with visible=false to hide it.
+   * Intended to be driven each frame while polling an asynchronous scene load (scene::addAsync).
+   * Has no visible effect when the UI module (F3D_MODULE_UI) is disabled.
+   */
+  virtual window& setLoadingState(bool visible, double progress, const std::string& message) = 0;
+
+  /**
    * Convert a point in display coordinate to world coordinate.
    */
   [[nodiscard]] virtual point3_t getWorldFromDisplay(const point3_t& displayPoint) const = 0;

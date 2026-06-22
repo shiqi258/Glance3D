@@ -57,6 +57,7 @@ public:
   window& setPosition(int x, int y) override;
   window& setIcon(const unsigned char* icon, size_t iconSize) override;
   window& setWindowName(std::string_view windowName) override;
+  window& setLoadingState(bool visible, double progress, const std::string& message) override;
   point3_t getWorldFromDisplay(const point3_t& displayPoint) const override;
   point3_t getDisplayFromWorld(const point3_t& worldPoint) const override;
   ///@}

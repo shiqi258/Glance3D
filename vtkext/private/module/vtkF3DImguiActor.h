@@ -62,6 +62,11 @@ private:
   void RenderDropZone() override;
 
   /**
+   * Render the centered loading overlay UI widget
+   */
+  void RenderLoadingOverlay() override;
+
+  /**
    * Render the scene hierarchy UI widget
    */
   void RenderSceneHierarchy(vtkOpenGLRenderWindow* renWin) override;

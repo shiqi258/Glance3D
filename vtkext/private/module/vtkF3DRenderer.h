@@ -101,6 +101,7 @@ public:
   void ShowMinimalConsole(bool show);
   void ShowDropZone(bool show);
   void ShowDropZoneLogo(bool show);
+  void ShowLoading(bool show, double progress, const std::string& message);
   void ShowHDRISkybox(bool show);
   void ShowArmature(bool show);
   void ShowSceneHierarchy(bool show);

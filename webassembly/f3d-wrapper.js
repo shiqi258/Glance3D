@@ -296,6 +296,11 @@ function installGLTFHelpers(Module) {
           const path = writePreparedFileToFilesystem(Module, prepared, extension);
           scene.addAsync([path]); // returns immediately; parsing runs on a worker thread
 
+          // This rAF poll loop is the web driver of the shared "loading-progress layer": it reads
+          // the headless core model (getAsyncState + getAsyncProgress) and forwards the raw
+          // fraction to the caller's presenter via onProgress. `onProgress(1)` after finalizeAsync
+          // marks the FINALIZING/done transition. A new frontend plugs in the same way: poll
+          // state+progress, drive its own presenter. (See main.js openFile for the presenter side.)
           const States = Module.SceneAsyncState;
           await new Promise((resolve, reject) => {
             const poll = () => {

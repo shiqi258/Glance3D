@@ -43,6 +43,24 @@ void vtkF3DUIActor::SetDropBinds(
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DUIActor::SetLoadingVisibility(bool show)
+{
+  this->LoadingVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetLoadingProgress(double progress)
+{
+  this->LoadingProgress = progress;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetLoadingMessage(const std::string& message)
+{
+  this->LoadingMessage = message;
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DUIActor::SetFileNameVisibility(bool show)
 {
   this->FileNameVisible = show;
@@ -212,6 +230,15 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   }
 
   this->StartFrame(renWin);
+
+  if (this->LoadingVisible)
+  {
+    // While loading, the centered overlay takes over: skip every other widget so nothing
+    // competes with it (mirrors the console early-return below).
+    this->RenderLoadingOverlay();
+    this->EndFrame(renWin);
+    return 1;
+  }
 
   if (this->DropZoneVisible)
   {
