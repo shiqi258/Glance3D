@@ -61,15 +61,11 @@ constexpr float DROPZONE_PADDING_X = 5.0f;
 constexpr float DROPZONE_PADDING_Y = 2.0f;
 
 // Centered loading overlay geometry (pixels). Grouped here so the look is easy to retune.
-constexpr float LOADING_LOGO_SIZE = 96.f;       // center logo edge length
-constexpr float LOADING_RING_RADIUS = 78.f;     // determinate progress ring radius
-constexpr float LOADING_HALO_RADIUS = 96.f;     // rotating halo arc radius (outside the ring)
-constexpr float LOADING_RING_THICKNESS = 6.f;
-constexpr float LOADING_HALO_THICKNESS = 4.f;
-constexpr float LOADING_HALO_ARC_FRAC = 0.28f;  // halo sweep as fraction of a full turn
-constexpr float LOADING_TEXT_PADDING = 24.f;    // gap between halo and the status text
+constexpr float LOADING_LOGO_SIZE = 150.f;      // rotating logo display size (the hero)
+constexpr float LOADING_GLOW_RADIUS = 84.f;     // faint hugging glow radius (kept very subtle)
+constexpr float LOADING_TEXT_PADDING = 30.f;    // gap below the logo to the status text
 constexpr float LOADING_TWO_PI = 6.2831853071795864769f;
-constexpr float LOADING_SPIN_PERIOD_SEC = 2.0f; // seconds per halo revolution
+constexpr float LOADING_SPIN_PERIOD_SEC = 4.4f; // seconds per revolution (slow, calm)
 
 const inline ImVec4 ColorToImVec4(const std::array<double, 3>& color)
 {
@@ -293,6 +289,38 @@ struct vtkF3DImguiActor::Internals
         this->LogoTexture = vtkSmartPointer<vtkTextureObject>::New();
         this->LogoTexture->SetContext(renWin);
         this->LogoTexture->Create2DFromRaw(dims[0], dims[1], 4, VTK_UNSIGNED_CHAR, logoPixels);
+
+        // Build a soft vertical-gradient version of the logo (light -> periwinkle) for the loading
+        // overlay, keeping the alpha shape. The embedded logo is a black silhouette (RGB=0): it is
+        // invisible on the dark backdrop, and ImGui's multiply tint cannot lighten black. Baking a
+        // gentle gradient into the silhouette gives the slowly rotating mark a premium metallic
+        // shading with no runtime gradient work. Linear filtering keeps rotation smooth when scaled.
+        const int logoW = dims[0];
+        const int logoH = dims[1];
+        std::vector<unsigned char> gradPixels(static_cast<size_t>(logoW) * logoH * 4);
+        auto lerp8 = [](int a, int b, float t)
+        { return static_cast<unsigned char>(static_cast<float>(a) + (b - a) * t); };
+        for (int y = 0; y < logoH; ++y)
+        {
+          const float t = logoH > 1 ? static_cast<float>(y) / static_cast<float>(logoH - 1) : 0.f;
+          const unsigned char gr = lerp8(238, 140, t); // #eef1ff -> #8c97cf
+          const unsigned char gg = lerp8(241, 151, t);
+          const unsigned char gb = lerp8(255, 207, t);
+          for (int x = 0; x < logoW; ++x)
+          {
+            const size_t idx = (static_cast<size_t>(y) * logoW + x) * 4;
+            gradPixels[idx + 0] = gr;
+            gradPixels[idx + 1] = gg;
+            gradPixels[idx + 2] = gb;
+            gradPixels[idx + 3] = logoPixels[idx + 3];
+          }
+        }
+        this->LoadingLogoTexture = vtkSmartPointer<vtkTextureObject>::New();
+        this->LoadingLogoTexture->SetContext(renWin);
+        this->LoadingLogoTexture->Create2DFromRaw(
+          logoW, logoH, 4, VTK_UNSIGNED_CHAR, gradPixels.data());
+        this->LoadingLogoTexture->SetMinificationFilter(vtkTextureObject::Linear);
+        this->LoadingLogoTexture->SetMagnificationFilter(vtkTextureObject::Linear);
       }
 
       this->VertexBuffer->SetUsage(vtkOpenGLBufferObject::StreamDraw);
@@ -336,6 +364,11 @@ struct vtkF3DImguiActor::Internals
       {
         this->LogoTexture->ReleaseGraphicsResources(renWin);
         this->LogoTexture = nullptr;
+      }
+      if (this->LoadingLogoTexture)
+      {
+        this->LoadingLogoTexture->ReleaseGraphicsResources(renWin);
+        this->LoadingLogoTexture = nullptr;
       }
       if (this->VertexBuffer)
       {
@@ -445,6 +478,10 @@ struct vtkF3DImguiActor::Internals
 
     this->FontTexture->Deactivate();
     this->LogoTexture->Deactivate();
+    if (this->LoadingLogoTexture)
+    {
+      this->LoadingLogoTexture->Deactivate();
+    }
   }
 
   vtkSmartPointer<vtkTextureObject> FontTexture;
@@ -453,6 +490,7 @@ struct vtkF3DImguiActor::Internals
   vtkSmartPointer<vtkOpenGLBufferObject> IndexBuffer;
   vtkSmartPointer<vtkShaderProgram> Program;
   vtkSmartPointer<vtkTextureObject> LogoTexture;
+  vtkSmartPointer<vtkTextureObject> LoadingLogoTexture;
 
   enum class SearchMode : std::uint8_t
   {
@@ -872,17 +910,26 @@ void vtkF3DImguiActor::RenderLoadingOverlay()
 
   const ImVec2 center = viewport->GetWorkCenter();
 
-  // Rotation phase from a wall clock. This MUST NOT use the renderer TotalTime or ImGui
-  // io.DeltaTime: the async load pump (interactor::processEvents) never advances them, so a
-  // spinner driven by those would freeze for the whole load. steady_clock keeps spinning.
+  // Animation phase from a wall clock. This MUST NOT use the renderer TotalTime or ImGui
+  // io.DeltaTime: the async load pump (interactor::processEvents) never advances them, so motion
+  // driven by those would freeze for the whole load. steady_clock keeps it animating.
   const double nowSec =
     std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
-  const float phase = static_cast<float>(
+  const float spin = static_cast<float>(
     std::fmod(nowSec, ::LOADING_SPIN_PERIOD_SEC) / ::LOADING_SPIN_PERIOD_SEC * ::LOADING_TWO_PI);
+
+  // "Calm" rhythm: a single gentle breath per revolution (0..1..0), eased via 1-cos. Drives both a
+  // subtle scale and the faint glow pulse so they feel like one quiet, premium motion.
+  const float breathT = 0.5f * (1.f - std::cos(spin));
+  const float breathScale = 0.97f + 0.03f * breathT; // 0.97 .. 1.00
 
   // Draw straight onto the background draw list so the overlay ignores window focus/z-order
   // (same list the dropzone uses). No ImGui window needed.
   ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+
+  // The global style disables anti-aliased fills; enable locally for a smooth glow, then restore.
+  const ImDrawListFlags savedFlags = drawList->Flags;
+  drawList->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
 
   // 1) Dimmed full-viewport backdrop, reusing the actor's shared backdrop color/opacity.
   const ImU32 backdrop = IM_COL32(static_cast<int>(this->BackdropColor[0] * 255),
@@ -893,46 +940,51 @@ void vtkF3DImguiActor::RenderLoadingOverlay()
     backdrop);
 
   const ImVec4 hl = F3DStyle::imgui::GetHighlightColor();
-  const ImU32 haloColor = IM_COL32(hl.x * 255, hl.y * 255, hl.z * 255, 230);
-  const ImU32 trackColor = IM_COL32(hl.x * 255, hl.y * 255, hl.z * 255, 60);  // faint full ring
-  const ImU32 ringColor = IM_COL32(hl.x * 255, hl.y * 255, hl.z * 255, 255);  // progress fill
 
-  // 2) Center logo (reuse the dropzone logo texture; same UV flip).
-  if (this->Pimpl->LogoTexture)
+  // 2) Faint hugging glow: a few low-alpha discs tight around the logo, gently pulsing with the
+  // breath. Kept very subtle so the logo stays the clear hero (no heavy halo).
+  const float glowPulse = 0.55f + 0.45f * breathT; // 0.55 .. 1.0
+  constexpr int glowLayers = 6;
+  for (int i = 0; i < glowLayers; ++i)
   {
-    ImTextureID texID = reinterpret_cast<ImTextureID>(this->Pimpl->LogoTexture.Get());
-    const float half = ::LOADING_LOGO_SIZE * 0.5f;
-    drawList->AddImage(texID, ImVec2(center.x - half, center.y - half),
-      ImVec2(center.x + half, center.y + half), ImVec2(0, 1), ImVec2(1, 0));
+    const float t = static_cast<float>(i) / static_cast<float>(glowLayers - 1); // 0 inner..1 outer
+    const float radius = ::LOADING_GLOW_RADIUS * (0.45f + 0.55f * t) * breathScale;
+    const int alpha = static_cast<int>(22.f * (1.f - t) * glowPulse);
+    drawList->AddCircleFilled(
+      center, radius, IM_COL32(hl.x * 255, hl.y * 255, hl.z * 255, alpha), 48);
   }
 
-  // 3) Faint full track, then the determinate progress arc (12 o'clock start, clockwise).
-  constexpr int segments = 64;
-  drawList->PathArcTo(center, ::LOADING_RING_RADIUS, 0.f, ::LOADING_TWO_PI, segments);
-  drawList->PathStroke(trackColor, ImDrawFlags_None, ::LOADING_RING_THICKNESS);
-
-  const float ringStart = -::LOADING_TWO_PI * 0.25f; // -90 deg => top
-  const float sweep =
-    static_cast<float>(std::clamp(this->LoadingProgress, 0.0, 1.0)) * ::LOADING_TWO_PI;
-  if (sweep > 0.0001f)
+  // 3) The logo itself: slowly rotating with a gentle breathing scale. The texture has a soft
+  // light->periwinkle gradient baked in, so it reads as a premium metallic mark turning, not a
+  // flat icon. Drawn with a white tint so the baked gradient shows true.
+  if (this->Pimpl->LoadingLogoTexture)
   {
-    drawList->PathArcTo(center, ::LOADING_RING_RADIUS, ringStart, ringStart + sweep, segments);
-    drawList->PathStroke(ringColor, ImDrawFlags_None, ::LOADING_RING_THICKNESS);
+    const float cosA = std::cos(spin);
+    const float sinA = std::sin(spin);
+    const float half = ::LOADING_LOGO_SIZE * 0.5f * breathScale;
+    auto rotated = [&](float dx, float dy)
+    { return ImVec2(center.x + dx * cosA - dy * sinA, center.y + dx * sinA + dy * cosA); };
+    const ImVec2 p1 = rotated(-half, -half);
+    const ImVec2 p2 = rotated(half, -half);
+    const ImVec2 p3 = rotated(half, half);
+    const ImVec2 p4 = rotated(-half, half);
+    // VTK textures are bottom-up: flip V (matches RenderDropZone's AddImage uv mapping).
+    ImTextureID texID = reinterpret_cast<ImTextureID>(this->Pimpl->LoadingLogoTexture.Get());
+    drawList->AddImageQuad(texID, p1, p2, p3, p4, ImVec2(0, 1), ImVec2(1, 1), ImVec2(1, 0),
+      ImVec2(0, 0), IM_COL32_WHITE);
   }
 
-  // 4) Rotating halo arc on the outside, spinning independently of progress => always "alive".
-  const float haloSweep = ::LOADING_HALO_ARC_FRAC * ::LOADING_TWO_PI;
-  drawList->PathArcTo(center, ::LOADING_HALO_RADIUS, phase, phase + haloSweep, 32);
-  drawList->PathStroke(haloColor, ImDrawFlags_None, ::LOADING_HALO_THICKNESS);
-
-  // 5) Centered status line below the halo.
+  // 4) Progress is shown as text only (no ring): the status line sits below the logo.
   if (!this->LoadingMessage.empty())
   {
     const ImVec2 textSize = ImGui::CalcTextSize(this->LoadingMessage.c_str());
     const ImVec2 textPos(center.x - textSize.x * 0.5f,
-      center.y + ::LOADING_HALO_RADIUS + ::LOADING_TEXT_PADDING);
-    drawList->AddText(textPos, ImColor(::ColorToImVec4(this->FontColor)), this->LoadingMessage.c_str());
+      center.y + ::LOADING_LOGO_SIZE * 0.5f + ::LOADING_TEXT_PADDING);
+    drawList->AddText(
+      textPos, ImColor(::ColorToImVec4(this->FontColor)), this->LoadingMessage.c_str());
   }
+
+  drawList->Flags = savedFlags;
 }
 
 //----------------------------------------------------------------------------
