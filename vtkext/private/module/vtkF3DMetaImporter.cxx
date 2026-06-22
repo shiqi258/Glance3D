@@ -258,8 +258,6 @@ bool vtkF3DMetaImporter::Update()
 //----------------------------------------------------------------------------
 bool vtkF3DMetaImporter::BuildGeometry()
 {
-  this->Pimpl->UpdateTime.Modified();
-
   // [G3D-S2] Build geometry against a GL-free render window so this phase can later run off the
   // render thread. The VTK importers add their actors to this build window's renderer; they are
   // re-homed onto the real renderer in CommitToRenderer(). The importers keep a strong reference
@@ -526,6 +524,13 @@ void vtkF3DMetaImporter::CommitToRenderer()
 
     importerInfo.Updated = true;
   }
+
+  // [G3D] Advance UpdateTime only now that the built actors have been committed and are visible to
+  // the renderer. Bumping it earlier (e.g. at BuildGeometry() start) lets a render that happens
+  // during an async load (F3DStarter's poll loop) configure coloring against not-yet-committed
+  // data: UpdateInfoForColoring() runs while empty and stamps ColoringInfoTime past UpdateTime,
+  // permanently gating out the post-commit refresh and leaving the scene uncolored.
+  this->Pimpl->UpdateTime.Modified();
 }
 
 //----------------------------------------------------------------------------
