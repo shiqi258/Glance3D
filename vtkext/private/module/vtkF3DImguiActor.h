@@ -10,6 +10,8 @@
 
 #include "vtkF3DUIActor.h"
 
+#include "G3DAnimation.h"
+
 #include <memory>
 
 class vtkOpenGLRenderWindow;
@@ -137,10 +139,24 @@ private:
   float CalcBadgeWidth(const std::string& text);
 
   /**
-   * steady_clock seconds at the last viewport interaction, driving the control toggle (FAB) idle
-   * auto-hide. Negative until the first frame initializes it.
+   * Advance the control panel / FAB animation once per frame (eased slide + fade). Idempotent
+   * within a frame (the shared G3DFrameClock yields the delta only once per frame), so it is safe to
+   * call from both RenderControlPanel and RenderControlToggle regardless of order.
    */
-  double ControlToggleLastActiveSec = -1.0;
+  void AdvanceControlAnim();
+
+  ///@{
+  /**
+   * Animation state for the control panel toggle (FAB) and the sliding panel, built on the reusable
+   * G3DAnimation helpers. The interactive event loop re-renders the UI every tick, which is what
+   * drives these transitions forward.
+   */
+  G3DFrameClock ControlClock;     ///< per-frame steady_clock delta source
+  G3DAnimatedFloat PanelAnim;     ///< panel slide progress, 0 closed .. 1 open
+  G3DAnimatedFloat FabAlpha;      ///< FAB opacity, eased for fade in/out
+  double ControlIdleSec = 0.0;    ///< seconds since last viewport activity (FAB idle auto-hide)
+  bool ControlAnimInit = false;   ///< false until the first frame snaps to the initial state
+  ///@}
 };
 
 #endif

@@ -48,7 +48,7 @@ if(F3D_MODULE_UI)
     BINARY)
 
   list(APPEND sources ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.cxx)
-  list(APPEND private_headers F3DStyle.h ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.h)
+  list(APPEND private_headers F3DStyle.h G3DAnimation.h G3DTheme.h ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.h)
 
   set(F3D_DEFAULT_LOGO "${F3D_SOURCE_DIR}/resources/logo-black.png" CACHE PATH "logo")
   mark_as_advanced(F3D_DEFAULT_LOGO)
@@ -117,7 +117,7 @@ set(classes
   )
 
 if (F3D_MODULE_UI)
-  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle)
+  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DWidgets)
 endif ()
 
 if(WIN32)
