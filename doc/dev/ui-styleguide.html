@@ -1,0 +1,1655 @@
+<!doctype html>
+<!--
+  Glance3D UI Styleguide — canonical visual reference for the desktop ImGui component library
+  (G3DTheme / G3DIcon / G3DWidgets).
+
+  PURPOSE
+    A self-contained, open-in-any-browser preview of the target look & feel for Glance3D's
+    in-viewer UI. Design is reviewed here FIRST, then the tokens/visuals are mirrored into the
+    C++ side (vtkext/private/module/G3DTheme.h etc.). This file is the source of truth for the
+    visual language and is maintained long-term alongside the components.
+
+  SCOPE / FIDELITY
+    HTML/CSS can do things ImGui's immediate-mode draw lists cannot do natively (blurred shadows,
+    backdrop blur, CSS gradients). Where a style relies on those, it is marked "≈ImGui" with the
+    intended approximation (layered translucent rounded rects for shadow, AddRectFilledMultiColor
+    for gradients, layered rings for glow). Everything else maps 1:1.
+
+  MAINTENANCE
+    - Keep the :root token values in sync with G3DTheme.h color roles / radii / spacing / motion.
+    - When a component changes, update its block here and the matching G3DWidgets implementation.
+-->
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glance3D · UI 组件预览 (Styleguide)</title>
+    <style>
+      /* ============================================================
+         DESIGN TOKENS  (mirror into G3DTheme.h)
+         ============================================================ */
+      :root,
+      [data-theme="dark"] {
+        color-scheme: dark;
+        /* Neutral elevation ramp — cool near-black, subtle steps */
+        --bg: #0b0c10;
+        --surface-1: #131519; /* panels */
+        --surface-2: #181b21; /* cards */
+        --surface-3: #20242c; /* hover / raised */
+        --surface-4: #282d36; /* pressed / active */
+        --border: rgba(255, 255, 255, 0.09);
+        --border-strong: rgba(255, 255, 255, 0.16);
+        --hairline: rgba(255, 255, 255, 0.06); /* inner top highlight */
+
+        --text: #e8eaf0;
+        --text-muted: #9aa1ad;
+        --text-subtle: #6a7280;
+        --text-disabled: rgba(232, 234, 240, 0.3);
+
+        /* Brand accent (Glance3D blue, F3D_BLUE #788bff refined for dark UI) */
+        --accent: #7c8cff;
+        --accent-hover: #8e9bff;
+        --accent-press: #6877f0;
+        --accent-contrast: #0b0c10;
+        --accent-soft: rgba(124, 140, 255, 0.14);
+        --accent-soft-hover: rgba(124, 140, 255, 0.22);
+        --accent-ring: rgba(124, 140, 255, 0.45);
+        --accent-grad: linear-gradient(180deg, #8b99ff 0%, #6f80f7 100%);
+
+        --success: #5fd08a;
+        --warning: #f3b13f;
+        --danger: #f56a57;
+        --danger-soft: rgba(245, 106, 87, 0.14);
+
+        /* Radii */
+        --r-sm: 6px;
+        --r-md: 8px;
+        --r-lg: 12px;
+        --r-xl: 16px;
+        --r-pill: 999px;
+
+        /* Spacing (4-grid) */
+        --s-1: 4px;
+        --s-2: 8px;
+        --s-3: 12px;
+        --s-4: 16px;
+        --s-5: 20px;
+        --s-6: 24px;
+        --s-8: 32px;
+
+        /* Elevation  (≈ImGui: layered translucent rounded rects) */
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
+        --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+        --shadow-accent: 0 4px 16px rgba(110, 126, 247, 0.35);
+
+        /* Motion */
+        --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+        --t-micro: 120ms;
+        --t-std: 180ms;
+
+        --ctrl-h: 32px; /* control height */
+        --font: "Inter", "Segoe UI", system-ui, -apple-system, "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+        --mono: "MonaspaceNeon", ui-monospace, "Cascadia Code", Consolas, monospace;
+      }
+
+      [data-theme="light"] {
+        color-scheme: light;
+        --bg: #f4f5f8;
+        --surface-1: #ffffff;
+        --surface-2: #ffffff;
+        --surface-3: #f0f1f5;
+        --surface-4: #e6e8ee;
+        --border: rgba(15, 18, 30, 0.1);
+        --border-strong: rgba(15, 18, 30, 0.18);
+        --hairline: rgba(255, 255, 255, 0.7);
+        --text: #1b1e27;
+        --text-muted: #59616f;
+        --text-subtle: #8a93a3;
+        --text-disabled: rgba(27, 30, 39, 0.34);
+        --accent: #5566f0;
+        --accent-hover: #6675f5;
+        --accent-press: #4453d8;
+        --accent-contrast: #ffffff;
+        --accent-soft: rgba(85, 102, 240, 0.1);
+        --accent-soft-hover: rgba(85, 102, 240, 0.16);
+        --accent-ring: rgba(85, 102, 240, 0.35);
+        --accent-grad: linear-gradient(180deg, #6675f5 0%, #4f5fe8 100%);
+        --success: #21a567;
+        --warning: #c98307;
+        --danger: #d8463a;
+        --danger-soft: rgba(216, 70, 58, 0.1);
+        --shadow-sm: 0 1px 2px rgba(15, 18, 30, 0.08);
+        --shadow-md: 0 6px 16px rgba(15, 18, 30, 0.1);
+        --shadow-lg: 0 16px 40px rgba(15, 18, 30, 0.14);
+        --shadow-accent: 0 4px 16px rgba(85, 102, 240, 0.3);
+      }
+
+      /* ============================================================
+         BASE
+         ============================================================ */
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.85em;
+        color: var(--text-muted);
+        background: var(--surface-3);
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+      }
+
+      /* Layout */
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        gap: var(--s-4);
+        padding: var(--s-3) var(--s-6);
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: var(--s-3);
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .brand .logo {
+        width: 26px;
+        height: 26px;
+        border-radius: var(--r-md);
+        background: var(--accent-grad);
+        box-shadow: var(--shadow-accent);
+        display: grid;
+        place-items: center;
+        color: #fff;
+      }
+      .brand small {
+        color: var(--text-subtle);
+        font-weight: 500;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: var(--s-8);
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: var(--s-8) var(--s-6) 120px;
+      }
+      nav.toc {
+        position: sticky;
+        top: 76px;
+        align-self: start;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 13px;
+      }
+      nav.toc a {
+        color: var(--text-muted);
+        padding: 6px 10px;
+        border-radius: var(--r-sm);
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      nav.toc a:hover {
+        background: var(--surface-3);
+        color: var(--text);
+      }
+      nav.toc .group {
+        margin-top: var(--s-3);
+        padding: 6px 10px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-subtle);
+      }
+      main {
+        min-width: 0;
+      }
+      section.block {
+        margin-bottom: var(--s-8);
+        scroll-margin-top: 84px;
+      }
+      .block > h2 {
+        font-size: 20px;
+        margin-bottom: var(--s-2);
+      }
+      .block > .desc {
+        color: var(--text-muted);
+        margin-bottom: var(--s-5);
+        max-width: 64ch;
+      }
+      .panel {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        padding: var(--s-6);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--s-3);
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--s-3);
+      }
+      .state-label {
+        font-size: 11px;
+        color: var(--text-subtle);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
+      }
+      .states {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--s-5);
+      }
+      .states > div {
+        text-align: center;
+      }
+      .note {
+        font-size: 12px;
+        color: var(--text-subtle);
+        margin-top: var(--s-3);
+      }
+      .tag-impl {
+        display: inline-block;
+        font-size: 10px;
+        font-family: var(--mono);
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-radius: var(--r-sm);
+        padding: 1px 6px;
+        margin-left: 6px;
+        vertical-align: middle;
+      }
+
+      /* ============================================================
+         FOUNDATIONS — swatches / scales
+         ============================================================ */
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: var(--s-3);
+      }
+      .swatch {
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        overflow: hidden;
+        background: var(--surface-2);
+      }
+      .swatch .chip {
+        height: 56px;
+      }
+      .swatch .meta {
+        padding: 8px 10px;
+        font-size: 12px;
+      }
+      .swatch .meta b {
+        font-weight: 600;
+      }
+      .swatch .meta span {
+        display: block;
+        color: var(--text-subtle);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+      .typescale > div {
+        display: flex;
+        align-items: baseline;
+        gap: var(--s-4);
+        padding: 8px 0;
+        border-bottom: 1px dashed var(--border);
+      }
+      .typescale .lbl {
+        width: 120px;
+        color: var(--text-subtle);
+        font-size: 12px;
+        font-family: var(--mono);
+      }
+      .scalebars {
+        display: flex;
+        align-items: flex-end;
+        gap: var(--s-3);
+      }
+      .scalebars .b {
+        background: var(--accent-soft);
+        border: 1px solid var(--accent-ring);
+        border-radius: var(--r-sm);
+      }
+      .scalebars .b span {
+        display: block;
+        text-align: center;
+        font-size: 11px;
+        color: var(--text-subtle);
+        margin-top: 4px;
+        font-family: var(--mono);
+      }
+      .radii {
+        display: flex;
+        gap: var(--s-4);
+        flex-wrap: wrap;
+      }
+      .radii .r {
+        width: 84px;
+        height: 64px;
+        background: var(--surface-3);
+        border: 1px solid var(--border-strong);
+        display: grid;
+        place-items: end center;
+        padding-bottom: 6px;
+        font-size: 11px;
+        font-family: var(--mono);
+        color: var(--text-subtle);
+      }
+      .elevs {
+        display: flex;
+        gap: var(--s-6);
+        flex-wrap: wrap;
+      }
+      .elevs .e {
+        width: 120px;
+        height: 80px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-family: var(--mono);
+        color: var(--text-subtle);
+      }
+
+      /* ============================================================
+         ICONS
+         ============================================================ */
+      .icon {
+        width: 1em;
+        height: 1em;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+      .icongrid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        gap: var(--s-2);
+      }
+      .icongrid .cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: var(--s-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        color: var(--text);
+        font-size: 11px;
+        transition: border-color var(--t-micro) var(--ease), background var(--t-micro) var(--ease),
+          transform var(--t-micro) var(--ease);
+      }
+      .icongrid .cell:hover {
+        border-color: var(--border-strong);
+        background: var(--surface-2);
+        transform: translateY(-2px);
+      }
+      .icongrid .cell:hover .icon {
+        color: var(--accent);
+      }
+      .icongrid .cell .icon {
+        font-size: 22px;
+        color: var(--text-muted);
+      }
+      .icongrid .cell span {
+        color: var(--text-subtle);
+        font-family: var(--mono);
+      }
+
+      /* ============================================================
+         BUTTON
+         ============================================================ */
+      .btn {
+        --btn-bg: var(--surface-3);
+        --btn-fg: var(--text);
+        appearance: none;
+        font: inherit;
+        font-weight: 550;
+        font-size: 13px;
+        color: var(--btn-fg);
+        background: var(--btn-bg);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        height: var(--ctrl-h);
+        padding: 0 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--s-2);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background var(--t-micro) var(--ease),
+          border-color var(--t-micro) var(--ease), transform var(--t-micro) var(--ease),
+          box-shadow var(--t-micro) var(--ease);
+      }
+      .btn .icon {
+        font-size: 16px;
+      }
+      .btn:hover,
+      .btn.is-hover {
+        background: var(--surface-4);
+        border-color: var(--border-strong);
+      }
+      .btn:active,
+      .btn.is-active {
+        transform: scale(0.97);
+        background: var(--surface-4);
+      }
+      .btn:focus-visible,
+      .btn.is-focus {
+        outline: none;
+        box-shadow: 0 0 0 2px var(--accent-ring);
+        border-color: var(--accent);
+      }
+      .btn:disabled,
+      .btn.is-disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        transform: none;
+      }
+      .btn.sm {
+        height: 26px;
+        font-size: 12px;
+        padding: 0 10px;
+      }
+      .btn.lg {
+        height: 38px;
+        font-size: 14px;
+        padding: 0 18px;
+      }
+
+      .btn.primary {
+        --btn-fg: #fff;
+        background: var(--accent-grad);
+        border-color: transparent;
+      }
+      .btn.primary:hover,
+      .btn.primary.is-hover {
+        filter: brightness(1.08);
+      }
+      .btn.primary:active,
+      .btn.primary.is-active {
+        filter: brightness(0.95);
+      }
+
+      .btn.soft {
+        --btn-fg: var(--accent);
+        background: var(--accent-soft);
+        border-color: transparent;
+      }
+      .btn.soft:hover,
+      .btn.soft.is-hover {
+        background: var(--accent-soft-hover);
+      }
+
+      .btn.ghost {
+        background: transparent;
+        border-color: transparent;
+      }
+      .btn.ghost:hover,
+      .btn.ghost.is-hover {
+        background: var(--surface-3);
+      }
+
+      .btn.danger {
+        --btn-fg: #fff;
+        background: var(--danger);
+        border-color: transparent;
+      }
+      .btn.danger:hover,
+      .btn.danger.is-hover {
+        filter: brightness(1.07);
+      }
+      .btn.danger.outline {
+        --btn-fg: var(--danger);
+        background: var(--danger-soft);
+      }
+
+      /* Icon button */
+      .iconbtn {
+        width: var(--ctrl-h);
+        height: var(--ctrl-h);
+        padding: 0;
+        display: inline-grid;
+        place-items: center;
+        background: transparent;
+        color: var(--text-muted);
+        border: 1px solid transparent;
+        border-radius: var(--r-md);
+        cursor: pointer;
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease),
+          transform var(--t-micro) var(--ease), box-shadow var(--t-micro) var(--ease);
+      }
+      .iconbtn .icon {
+        font-size: 18px;
+      }
+      .iconbtn:hover,
+      .iconbtn.is-hover {
+        background: var(--surface-3);
+        color: var(--text);
+      }
+      .iconbtn:active {
+        transform: scale(0.92);
+      }
+      .iconbtn:focus-visible,
+      .iconbtn.is-focus {
+        outline: none;
+        box-shadow: 0 0 0 2px var(--accent-ring);
+      }
+      .iconbtn.round {
+        border-radius: var(--r-pill);
+      }
+      .iconbtn.active {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      /* Glass FAB (matches the in-viewer floating toggle) */
+      .fab {
+        width: 40px;
+        height: 40px;
+        border-radius: var(--r-md);
+        background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-sm);
+        color: var(--text);
+      }
+      .fab.active {
+        background: var(--accent-grad);
+        color: #fff;
+        border-color: transparent;
+        box-shadow: var(--shadow-accent);
+      }
+
+      /* Spinner */
+      .spinner {
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        border-top-color: #fff;
+        animation: spin 0.7s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ============================================================
+         INPUT / SELECT / TEXTAREA
+         ============================================================ */
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .field > label {
+        font-size: 12px;
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+      .input {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        height: var(--ctrl-h);
+        padding: 0 10px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        transition: border-color var(--t-micro) var(--ease), box-shadow var(--t-micro) var(--ease),
+          background var(--t-micro) var(--ease);
+      }
+      .input .icon {
+        font-size: 16px;
+        color: var(--text-subtle);
+      }
+      .input input {
+        appearance: none;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 13px;
+        width: 100%;
+      }
+      .input input::placeholder {
+        color: var(--text-subtle);
+      }
+      .input:hover {
+        border-color: var(--border-strong);
+      }
+      .input:focus-within,
+      .input.is-focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--accent-ring);
+        background: var(--surface-3);
+      }
+      .input.error {
+        border-color: var(--danger);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 30%, transparent);
+      }
+      .field .hint {
+        font-size: 11px;
+        color: var(--text-subtle);
+      }
+      .field .hint.err {
+        color: var(--danger);
+      }
+      /* Dropdown / select (real popup menu) */
+      .dropdown {
+        position: relative;
+      }
+      .dropdown .select-trigger {
+        width: 100%;
+        cursor: pointer;
+        justify-content: space-between;
+        appearance: none;
+        font: inherit;
+        color: var(--text);
+        text-align: left;
+      }
+      .dropdown .select-trigger .chev {
+        font-size: 16px;
+        color: var(--text-subtle);
+        transform: rotate(90deg);
+        transition: transform var(--t-std) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .dropdown.open .select-trigger {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--accent-ring);
+        background: var(--surface-3);
+      }
+      .dropdown.open .select-trigger .chev {
+        transform: rotate(270deg);
+        color: var(--accent);
+      }
+      .dropdown .menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        right: 0;
+        z-index: 30;
+        background: var(--surface-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        box-shadow: var(--shadow-md);
+        padding: 4px;
+        opacity: 0;
+        transform: translateY(-6px) scale(0.98);
+        transform-origin: top center;
+        pointer-events: none;
+        transition: opacity var(--t-micro) var(--ease), transform var(--t-micro) var(--ease);
+      }
+      .dropdown.open .menu {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
+      }
+      .menu-item {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        width: 100%;
+        appearance: none;
+        font: inherit;
+        font-size: 13px;
+        text-align: left;
+        color: var(--text);
+        background: transparent;
+        border: none;
+        border-radius: var(--r-sm);
+        padding: 7px 10px;
+        cursor: pointer;
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .menu-item:hover {
+        background: var(--surface-4);
+      }
+      .menu-item.is-selected {
+        color: var(--accent);
+      }
+      .menu-item .check-spot {
+        margin-left: auto;
+        font-size: 14px;
+        opacity: 0;
+      }
+      .menu-item.is-selected .check-spot {
+        opacity: 1;
+      }
+
+      /* ============================================================
+         TOGGLE / CHECKBOX / RADIO / SEGMENTED
+         ============================================================ */
+      .toggle {
+        position: relative;
+        width: 40px;
+        height: 24px;
+        border-radius: var(--r-pill);
+        background: var(--surface-4);
+        border: 1px solid var(--border);
+        cursor: pointer;
+        transition: background var(--t-std) var(--ease);
+        flex: none;
+      }
+      .toggle::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: var(--shadow-sm);
+        transition: transform var(--t-std) var(--ease);
+      }
+      .toggle.on {
+        background: var(--accent);
+        border-color: transparent;
+      }
+      .toggle.on::after {
+        transform: translateX(16px);
+      }
+      .toggle:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px var(--accent-ring);
+      }
+      .switchrow {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-3);
+        cursor: pointer;
+      }
+
+      .check {
+        width: 18px;
+        height: 18px;
+        border-radius: var(--r-sm);
+        border: 1.5px solid var(--border-strong);
+        background: var(--surface-2);
+        display: inline-grid;
+        place-items: center;
+        cursor: pointer;
+        transition: background var(--t-micro) var(--ease), border-color var(--t-micro) var(--ease);
+        flex: none;
+      }
+      .check .icon {
+        font-size: 14px;
+        color: #fff;
+        opacity: 0;
+        transform: scale(0.6);
+        transition: opacity var(--t-micro) var(--ease), transform var(--t-micro) var(--ease);
+      }
+      .check.on {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .check.on .icon {
+        opacity: 1;
+        transform: scale(1);
+      }
+      .radio {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 1.5px solid var(--border-strong);
+        display: inline-grid;
+        place-items: center;
+        cursor: pointer;
+        flex: none;
+      }
+      .radio::after {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        transform: scale(0);
+        transition: transform var(--t-micro) var(--ease);
+      }
+      .radio.on {
+        border-color: var(--accent);
+      }
+      .radio.on::after {
+        transform: scale(1);
+      }
+
+      .segmented {
+        position: relative;
+        display: inline-flex;
+        padding: 3px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        gap: 2px;
+      }
+      .segmented .seg-ind {
+        position: absolute;
+        top: 3px;
+        bottom: 3px;
+        left: 3px;
+        width: 0;
+        background: var(--surface-4);
+        border-radius: var(--r-sm);
+        transition: left var(--t-std) var(--ease), width var(--t-std) var(--ease);
+        z-index: 0;
+      }
+      .segmented button {
+        position: relative;
+        z-index: 1;
+        appearance: none;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 550;
+        color: var(--text-muted);
+        background: transparent;
+        border: none;
+        border-radius: var(--r-sm);
+        padding: 5px 12px;
+        cursor: pointer;
+        transition: color var(--t-micro) var(--ease);
+      }
+      .segmented button:hover {
+        color: var(--text);
+      }
+      .segmented button.on {
+        color: var(--text);
+      }
+
+      /* ============================================================
+         SLIDER
+         ============================================================ */
+      .slider {
+        position: relative;
+        height: var(--ctrl-h);
+        display: flex;
+        align-items: center;
+        min-width: 200px;
+      }
+      .slider .track {
+        position: relative;
+        height: 6px;
+        width: 100%;
+        border-radius: var(--r-pill);
+        background: var(--surface-4);
+      }
+      .slider .fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        height: 100%;
+        border-radius: var(--r-pill);
+        background: var(--accent);
+      }
+      .slider .thumb {
+        position: absolute;
+        top: 50%;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        border: 1px solid var(--border-strong);
+        box-shadow: 0 0 0 0 var(--accent-ring);
+        transform: translate(-50%, -50%);
+        transition: box-shadow var(--t-micro) var(--ease), transform var(--t-micro) var(--ease);
+      }
+      .slider:hover .thumb,
+      .slider.is-hover .thumb {
+        box-shadow: 0 0 0 4px var(--accent-ring);
+      }
+      .slider:active .thumb {
+        transform: translate(-50%, -50%) scale(1.1);
+      }
+
+      /* ============================================================
+         CARD / SECTION / PROPERTY ROW / BADGE / TABS / TOOLTIP
+         ============================================================ */
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: var(--s-4);
+      }
+      .card {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        padding: var(--s-4);
+        box-shadow: var(--shadow-sm);
+      }
+      .card.hover-demo {
+        transition: transform var(--t-std) var(--ease), box-shadow var(--t-std) var(--ease),
+          border-color var(--t-std) var(--ease);
+        cursor: pointer;
+      }
+      .card.hover-demo:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-lg);
+        border-color: var(--border-strong);
+      }
+      .card.selected {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent), var(--shadow-md);
+      }
+      .card h3 {
+        font-size: 14px;
+        margin-bottom: 4px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 13px;
+      }
+      .card .card-head {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        margin-bottom: var(--s-3);
+      }
+      .card .card-head h3 {
+        margin: 0; /* override .card h3 bottom margin so it centers against the icon */
+        line-height: 1.2;
+      }
+      .card .card-head .icon {
+        font-size: 18px;
+        line-height: 1;
+        color: var(--accent);
+        flex: none;
+      }
+
+      .sectiontitle {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-subtle);
+        margin: var(--s-4) 0 var(--s-2);
+      }
+      .divider {
+        height: 1px;
+        background: var(--border);
+        margin: var(--s-4) 0;
+      }
+
+      .proprow {
+        display: flex;
+        align-items: center;
+        gap: var(--s-4);
+        padding: 7px 0;
+      }
+      .proprow > .k {
+        width: 120px;
+        color: var(--text-muted);
+        font-size: 13px;
+        flex: none;
+      }
+      .proprow > .v {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        min-width: 0;
+      }
+      .inspector {
+        max-width: 360px;
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        padding: var(--s-5);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: var(--r-pill);
+        background: var(--surface-3);
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+      }
+      .badge .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .badge.accent {
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-color: transparent;
+      }
+      .badge.success {
+        color: var(--success);
+        background: color-mix(in srgb, var(--success) 14%, transparent);
+        border-color: transparent;
+      }
+      .badge.warn {
+        color: var(--warning);
+        background: color-mix(in srgb, var(--warning) 16%, transparent);
+        border-color: transparent;
+      }
+      .badge.danger {
+        color: var(--danger);
+        background: var(--danger-soft);
+        border-color: transparent;
+      }
+
+      .tabs {
+        position: relative;
+        display: flex;
+        gap: var(--s-4);
+        border-bottom: 1px solid var(--border);
+      }
+      .tabs button {
+        appearance: none;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 550;
+        color: var(--text-muted);
+        background: none;
+        border: none;
+        padding: 10px 2px;
+        cursor: pointer;
+        position: relative;
+        transition: color var(--t-micro) var(--ease);
+      }
+      .tabs button:hover {
+        color: var(--text);
+      }
+      .tabs button.on {
+        color: var(--text);
+      }
+      .tabs .tab-ind {
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        width: 0;
+        height: 2px;
+        background: var(--accent);
+        border-radius: 2px;
+        transition: left var(--t-std) var(--ease), width var(--t-std) var(--ease);
+      }
+
+      .tip {
+        position: relative;
+        display: inline-flex;
+      }
+      .tip .bubble {
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%) translateY(4px);
+        background: var(--surface-4);
+        color: var(--text);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-md);
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: var(--r-md);
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity var(--t-micro) var(--ease), transform var(--t-micro) var(--ease);
+      }
+      .tip:hover .bubble {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+
+      .viewport-demo {
+        position: relative;
+        height: 560px;
+        border-radius: var(--r-lg);
+        border: 1px solid var(--border);
+        overflow: hidden;
+        background: radial-gradient(120% 120% at 30% 20%, #2a2f3a 0%, #15171c 55%, #0d0e12 100%);
+      }
+      [data-theme="light"] .viewport-demo {
+        background: radial-gradient(120% 120% at 30% 20%, #dfe3ec 0%, #eef0f5 60%, #f4f5f8 100%);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- inline icon set (target = clean line icons, mirrors G3DIconId) -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-sliders" viewBox="0 0 24 24">
+          <line x1="4" y1="7" x2="20" y2="7" /><circle cx="15" cy="7" r="2" fill="currentColor" stroke="none" />
+          <line x1="4" y1="12" x2="20" y2="12" /><circle cx="9" cy="12" r="2" fill="currentColor" stroke="none" />
+          <line x1="4" y1="17" x2="20" y2="17" /><circle cx="14" cy="17" r="2" fill="currentColor" stroke="none" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18" /></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" /><line x1="20" y1="20" x2="16" y2="16" /></symbol>
+        <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="18" r="1.4" fill="currentColor" stroke="none" /></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" /><circle cx="12" cy="12" r="2.6" /></symbol>
+        <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" /><circle cx="12" cy="12" r="2.6" /><line x1="4" y1="4" x2="20" y2="20" /></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1.5" /><line x1="10" y1="4" x2="10" y2="20" /><line x1="16" y1="4" x2="16" y2="20" /><line x1="4" y1="10" x2="20" y2="10" /><line x1="4" y1="16" x2="20" y2="16" /></symbol>
+        <symbol id="i-axis" viewBox="0 0 24 24"><line x1="6" y1="18" x2="6" y2="5" /><line x1="6" y1="18" x2="19" y2="18" /><line x1="6" y1="18" x2="14" y2="11" /></symbol>
+        <symbol id="i-camera" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5" /><path d="M8 7l1.5-2.5h5L16 7" /><circle cx="12" cy="13.5" r="3.2" /></symbol>
+        <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9Z" /><path d="M12 21V12" /><path d="M12 12l8-4.5" /><path d="M12 12 4 7.5" /></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><polyline points="5 12.5 10 17 19 7" /></symbol>
+      </defs>
+    </svg>
+
+    <div class="topbar">
+      <div class="brand">
+        <span class="logo"><svg class="icon" style="font-size: 16px"><use href="#i-cube" /></svg></span>
+        Glance3D <small>UI 组件预览 · Styleguide</small>
+      </div>
+      <span class="spacer"></span>
+      <span class="badge accent"><span class="dot"></span>设计预览 · 待审核</span>
+      <button class="btn sm ghost" id="themeBtn">
+        <svg class="icon"><use href="#i-eye" /></svg><span id="themeLbl">浅色</span>
+      </button>
+    </div>
+
+    <div class="layout">
+      <nav class="toc">
+        <div class="group">基础</div>
+        <a href="#colors">颜色角色</a>
+        <a href="#type">字体</a>
+        <a href="#scale">间距 / 圆角</a>
+        <a href="#elevation">阴影 / 层级</a>
+        <a href="#icons">图标</a>
+        <div class="group">组件</div>
+        <a href="#buttons">按钮</a>
+        <a href="#iconbuttons">图标按钮 / FAB</a>
+        <a href="#inputs">输入框 / 选择</a>
+        <a href="#toggles">开关 / 复选 / 分段</a>
+        <a href="#sliders">滑块</a>
+        <a href="#cards">卡片</a>
+        <a href="#misc">徽章 / 标签页 / 提示</a>
+        <div class="group">范例</div>
+        <a href="#inspector">检视器面板</a>
+      </nav>
+
+      <main>
+        <!-- ===================== COLORS ===================== -->
+        <section class="block" id="colors">
+          <h2>颜色角色</h2>
+          <p class="desc">
+            语义化角色而非裸色值，深色优先并提供浅色派生（点右上切换）。品牌主色沿用
+            <code>#788bff</code>，针对深色界面微调。组件只引用角色，换肤改这里一处即可。
+          </p>
+          <div class="panel">
+            <div class="swatches">
+              <div class="swatch"><div class="chip" style="background: var(--accent)"></div><div class="meta"><b>Accent</b><span>主操作 / 选中 / 聚焦</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--accent-soft)"></div><div class="meta"><b>Accent Soft</b><span>低强度强调底</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--surface-1)"></div><div class="meta"><b>Surface 1</b><span>面板</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--surface-2)"></div><div class="meta"><b>Surface 2</b><span>卡片</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--surface-3)"></div><div class="meta"><b>Surface 3</b><span>hover</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--surface-4)"></div><div class="meta"><b>Surface 4</b><span>pressed</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--text)"></div><div class="meta"><b>Text</b><span>主文本</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--text-muted)"></div><div class="meta"><b>Text Muted</b><span>次要文本</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--success)"></div><div class="meta"><b>Success</b><span>成功</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--warning)"></div><div class="meta"><b>Warning</b><span>警告</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--danger)"></div><div class="meta"><b>Danger</b><span>危险</span></div></div>
+              <div class="swatch"><div class="chip" style="background: var(--accent-grad)"></div><div class="meta"><b>Accent Grad</b><span>主按钮渐变 <span class="tag-impl">≈ImGui</span></span></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== TYPE ===================== -->
+        <section class="block" id="type">
+          <h2>字体层级</h2>
+          <p class="desc">
+            应用内主字体为单字重 MonaspaceNeon，故层级靠<strong>字号 + 颜色 + 间距</strong>区分，不依赖粗体。
+          </p>
+          <div class="panel typescale">
+            <div><span class="lbl">Title / 20</span><span style="font-size: 20px; font-weight: 600">操作面板 Inspector</span></div>
+            <div><span class="lbl">Subtitle / 16</span><span style="font-size: 16px; font-weight: 600">材质 Material</span></div>
+            <div><span class="lbl">Body / 14</span><span style="font-size: 14px">默认正文，控件标签与说明文字。</span></div>
+            <div><span class="lbl">Control / 13</span><span style="font-size: 13px">按钮 / 输入框内文字</span></div>
+            <div><span class="lbl">Caption / 12</span><span style="font-size: 12px; color: var(--text-muted)">次要说明、字段标签</span></div>
+            <div><span class="lbl">Section / 11</span><span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-subtle)">SECTION TITLE 分组标题</span></div>
+          </div>
+        </section>
+
+        <!-- ===================== SCALE ===================== -->
+        <section class="block" id="scale">
+          <h2>间距与圆角</h2>
+          <div class="panel">
+            <div class="state-label">间距 (4 基数)</div>
+            <div class="scalebars">
+              <div><div class="b" style="width: 4px; height: 28px"></div><span>4</span></div>
+              <div><div class="b" style="width: 8px; height: 28px"></div><span>8</span></div>
+              <div><div class="b" style="width: 12px; height: 28px"></div><span>12</span></div>
+              <div><div class="b" style="width: 16px; height: 28px"></div><span>16</span></div>
+              <div><div class="b" style="width: 20px; height: 28px"></div><span>20</span></div>
+              <div><div class="b" style="width: 24px; height: 28px"></div><span>24</span></div>
+              <div><div class="b" style="width: 32px; height: 28px"></div><span>32</span></div>
+            </div>
+            <div class="divider"></div>
+            <div class="state-label">圆角</div>
+            <div class="radii">
+              <div class="r" style="border-radius: 6px">sm 6</div>
+              <div class="r" style="border-radius: 8px">md 8</div>
+              <div class="r" style="border-radius: 12px">lg 12</div>
+              <div class="r" style="border-radius: 16px">xl 16</div>
+              <div class="r" style="border-radius: 999px">pill</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== ELEVATION ===================== -->
+        <section class="block" id="elevation">
+          <h2>阴影 / 层级 <span class="tag-impl">≈ImGui 分层 alpha</span></h2>
+          <p class="desc">深色界面用克制的投影 + 微弱内顶高光制造"浮起"。ImGui 无原生模糊投影，用几层半透明圆角矩形近似。</p>
+          <div class="panel">
+            <div class="elevs">
+              <div class="e" style="box-shadow: var(--shadow-sm)">sm</div>
+              <div class="e" style="box-shadow: var(--shadow-md)">md</div>
+              <div class="e" style="box-shadow: var(--shadow-lg)">lg</div>
+              <div class="e" style="box-shadow: var(--shadow-accent); border-color: transparent">accent</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== ICONS ===================== -->
+        <section class="block" id="icons">
+          <h2>图标</h2>
+          <p class="desc">本地矢量线性图标（1.75 描边、圆角端点），currentColor 随容器变色。对应 <code>G3DIconId</code>，加图标=加一项。</p>
+          <div class="panel">
+            <div class="icongrid">
+              <div class="cell"><svg class="icon"><use href="#i-sliders" /></svg><span>Sliders</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-close" /></svg><span>Close</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-chevron" /></svg><span>Chevron</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-plus" /></svg><span>Plus</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-search" /></svg><span>Search</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-dots" /></svg><span>Dots</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-eye" /></svg><span>Eye</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-eyeoff" /></svg><span>EyeOff</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-grid" /></svg><span>Grid</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-axis" /></svg><span>Axis</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-camera" /></svg><span>Camera</span></div>
+              <div class="cell"><svg class="icon"><use href="#i-cube" /></svg><span>Cube</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== BUTTONS ===================== -->
+        <section class="block" id="buttons">
+          <h2>按钮</h2>
+          <p class="desc">变体：Primary（渐变+微投影）/ Default / Soft / Ghost / Danger。主按钮 hover 提亮微浮、active 轻微缩放、focus 焦点环。</p>
+          <div class="panel stack">
+            <div class="row">
+              <button class="btn primary"><svg class="icon"><use href="#i-plus" /></svg>主要操作</button>
+              <button class="btn">默认</button>
+              <button class="btn soft">柔和</button>
+              <button class="btn ghost">幽灵</button>
+              <button class="btn danger">危险</button>
+              <button class="btn danger outline">危险描边</button>
+              <button class="btn" disabled>禁用</button>
+              <button class="btn primary"><span class="spinner"></span>加载中</button>
+            </div>
+            <div class="divider"></div>
+            <div class="state-label">尺寸</div>
+            <div class="row">
+              <button class="btn primary lg">Large</button>
+              <button class="btn primary">Medium</button>
+              <button class="btn primary sm">Small</button>
+            </div>
+            <div class="divider"></div>
+            <div class="state-label">状态（强制展示）</div>
+            <div class="states">
+              <div><div class="state-label">rest</div><button class="btn primary">按钮</button></div>
+              <div><div class="state-label">hover</div><button class="btn primary is-hover">按钮</button></div>
+              <div><div class="state-label">active</div><button class="btn primary is-active">按钮</button></div>
+              <div><div class="state-label">focus</div><button class="btn primary is-focus">按钮</button></div>
+              <div><div class="state-label">disabled</div><button class="btn primary is-disabled">按钮</button></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== ICON BUTTONS ===================== -->
+        <section class="block" id="iconbuttons">
+          <h2>图标按钮 / FAB</h2>
+          <div class="panel stack">
+            <div class="row">
+              <button class="iconbtn"><svg class="icon"><use href="#i-camera" /></svg></button>
+              <button class="iconbtn"><svg class="icon"><use href="#i-grid" /></svg></button>
+              <button class="iconbtn active"><svg class="icon"><use href="#i-eye" /></svg></button>
+              <button class="iconbtn round"><svg class="icon"><use href="#i-axis" /></svg></button>
+              <button class="iconbtn"><svg class="icon"><use href="#i-dots" /></svg></button>
+              <span style="width: 16px"></span>
+              <span class="state-label" style="margin: 0">视口悬浮 FAB →</span>
+              <button class="iconbtn fab"><svg class="icon" style="font-size: 20px"><use href="#i-sliders" /></svg></button>
+              <button class="iconbtn fab active"><svg class="icon" style="font-size: 20px"><use href="#i-sliders" /></svg></button>
+            </div>
+            <div class="note">FAB 为玻璃拟态（毛玻璃底 + 投影 <span class="tag-impl">≈ImGui</span>），激活态切到渐变主色。</div>
+          </div>
+        </section>
+
+        <!-- ===================== INPUTS ===================== -->
+        <section class="block" id="inputs">
+          <h2>输入框 / 选择</h2>
+          <p class="desc">聚焦 = 主色描边 + 焦点环 + 底色微亮；支持前置图标、占位符、错误态、下拉。</p>
+          <div class="panel">
+            <div class="row" style="align-items: flex-start; gap: var(--s-6)">
+              <div class="field" style="width: 220px">
+                <label>数组名称</label>
+                <div class="input"><svg class="icon"><use href="#i-search" /></svg><input placeholder="搜索数组…" /></div>
+                <div class="hint">point data / cell data</div>
+              </div>
+              <div class="field" style="width: 220px">
+                <label>聚焦态</label>
+                <div class="input is-focus"><input value="Temperature" /></div>
+                <div class="hint">focus 焦点环</div>
+              </div>
+              <div class="field" style="width: 220px">
+                <label>错误态</label>
+                <div class="input error"><input value="-1" /></div>
+                <div class="hint err">值需为正数</div>
+              </div>
+              <div class="field" style="width: 220px">
+                <label>下拉选择 / 色谱</label>
+                <div class="dropdown" data-dropdown>
+                  <button class="input select-trigger">
+                    <span class="val">Viridis</span>
+                    <svg class="icon chev"><use href="#i-chevron" /></svg>
+                  </button>
+                  <div class="menu">
+                    <button class="menu-item is-selected">Viridis<svg class="icon check-spot"><use href="#i-check" /></svg></button>
+                    <button class="menu-item">Plasma<svg class="icon check-spot"><use href="#i-check" /></svg></button>
+                    <button class="menu-item">Inferno<svg class="icon check-spot"><use href="#i-check" /></svg></button>
+                    <button class="menu-item">Cool to Warm<svg class="icon check-spot"><use href="#i-check" /></svg></button>
+                    <button class="menu-item">Grayscale<svg class="icon check-spot"><use href="#i-check" /></svg></button>
+                  </div>
+                </div>
+                <div class="hint">点击展开 · chevron 旋转</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== TOGGLES ===================== -->
+        <section class="block" id="toggles">
+          <h2>开关 / 复选 / 单选 / 分段</h2>
+          <div class="panel stack">
+            <div class="row" style="gap: var(--s-6)">
+              <label class="switchrow"><span class="toggle on" data-toggle></span> 显示网格</label>
+              <label class="switchrow"><span class="toggle" data-toggle></span> 坐标轴</label>
+              <label class="switchrow"><span class="check on" data-check><svg class="icon"><use href="#i-check" /></svg></span> 显示边线</label>
+              <label class="switchrow"><span class="check" data-check><svg class="icon"><use href="#i-check" /></svg></span> 反转不透明度</label>
+              <label class="switchrow"><span class="radio on" data-radio></span> 点</label>
+              <label class="switchrow"><span class="radio" data-radio></span> 单元</label>
+            </div>
+            <div class="divider"></div>
+            <div class="state-label">分段选择 (Segmented)</div>
+            <div class="segmented" data-segmented>
+              <button class="on">表面</button><button>带边线</button><button>线框</button><button>点</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== SLIDERS ===================== -->
+        <section class="block" id="sliders">
+          <h2>滑块</h2>
+          <p class="desc">轨道 + 主色填充 + 圆形滑块，hover/拖动时滑块外发光。</p>
+          <div class="panel stack" style="max-width: 420px">
+            <div class="proprow"><span class="k">金属度</span><span class="v"><span class="slider" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 35%"></span><span class="thumb" style="left: 35%"></span></span></span><span style="width: 42px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--text-muted)">0.35</span></span></div>
+            <div class="proprow"><span class="k">粗糙度</span><span class="v"><span class="slider" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 70%"></span><span class="thumb" style="left: 70%"></span></span></span><span style="width: 42px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--text-muted)">0.70</span></span></div>
+            <div class="proprow"><span class="k">光强</span><span class="v"><span class="slider is-hover" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 50%"></span><span class="thumb" style="left: 50%"></span></span></span><span style="width: 42px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--text-muted)">1.00</span></span></div>
+          </div>
+        </section>
+
+        <!-- ===================== CARDS ===================== -->
+        <section class="block" id="cards">
+          <h2>卡片</h2>
+          <p class="desc">普通 / 可悬停（悬停抬升+加深投影 <span class="tag-impl">≈ImGui</span>）/ 选中（主色描边）。</p>
+          <div class="panel">
+            <div class="cards">
+              <div class="card"><div class="card-head"><svg class="icon"><use href="#i-cube" /></svg><h3>几何信息</h3></div><p>12,480 点 · 6,240 面</p></div>
+              <div class="card hover-demo"><div class="card-head"><svg class="icon"><use href="#i-camera" /></svg><h3>相机</h3></div><p>悬停我 — 抬升 + 投影</p></div>
+              <div class="card selected"><div class="card-head"><svg class="icon"><use href="#i-grid" /></svg><h3>已选中</h3></div><p>主色描边表示选中</p></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== MISC ===================== -->
+        <section class="block" id="misc">
+          <h2>徽章 / 标签页 / 提示</h2>
+          <div class="panel stack">
+            <div class="row">
+              <span class="badge accent"><span class="dot"></span>glTF</span>
+              <span class="badge success"><span class="dot"></span>已加载</span>
+              <span class="badge warn"><span class="dot"></span>近似</span>
+              <span class="badge danger"><span class="dot"></span>失败</span>
+              <span class="badge">point data</span>
+            </div>
+            <div class="divider"></div>
+            <div class="tabs" data-tabs>
+              <button class="on">数据</button><button>着色</button><button>渲染</button><button>材质</button>
+            </div>
+            <div class="divider"></div>
+            <div class="row">
+              <span class="tip"><button class="btn ghost">悬停看提示</button><span class="bubble">Tooltip · 延迟淡入</span></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== INSPECTOR EXAMPLE ===================== -->
+        <section class="block" id="inspector">
+          <h2>范例：检视器面板</h2>
+          <p class="desc">把以上组件按"分区标题 + 属性行（左标签右控件）"组织，就是专业检视器的骨架。下面是它叠在视口上的样子。</p>
+          <div class="viewport-demo">
+            <div style="position: absolute; top: 12px; right: 12px">
+              <button class="iconbtn fab active"><svg class="icon" style="font-size: 20px"><use href="#i-sliders" /></svg></button>
+            </div>
+            <div class="inspector" style="position: absolute; top: 0; right: 0; height: 100%; border-radius: 0; border-top: none; border-right: none; border-bottom: none; width: 300px; overflow: auto; backdrop-filter: blur(8px); background: color-mix(in srgb, var(--surface-1) 88%, transparent)">
+              <div class="row" style="justify-content: space-between"><strong>检视器</strong><button class="iconbtn" style="width: 26px; height: 26px"><svg class="icon" style="font-size: 15px"><use href="#i-close" /></svg></button></div>
+              <div class="sectiontitle">着色</div>
+              <div class="proprow"><span class="k">按数组</span><span class="v">
+                <div class="dropdown" data-dropdown style="flex: 1">
+                  <button class="input select-trigger"><span class="val">Temperature</span><svg class="icon chev"><use href="#i-chevron" /></svg></button>
+                  <div class="menu">
+                    <button class="menu-item is-selected">Temperature<svg class="icon check-spot"><use href="#i-check" /></svg></button>
+                    <button class="menu-item">Pressure<svg class="icon check-spot"><use href="#i-check" /></svg></button>
+                    <button class="menu-item">Velocity<svg class="icon check-spot"><use href="#i-check" /></svg></button>
+                  </div>
+                </div></span></div>
+              <div class="proprow"><span class="k">分量</span><span class="v"><div class="segmented" data-segmented><button class="on">模长</button><button>X</button><button>Y</button></div></span></div>
+              <div class="proprow"><span class="k">色标</span><span class="v"><label class="switchrow"><span class="toggle on" data-toggle></span></label></span></div>
+              <div class="sectiontitle">材质</div>
+              <div class="proprow"><span class="k">金属度</span><span class="v"><span class="slider" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 30%"></span><span class="thumb" style="left: 30%"></span></span></span></span></div>
+              <div class="proprow"><span class="k">粗糙度</span><span class="v"><span class="slider" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 60%"></span><span class="thumb" style="left: 60%"></span></span></span></span></div>
+              <div class="divider"></div>
+              <button class="btn ghost" style="width: 100%">收起</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      // Dev aid: ?shot=<sectionId> scrolls that section into view on load (used for screenshots;
+      // also ?theme=light forces the light theme). Harmless for normal viewing.
+      (() => {
+        const q = new URLSearchParams(location.search);
+        if (q.get("theme") === "light") document.documentElement.setAttribute("data-theme", "light");
+        const id = q.get("shot");
+        if (id) {
+          // Headless screenshots ignore scroll position, so physically translate the content up to
+          // bring the target section near the top of the (unscrolled) capture.
+          requestAnimationFrame(() => {
+            const el = document.getElementById(id);
+            const layout = document.querySelector(".layout");
+            if (el && layout) {
+              const top = el.getBoundingClientRect().top + window.pageYOffset;
+              layout.style.transform = "translateY(" + (-top + 72) + "px)";
+            }
+          });
+        }
+      })();
+
+      // Theme toggle
+      const root = document.documentElement;
+      const themeBtn = document.getElementById("themeBtn");
+      const themeLbl = document.getElementById("themeLbl");
+      themeBtn.addEventListener("click", () => {
+        const dark = root.getAttribute("data-theme") !== "light";
+        root.setAttribute("data-theme", dark ? "light" : "dark");
+        themeLbl.textContent = dark ? "深色" : "浅色";
+      });
+
+      // Interactive widgets (so hover/press/focus feel real)
+      document.querySelectorAll("[data-toggle],[data-check],[data-radio]").forEach((el) => {
+        el.tabIndex = 0;
+        el.addEventListener("click", () => {
+          if (el.hasAttribute("data-radio")) {
+            el.parentElement.parentElement
+              .querySelectorAll("[data-radio]")
+              .forEach((r) => r.classList.remove("on"));
+            el.classList.add("on");
+          } else {
+            el.classList.toggle("on");
+          }
+        });
+      });
+      // Segmented control with a sliding indicator
+      document.querySelectorAll("[data-segmented]").forEach((grp) => {
+        const ind = document.createElement("span");
+        ind.className = "seg-ind";
+        grp.prepend(ind);
+        const move = () => {
+          const on = grp.querySelector("button.on");
+          if (on) {
+            ind.style.left = on.offsetLeft + "px";
+            ind.style.width = on.offsetWidth + "px";
+          }
+        };
+        grp.querySelectorAll("button").forEach((b) =>
+          b.addEventListener("click", () => {
+            grp.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+            b.classList.add("on");
+            move();
+          }),
+        );
+        requestAnimationFrame(move);
+      });
+
+      // Tabs with a sliding underline
+      document.querySelectorAll("[data-tabs]").forEach((grp) => {
+        const ind = document.createElement("span");
+        ind.className = "tab-ind";
+        grp.appendChild(ind);
+        const move = () => {
+          const on = grp.querySelector("button.on");
+          if (on) {
+            ind.style.left = on.offsetLeft + "px";
+            ind.style.width = on.offsetWidth + "px";
+          }
+        };
+        grp.querySelectorAll("button").forEach((b) =>
+          b.addEventListener("click", () => {
+            grp.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+            b.classList.add("on");
+            move();
+          }),
+        );
+        requestAnimationFrame(move);
+      });
+
+      // Dropdown / select
+      document.querySelectorAll("[data-dropdown]").forEach((dd) => {
+        const trigger = dd.querySelector(".select-trigger");
+        const val = dd.querySelector(".val");
+        trigger.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const open = dd.classList.contains("open");
+          document
+            .querySelectorAll("[data-dropdown].open")
+            .forEach((o) => o.classList.remove("open"));
+          dd.classList.toggle("open", !open);
+        });
+        dd.querySelectorAll(".menu-item").forEach((item) => {
+          item.addEventListener("click", (e) => {
+            e.stopPropagation();
+            dd.querySelectorAll(".menu-item").forEach((m) => m.classList.remove("is-selected"));
+            item.classList.add("is-selected");
+            if (val) val.textContent = item.firstChild.textContent.trim();
+            dd.classList.remove("open");
+          });
+        });
+      });
+      document.addEventListener("click", () => {
+        document.querySelectorAll("[data-dropdown].open").forEach((o) => o.classList.remove("open"));
+      });
+      // Draggable sliders
+      document.querySelectorAll("[data-slider]").forEach((sl) => {
+        const track = sl.querySelector(".track");
+        const fill = sl.querySelector(".fill");
+        const thumb = sl.querySelector(".thumb");
+        let dragging = false;
+        const set = (clientX) => {
+          const r = track.getBoundingClientRect();
+          let t = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+          fill.style.width = t * 100 + "%";
+          thumb.style.left = t * 100 + "%";
+        };
+        sl.addEventListener("pointerdown", (e) => {
+          dragging = true;
+          sl.setPointerCapture(e.pointerId);
+          set(e.clientX);
+        });
+        sl.addEventListener("pointermove", (e) => dragging && set(e.clientX));
+        sl.addEventListener("pointerup", () => (dragging = false));
+      });
+    </script>
+  </body>
+</html>
