@@ -193,23 +193,52 @@ vtkStandardNewMacro(vtkF3DRenderDataAssemblyVisitor);
 struct vtkF3DImguiActor::Internals
 {
 
+  // Honor one of ImGui's dynamic-font texture requests against a vtkTextureObject. Glyph atlases are
+  // created/grown/destroyed on demand (ImGuiBackendFlags_RendererHasTextures), so any character the
+  // user types is rasterized when first needed — no pre-built glyph range, no '?' for CJK input.
+  void UpdateTexture(vtkOpenGLRenderWindow* renWin, ImTextureData* tex)
+  {
+    if (tex->Status == ImTextureStatus_WantCreate)
+    {
+      vtkSmartPointer<vtkTextureObject> t = vtkSmartPointer<vtkTextureObject>::New();
+      t->SetContext(renWin);
+      t->Create2DFromRaw(tex->Width, tex->Height, tex->BytesPerPixel, VTK_UNSIGNED_CHAR,
+        tex->GetPixels());
+      t->SetMinificationFilter(vtkTextureObject::Linear);
+      t->SetMagnificationFilter(vtkTextureObject::Linear);
+      tex->SetTexID((ImTextureID)t.Get());
+      tex->SetStatus(ImTextureStatus_OK);
+      this->BackendTextures[tex] = t;
+    }
+    else if (tex->Status == ImTextureStatus_WantUpdates)
+    {
+      auto it = this->BackendTextures.find(tex);
+      if (it != this->BackendTextures.end())
+      {
+        // Re-upload the whole atlas: vtkTextureObject has no simple sub-image update and glyph
+        // additions are infrequent. The vtkTextureObject pointer (== ImTextureID) is preserved.
+        it->second->Create2DFromRaw(
+          tex->Width, tex->Height, tex->BytesPerPixel, VTK_UNSIGNED_CHAR, tex->GetPixels());
+        tex->SetStatus(ImTextureStatus_OK);
+      }
+    }
+    else if (tex->Status == ImTextureStatus_WantDestroy && tex->UnusedFrames > 0)
+    {
+      auto it = this->BackendTextures.find(tex);
+      if (it != this->BackendTextures.end())
+      {
+        it->second->ReleaseGraphicsResources(renWin);
+        this->BackendTextures.erase(it);
+      }
+      tex->SetTexID(ImTextureID_Invalid);
+      tex->SetStatus(ImTextureStatus_Destroyed);
+    }
+  }
+
   void Initialize(vtkOpenGLRenderWindow* renWin)
   {
-    if (this->FontTexture == nullptr)
+    if (this->Program == nullptr)
     {
-      // Build texture atlas
-      ImGuiIO& io = ImGui::GetIO();
-      unsigned char* pixels;
-      int width, height;
-      io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-
-      this->FontTexture = vtkSmartPointer<vtkTextureObject>::New();
-      this->FontTexture->SetContext(renWin);
-      this->FontTexture->Create2DFromRaw(width, height, 4, VTK_UNSIGNED_CHAR, pixels);
-
-      // Store our identifier
-      io.Fonts->SetTexID((ImTextureID)this->FontTexture.Get());
-
       // Create VBO
       this->VertexBuffer = vtkSmartPointer<vtkOpenGLBufferObject>::New();
 
@@ -299,12 +328,11 @@ struct vtkF3DImguiActor::Internals
     {
       ImGuiIO& io = ImGui::GetIO();
 
-      if (this->FontTexture)
+      for (auto& kv : this->BackendTextures)
       {
-        io.Fonts->SetTexID(0);
-        this->FontTexture->ReleaseGraphicsResources(renWin);
-        this->FontTexture = nullptr;
+        kv.second->ReleaseGraphicsResources(renWin);
       }
+      this->BackendTextures.clear();
       if (this->LogoTexture)
       {
         this->LogoTexture->ReleaseGraphicsResources(renWin);
@@ -340,6 +368,18 @@ struct vtkF3DImguiActor::Internals
 
   void RenderDrawData(vtkOpenGLRenderWindow* renWin, ImDrawData* drawData)
   {
+    // Service ImGui's dynamic texture create/update/destroy requests before drawing with them.
+    if (drawData->Textures != nullptr)
+    {
+      for (ImTextureData* tex : *drawData->Textures)
+      {
+        if (tex->Status != ImTextureStatus_OK)
+        {
+          this->UpdateTexture(renWin, tex);
+        }
+      }
+    }
+
     vtkOpenGLState* state = renWin->GetState();
 
     vtkOpenGLState::ScopedglScissor save_scissorbox(state);
@@ -392,6 +432,10 @@ struct vtkF3DImguiActor::Internals
 
         // Activate texture and set uniforms per draw command:
         vtkTextureObject* texObj = reinterpret_cast<vtkTextureObject*>(cmd->GetTexID());
+        if (texObj == nullptr)
+        {
+          continue; // texture not created yet (dynamic atlas) — skip this command
+        }
         texObj->Activate();
         this->Program->SetUniform2f("Scale", scale);
         this->Program->SetUniform2f("Shift", shift);
@@ -421,7 +465,10 @@ struct vtkF3DImguiActor::Internals
     this->VertexBuffer->Release();
     this->IndexBuffer->Release();
 
-    this->FontTexture->Deactivate();
+    for (auto& kv : this->BackendTextures)
+    {
+      kv.second->Deactivate();
+    }
     this->LogoTexture->Deactivate();
     if (this->LoadingLogoTexture)
     {
@@ -429,7 +476,7 @@ struct vtkF3DImguiActor::Internals
     }
   }
 
-  vtkSmartPointer<vtkTextureObject> FontTexture;
+  std::map<ImTextureData*, vtkSmartPointer<vtkTextureObject>> BackendTextures;
   vtkSmartPointer<vtkOpenGLVertexArrayObject> VertexArray;
   vtkSmartPointer<vtkOpenGLBufferObject> VertexBuffer;
   vtkSmartPointer<vtkOpenGLBufferObject> IndexBuffer;
@@ -511,16 +558,19 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   io.IniFilename = nullptr;
   io.LogFilename = nullptr;
 
+  // Dear ImGui 1.92 dynamic fonts: the backend creates/updates/destroys texture atlases on demand
+  // (see Internals::UpdateTexture), so any glyph the user types is rasterized when first used. This
+  // is what lets arbitrary CJK input render instead of '?' for glyphs outside a pre-built range.
+  io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+
   // Position the OS IME candidate window at the focused field's caret (see G3DImeSetData).
   ImGui::GetPlatformIO().Platform_SetImeDataFn = &G3DImeSetData;
 
   ImFontConfig fontConfig;
 
-  ImVector<ImWchar> ranges;
-  ImFontGlyphRangesBuilder builder;
-  builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
-  builder.AddChar(0x2264); // Less-Than or Equal To
-  builder.BuildRanges(&ranges);
+  // No explicit glyph ranges: with ImGuiBackendFlags_RendererHasTextures every glyph (Latin, the ≤
+  // sign, and any CJK character the user types) is rasterized on demand from whichever merged font
+  // covers it. A fixed range would only preload a subset — which is exactly what produced '?' before.
 
   // When a CJK language is active, merge a CJK-capable font on top of the base font
   // so Chinese/Japanese/Korean renders instead of missing-glyph boxes. The base font
@@ -529,17 +579,6 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   const bool mergeCJKFont = G3DLocaleCore::GetInstance().NeedsCJK() && !cjkFontPath.empty() &&
     std::filesystem::exists(cjkFontPath);
 
-  // Glyph range = the generic common CJK set (for incidental user text) plus every
-  // character actually used in the active catalog (so even uncommon translated
-  // characters that the "common" range omits are guaranteed covered).
-  ImVector<ImWchar> cjkRanges;
-  if (mergeCJKFont)
-  {
-    ImFontGlyphRangesBuilder cjkBuilder;
-    cjkBuilder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
-    cjkBuilder.AddText(G3DLocaleCore::GetInstance().GetActiveCatalogText().c_str());
-    cjkBuilder.BuildRanges(&cjkRanges);
-  }
   auto mergeCJK = [&](float size)
   {
     if (!mergeCJKFont)
@@ -555,7 +594,7 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
     // is ~1.04 (0.638/0.611), nudged higher so the denser ideographs read on par with the Latin
     // text. The merged glyphs share the base font's baseline.
     constexpr float cjkSizeScale = 1.2f;
-    io.Fonts->AddFontFromFileTTF(cjkFontPath.c_str(), size * cjkSizeScale, &cjkConfig, cjkRanges.Data);
+    io.Fonts->AddFontFromFileTTF(cjkFontPath.c_str(), size * cjkSizeScale, &cjkConfig, nullptr);
   };
 
   ImFont* font = nullptr;
@@ -565,26 +604,27 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
     fontConfig.FontDataOwnedByAtlas = false;
     font = io.Fonts->AddFontFromMemoryTTF(
       const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer),
-      18 * this->FontScale, &fontConfig, ranges.Data);
+      18 * this->FontScale, &fontConfig, nullptr);
     mergeCJK(18 * this->FontScale);
     ImFont* notiFont = io.Fonts->AddFontFromMemoryTTF(
       const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer),
-      18 * this->FontScale * .8f, &fontConfig, ranges.Data);
+      18 * this->FontScale * .8f, &fontConfig, nullptr);
     mergeCJK(18 * this->FontScale * .8f);
     Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
   else
   {
     font = io.Fonts->AddFontFromFileTTF(
-      this->FontFile.c_str(), 18 * this->FontScale, &fontConfig, ranges.Data);
+      this->FontFile.c_str(), 18 * this->FontScale, &fontConfig, nullptr);
     mergeCJK(18 * this->FontScale);
     ImFont* notiFont = io.Fonts->AddFontFromFileTTF(
-      this->FontFile.c_str(), 18 * this->FontScale * .8f, &fontConfig, ranges.Data);
+      this->FontFile.c_str(), 18 * this->FontScale * .8f, &fontConfig, nullptr);
     mergeCJK(18 * this->FontScale * .8f);
     Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
 
-  io.Fonts->Build();
+  // No io.Fonts->Build() / GetTexDataAsRGBA32(): with ImGuiBackendFlags_RendererHasTextures the atlas
+  // is built lazily and uploaded incrementally by the renderer (Internals::UpdateTexture).
   io.FontDefault = font;
 
   ImVec4 colTransparent = ImVec4(0.0f, 0.0f, 0.0f, 0.0f); // #000000

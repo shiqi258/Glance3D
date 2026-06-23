@@ -2,15 +2,12 @@
 
 #ifdef _WIN32
 
-#include "F3DLog.h"
-
 #include <windows.h>
 
 #include <imm.h>
 
 #include <imgui.h>
 
-#include <cstdio>
 #include <string>
 
 namespace
@@ -60,19 +57,6 @@ void FeedResultString(HWND hwnd)
     std::wstring w(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
     ::ImmGetCompositionStringW(himc, GCS_RESULTSTR, w.data(), static_cast<DWORD>(bytes));
     ImGuiIO& io = ImGui::GetIO();
-
-    // TEMP diagnostic (IME "?" investigation): log the committed codepoints so we can tell whether a
-    // '?' is a wrong codepoint (delivery bug) or a correct codepoint missing from the CJK font range
-    // (coverage). Goes to the file log at DEBUG. Remove once the '?' cause is confirmed.
-    std::string dbg;
-    for (wchar_t c : w)
-    {
-      char hex[8];
-      std::snprintf(hex, sizeof(hex), "U+%04X ", static_cast<unsigned>(static_cast<ImWchar16>(c)));
-      dbg += hex;
-    }
-    F3DLog::Print(F3DLog::Severity::Debug, "IME commit codepoints: " + dbg);
-
     for (wchar_t c : w)
     {
       io.AddInputCharacterUTF16(static_cast<ImWchar16>(c)); // handles surrogate pairs
