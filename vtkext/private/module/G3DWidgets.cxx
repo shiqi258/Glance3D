@@ -1,5 +1,6 @@
 #include "G3DWidgets.h"
 
+#include "G3DTextInputContext.h"
 #include "G3DTheme.h"
 
 #include <algorithm>
@@ -625,13 +626,42 @@ bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hi
   ImGui::PushStyleColor(ImGuiCol_FrameBgActive, IM_COL32(0, 0, 0, 0));
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
     ImVec2(G3DTheme::Spacing::Sm * s, std::max(0.f, (h - ImGui::GetFontSize()) * 0.5f)));
+  // Hide the placeholder while a CJK IME is composing into an empty field, otherwise the inline
+  // preedit (drawn below) overlaps the hint text. Only one field composes at a time.
+  const char* preedit = G3DTextInputContext::CurrentPreedit();
+  const bool composing = preedit && preedit[0] != '\0';
+  const char* shownHint = (composing && buf[0] == '\0') ? "" : (hint ? hint : "");
+
   ImGui::SetNextItemWidth(width);
-  const bool changed = ImGui::InputTextWithHint("##in", hint ? hint : "", buf,
+  const bool changed = ImGui::InputTextWithHint("##in", shownHint, buf,
     bufSize > 0 ? static_cast<int>(bufSize) : 0);
   const bool active = ImGui::IsItemActive();
   const bool hovered = ImGui::IsItemHovered();
   ImGui::PopStyleVar();
   ImGui::PopStyleColor(3);
+
+  // Inline IME preedit: while a CJK IME is composing into this focused field, draw the in-progress
+  // text ourselves with an underline (the OS composition box is suppressed in G3DTextInputContext),
+  // so it reads as part of the field instead of a box pasted on top.
+  if (active && composing)
+  {
+    float cx = -1.f;
+    float cy = -1.f;
+    G3DTextInputContext::CurrentCaret(cx, cy);
+    if (cx >= 0.f)
+    {
+      // Use the field's own vertical text position so the preedit lines up with committed text; only
+      // the horizontal caret comes from the IME (it accounts for horizontal scroll).
+      const float fontH = ImGui::GetFontSize();
+      const float textY = p0.y + std::max(0.f, (h - fontH) * 0.5f);
+      const float underY = textY + fontH + 2.f * s;
+      const ImVec2 ts = ImGui::CalcTextSize(preedit);
+      dl->PushClipRect(p0, ImVec2(p0.x + width, p0.y + h), true);
+      dl->AddText(ImVec2(cx, textY), U32(G3DTheme::Text()), preedit);
+      dl->AddLine(ImVec2(cx, underY), ImVec2(cx + ts.x, underY), U32(G3DTheme::Accent()), 1.5f * s);
+      dl->PopClipRect();
+    }
+  }
 
   const int f = ImGui::GetFrameCount();
   if (w.lastFrame != f)

@@ -78,10 +78,20 @@ export function initG3DControlPanel(engine) {
   // Hotkey: backtick toggles the panel. Capture phase + stop propagation so the key never reaches
   // the canvas / wasm VTK interactor (which also binds `grave` -> `toggle ui.control_panel`).
   // Without this the shared option would be flipped twice per press (here + in wasm), cancelling out.
+  // Same focus-scoped contract as the desktop IME handling: a shortcut must not fire while a text
+  // field is focused or an IME is composing, so the key falls through to text input. The browser
+  // scopes the IME per element for free; we only owe this guard. (No text fields exist in the panel
+  // yet, so this is forward-looking — harmless today.)
+  const isEditableTarget = (el) =>
+    el instanceof HTMLElement &&
+    (el.isContentEditable ||
+      el.tagName === "INPUT" ||
+      el.tagName === "TEXTAREA" ||
+      el.tagName === "SELECT");
   window.addEventListener(
     "keydown",
     (evt) => {
-      if (evt.key === "`" && !evt.repeat) {
+      if (evt.key === "`" && !evt.repeat && !evt.isComposing && !isEditableTarget(evt.target)) {
         evt.preventDefault();
         evt.stopImmediatePropagation();
         evt.stopPropagation();

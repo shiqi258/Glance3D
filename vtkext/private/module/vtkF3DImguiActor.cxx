@@ -5,6 +5,7 @@
 #include "F3DStyle.h"
 #include "G3DIcon.h"
 #include "G3DLocaleCore.h"
+#include "G3DTextInputContext.h"
 #include "G3DTheme.h"
 #include "G3DWidgets.h"
 #include "vtkF3DImguiConsole.h"
@@ -483,6 +484,20 @@ vtkF3DImguiActor::vtkF3DImguiActor()
   G3DTheme::Configure(this->FabPress, G3DTheme::Motions::Press);
 }
 
+namespace
+{
+// ImGui calls this during EndFrame whenever the IME data changes: it carries whether a text widget
+// wants input and where its caret is. Forward it to the platform IME so the candidate window tracks
+// the caret instead of sitting in a screen corner. The HWND rides on the viewport's
+// PlatformHandleRaw, which StartFrame keeps in sync.
+void G3DImeSetData(ImGuiContext*, ImGuiViewport* viewport, ImGuiPlatformImeData* data)
+{
+  const float caretX = data->WantVisible ? data->InputPos.x : -1.f;
+  const float caretY = data->WantVisible ? data->InputPos.y : -1.f;
+  G3DTextInputContext::Update(viewport->PlatformHandleRaw, data->WantTextInput, caretX, caretY);
+}
+}
+
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
 {
@@ -495,6 +510,9 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   ImGuiIO& io = ImGui::GetIO();
   io.IniFilename = nullptr;
   io.LogFilename = nullptr;
+
+  // Position the OS IME candidate window at the focused field's caret (see G3DImeSetData).
+  ImGui::GetPlatformIO().Platform_SetImeDataFn = &G3DImeSetData;
 
   ImFontConfig fontConfig;
 
@@ -1550,6 +1568,10 @@ void vtkF3DImguiActor::StartFrame(vtkOpenGLRenderWindow* renWin)
   ImGuiIO& io = ImGui::GetIO();
   io.DisplaySize = ImVec2(static_cast<float>(size[0]), static_cast<float>(size[1]));
 
+  // Hand the native window handle to ImGui so the IME callback (G3DImeSetData) can place the
+  // candidate window; the value is the HWND on Win32, null elsewhere.
+  ImGui::GetMainViewport()->PlatformHandleRaw = renWin->GetGenericWindowId();
+
   this->Pimpl->Initialize(renWin);
 
   ImGui::NewFrame();
@@ -1560,6 +1582,11 @@ void vtkF3DImguiActor::EndFrame(vtkOpenGLRenderWindow* renWin)
 {
   ImGui::Render();
   this->Pimpl->RenderDrawData(renWin, ImGui::GetDrawData());
+
+  // Focus-scoped IME: keep the OS input method off while no text field is focused (so bare-key
+  // shortcuts reach the app raw under any input method) and turn it on only while ImGui wants text
+  // input (so a focused field can compose CJK). io.WantTextInput now reflects this finished frame.
+  G3DTextInputContext::Update(renWin->GetGenericWindowId(), ImGui::GetIO().WantTextInput);
 }
 
 //----------------------------------------------------------------------------

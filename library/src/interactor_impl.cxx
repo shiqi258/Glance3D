@@ -47,13 +47,6 @@
 
 #include "camera.h"
 
-#ifdef _WIN32
-// Declared by hand to avoid pulling <windows.h> into this translation unit: its ERROR / min / max
-// macros clash with code here (log::VerboseLevel::ERROR, std::min/std::max). GetAsyncKeyState lives
-// in user32, which is already linked. Used to keep the backtick hotkey alive under a CJK IME.
-extern "C" __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
-#endif
-
 namespace fs = std::filesystem;
 
 namespace f3d::detail
@@ -341,17 +334,6 @@ public:
       // Make sure key symbols starts with an upper char (e.g. "space" -> "Space")
       interaction[0] = std::toupper(interaction[0]);
     }
-
-#ifdef _WIN32
-    // Keep the backtick/grave hotkey working under a CJK IME. VTK derives the keysym via ToAscii(),
-    // which an active Chinese IME disrupts: the bare backtick then arrives untranslated as keysym
-    // "None" instead of "grave", silently breaking the ui.control_panel binding. When VTK could not
-    // translate the key but the physical backtick (VK_OEM_3 = 0xC0) is down, treat it as Grave.
-    if ((interaction == "None" || interaction.empty()) && (::GetAsyncKeyState(0xC0) & 0x8000) != 0)
-    {
-      interaction = "Grave";
-    }
-#endif
 
     self->TriggerBinding(interaction, "");
   }

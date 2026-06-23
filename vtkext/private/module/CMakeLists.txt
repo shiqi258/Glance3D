@@ -117,7 +117,7 @@ set(classes
   )
 
 if (F3D_MODULE_UI)
-  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DWidgets)
+  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DWidgets G3DTextInputContext)
 endif ()
 
 if(WIN32)
@@ -189,6 +189,10 @@ if (F3D_MODULE_UI)
       PRIVATE
         "${F3D_SOURCE_DIR}/external/imgui")
   endif ()
+  # G3DTextInputContext drives the Win32 IME (Imm* API) so shortcuts work under any input method.
+  if(WIN32)
+    vtk_module_link(f3d::vtkextPrivate PRIVATE imm32)
+  endif()
 endif ()
 
 # nlohmann_json (used by G3DLocale to parse i18n catalogs)

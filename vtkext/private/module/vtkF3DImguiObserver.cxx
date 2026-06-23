@@ -1,5 +1,6 @@
 #include "vtkF3DImguiObserver.h"
 
+#include "G3DTextInputContext.h"
 #include "vtkF3DRenderPass.h"
 #include "vtkF3DRenderer.h"
 
@@ -303,7 +304,16 @@ bool vtkF3DImguiObserver::Char(vtkObject* caller, unsigned long, void*)
   {
     vtkRenderWindowInteractor* that = static_cast<vtkRenderWindowInteractor*>(caller);
     ImGuiIO& io = ImGui::GetIO();
-    io.AddInputCharacter(that->GetKeyCode());
+
+    // VTK runs an ANSI Win32 window, so each CharEvent carries one system-codepage byte; a CJK glyph
+    // arrives as a DBCS lead+trail pair across two events. Reassemble it into a Unicode codepoint
+    // before handing it to ImGui, otherwise the raw byte renders as '?'. (Pass-through elsewhere.)
+    const unsigned int codepoint = G3DTextInputContext::DecodeCharByte(
+      static_cast<unsigned char>(that->GetKeyCode()));
+    if (codepoint != 0)
+    {
+      io.AddInputCharacter(codepoint);
+    }
     this->RenderUI(that);
     return io.WantCaptureKeyboard;
   }
