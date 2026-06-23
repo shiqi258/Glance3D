@@ -37,12 +37,6 @@ export function initG3DControlPanel(engine) {
   } catch {
     useSharedOption = false;
   }
-  if (!useSharedOption) {
-    console.warn(
-      `[g3d] '${PANEL_OPTION}' is absent from this wasm build; the control panel uses DOM-only ` +
-        `state. Rebuild the wasm (npm run build) to share state with the core.`,
-    );
-  }
 
   let domOpen = false; // used only when the shared option is unavailable
 
