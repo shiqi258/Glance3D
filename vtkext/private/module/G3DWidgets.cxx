@@ -130,7 +130,9 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
   const bool clicked = ImGui::InvisibleButton("##b", size);
   const bool hovered = ImGui::IsItemHovered();
   const bool held = ImGui::IsItemActive();
-  const bool focused = ImGui::IsItemFocused();
+  // Styleguide uses :focus-visible — the focus ring shows only for keyboard/gamepad nav, never
+  // after a mouse click. io.NavVisible mirrors that (false on click, true on Tab/arrow nav).
+  const bool focused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
   const WidgetAnim& a = Interact(ImGui::GetID("##b"), hovered, held);
   if (hovered)
   {
@@ -174,8 +176,10 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
       break;
     case G3DWidgets::ButtonVariant::Default:
     default:
-      rest = G3DTheme::Surface();
-      hov = G3DTheme::SurfaceHover();
+      // Styleguide .btn: rest = surface-3, hover/active = surface-4 — one step above the card it
+      // sits on so it reads as raised. Press is conveyed by the scale, not a darker fill.
+      rest = G3DTheme::SurfaceHover();
+      hov = G3DTheme::SurfacePress();
       prs = G3DTheme::SurfacePress();
       fg = G3DTheme::Text();
       break;
@@ -198,13 +202,20 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
   }
   if (!borderless)
   {
-    dl->AddRect(r0, r1, U32(G3DTheme::Border()), radius, 0, G3DTheme::Size::Border * s);
+    // Styleguide .btn border: hairline at rest, strengthen on hover, accent on keyboard focus.
+    ImVec4 bc = LerpColor(G3DTheme::Border(), G3DTheme::BorderStrong(), a.hover.Value());
+    if (focused)
+    {
+      bc = G3DTheme::Accent();
+    }
+    dl->AddRect(r0, r1, U32(bc), radius, 0, G3DTheme::Size::Border * s);
   }
   if (focused)
   {
+    // Keyboard focus ring == styleguide box-shadow 0 0 0 2px accent-ring (accent @ 0.45).
     const float o = 1.5f * s;
     dl->AddRect(ImVec2(r0.x - o, r0.y - o), ImVec2(r1.x + o, r1.y + o),
-      U32(G3DTheme::Accent(), 0.55f), radius + o, 0, 2.f * s);
+      U32(G3DTheme::Accent(), 0.45f), radius + o, 0, 2.f * s);
   }
 
   const ImU32 fgU = U32(fg);
@@ -249,7 +260,8 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   const bool clicked = ImGui::InvisibleButton("##ib", ImVec2(sz, sz));
   const bool hovered = ImGui::IsItemHovered();
   const bool held = ImGui::IsItemActive();
-  const bool focused = ImGui::IsItemFocused();
+  // :focus-visible parity — ring only for keyboard/gamepad nav, never after a mouse click.
+  const bool focused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
   const WidgetAnim& a = Interact(ImGui::GetID("##ib"), hovered, held);
   if (hovered)
   {
@@ -277,9 +289,10 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   }
   if (focused)
   {
+    // Keyboard focus ring == styleguide .iconbtn box-shadow 0 0 0 2px accent-ring.
     const float o = 1.5f * s;
     dl->AddRect(ImVec2(r0.x - o, r0.y - o), ImVec2(r1.x + o, r1.y + o),
-      U32(G3DTheme::Accent(), 0.55f), radius + o, 0, 2.f * s);
+      U32(G3DTheme::Accent(), 0.45f), radius + o, 0, 2.f * s);
   }
   G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(G3DTheme::Text()));
 
