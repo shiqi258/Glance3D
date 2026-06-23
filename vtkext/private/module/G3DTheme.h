@@ -35,18 +35,19 @@ constexpr float Lg = 16.f;
 constexpr float Xl = 24.f;
 }
 
-/// Corner radii (px).
+/// Corner radii (px). Mirrors the styleguide (sm/md/lg).
 namespace Radius
 {
-constexpr float Control = 4.f; ///< buttons, inputs, sliders
-constexpr float Card = 8.f;    ///< cards / panels (matches ImGui WindowRounding)
+constexpr float Small = 6.f;   ///< small controls (checkbox)
+constexpr float Control = 8.f; ///< buttons, inputs, icon buttons, sliders
+constexpr float Card = 12.f;   ///< cards
 constexpr float Pill = 999.f;  ///< fully rounded (toggles, round icon buttons)
 }
 
 /// Nominal control sizes (px at FontScale 1.0).
 namespace Size
 {
-constexpr float Control = 26.f;    ///< standard control height
+constexpr float Control = 30.f;    ///< standard control height (inputs, sliders)
 constexpr float IconButton = 30.f; ///< square icon button
 constexpr float Fab = 40.f;        ///< floating action button
 constexpr float Icon = 18.f;       ///< default icon edge (== base font size)
@@ -65,7 +66,7 @@ namespace Motions
 {
 inline constexpr Motion Micro{ 0.12, G3DEasing::EaseOutCubic };    ///< hover / focus
 inline constexpr Motion Press{ 0.09, G3DEasing::EaseOutCubic };    ///< press feedback
-inline constexpr Motion Standard{ 0.20, G3DEasing::SmoothStep };   ///< open / expand / slide
+inline constexpr Motion Standard{ 0.18, G3DEasing::SmoothStep };   ///< open / expand / slide
 inline constexpr Motion Playful{ 0.22, G3DEasing::EaseOutBack };   ///< optional overshoot
 }
 
@@ -109,8 +110,20 @@ inline ImVec4 Darken(const ImVec4& c, float amount)
 }
 
 //----------------------------------------------------------------------------
-// Semantic color roles (derived from the live style + F3DStyle)
+// Semantic color roles
+//
+// These mirror the approved styleguide (doc/dev/ui-styleguide.html) — a refined, cool-neutral dark
+// palette. Surfaces are explicit constants (not derived from the window background) so components
+// match the design exactly; the accent follows F3DStyle highlight (== brand blue) so it stays
+// consistent with the rest of the app; text follows ui.font_color via ImGuiCol_Text.
 //----------------------------------------------------------------------------
+
+/// Build an opaque-by-default color from a 0xRRGGBB literal.
+inline ImVec4 Hex(int rgb, float a = 1.f)
+{
+  return ImVec4(
+    ((rgb >> 16) & 0xff) / 255.f, ((rgb >> 8) & 0xff) / 255.f, (rgb & 0xff) / 255.f, a);
+}
 
 /// Accent (primary action, focus, selection, slider fill).
 inline ImVec4 Accent()
@@ -124,6 +137,13 @@ inline ImVec4 AccentHover()
 inline ImVec4 AccentPress()
 {
   return Darken(Accent(), 0.12f);
+}
+/// Low-intensity accent fill (soft buttons, selected rows).
+inline ImVec4 AccentSoft()
+{
+  ImVec4 a = Accent();
+  a.w = 0.14f;
+  return a;
 }
 
 /// Primary text color (follows ui.font_color via ImGuiCol_Text).
@@ -144,45 +164,41 @@ inline ImVec4 TextDisabled()
   return t;
 }
 
-/// Raised surface tones, derived by overlaying white onto the window background (elevation model).
-/// Opaque so component fills read consistently over the (possibly translucent) panel.
+/// Elevation surfaces (styleguide surface ramp), opaque so fills read over the panel.
 inline ImVec4 Surface()
 {
-  return Lighten(ImVec4(ImGui::GetStyleColorVec4(ImGuiCol_WindowBg).x,
-                   ImGui::GetStyleColorVec4(ImGuiCol_WindowBg).y,
-                   ImGui::GetStyleColorVec4(ImGuiCol_WindowBg).z, 1.f),
-    0.06f);
+  return Hex(0x181b21);
 }
 inline ImVec4 SurfaceHover()
 {
-  const ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-  return Lighten(ImVec4(bg.x, bg.y, bg.z, 1.f), 0.12f);
+  return Hex(0x20242c);
 }
 inline ImVec4 SurfacePress()
 {
-  const ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-  return Lighten(ImVec4(bg.x, bg.y, bg.z, 1.f), 0.18f);
+  return Hex(0x282d36);
 }
 
-/// Hairline border / divider (subtle text-tinted line).
+/// Hairline border / divider, and a stronger variant for hover/emphasis.
 inline ImVec4 Border()
 {
-  ImVec4 t = Text();
-  t.w *= 0.14f;
-  return t;
+  return ImVec4(1.f, 1.f, 1.f, 0.09f);
+}
+inline ImVec4 BorderStrong()
+{
+  return ImVec4(1.f, 1.f, 1.f, 0.16f);
 }
 
 inline ImVec4 Danger()
 {
-  return F3DStyle::imgui::GetErrorColor();
+  return Hex(0xf56a57);
 }
 inline ImVec4 Warning()
 {
-  return F3DStyle::imgui::GetWarningColor();
+  return Hex(0xf3b13f);
 }
 inline ImVec4 Success()
 {
-  return F3DStyle::imgui::GetCompletionColor();
+  return Hex(0x5fd08a);
 }
 
 } // namespace G3DTheme

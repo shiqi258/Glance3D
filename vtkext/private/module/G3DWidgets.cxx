@@ -137,6 +137,7 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
   }
 
+  bool borderless = false;
   ImVec4 rest, hov, prs, fg;
   switch (variant)
   {
@@ -145,6 +146,16 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
       hov = G3DTheme::AccentHover();
       prs = G3DTheme::AccentPress();
       fg = ImVec4(1.f, 1.f, 1.f, 1.f);
+      borderless = true;
+      break;
+    case G3DWidgets::ButtonVariant::Soft:
+      rest = G3DTheme::AccentSoft();
+      hov = G3DTheme::AccentSoft();
+      hov.w = 0.22f;
+      prs = G3DTheme::AccentSoft();
+      prs.w = 0.28f;
+      fg = G3DTheme::Accent();
+      borderless = true;
       break;
     case G3DWidgets::ButtonVariant::Ghost:
       rest = G3DTheme::Surface();
@@ -152,12 +163,14 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
       hov = G3DTheme::SurfaceHover();
       prs = G3DTheme::SurfacePress();
       fg = G3DTheme::Text();
+      borderless = true;
       break;
     case G3DWidgets::ButtonVariant::Danger:
       rest = G3DTheme::Danger();
       hov = G3DTheme::Lighten(G3DTheme::Danger(), 0.12f);
       prs = G3DTheme::Darken(G3DTheme::Danger(), 0.12f);
       fg = ImVec4(1.f, 1.f, 1.f, 1.f);
+      borderless = true;
       break;
     case G3DWidgets::ButtonVariant::Default:
     default:
@@ -183,9 +196,15 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
   {
     dl->AddRectFilled(r0, r1, U32(bg), radius);
   }
+  if (!borderless)
+  {
+    dl->AddRect(r0, r1, U32(G3DTheme::Border()), radius, 0, G3DTheme::Size::Border * s);
+  }
   if (focused)
   {
-    dl->AddRect(r0, r1, U32(G3DTheme::Accent()), radius, 0, 1.5f * s);
+    const float o = 1.5f * s;
+    dl->AddRect(ImVec2(r0.x - o, r0.y - o), ImVec2(r1.x + o, r1.y + o),
+      U32(G3DTheme::Accent(), 0.55f), radius + o, 0, 2.f * s);
   }
 
   const ImU32 fgU = U32(fg);
@@ -258,7 +277,9 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   }
   if (focused)
   {
-    dl->AddRect(r0, r1, U32(G3DTheme::Accent()), radius, 0, 1.5f * s);
+    const float o = 1.5f * s;
+    dl->AddRect(ImVec2(r0.x - o, r0.y - o), ImVec2(r1.x + o, r1.y + o),
+      U32(G3DTheme::Accent(), 0.55f), radius + o, 0, 2.f * s);
   }
   G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(G3DTheme::Text()));
 
@@ -405,7 +426,7 @@ bool Toggle(const char* label, bool* v)
   const float cy = p0.y + size.y * 0.5f;
   const ImVec2 t0(p0.x, cy - h * 0.5f);
   const ImVec2 t1(p0.x + trackW, cy + h * 0.5f);
-  const ImVec4 track = LerpColor(G3DTheme::SurfaceHover(), G3DTheme::Accent(), w.value.Value());
+  const ImVec4 track = LerpColor(G3DTheme::SurfacePress(), G3DTheme::Accent(), w.value.Value());
   dl->AddRectFilled(t0, t1, U32(track), h * 0.5f);
 
   const float knobR = h * 0.5f - 2.f * s + w.hover.Value() * 1.f * s;
@@ -451,7 +472,7 @@ bool Checkbox(const char* label, bool* v)
   const float cy = p0.y + size.y * 0.5f;
   const ImVec2 b0(p0.x, cy - box * 0.5f);
   const ImVec2 b1(p0.x + box, cy + box * 0.5f);
-  const float rad = G3DTheme::Radius::Control * s;
+  const float rad = G3DTheme::Radius::Small * s;
   const ImVec4 boxBg = LerpColor(G3DTheme::Surface(), G3DTheme::Accent(), w.value.Value());
   dl->AddRectFilled(b0, b1, U32(boxBg), rad);
   const float borderT = std::max(w.value.Value(), w.hover.Value() * 0.7f);
@@ -483,6 +504,16 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
   const float h = G3DTheme::Size::Control * s;
   const float width = ImGui::CalcItemWidth();
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
+
+  // Reserve room on the right for the value readout (styleguide: thin track + value number).
+  char buf[64] = "";
+  if (v)
+  {
+    std::snprintf(buf, sizeof(buf), format, *v);
+  }
+  const float valW = buf[0] ? ImGui::CalcTextSize(buf).x + G3DTheme::Spacing::Md * s : 0.f;
+  const float trackW = std::max(20.f, width - valW);
+
   const bool pressed = ImGui::InvisibleButton("##sl", ImVec2(width, h));
   (void)pressed;
   const bool hovered = ImGui::IsItemHovered();
@@ -491,13 +522,14 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
   bool changed = false;
   if (held && v && vMax > vMin)
   {
-    float t = (ImGui::GetIO().MousePos.x - p0.x) / std::max(1.f, width);
+    float t = (ImGui::GetIO().MousePos.x - p0.x) / std::max(1.f, trackW);
     t = std::clamp(t, 0.f, 1.f);
     const float nv = vMin + (vMax - vMin) * t;
     if (nv != *v)
     {
       *v = nv;
       changed = true;
+      std::snprintf(buf, sizeof(buf), format, *v);
     }
   }
   const WidgetAnim& w = Interact(ImGui::GetID("##sl"), hovered, held);
@@ -508,25 +540,33 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
 
   ImDrawList* dl = ImGui::GetWindowDrawList();
   AAGuard aa(dl);
-  const float radius = G3DTheme::Radius::Control * s;
-  dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + h), U32(G3DTheme::Surface()), radius);
-
+  const float cy = p0.y + h * 0.5f;
+  const float trackH = 5.f * s;
+  const float x0 = p0.x;
+  const float x1 = p0.x + trackW;
+  // track + accent fill
+  dl->AddRectFilled(ImVec2(x0, cy - trackH * 0.5f), ImVec2(x1, cy + trackH * 0.5f),
+    U32(G3DTheme::SurfacePress()), trackH * 0.5f);
   const float tt = (vMax > vMin && v) ? std::clamp((*v - vMin) / (vMax - vMin), 0.f, 1.f) : 0.f;
-  const float gx = G3DLerp(p0.x, p0.x + width, tt);
+  const float gx = G3DLerp(x0, x1, tt);
+  dl->AddRectFilled(ImVec2(x0, cy - trackH * 0.5f), ImVec2(gx, cy + trackH * 0.5f),
+    U32(G3DTheme::Accent()), trackH * 0.5f);
+  // round thumb with hover/active glow ring
   const float glow = std::max(w.hover.Value(), held ? 1.f : 0.f);
-  dl->AddRectFilled(p0, ImVec2(gx, p0.y + h), U32(G3DTheme::Accent(), 0.28f + 0.18f * glow),
-    radius, ImDrawFlags_RoundCornersLeft);
-  // grab handle
-  dl->AddRectFilled(ImVec2(gx - 2.f * s, p0.y + 3.f * s), ImVec2(gx + 2.f * s, p0.y + h - 3.f * s),
-    U32(ImVec4(1.f, 1.f, 1.f, 1.f)), 2.f * s);
-
-  if (v)
+  const float thumbR = 8.f * s;
+  if (glow > 0.01f)
   {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), format, *v);
+    dl->AddCircleFilled(
+      ImVec2(gx, cy), thumbR + 4.f * s * glow, U32(G3DTheme::Accent(), 0.25f * glow), 24);
+  }
+  dl->AddCircleFilled(ImVec2(gx, cy), thumbR, U32(ImVec4(1.f, 1.f, 1.f, 1.f)), 24);
+  dl->AddCircle(ImVec2(gx, cy), thumbR, U32(G3DTheme::BorderStrong()), 24, G3DTheme::Size::Border * s);
+  // value readout, right-aligned
+  if (buf[0])
+  {
     const ImVec2 ts = ImGui::CalcTextSize(buf);
-    dl->AddText(ImVec2(p0.x + (width - ts.x) * 0.5f, p0.y + (h - ts.y) * 0.5f),
-      U32(G3DTheme::Text()), buf);
+    dl->AddText(
+      ImVec2(p0.x + width - ts.x, cy - ts.y * 0.5f), U32(G3DTheme::TextMuted()), buf);
   }
   ImGui::PopID();
   return changed;
@@ -555,13 +595,14 @@ bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hi
     const ImVec4 bg = LerpColor(G3DTheme::Surface(), G3DTheme::SurfaceHover(), std::max(hov, focus));
     dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + h), U32(bg), radius);
     dl->AddRect(p0, ImVec2(p0.x + width, p0.y + h),
-      U32(LerpColor(G3DTheme::Border(), G3DTheme::Accent(), focus)), radius, 0, s);
+      U32(LerpColor(G3DTheme::Border(), G3DTheme::Accent(), std::max(focus, hov * 0.5f))), radius, 0,
+      G3DTheme::Size::Border * s);
+    // focus ring grows just outside the field as it gains focus
     if (focus > 0.01f)
     {
-      const float uw = width * focus;
-      const float ux = p0.x + (width - uw) * 0.5f;
-      dl->AddLine(ImVec2(ux, p0.y + h - s), ImVec2(ux + uw, p0.y + h - s), U32(G3DTheme::Accent()),
-        2.f * s);
+      const float o = 1.5f * s * focus;
+      dl->AddRect(ImVec2(p0.x - o, p0.y - o), ImVec2(p0.x + width + o, p0.y + h + o),
+        U32(G3DTheme::Accent(), 0.5f * focus), radius + o, 0, 2.f * s);
     }
   }
 

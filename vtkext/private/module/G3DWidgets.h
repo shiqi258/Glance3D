@@ -28,6 +28,7 @@ enum class ButtonVariant
 {
   Default, ///< neutral raised surface
   Primary, ///< accent filled (main action)
+  Soft,    ///< low-intensity accent fill + accent text
   Ghost,   ///< transparent until hovered (toolbars)
   Danger,  ///< destructive action
 };

@@ -1398,7 +1398,7 @@ void vtkF3DImguiActor::RenderControlToggle()
     static_cast<int>(mix(this->BackdropColor[1], hl.y) * 255),
     static_cast<int>(mix(this->BackdropColor[2], hl.z) * 255),
     static_cast<int>((mix(0.55, 0.85) + bgBoost) * alpha * 255.f));
-  drawList->AddRectFilled(p0, p1, bg, 9.f);
+  drawList->AddRectFilled(p0, p1, bg, G3DTheme::Radius::Control);
 
   // Sliders glyph through the unified icon path, tinted with the font color.
   const ImU32 fg = IM_COL32(static_cast<int>(this->FontColor[0] * 255),
@@ -1458,6 +1458,8 @@ void vtkF3DImguiActor::RenderControlPanel()
     loc.Translate("Primary").c_str(), G3DIconId::Plus, G3DWidgets::ButtonVariant::Primary);
   ImGui::SameLine();
   G3DWidgets::Button(loc.Translate("Default").c_str());
+  ImGui::SameLine();
+  G3DWidgets::Button(loc.Translate("Soft").c_str(), G3DWidgets::ButtonVariant::Soft);
   ImGui::SameLine();
   G3DWidgets::Button(loc.Translate("Ghost").c_str(), G3DWidgets::ButtonVariant::Ghost);
 
