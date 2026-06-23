@@ -540,7 +540,11 @@ namespace
 void G3DImeSetData(ImGuiContext*, ImGuiViewport* viewport, ImGuiPlatformImeData* data)
 {
   const float caretX = data->WantVisible ? data->InputPos.x : -1.f;
-  const float caretY = data->WantVisible ? data->InputPos.y : -1.f;
+  // Drop the OS candidate popup below the caret (0.75 line-height) so it clears the field with a
+  // little breathing room. We draw the composing text inline ourselves, so this Y only positions the
+  // popup, not the preedit; InputLineHeight scales the offset with the UI font.
+  const float caretY =
+    data->WantVisible ? data->InputPos.y + data->InputLineHeight * 0.75f : -1.f;
   G3DTextInputContext::Update(viewport->PlatformHandleRaw, data->WantTextInput, caretX, caretY);
 }
 }
