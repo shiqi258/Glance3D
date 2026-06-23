@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Glance3D 是一款专注于快速文件预览的 3D 查看器，**由 [F3D](https://f3d.app/) 派生而来**，基于 VTK 渲染。核心能力（格式支持、命令行自动化、配置文件、缩略图、可嵌入渲染 API）来自上游 `f3d`/`libf3d`。
 
+## 注意点
+- 要考虑架构设计，比如网页查看器，也可能会用到；合理分层，合理复用
+- 新加的代码统一使用Glance3D或其简称命名，并且相关的代码若能安全修改，也统一修改为Glance3D或其简称命名
+- 多实际运行查看真实画面效果，保证整体UI美观
+
 
 ## 构建
 
