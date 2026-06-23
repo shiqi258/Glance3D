@@ -328,9 +328,9 @@ protected:
   }
 
   /**
-   * Render the (placeholder) control panel docked to the right edge
+   * Render the docked control panel (top / left / right / bottom bars)
    */
-  virtual void RenderControlPanel()
+  virtual void RenderControlPanel(vtkOpenGLRenderWindow*)
   {
   }
 

@@ -104,9 +104,9 @@ private:
   void RenderControlToggle() override;
 
   /**
-   * Render the (placeholder) control panel docked to the right edge
+   * Render the docked control panel (top / left / right / bottom bars)
    */
-  void RenderControlPanel() override;
+  void RenderControlPanel(vtkOpenGLRenderWindow* renWin) override;
 
   /**
    * Render the console widget
@@ -144,6 +144,14 @@ private:
    * call from both RenderControlPanel and RenderControlToggle regardless of order.
    */
   void AdvanceControlAnim();
+
+  /**
+   * Draw the scene hierarchy tree (importer data assemblies with visibility checkboxes) into the
+   * current ImGui window. Shared by the floating Scene Hierarchy widget and the docked left bar so
+   * there is a single traversal implementation.
+   */
+  void DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin);
+
 
   ///@{
   /**

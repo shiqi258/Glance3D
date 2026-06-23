@@ -304,7 +304,7 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   // The control panel mode toggle (FAB) and its panel. Both are called unconditionally so the
   // presenter can animate the open AND close transitions (it no-ops once fully closed); the panel is
   // submitted first so the FAB draws on top of it.
-  this->RenderControlPanel();
+  this->RenderControlPanel(renWin);
   this->RenderControlToggle();
 
   vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());

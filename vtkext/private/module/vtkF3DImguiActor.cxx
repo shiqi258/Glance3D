@@ -4,6 +4,7 @@
 #include "F3DFontBuffer.h"
 #include "F3DStyle.h"
 #include "G3DIcon.h"
+#include "G3DLayout.h"
 #include "G3DLocaleCore.h"
 #include "G3DTextInputContext.h"
 #include "G3DTheme.h"
@@ -73,11 +74,25 @@ constexpr float LOADING_SPIN_PERIOD_SEC = 4.4f; // seconds per revolution (slow,
 
 // Control panel (FAB + sliding panel) geometry and animation tuning. Grouped so the feel is easy
 // to retune in one place.
-constexpr float CONTROL_PANEL_WIDTH = 300.f;    // panel width when fully open
+constexpr float CONTROL_PANEL_WIDTH = 300.f;    // right (inspector) bar width when fully open
 constexpr float CONTROL_FAB_SIZE = 40.f;        // toggle button (FAB) size
 constexpr double CONTROL_PANEL_ANIM_SEC = 0.22; // panel slide in/out duration
 constexpr double CONTROL_FAB_FADE_SEC = 0.18;   // FAB fade in/out duration
 constexpr double CONTROL_FAB_IDLE_SEC = 2.5;    // idle before the FAB starts fading out
+
+// Fully-open thicknesses of the four docked bars (pixels at FontScale 1.0). The right bar reuses
+// the inspector width above; the others are sized for their PR1 content (left = scene tree).
+constexpr float CONTROL_BAR_TOP_H = 44.f;
+constexpr float CONTROL_BAR_BOTTOM_H = 40.f;
+constexpr float CONTROL_BAR_LEFT_W = 240.f;
+constexpr float CONTROL_BAR_RIGHT_W = CONTROL_PANEL_WIDTH;
+
+// Build the (scaled) fully-open bar sizes for the layout solver.
+inline G3DLayout::Sizes ControlBarSizes(float scale)
+{
+  return G3DLayout::Sizes{ CONTROL_BAR_TOP_H * scale, CONTROL_BAR_LEFT_W * scale,
+    CONTROL_BAR_RIGHT_W * scale, CONTROL_BAR_BOTTOM_H * scale };
+}
 
 const inline ImVec4 ColorToImVec4(const std::array<double, 3>& color)
 {
@@ -703,6 +718,14 @@ void vtkF3DImguiActor::RenderSceneHierarchy(vtkOpenGLRenderWindow* renWin)
 
   ImGui::Begin("Scene Hierarchy", nullptr, flags);
 
+  this->DrawSceneTreeContent(renWin);
+
+  ImGui::End();
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
+{
   vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
   assert(ren != nullptr);
 
@@ -720,8 +743,6 @@ void vtkF3DImguiActor::RenderSceneHierarchy(vtkOpenGLRenderWindow* renWin)
 
     info.DataAssembly->Visit(vtkDataAssembly::GetRootNode(), visitor);
   }
-
-  ImGui::End();
 }
 
 //----------------------------------------------------------------------------
@@ -1505,84 +1526,77 @@ void vtkF3DImguiActor::RenderControlToggle()
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DImguiActor::RenderControlPanel()
+void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 {
   this->AdvanceControlAnim();
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
-  if (viewport->WorkSize.x < 10 || viewport->WorkSize.y < 10 || this->PanelAnim.Value() < 0.002f)
+  const float eased = this->PanelAnim.Value();
+  if (viewport->WorkSize.x < 10 || viewport->WorkSize.y < 10 || eased < 0.002f)
   {
     return; // nothing to draw while fully closed
   }
 
-  const float panelWidth = std::min(::CONTROL_PANEL_WIDTH, viewport->WorkSize.x * 0.5f);
-  // Slide the panel in from the right edge: at anim 0 the left edge sits at the right border
-  // (offscreen), at anim 1 it sits panelWidth from the right.
-  const float eased = this->PanelAnim.Value(); // already eased by G3DAnimatedFloat
-  const ImVec2 pos(viewport->WorkPos.x + viewport->WorkSize.x - panelWidth * eased,
-    viewport->WorkPos.y);
-  const ImVec2 size(panelWidth, viewport->WorkSize.y);
+  const float scale = static_cast<float>(this->FontScale);
+  const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
+    viewport->WorkSize.y };
+  const G3DLayout::Result r = G3DLayout::Compute(work, ::ControlBarSizes(scale), eased);
 
-  ::SetupNextWindow(pos, size);
+  // Docked bars are opaque chrome (unlike the floating overlays): they frame the 3D viewport which
+  // keeps rendering full-window underneath, so the model stays visible in the central gap between
+  // them. (Physically shrinking the 3D viewport is deferred — F3D renders the scene into a
+  // viewport-sized FBO, which would crop the ImGui overlay with it; that needs a separate
+  // full-window UI render target.)
   ImGuiStyle& style = ImGui::GetStyle();
-  style.Colors[ImGuiCol_WindowBg] = ImVec4(
-    this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2], this->BackdropOpacity);
+  style.Colors[ImGuiCol_WindowBg] =
+    ImVec4(this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2], 1.0f);
 
-  constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings |
-    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
-    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
+  constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus |
+    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  ImGui::Begin(loc.Translate("Inspector (placeholder)").c_str(), nullptr, flags);
 
-  // Placeholder content doubles as a live gallery of the G3DWidgets component library so the look
-  // and the hover/press/toggle transitions can be reviewed in one place.
-  if (G3DWidgets::BeginCard("g3d.gallery.intro"))
+  auto beginBar = [&](const char* id, const G3DLayout::Rect& rc) -> bool
   {
-    ImGui::TextWrapped(
-      "%s", loc.Translate("The professional control panel will live here.").c_str());
-  }
-  G3DWidgets::EndCard();
+    if (rc.w < 1.f || rc.h < 1.f)
+    {
+      return false; // bar collapsed to nothing mid-animation
+    }
+    ::SetupNextWindow(ImVec2(rc.x, rc.y), ImVec2(rc.w, rc.h));
+    ImGui::Begin(id, nullptr, flags);
+    return true;
+  };
 
-  G3DWidgets::SectionTitle(loc.Translate("Buttons").c_str());
-  G3DWidgets::ButtonIcon(
-    loc.Translate("Primary").c_str(), G3DIconId::Plus, G3DWidgets::ButtonVariant::Primary);
-  ImGui::SameLine();
-  G3DWidgets::Button(loc.Translate("Default").c_str());
-  ImGui::SameLine();
-  G3DWidgets::Button(loc.Translate("Soft").c_str(), G3DWidgets::ButtonVariant::Soft);
-  ImGui::SameLine();
-  G3DWidgets::Button(loc.Translate("Ghost").c_str(), G3DWidgets::ButtonVariant::Ghost);
-
-  G3DWidgets::IconButton("g3d.gallery.cam", G3DIconId::Camera, -1.f, false,
-    loc.Translate("Camera").c_str());
-  ImGui::SameLine();
-  G3DWidgets::IconButton("g3d.gallery.grid", G3DIconId::Grid);
-  ImGui::SameLine();
-  G3DWidgets::IconButton("g3d.gallery.eye", G3DIconId::Eye, -1.f, true);
-  ImGui::SameLine();
-  G3DWidgets::IconButton("g3d.gallery.cube", G3DIconId::Cube);
-
-  G3DWidgets::SectionTitle(loc.Translate("Controls").c_str());
-  static bool toggleOn = true;
-  static bool checkOn = false;
-  static float sliderVal = 0.5f;
-  static char inputBuf[64] = "";
-  G3DWidgets::Toggle(loc.Translate("Toggle option").c_str(), &toggleOn);
-  G3DWidgets::Checkbox(loc.Translate("Checkbox option").c_str(), &checkOn);
-  ImGui::PushItemWidth(-1.f);
-  G3DWidgets::SliderFloat(loc.Translate("Slider").c_str(), &sliderVal, 0.f, 1.f);
-  G3DWidgets::InputText(loc.Translate("Input").c_str(), inputBuf, sizeof(inputBuf),
-    loc.Translate("Type here...").c_str());
-  ImGui::PopItemWidth();
-
-  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Md));
-  if (G3DWidgets::Button(loc.Translate("Collapse").c_str(), G3DWidgets::ButtonVariant::Ghost))
+  // Top bar — command toolbar (buttons land in a later step).
+  if (beginBar("##g3d.bar.top", r.top))
   {
-    vtkOutputWindow::GetInstance()->InvokeEvent(
-      vtkF3DUserEvents::TriggerEvent, const_cast<char*>("toggle ui.control_panel"));
+    G3DWidgets::SectionTitle(loc.Translate("Toolbar").c_str());
+    ImGui::End();
   }
-  ImGui::End();
+
+  // Left bar — scene hierarchy tree (shared traversal with the floating widget).
+  if (beginBar("##g3d.bar.left", r.left))
+  {
+    G3DWidgets::SectionTitle(loc.Translate("Scene").c_str());
+    this->DrawSceneTreeContent(renWin);
+    ImGui::End();
+  }
+
+  // Right bar — property inspector (groups land in a later step).
+  if (beginBar("##g3d.bar.right", r.right))
+  {
+    G3DWidgets::SectionTitle(loc.Translate("Inspector").c_str());
+    ImGui::End();
+  }
+
+  // Bottom bar — animation timeline / status (lands in a later step).
+  if (beginBar("##g3d.bar.bottom", r.bottom))
+  {
+    G3DWidgets::SectionTitle(loc.Translate("Timeline").c_str());
+    ImGui::End();
+  }
 }
 
 //----------------------------------------------------------------------------
