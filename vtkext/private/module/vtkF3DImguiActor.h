@@ -154,6 +154,9 @@ private:
   G3DFrameClock ControlClock;     ///< per-frame steady_clock delta source
   G3DAnimatedFloat PanelAnim;     ///< panel slide progress, 0 closed .. 1 open
   G3DAnimatedFloat FabAlpha;      ///< FAB opacity, eased for fade in/out
+  G3DAnimatedFloat FabHover;      ///< FAB hover progress (eased), lifts the glass fill
+  G3DAnimatedFloat FabPress;      ///< FAB press progress (eased), drives the press scale
+  G3DFrameClock FabInteractClock; ///< per-frame delta for FAB hover/press (ticked in RenderControlToggle)
   double ControlIdleSec = 0.0;    ///< seconds since last viewport activity (FAB idle auto-hide)
   bool ControlAnimInit = false;   ///< false until the first frame snaps to the initial state
   ///@}

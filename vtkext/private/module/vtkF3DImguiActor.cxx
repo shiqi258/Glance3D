@@ -478,6 +478,9 @@ vtkF3DImguiActor::vtkF3DImguiActor()
   this->PanelAnim.SetEasing(G3DEasing::SmoothStep);
   this->FabAlpha.SetDuration(::CONTROL_FAB_FADE_SEC);
   this->FabAlpha.SetEasing(G3DEasing::SmoothStep);
+  // Same hover/press motion presets the G3DWidgets buttons use, so the FAB feels consistent.
+  G3DTheme::Configure(this->FabHover, G3DTheme::Motions::Micro);
+  G3DTheme::Configure(this->FabPress, G3DTheme::Motions::Press);
 }
 
 //----------------------------------------------------------------------------
@@ -1373,39 +1376,65 @@ void vtkF3DImguiActor::RenderControlToggle()
   ImGui::Begin("ControlToggle", nullptr, flags);
 
   const ImVec2 p0 = ImGui::GetWindowPos();
-  const ImVec2 p1(p0.x + fabSize, p0.y + fabSize);
 
-  if (ImGui::InvisibleButton("##ControlToggleBtn", ImVec2(fabSize, fabSize)))
+  const bool clicked = ImGui::InvisibleButton("##ControlToggleBtn", ImVec2(fabSize, fabSize));
+  if (clicked)
   {
     vtkOutputWindow::GetInstance()->InvokeEvent(
       vtkF3DUserEvents::TriggerEvent, const_cast<char*>("toggle ui.control_panel"));
   }
   const bool hovered = ImGui::IsItemHovered();
+  const bool held = ImGui::IsItemActive();
   if (hovered)
   {
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
   }
 
+  // Eased hover/press so the FAB feels like the G3DWidgets buttons (no hard on/off step). Ticked
+  // once per frame here (RenderControlToggle runs once per frame, after AdvanceControlAnim).
+  const double interactDt = this->FabInteractClock.Tick(ImGui::GetFrameCount());
+  this->FabHover.AnimateTo(hovered ? 1.f : 0.f);
+  this->FabHover.Update(interactDt);
+  this->FabPress.AnimateTo(held ? 1.f : 0.f);
+  this->FabPress.Update(interactDt);
+  const float hoverT = this->FabHover.Value();
+  const float pressT = this->FabPress.Value();
+
   ImDrawList* drawList = ImGui::GetWindowDrawList();
   const ImDrawListFlags savedFlags = drawList->Flags;
   drawList->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
 
-  // Rounded "glass" background: highlight tint blends in as the panel opens, neutral otherwise.
+  // Press shrinks the button toward its center (== styleguide .iconbtn:active scale(0.92)).
+  const float pressScale = G3DLerp(1.f, 0.92f, pressT);
+  const ImVec2 ctr(p0.x + fabSize * 0.5f, p0.y + fabSize * 0.5f);
+  const float half = fabSize * 0.5f * pressScale;
+  const ImVec2 r0(ctr.x - half, ctr.y - half);
+  const ImVec2 r1(ctr.x + half, ctr.y + half);
+  const float radius = G3DTheme::Radius::Control;
+
+  // Rounded "glass" face: neutral backdrop at rest, morphs to the accent as the panel opens (eased
+  // by PanelAnim); hover lifts the fill, press deepens it slightly.
   const ImVec4 hl = F3DStyle::imgui::GetHighlightColor();
-  const float bgBoost = hovered ? 0.18f : 0.f;
   auto mix = [eased](double off, double on) { return off + (on - off) * eased; };
+  const float fillA =
+    std::clamp(G3DLerp(0.55f, 0.92f, eased) + 0.16f * hoverT - 0.06f * pressT, 0.f, 1.f) * alpha;
   const ImU32 bg = IM_COL32(static_cast<int>(mix(this->BackdropColor[0], hl.x) * 255),
     static_cast<int>(mix(this->BackdropColor[1], hl.y) * 255),
-    static_cast<int>(mix(this->BackdropColor[2], hl.z) * 255),
-    static_cast<int>((mix(0.55, 0.85) + bgBoost) * alpha * 255.f));
-  drawList->AddRectFilled(p0, p1, bg, G3DTheme::Radius::Control);
+    static_cast<int>(mix(this->BackdropColor[2], hl.z) * 255), static_cast<int>(fillA * 255.f));
+  drawList->AddRectFilled(r0, r1, bg, radius);
 
-  // Sliders glyph through the unified icon path, tinted with the font color.
-  const ImU32 fg = IM_COL32(static_cast<int>(this->FontColor[0] * 255),
-    static_cast<int>(this->FontColor[1] * 255), static_cast<int>(this->FontColor[2] * 255),
-    static_cast<int>(alpha * 255.f));
-  G3DIcon::Draw(drawList, G3DIconId::Sliders, ImVec2(p0.x + fabSize * 0.5f, p0.y + fabSize * 0.5f),
-    fabSize * 0.55f, fg);
+  // Hairline border at rest (styleguide .fab border); fades out as it turns accent (.fab.active has
+  // a transparent border).
+  const ImU32 border =
+    IM_COL32(255, 255, 255, static_cast<int>(0.10f * (1.f - eased) * alpha * 255.f));
+  drawList->AddRect(r0, r1, border, radius, 0, G3DTheme::Size::Border);
+
+  // Sliders glyph through the unified icon path: font color at rest, white on the accent fill when
+  // active for contrast. Scales with the press so the whole button reads as one pressed surface.
+  const ImU32 fg = IM_COL32(static_cast<int>(mix(this->FontColor[0], 1.0) * 255),
+    static_cast<int>(mix(this->FontColor[1], 1.0) * 255),
+    static_cast<int>(mix(this->FontColor[2], 1.0) * 255), static_cast<int>(alpha * 255.f));
+  G3DIcon::Draw(drawList, G3DIconId::Sliders, ctr, fabSize * 0.55f * pressScale, fg);
 
   drawList->Flags = savedFlags;
 
