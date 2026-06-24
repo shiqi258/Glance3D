@@ -401,6 +401,93 @@ export function initG3DControlPanel(engine) {
       );
     }
 
+    // Colormap presets ("Default" resets; others set transfer-function control points val,r,g,b,...).
+    const resetOpt = (name) => {
+      try {
+        options.reset(name);
+        engine.getWindow().render();
+      } catch {
+        /* reset unavailable on stale wasm */
+      }
+    };
+    const presets = [
+      { label: "Default", value: "" },
+      { label: "Grayscale", value: "0,0,0,0,1,1,1,1" },
+      {
+        label: "Cool to warm",
+        value: "0,0.231,0.298,0.753,0.5,0.865,0.865,0.865,1,0.706,0.016,0.149",
+      },
+      {
+        label: "Viridis",
+        value:
+          "0,0.267,0.005,0.329,0.25,0.231,0.322,0.545,0.5,0.128,0.567,0.551,0.75,0.369,0.788,0.382,1,0.993,0.906,0.144",
+      },
+      { label: "Jet", value: "0,0,0,0.5,0.35,0,1,1,0.66,0.5,1,0.5,0.89,1,1,0,1,0.5,0,0" },
+    ];
+    const curMap = getStr("model.scivis.colormap") || "";
+    const presetOpts = presets.slice();
+    if (curMap && !presets.some((p) => p.value === curMap)) {
+      presetOpts.unshift({ label: "Custom", value: curMap });
+    }
+    coloringEl.append(
+      selectRow("Colormap", presetOpts, curMap, (v) => {
+        if (v === "") {
+          resetOpt("model.scivis.colormap");
+        } else {
+          setOpt("model.scivis.colormap", v);
+        }
+      }),
+    );
+
+    // Value-range override [min,max] (unset = auto); bounds = the array's magnitude range.
+    if (curArr && curArr.range && curArr.range[1] > curArr.range[0]) {
+      const dataMin = curArr.range[0];
+      const dataMax = curArr.range[1];
+      let rMin = dataMin;
+      let rMax = dataMax;
+      const rs = getStr("model.scivis.range");
+      if (rs) {
+        const p = rs.split(",").map((x) => parseFloat(x));
+        if (p.length >= 2 && p.every(Number.isFinite)) {
+          rMin = p[0];
+          rMax = p[1];
+        }
+      }
+      const commitRange = () => setOpt("model.scivis.range", `${rMin},${rMax}`);
+      const rangeSlider = (label, value, onInput) => {
+        const row = el("div", "g3d-controls__row g3d-controls__slider");
+        const input = el("input");
+        input.type = "range";
+        input.min = String(dataMin);
+        input.max = String(dataMax);
+        input.step = String(Math.max((dataMax - dataMin) / 1000, 1e-6));
+        input.value = String(value);
+        const val = el("span", "g3d-controls__value", Number(value).toPrecision(4));
+        input.addEventListener("input", () => {
+          val.textContent = Number(input.value).toPrecision(4);
+          onInput(parseFloat(input.value));
+        });
+        row.append(el("span", "g3d-controls__label", label), input, val);
+        return row;
+      };
+      coloringEl.append(
+        rangeSlider("Range min", rMin, (v) => {
+          rMin = Math.min(v, rMax);
+          commitRange();
+        }),
+      );
+      coloringEl.append(
+        rangeSlider("Range max", rMax, (v) => {
+          rMax = Math.max(v, rMin);
+          commitRange();
+        }),
+      );
+      const autoBtn = el("button", "button is-small", "Auto range");
+      autoBtn.type = "button";
+      autoBtn.addEventListener("click", () => resetOpt("model.scivis.range"));
+      coloringEl.append(autoBtn);
+    }
+
     coloringEl.append(toggleRow("Scalar bar", "ui.scalar_bar"));
   };
 
