@@ -650,6 +650,20 @@ public:
     ren->SetUIDeltaTime(deltaTime);
     ren->SetTotalTime(ren->GetTotalTime() + deltaTime);
 
+    // Push the current animation state for the timeline bottom bar (only the count when idle so we
+    // skip the range/name queries when there is no animation).
+    vtkF3DUIActor::UIAnimationState animState;
+    animState.count = this->AnimationManager->GetNumberOfAvailableAnimations();
+    if (animState.count > 0)
+    {
+      animState.currentTime = this->AnimationManager->GetCurrentTime();
+      const std::pair<double, double> range = this->AnimationManager->GetTimeRange();
+      animState.timeRange = { range.first, range.second };
+      animState.playing = this->AnimationManager->IsPlaying();
+      animState.name = this->AnimationManager->GetAnimationName();
+    }
+    ren->SetUIAnimationState(animState);
+
     // Determine if we need a full render or just a UI render.
     // TAA needs a full render each frame; the control-panel "push" needs one for the duration of its
     // slide so the shrinking 3D viewport re-renders at its new size each frame (a UI-only render

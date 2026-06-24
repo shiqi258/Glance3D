@@ -181,6 +181,12 @@ private:
   void DrawAppearanceContent();
   void DrawMaterialContent();
 
+  /**
+   * Draw the animation timeline (bottom bar): play/pause, scrubber, speed, animation cycling. Reads
+   * the pushed UIAnimationState; writes through commands (toggle_animation / load_animation_time).
+   */
+  void DrawTimelineContent();
+
   /// Trigger a command string ("set/toggle/reset ...") through the user-event path.
   void SendCommand(const std::string& cmd);
 

@@ -51,6 +51,19 @@ public:
   };
 
   /**
+   * Current animation state, pushed each frame by the interactor so the timeline (bottom bar) can
+   * reflect playback without the UI actor reaching into the (private) animation manager.
+   */
+  struct UIAnimationState
+  {
+    unsigned int count = 0;          ///< number of available animations (0 = no timeline)
+    double currentTime = 0.0;        ///< current playback time
+    std::array<double, 2> timeRange = { 0.0, 0.0 }; ///< [min, max]
+    bool playing = false;            ///< whether playback is running
+    std::string name;                ///< current animation name
+  };
+
+  /**
    * Initialize the UI actor resources
    */
   virtual void Initialize(vtkOpenGLRenderWindow*)
@@ -192,6 +205,12 @@ public:
    * unset-optional or unknown option. Empty by default (controls then fall back to their defaults).
    */
   void SetOptionAccessor(std::function<std::optional<std::string>(const std::string&)> accessor);
+
+  /**
+   * Push the current animation state (number of animations, current time, range, playing, name) so
+   * the timeline bottom bar can render it. Called each frame by the interactor.
+   */
+  void SetUIAnimationState(const UIAnimationState& state);
 
   /**
    * Set the notification visibility
@@ -436,6 +455,8 @@ protected:
    */
   std::optional<std::string> QueryOption(const std::string& name) const;
   std::function<std::optional<std::string>(const std::string&)> OptionAccessor;
+
+  UIAnimationState AnimState;
 
   // deque instead of queue to allow for iteration
   std::deque<double> FrameTimes;

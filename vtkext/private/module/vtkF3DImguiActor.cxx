@@ -1978,6 +1978,70 @@ void vtkF3DImguiActor::DrawMaterialContent()
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DImguiActor::DrawTimelineContent()
+{
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const float scale = static_cast<float>(this->FontScale);
+
+  if (this->AnimState.count == 0)
+  {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No animation").c_str());
+    return;
+  }
+
+  // Play / pause.
+  const bool playing = this->AnimState.playing;
+  if (G3DWidgets::IconButton("##g3d.anim.playpause", playing ? G3DIconId::Pause : G3DIconId::Play,
+        -1.f, false, loc.Translate(playing ? "Pause" : "Play").c_str()))
+  {
+    this->SendCommand("toggle_animation");
+  }
+  ImGui::SameLine();
+
+  // Cycle to the next animation (only when there is more than one).
+  if (this->AnimState.count > 1)
+  {
+    if (G3DWidgets::IconButton("##g3d.anim.cycle", G3DIconId::StepForward, -1.f, false,
+          loc.Translate("Next animation").c_str()))
+    {
+      this->SendCommand("cycle_animation");
+    }
+    ImGui::SameLine();
+  }
+
+  // Scrubber: seek by dragging (load_animation_time). Reserve room on the right for time + speed.
+  const float tmin = static_cast<float>(this->AnimState.timeRange[0]);
+  const float tmax = static_cast<float>(this->AnimState.timeRange[1]);
+  float t = static_cast<float>(this->AnimState.currentTime);
+  const float rightW = 168.f * scale;
+  const float scrubW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - rightW);
+  ImGui::SetNextItemWidth(scrubW);
+  if (tmax > tmin && G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs"))
+  {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.6g", t);
+    this->SendCommand(std::string("load_animation_time ") + buf);
+  }
+  ImGui::SameLine();
+
+  // Total duration label (the scrubber itself shows the current time), then a compact speed slider.
+  char timeLabel[32];
+  std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted(timeLabel);
+  ImGui::SameLine();
+  float speed = this->ReadOptionFloat("scene.animation.speed_factor", 1.f);
+  ImGui::SetNextItemWidth(72.f * scale);
+  if (G3DWidgets::SliderFloat("##g3d.anim.speed", &speed, 0.1f, 5.f, "x%.1f"))
+  {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.4g", speed);
+    this->SendCommand(std::string("set scene.animation.speed_factor ") + buf);
+  }
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 {
   // The slide fraction is advanced pre-pass in UpdateControlPanelSlide; here we only read it so the
@@ -2096,10 +2160,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::End();
   }
 
-  // Bottom bar — animation timeline / status (lands in a later step).
+  // Bottom bar — animation timeline (play/pause, scrubber, speed); a hint when there is no animation.
   if (beginBar("##g3d.bar.bottom", r.bottom))
   {
-    barTitle(loc.Translate("Timeline").c_str());
+    this->DrawTimelineContent();
     ImGui::End();
   }
 

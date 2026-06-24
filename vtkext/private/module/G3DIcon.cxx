@@ -329,6 +329,17 @@ void G3DIcon::Draw(
     case G3DIconId::Edges:
       DrawEdges(c);
       break;
+    case G3DIconId::Play:
+      c.dl->AddTriangleFilled(c.P(0.34f, 0.24f), c.P(0.34f, 0.76f), c.P(0.78f, 0.50f), c.color);
+      break;
+    case G3DIconId::Pause:
+      c.dl->AddRectFilled(c.P(0.34f, 0.26f), c.P(0.44f, 0.74f), c.color);
+      c.dl->AddRectFilled(c.P(0.56f, 0.26f), c.P(0.66f, 0.74f), c.color);
+      break;
+    case G3DIconId::StepForward:
+      c.dl->AddTriangleFilled(c.P(0.26f, 0.26f), c.P(0.26f, 0.74f), c.P(0.60f, 0.50f), c.color);
+      c.dl->AddRectFilled(c.P(0.62f, 0.26f), c.P(0.72f, 0.74f), c.color);
+      break;
   }
 
   drawList->Flags = saved;

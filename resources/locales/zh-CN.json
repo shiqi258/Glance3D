@@ -60,6 +60,11 @@
   "Opacity": "不透明度",
   "Base color": "基础色",
 
+  "No animation": "无动画",
+  "Play": "播放",
+  "Pause": "暂停",
+  "Next animation": "下一个动画",
+
   "Search...": "搜索…",
   "Description": "描述",
   "Keybind": "快捷键",

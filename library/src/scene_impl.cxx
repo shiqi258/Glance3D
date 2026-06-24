@@ -13,6 +13,7 @@
 #include "vtkF3DMemoryMesh.h"
 #include "F3DColoringInfoHandler.h"
 #include "vtkF3DMetaImporter.h"
+#include "vtkF3DRenderer.h"
 
 #include <vtkBoundingBox.h>
 #include "vtkF3DRenderer.h"
@@ -208,6 +209,25 @@ public:
     // Initialize the animation using temporal information from the importer
     this->AnimationManager.UpdateDynamicOptions();
     this->AnimationManager.Initialize();
+
+    // Push the initial animation state so the timeline bottom bar reflects it right away (and shows
+    // for a static headless render); the interactor keeps it live each frame during playback.
+    {
+      vtkF3DUIActor::UIAnimationState animState;
+      animState.count = this->AnimationManager.GetNumberOfAvailableAnimations();
+      if (animState.count > 0)
+      {
+        animState.currentTime = this->AnimationManager.GetCurrentTime();
+        const std::pair<double, double> range = this->AnimationManager.GetTimeRange();
+        animState.timeRange = { range.first, range.second };
+        animState.playing = this->AnimationManager.IsPlaying();
+        animState.name = this->AnimationManager.GetAnimationName();
+      }
+      if (vtkF3DRenderer* ren = this->Window.GetRenderer())
+      {
+        ren->SetUIAnimationState(animState);
+      }
+    }
 
     // Update all window options and reset camera to bounds if needed
     this->Window.UpdateDynamicOptions();

@@ -543,6 +543,11 @@ public:
   void SetUIOptionAccessor(std::function<std::optional<std::string>(const std::string&)> accessor);
 
   /**
+   * Forward the current animation state to the UI actor for the timeline bottom bar.
+   */
+  void SetUIAnimationState(const vtkF3DUIActor::UIAnimationState& state);
+
+  /**
    * True while the docked control panel is sliding open/closed. The interactor uses this to force
    * full (not UI-only) renders during the slide so the shrinking 3D viewport re-renders each frame.
    */

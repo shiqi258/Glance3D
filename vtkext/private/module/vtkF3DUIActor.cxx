@@ -162,6 +162,12 @@ std::optional<std::string> vtkF3DUIActor::QueryOption(const std::string& name) c
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DUIActor::SetUIAnimationState(const UIAnimationState& state)
+{
+  this->AnimState = state;
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DUIActor::SetNotificationVisibility(bool show)
 {
   this->NotificationVisible = show;

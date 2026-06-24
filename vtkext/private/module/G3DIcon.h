@@ -43,6 +43,9 @@ enum class G3DIconId
   Lock,       ///< padlock (locked node)
   Info,       ///< circled "i" (data / details panel)
   Edges,      ///< triangle with vertex dots (mesh edges / wireframe)
+  Play,       ///< filled right-pointing triangle (animation play)
+  Pause,      ///< two filled bars (animation pause)
+  StepForward, ///< bar + triangle (next keyframe / cycle animation)
 };
 
 namespace G3DIcon

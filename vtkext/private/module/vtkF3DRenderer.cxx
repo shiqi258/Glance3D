@@ -3753,6 +3753,12 @@ void vtkF3DRenderer::SetUIOptionAccessor(
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DRenderer::SetUIAnimationState(const vtkF3DUIActor::UIAnimationState& state)
+{
+  this->UIActor->SetUIAnimationState(state);
+}
+
+//----------------------------------------------------------------------------
 bool vtkF3DRenderer::IsControlPanelAnimating()
 {
   return this->UIActor->IsControlPanelAnimating();
