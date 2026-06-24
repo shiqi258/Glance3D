@@ -679,29 +679,36 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
     io.Fonts->AddFontFromFileTTF(cjkFontPath.c_str(), size * cjkSizeScale, &cjkConfig, nullptr);
   };
 
+  // Regular UI font size (logical px), unified with the design system (doc/dev/ui-styleguide.html):
+  // the industry "regular" base for professional editors is 14px (Ant Design / Fluent / Material;
+  // CJK reads better at 14 than the 13px Latin-IDE norm). The secondary "noti" font stays 0.8x.
+  // Spacing keeps the fixed 4-grid because G3DWidgets BASE_FONT == this size, so Scale() carries DPI
+  // only (see G3DWidgets.cxx). FontScale is the DPI/user scale.
+  const float uiFont = 14.f * this->FontScale;
+  const float notiSize = uiFont * 0.8f;
+
   ImFont* font = nullptr;
   if (this->FontFile.empty())
   {
     // ImGui API is not very helpful with this
     fontConfig.FontDataOwnedByAtlas = false;
     font = io.Fonts->AddFontFromMemoryTTF(
-      const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer),
-      18 * this->FontScale, &fontConfig, nullptr);
-    mergeCJK(18 * this->FontScale);
+      const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer), uiFont,
+      &fontConfig, nullptr);
+    mergeCJK(uiFont);
     ImFont* notiFont = io.Fonts->AddFontFromMemoryTTF(
       const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer),
-      18 * this->FontScale * .8f, &fontConfig, nullptr);
-    mergeCJK(18 * this->FontScale * .8f);
+      notiSize, &fontConfig, nullptr);
+    mergeCJK(notiSize);
     Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
   else
   {
-    font = io.Fonts->AddFontFromFileTTF(
-      this->FontFile.c_str(), 18 * this->FontScale, &fontConfig, nullptr);
-    mergeCJK(18 * this->FontScale);
-    ImFont* notiFont = io.Fonts->AddFontFromFileTTF(
-      this->FontFile.c_str(), 18 * this->FontScale * .8f, &fontConfig, nullptr);
-    mergeCJK(18 * this->FontScale * .8f);
+    font = io.Fonts->AddFontFromFileTTF(this->FontFile.c_str(), uiFont, &fontConfig, nullptr);
+    mergeCJK(uiFont);
+    ImFont* notiFont =
+      io.Fonts->AddFontFromFileTTF(this->FontFile.c_str(), notiSize, &fontConfig, nullptr);
+    mergeCJK(notiSize);
     Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
 

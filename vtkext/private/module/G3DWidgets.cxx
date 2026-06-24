@@ -11,9 +11,10 @@
 
 namespace
 {
-// Base UI font size the size tokens are authored against; the live font is this * ui.scale, so the
-// ratio gives a DPI/scale factor that keeps widgets proportional under ui.scale.
-constexpr float BASE_FONT = 18.f;
+// Regular UI font size (logical px) — the design-system base, mirrored in ui-styleguide.html
+// (--fs-base) and used as the load size in vtkF3DImguiActor. Scale() = liveFont / BASE_FONT then
+// equals the DPI/user scale, so spacing tokens stay on their fixed grid and only scale with DPI.
+constexpr float BASE_FONT = 14.f;
 float Scale()
 {
   return ImGui::GetFontSize() / BASE_FONT;
