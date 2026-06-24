@@ -4,7 +4,6 @@
 #include "G3DTheme.h"
 
 #include <algorithm>
-#include <cfloat>
 #include <cstdio>
 #include <string>
 #include <unordered_map>
@@ -694,12 +693,11 @@ void ItemTooltip(const char* text)
 //----------------------------------------------------------------------------
 namespace
 {
-// Per-tree state (density / indentation / font), pushed by BeginTree.
+// Per-tree state (density / indentation), pushed by BeginTree.
 struct TreeFrame
 {
-  float rowH;     // row height (scaled px)
-  float indent;   // indentation per depth level (scaled px)
-  float fontSize; // label font size (scaled px) — the styleguide tree font, not the big UI font
+  float rowH;   // row height (scaled px)
+  float indent; // indentation per depth level (scaled px)
 };
 std::vector<TreeFrame> gTreeStack;
 
@@ -713,7 +711,6 @@ struct TreeRowFrame
   float contentX;  // advancing left content cursor (screen x)
   float rightX;    // receding right content cursor (screen x) for right-aligned cells
   float hoverT;    // row hover animation value (0..1)
-  float fontSize;  // label font size (scaled px)
   bool selected;   // row is selected (keeps trailing actions revealed)
   bool pressed;    // the row hit item was clicked this frame
   ImVec2 mouse;    // mouse position at the click (for routing twisty/action clicks)
@@ -734,12 +731,6 @@ float TreeRowHeight(TreeDensity d, float s)
     default:
       return 22.f * s;
   }
-}
-
-// styleguide tree font: 13px (12px when dense). Authored against screen px, so scaled by s.
-float TreeFontSize(TreeDensity d, float s)
-{
-  return (d == TreeDensity::Dense ? 12.f : 13.f) * s;
 }
 
 // styleguide icv -> icon tint.
@@ -769,8 +760,7 @@ ImVec4 TreeIconColor(TreeIconVariant v)
 void BeginTree(TreeDensity density)
 {
   const float s = Scale();
-  gTreeStack.push_back(
-    { TreeRowHeight(density, s), G3DTheme::Spacing::Lg * s, TreeFontSize(density, s) });
+  gTreeStack.push_back({ TreeRowHeight(density, s), G3DTheme::Spacing::Lg * s });
 }
 
 //----------------------------------------------------------------------------
@@ -889,7 +879,6 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   f.contentX = twX + twistyW;
   f.rightX = p0.x + width - G3DTheme::Spacing::Sm * s;
   f.hoverT = ht;
-  f.fontSize = gTreeStack.empty() ? 13.f * s : gTreeStack.back().fontSize;
   f.selected = chrome.selected;
   f.pressed = pressed && !chrome.disabled;
   f.mouse = ImGui::GetIO().MousePos;
@@ -951,11 +940,9 @@ void TreeRowLabel(const char* text, bool group, bool dim)
   {
     col.w *= 0.45f;
   }
-  ImFont* font = ImGui::GetFont();
-  const float fsz = f.fontSize;
   const float cy = f.p0.y + f.rowH * 0.5f;
   const float avail = std::max(0.f, f.rightX - G3DTheme::Spacing::Xs * f.scale - f.contentX);
-  const ImVec2 ts = font->CalcTextSizeA(fsz, FLT_MAX, 0.f, text);
+  const ImVec2 ts = ImGui::CalcTextSize(text);
 
   // Truncate with an ellipsis on overflow (styleguide text-overflow: ellipsis), cutting on UTF-8
   // codepoint boundaries so multibyte/CJK names are never split mid-character.
@@ -963,7 +950,7 @@ void TreeRowLabel(const char* text, bool group, bool dim)
   const char* draw = text;
   if (ts.x > avail)
   {
-    const float ellW = font->CalcTextSizeA(fsz, FLT_MAX, 0.f, "...").x;
+    const float ellW = ImGui::CalcTextSize("...").x;
     const float budget = avail - ellW;
     const char* p = text;
     const char* fit = text;
@@ -974,7 +961,7 @@ void TreeRowLabel(const char* text, bool group, bool dim)
       {
         ++next;
       }
-      if (font->CalcTextSizeA(fsz, FLT_MAX, 0.f, text, next).x > budget)
+      if (ImGui::CalcTextSize(text, next).x > budget)
       {
         break;
       }
@@ -988,7 +975,7 @@ void TreeRowLabel(const char* text, bool group, bool dim)
 
   ImDrawList* dl = ImGui::GetWindowDrawList();
   dl->PushClipRect(ImVec2(f.contentX, f.p0.y), ImVec2(f.contentX + avail, f.p0.y + f.rowH), true);
-  dl->AddText(font, fsz, ImVec2(f.contentX, cy - ts.y * 0.5f), U32(col), draw);
+  dl->AddText(ImVec2(f.contentX, cy - ts.y * 0.5f), U32(col), draw);
   dl->PopClipRect();
   f.contentX += std::min(ts.x, avail);
 }
@@ -1001,15 +988,13 @@ void TreeRowMeta(const char* text)
     return;
   }
   TreeRowFrame& f = gRowStack.back();
-  ImFont* font = ImGui::GetFont();
-  const float fsz = std::max(9.f * f.scale, f.fontSize - 2.f * f.scale); // styleguide meta 11px
   const float cy = f.p0.y + f.rowH * 0.5f;
-  const ImVec2 ts = font->CalcTextSizeA(fsz, FLT_MAX, 0.f, text);
+  const ImVec2 ts = ImGui::CalcTextSize(text);
   const float x = f.rightX - ts.x;
   ImVec4 col = G3DTheme::Text();
   col.w *= 0.42f; // text-subtle
   ImDrawList* dl = ImGui::GetWindowDrawList();
-  dl->AddText(font, fsz, ImVec2(x, cy - ts.y * 0.5f), U32(col), text);
+  dl->AddText(ImVec2(x, cy - ts.y * 0.5f), U32(col), text);
   f.rightX = x - G3DTheme::Spacing::Sm * f.scale;
 }
 
