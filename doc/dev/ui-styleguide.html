@@ -772,12 +772,14 @@
         transform: rotate(270deg);
         color: var(--accent);
       }
-      .dropdown .menu {
-        position: absolute;
-        top: calc(100% + 6px);
-        left: 0;
-        right: 0;
-        z-index: 30;
+      /* Popup menu is portaled to <body> and positioned (left/top/width) by JS, so it
+         ESCAPES any overflow:hidden / scroll ancestor (accordion clip, inspector). This is
+         the standard "floating UI / popper" pattern and mirrors ImGui's overlay combo popup.
+         Hence the rule is on .menu itself (not `.dropdown .menu`) — it lives outside .dropdown
+         while open. position:fixed → clipped only by the viewport. */
+      .menu {
+        position: fixed;
+        z-index: 1000;
         background: var(--surface-3);
         border: 1px solid var(--border);
         border-radius: var(--r-md);
@@ -789,7 +791,7 @@
         pointer-events: none;
         transition: opacity var(--t-micro) var(--ease), transform var(--t-micro) var(--ease);
       }
-      .dropdown.open .menu {
+      .menu.open {
         opacity: 1;
         transform: translateY(0) scale(1);
         pointer-events: auto;
@@ -1582,6 +1584,264 @@
         transform: translateX(-50%) translateY(0);
       }
 
+      /* ============================================================
+         COLLAPSE / ACCORDION  (折叠面板 · 专业编辑器分组)
+         面向编辑器的可折叠分区：可点击表头(折叠箭头 + 标题 + 计数 + 悬停操作 + 可选启用开关)
+         控制正文展开/收起。借鉴 VS Code 侧栏分区 / Blender 属性面板 / Unity Inspector /
+         Ant Design Collapse。默认紧凑高密度。
+         ≈ImGui: 对应 CollapsingHeader（即时展开，无高度过渡）；此处用 grid-rows 0fr↔1fr 近似平滑展开。
+         ============================================================ */
+      /* 单个面板（独立使用时呈卡片样式） */
+      .collapse {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+      }
+      .collapse-head {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        height: 36px;
+        padding: 0 10px 0 8px;
+        cursor: pointer;
+        user-select: none;
+        color: var(--text);
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .collapse-head:hover,
+      .collapse.is-hover > .collapse-head {
+        background: var(--surface-3);
+      }
+      .collapse-head:focus-visible {
+        outline: none;
+        box-shadow: inset 0 0 0 2px var(--accent-ring);
+      }
+      /* twisty: chevron 折叠时朝右、展开时朝下 */
+      .collapse-tw {
+        width: 18px;
+        height: 18px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        color: var(--text-subtle);
+        transform: rotate(0deg);
+        transition: transform var(--t-std) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .collapse-tw .icon {
+        font-size: 15px;
+      }
+      .collapse.open > .collapse-head .collapse-tw {
+        transform: rotate(90deg);
+      }
+      .collapse-head:hover .collapse-tw {
+        color: var(--text);
+      }
+      /* 前置类型图标（中性，单一语义色可选 icv="accent"） */
+      .collapse-ic {
+        font-size: 16px;
+        flex: none;
+        color: var(--text-muted);
+      }
+      .collapse-ic.accent {
+        color: var(--accent);
+      }
+      .collapse-title {
+        min-width: 0;
+        font-size: var(--fs-base);
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .collapse-spacer {
+        flex: 1;
+      }
+      /* 计数药丸（mono，与 tree-meta 同语汇） */
+      .collapse-count {
+        flex: none;
+        font-size: var(--fs-overline);
+        font-family: var(--mono);
+        color: var(--text-subtle);
+        background: var(--surface-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-pill);
+        padding: 1px 7px;
+      }
+      /* 行内操作：默认隐藏，悬停表头才浮现（Blender / Figma 模式） */
+      .collapse-actions {
+        display: flex;
+        align-items: center;
+        gap: 1px;
+        flex: none;
+        opacity: 0;
+        transition: opacity var(--t-micro) var(--ease);
+      }
+      .collapse-head:hover .collapse-actions,
+      .collapse.is-hover > .collapse-head .collapse-actions {
+        opacity: 1;
+      }
+      .collapse-act {
+        width: 22px;
+        height: 22px;
+        padding: 0; /* reset UA <button> padding so place-items:center truly centers the icon */
+        display: grid;
+        place-items: center;
+        border: none;
+        background: transparent;
+        color: var(--text-subtle);
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .collapse-act .icon {
+        font-size: 15px;
+      }
+      .collapse-act:hover {
+        background: var(--surface-4);
+        color: var(--text);
+      }
+      /* 正文：grid-template-rows 0fr↔1fr 平滑展开，内层 overflow:hidden 裁剪 */
+      .collapse-body {
+        display: grid;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows var(--t-std) var(--ease);
+      }
+      .collapse.open > .collapse-body {
+        grid-template-rows: 1fr;
+      }
+      /* clip layer = the grid item: NO padding/border (its min-content must be 0 so the
+         0fr track fully collapses); padding/border live on .collapse-body-inner below */
+      .collapse-clip {
+        overflow: hidden;
+        min-height: 0;
+      }
+      .collapse-body-inner {
+        padding: var(--s-3) var(--s-4) var(--s-4);
+      }
+      .collapse.open > .collapse-body > .collapse-clip > .collapse-body-inner {
+        border-top: 1px solid var(--border);
+      }
+      /* 紧凑分组内的属性行：标签列收窄、控件占满取值区，绝不溢出被裁（业内紧凑检视器做法）。
+         clip 层的 overflow:hidden 是展开动画必需、无法去除，故内容必须自适应而非靠裁剪。 */
+      .collapse-body-inner .proprow {
+        gap: var(--s-3);
+      }
+      .collapse-body-inner .proprow > .k {
+        width: 88px;
+      }
+      /* 滑块/分段填满取值区并可收缩，多选分段(如 MSAA 4 段)在窄面板也完整显示、右缘对齐 */
+      .collapse-body-inner .slider {
+        min-width: 0;
+      }
+      .collapse-body-inner .proprow > .v > .segmented {
+        flex: 1;
+      }
+      .collapse-body-inner .proprow > .v > .segmented > button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-left: 7px;
+        padding-right: 7px;
+      }
+      /* 启用开关关闭 → 正文置灰失效（Unity 组件式） */
+      .collapse.body-off > .collapse-body .collapse-body-inner {
+        opacity: 0.4;
+        pointer-events: none;
+      }
+
+      /* 密度 */
+      .collapse.compact > .collapse-head {
+        height: 30px;
+      }
+      .collapse.dense > .collapse-head {
+        height: 26px;
+      }
+      .collapse.dense .collapse-title {
+        font-size: var(--fs-dense);
+      }
+      .collapse.compact > .collapse-body > .collapse-clip > .collapse-body-inner,
+      .collapse.dense > .collapse-body > .collapse-clip > .collapse-body-inner {
+        padding: var(--s-2) var(--s-3) var(--s-3);
+      }
+
+      /* 变体 · overline 大写微标题（VS Code 侧栏式） */
+      .collapse.overline > .collapse-head {
+        height: 30px;
+      }
+      .collapse.overline .collapse-title {
+        font-size: var(--fs-overline);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-subtle);
+      }
+
+      /* 变体 · ghost 去边框内联 */
+      .collapse.ghost {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+      }
+      .collapse.ghost > .collapse-head {
+        padding-left: 2px;
+      }
+      .collapse.ghost > .collapse-body > .collapse-clip > .collapse-body-inner {
+        border-top: none;
+        padding-left: 0;
+        padding-right: 0;
+      }
+
+      /* 变体 · sub 嵌套子面板（Blender 子面板，缩进 + 弱化） */
+      .collapse.sub {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+      }
+      .collapse.sub > .collapse-head {
+        height: 28px;
+        padding-left: 6px;
+      }
+      .collapse.sub .collapse-title {
+        font-size: var(--fs-caption);
+        font-weight: 600;
+        color: var(--text-muted);
+      }
+      .collapse.sub > .collapse-body > .collapse-clip > .collapse-body-inner {
+        border-top: none;
+        padding: 2px 0 6px 18px;
+      }
+
+      /* 禁用 */
+      .collapse.is-disabled {
+        opacity: 0.5;
+      }
+      .collapse.is-disabled > .collapse-head {
+        cursor: not-allowed;
+      }
+
+      /* 手风琴：把多个面板拼成无缝连续列表（检视器骨架） */
+      .accordion {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+      }
+      .accordion > .collapse {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+      }
+      .accordion > .collapse + .collapse {
+        border-top: 1px solid var(--border);
+      }
+      .accordion > .collapse > .collapse-head:hover {
+        background: var(--surface-2);
+      }
+      /* 连续列表里表头与正文同底，去掉正文顶边线更顺滑 */
+      .accordion > .collapse.open > .collapse-body > .collapse-clip > .collapse-body-inner {
+        border-top: none;
+      }
+
       .viewport-demo {
         position: relative;
         height: 560px;
@@ -1659,6 +1919,7 @@
         <a href="#toggles">开关 / 复选 / 分段</a>
         <a href="#sliders">滑块</a>
         <a href="#tree">树 / 大纲</a>
+        <a href="#collapse">折叠面板 / 手风琴</a>
         <a href="#cards">卡片</a>
         <a href="#misc">徽章 / 标签页 / 提示</a>
         <div class="group">范例</div>
@@ -1686,6 +1947,7 @@
             <div class="proprow"><span class="k"><code>g3d-badge</code> / <code>g3d-tip</code></span><span class="v"><g3d-badge v="accent" dot>Badge</g3d-badge></span></div>
             <div class="proprow"><span class="k"><code>g3d-card</code> / <code>g3d-proprow</code> / <code>g3d-sectiontitle</code></span><span class="v"><span class="note" style="margin: 0">容器/布局组件，内部插任意子组件</span></span></div>
             <div class="proprow"><span class="k"><code>g3d-tree</code> / <code>g3d-trow</code></span><span class="v"><span class="note" style="margin: 0">大纲与树节点（见「树 / 大纲」）</span></span></div>
+            <div class="proprow"><span class="k"><code>g3d-collapse</code> / <code>g3d-accordion</code></span><span class="v"><span class="note" style="margin: 0">可折叠分组与连续列表（见「折叠面板」）</span></span></div>
             <div class="note">
               示例：检视器面板的一行 <code>&lt;g3d-proprow k="金属度"&gt;&lt;g3d-slider val="30"&gt;&lt;/g3d-slider&gt;&lt;/g3d-proprow&gt;</code> ——
               proprow 复用 slider，slider 复用 icon，全程零重复。
@@ -2058,6 +2320,114 @@
           </div>
         </section>
 
+        <!-- ===================== COLLAPSE / ACCORDION ===================== -->
+        <section class="block" id="collapse">
+          <h2>折叠面板 / 手风琴 <span class="tag-impl">≈ImGui CollapsingHeader</span></h2>
+          <p class="desc">
+            面向专业编辑器的可折叠分组：点击表头（折叠箭头 + 标题 + 计数 + 悬停操作 + 可选启用开关）展开/收起正文。
+            默认<strong>紧凑高密度</strong>，借鉴 VS Code 侧栏分区、Blender 属性面板、Unity Inspector、Ant Design Collapse。
+            <strong>手风琴 <code>g3d-accordion</code></strong> 把多个面板拼成无缝连续列表（检视器骨架）；面板默认独立折叠，也可设 <code>exclusive</code> 互斥单开。
+          </p>
+          <p class="uses"><b>组合</b>表头复用 图标 <code>g3d-icon</code>（折叠箭头 / 前置类型图标 / 悬停操作）；计数用 <code>collapse-count</code> 药丸、可选启用 开关 <code>g3d-toggle</code>；正文内插任意组件（属性行 <code>g3d-proprow</code> ×{滑块 <code>g3d-slider</code> / 下拉 <code>g3d-select</code> / 分段 <code>g3d-segmented</code> / 开关 <code>g3d-toggle</code>}），层层落到 图标 <code>g3d-icon</code>。</p>
+
+          <div class="row" style="align-items: flex-start; gap: var(--s-6); flex-wrap: wrap">
+            <!-- hero: inspector-style accordion holding real property rows -->
+            <div style="width: 340px; max-width: 100%">
+              <div class="state-label">手风琴 · 检视器骨架（连续列表）</div>
+              <g3d-accordion>
+                <g3d-collapse ic="layers" icv="accent" title="变换 Transform" count="9" open>
+                  <g3d-proprow k="位置 X"><g3d-slider val="50"></g3d-slider><g3d-num>0.00</g3d-num></g3d-proprow>
+                  <g3d-proprow k="旋转 Y"><g3d-slider val="30"></g3d-slider><g3d-num>30°</g3d-num></g3d-proprow>
+                  <g3d-proprow k="缩放"><g3d-slider val="70"></g3d-slider><g3d-num>1.00</g3d-num></g3d-proprow>
+                </g3d-collapse>
+                <g3d-collapse ic="sliders" title="材质 Material" count="PBR" act="dots" open>
+                  <g3d-proprow k="基础色"><g3d-select grow val="Albedo" opts="Albedo|Diffuse|Emissive"></g3d-select></g3d-proprow>
+                  <g3d-proprow k="金属度"><g3d-slider val="35"></g3d-slider><g3d-num>0.35</g3d-num></g3d-proprow>
+                  <g3d-proprow k="粗糙度"><g3d-slider val="60"></g3d-slider><g3d-num>0.60</g3d-num></g3d-proprow>
+                </g3d-collapse>
+                <g3d-collapse ic="light" title="光照 Lighting" act="plus dots">
+                  <g3d-proprow k="环境光"><g3d-toggle on></g3d-toggle></g3d-proprow>
+                </g3d-collapse>
+                <g3d-collapse ic="grid" title="网格与地面" count="2">
+                  <g3d-proprow k="显示网格"><g3d-toggle on></g3d-toggle></g3d-proprow>
+                </g3d-collapse>
+              </g3d-accordion>
+              <div class="note">点表头折叠/展开；悬停表头浮现行内操作（＋ / ⋯）。</div>
+            </div>
+
+            <!-- standalone cards with spacing -->
+            <div style="width: 340px; max-width: 100%">
+              <div class="state-label">独立卡片（带间距）</div>
+              <div class="stack">
+                <g3d-collapse ic="camera" title="相机 Camera" act="dots" open>
+                  <g3d-proprow k="视场角"><g3d-slider val="45"></g3d-slider><g3d-num>50°</g3d-num></g3d-proprow>
+                  <g3d-proprow k="投影"><g3d-segmented val="透视" opts="透视|正交"></g3d-segmented></g3d-proprow>
+                </g3d-collapse>
+                <g3d-collapse ic="cube" title="几何信息" count="12.4k">
+                  <g3d-proprow k="点 / 面"><span class="note" style="margin: 0">12,480 点 · 6,240 面</span></g3d-proprow>
+                </g3d-collapse>
+              </div>
+            </div>
+          </div>
+
+          <!-- nesting · enable toggle · exclusive -->
+          <div class="panel stack" style="margin-top: var(--s-5)">
+            <div class="state-label">嵌套子面板（Blender 风格）· 启用开关 · 互斥手风琴</div>
+            <div class="row" style="align-items: flex-start; gap: var(--s-6); flex-wrap: wrap">
+              <div style="width: 300px">
+                <g3d-collapse ic="cube" title="渲染 Render" open>
+                  <g3d-collapse v="sub" title="抗锯齿" open>
+                    <g3d-proprow k="MSAA"><g3d-segmented val="4×" opts="关|2×|4×|8×"></g3d-segmented></g3d-proprow>
+                  </g3d-collapse>
+                  <g3d-collapse v="sub" title="环境光遮蔽">
+                    <g3d-proprow k="强度"><g3d-slider val="50"></g3d-slider></g3d-proprow>
+                  </g3d-collapse>
+                </g3d-collapse>
+              </div>
+              <div style="width: 300px">
+                <g3d-accordion>
+                  <g3d-collapse title="阴影 Shadows" toggle on open>
+                    <g3d-proprow k="柔和度"><g3d-slider val="40"></g3d-slider></g3d-proprow>
+                  </g3d-collapse>
+                  <g3d-collapse title="泛光 Bloom" toggle>
+                    <g3d-proprow k="阈值"><g3d-slider val="80"></g3d-slider></g3d-proprow>
+                  </g3d-collapse>
+                </g3d-accordion>
+                <div class="note">表头开关关闭时正文置灰失效（Unity 组件式）。</div>
+              </div>
+              <div style="width: 300px">
+                <div class="state-label" style="margin: 0 0 6px">互斥 · 单开（overline 微标题）</div>
+                <g3d-accordion exclusive>
+                  <g3d-collapse v="overline" title="导入选项" open>
+                    <g3d-proprow k="单位"><g3d-select grow val="米" opts="米|厘米|英寸"></g3d-select></g3d-proprow>
+                  </g3d-collapse>
+                  <g3d-collapse v="overline" title="坐标系">
+                    <g3d-proprow k="上方向"><g3d-segmented val="+Y" opts="+Y|+Z"></g3d-segmented></g3d-proprow>
+                  </g3d-collapse>
+                  <g3d-collapse v="overline" title="法线">
+                    <g3d-proprow k="重算"><g3d-toggle></g3d-toggle></g3d-proprow>
+                  </g3d-collapse>
+                </g3d-accordion>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="state-label">变体与状态（强制展示）</div>
+            <div class="row" style="align-items: flex-start; gap: var(--s-5); flex-wrap: wrap">
+              <div style="width: 260px"><div class="state-label">展开</div><g3d-collapse ic="cube" title="区段" open><g3d-proprow k="属性"><g3d-toggle on></g3d-toggle></g3d-proprow></g3d-collapse></div>
+              <div style="width: 260px"><div class="state-label">收起 · 带计数</div><g3d-collapse ic="cube" title="区段" count="3"><g3d-proprow k="属性"><g3d-toggle on></g3d-toggle></g3d-proprow></g3d-collapse></div>
+              <div style="width: 260px"><div class="state-label">悬停表头（操作浮现）</div><g3d-collapse ic="cube" title="区段" state="hover" act="plus dots"><g3d-proprow k="属性"><g3d-toggle></g3d-toggle></g3d-proprow></g3d-collapse></div>
+              <div style="width: 260px"><div class="state-label">禁用</div><g3d-collapse ic="cube" title="区段" state="disabled"><g3d-proprow k="属性"><g3d-toggle></g3d-toggle></g3d-proprow></g3d-collapse></div>
+              <div style="width: 260px"><div class="state-label">幽灵（无边框 · 内联）</div><g3d-collapse v="ghost" title="高级选项" open><g3d-proprow k="属性"><g3d-toggle></g3d-toggle></g3d-proprow></g3d-collapse></div>
+              <div style="width: 260px"><div class="state-label">超紧凑 dense</div><g3d-collapse ic="cube" title="区段" den="dense" open><g3d-proprow k="属性"><g3d-segmented val="A" opts="A|B|C"></g3d-segmented></g3d-proprow></g3d-collapse></div>
+            </div>
+            <div class="note">
+              密度：<code>den="compact|dense"</code> 压低表头与正文内边距；变体：<code>v="sub"</code> 嵌套子面板缩进弱化、<code>v="ghost"</code> 去边框内联、<code>v="overline"</code> 大写微标题（VS Code 侧栏式）。
+              展开过渡用 <code>grid-rows 0fr↔1fr</code> 近似，桌面 ImGui 端对应 <code>CollapsingHeader</code> 即时展开。
+            </div>
+          </div>
+        </section>
+
         <!-- ===================== CARDS ===================== -->
         <section class="block" id="cards">
           <h2>卡片</h2>
@@ -2241,6 +2611,34 @@
           "g3d-divider": () => `<div class="divider"></div>`,
           "g3d-proprow": (el) => `<div class="proprow"><span class="k">${a(el, "k")}</span><span class="v">${inner(el)}</span></div>`,
 
+          // — collapse / accordion —
+          "g3d-collapse": (el) => {
+            const c = cls("collapse", a(el, "v"), a(el, "den"), stateCls(a(el, "state")), has(el, "open") ? "open" : "");
+            const tw = `<span class="collapse-tw"><svg class="icon"><use href="#i-chevron" /></svg></span>`;
+            const ic = has(el, "ic")
+              ? `<svg class="${cls("icon collapse-ic", a(el, "icv"))}"><use href="#i-${a(el, "ic")}" /></svg>`
+              : "";
+            const title = `<span class="collapse-title">${a(el, "title")}</span>`;
+            const count = has(el, "count") ? `<span class="collapse-count">${a(el, "count")}</span>` : "";
+            // trailing hover actions (icon names, space-separated) — same affordance as the tree
+            const acts = a(el, "act")
+              .split(" ")
+              .filter(Boolean)
+              .map((n) => `<button class="collapse-act" data-stop title="${n}">${icon(n)}</button>`)
+              .join("");
+            const actions = acts ? `<span class="collapse-actions">${acts}</span>` : "";
+            // optional enable toggle (Unity-style); off → body dims (handled in init)
+            const tgl = has(el, "toggle")
+              ? `<span class="toggle${has(el, "on") ? " on" : ""}" data-toggle data-stop></span>`
+              : "";
+            const head = `<div class="collapse-head">${tw}${ic}${title}<span class="collapse-spacer"></span>${count}${actions}${tgl}</div>`;
+            // 3 levels: body(grid animates rows) > clip(overflow:hidden, the grid item) > inner(padding)
+            const body = `<div class="collapse-body"><div class="collapse-clip"><div class="collapse-body-inner">${inner(el)}</div></div></div>`;
+            return `<div class="${c}" data-collapse>${head}${body}</div>`;
+          },
+          "g3d-accordion": (el) =>
+            `<div class="${cls("accordion", a(el, "v"))}"${has(el, "exclusive") ? " data-accordion-exclusive" : ""}>${inner(el)}</div>`,
+
           // — tree / outliner —
           "g3d-tree": (el) => {
             const id = has(el, "id") ? ` id="${a(el, "id")}"` : "";
@@ -2390,31 +2788,58 @@
         requestAnimationFrame(move);
       });
 
-      // Dropdown / select
-      document.querySelectorAll("[data-dropdown]").forEach((dd) => {
-        const trigger = dd.querySelector(".select-trigger");
-        const val = dd.querySelector(".val");
-        trigger.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const open = dd.classList.contains("open");
-          document
-            .querySelectorAll("[data-dropdown].open")
-            .forEach((o) => o.classList.remove("open"));
-          dd.classList.toggle("open", !open);
-        });
-        dd.querySelectorAll(".menu-item").forEach((item) => {
-          item.addEventListener("click", (e) => {
-            e.stopPropagation();
-            dd.querySelectorAll(".menu-item").forEach((m) => m.classList.remove("is-selected"));
-            item.classList.add("is-selected");
-            if (val) val.textContent = item.firstChild.textContent.trim();
+      // Dropdown / select — popup is PORTALED to <body> while open and positioned (fixed)
+      // at the trigger, so it escapes any overflow:hidden / scroll ancestor (accordion clip,
+      // inspector). Standard floating-UI pattern; mirrors ImGui's overlay combo popup.
+      (() => {
+        const closeAll = (except) =>
+          document.querySelectorAll("[data-dropdown].open").forEach((o) => {
+            if (o !== except && o._close) o._close();
+          });
+        document.querySelectorAll("[data-dropdown]").forEach((dd) => {
+          const trigger = dd.querySelector(".select-trigger");
+          const menu = dd.querySelector(".menu");
+          const val = dd.querySelector(".val");
+          const place = () => {
+            const r = trigger.getBoundingClientRect();
+            menu.style.left = r.left + "px";
+            menu.style.top = r.bottom + 6 + "px";
+            menu.style.width = r.width + "px";
+          };
+          const open = () => {
+            closeAll(dd);
+            document.body.appendChild(menu); // portal out of clipping ancestors
+            place();
+            dd.classList.add("open");
+            menu.classList.add("open");
+            window.addEventListener("scroll", place, true);
+            window.addEventListener("resize", place);
+          };
+          const close = () => {
             dd.classList.remove("open");
+            menu.classList.remove("open");
+            if (menu.parentElement !== dd) dd.appendChild(menu); // restore canonical DOM
+            window.removeEventListener("scroll", place, true);
+            window.removeEventListener("resize", place);
+          };
+          dd._close = close;
+          trigger.addEventListener("click", (e) => {
+            e.stopPropagation();
+            dd.classList.contains("open") ? close() : open();
+          });
+          // clicks inside the (portaled) menu must not bubble to the document closer
+          menu.addEventListener("click", (e) => e.stopPropagation());
+          menu.querySelectorAll(".menu-item").forEach((item) => {
+            item.addEventListener("click", () => {
+              menu.querySelectorAll(".menu-item").forEach((m) => m.classList.remove("is-selected"));
+              item.classList.add("is-selected");
+              if (val) val.textContent = item.firstChild.textContent.trim();
+              close();
+            });
           });
         });
-      });
-      document.addEventListener("click", () => {
-        document.querySelectorAll("[data-dropdown].open").forEach((o) => o.classList.remove("open"));
-      });
+        document.addEventListener("click", () => closeAll());
+      })();
       // Draggable sliders
       document.querySelectorAll("[data-slider]").forEach((sl) => {
         const track = sl.querySelector(".track");
@@ -2545,6 +2970,42 @@
           });
         });
       })();
+
+      // Collapse / accordion: header toggles .open (body height animates via grid-rows).
+      // [data-stop] elements (enable toggle, row actions) don't trigger collapse.
+      // An exclusive accordion closes its siblings when one opens.
+      document.querySelectorAll("[data-collapse]").forEach((c) => {
+        const head = c.querySelector(".collapse-head");
+        const disabled = () => c.classList.contains("is-disabled");
+        head.tabIndex = disabled() ? -1 : 0;
+        const toggleOpen = () => {
+          if (disabled()) return;
+          const willOpen = !c.classList.contains("open");
+          const acc = c.parentElement;
+          if (willOpen && acc && acc.hasAttribute("data-accordion-exclusive")) {
+            [...acc.children].forEach((sib) => sib !== c && sib.classList.remove("open"));
+          }
+          c.classList.toggle("open", willOpen);
+        };
+        head.addEventListener("click", (e) => {
+          if (e.target.closest("[data-stop]")) return; // toggle / action buttons
+          toggleOpen();
+        });
+        head.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggleOpen();
+          }
+        });
+        // enable toggle (if any) dims the body when off; the global [data-toggle]
+        // handler already flipped .on by the time this listener fires.
+        const tgl = head.querySelector(":scope > .toggle[data-toggle]");
+        if (tgl) {
+          const sync = () => c.classList.toggle("body-off", !tgl.classList.contains("on"));
+          sync();
+          tgl.addEventListener("click", sync);
+        }
+      });
     </script>
   </body>
 </html>
