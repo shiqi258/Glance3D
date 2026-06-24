@@ -650,10 +650,13 @@ public:
     ren->SetUIDeltaTime(deltaTime);
     ren->SetTotalTime(ren->GetTotalTime() + deltaTime);
 
-    // Determine if we need a full render or just a UI render
-    // At the moment, only TAA requires a full render each frame
+    // Determine if we need a full render or just a UI render.
+    // TAA needs a full render each frame; the control-panel "push" needs one for the duration of its
+    // slide so the shrinking 3D viewport re-renders at its new size each frame (a UI-only render
+    // skips the 3D passes and would leave the scene texture at the previous size).
     bool forceRender = (this->Options.render.effect.antialiasing.enable &&
-      this->Options.render.effect.antialiasing.mode == "taa");
+                         this->Options.render.effect.antialiasing.mode == "taa") ||
+      ren->IsControlPanelAnimating();
 
     if (this->RenderRequested || forceRender)
     {

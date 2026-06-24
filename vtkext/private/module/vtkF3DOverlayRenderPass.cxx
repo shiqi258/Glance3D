@@ -38,7 +38,17 @@ void vtkF3DOverlayRenderPass::Render(const vtkRenderState* s)
     this->OverlayProps.data(), static_cast<int>(this->OverlayProps.size()));
   overlayState.SetFrameBuffer(s->GetFrameBuffer());
 
+  // The control-panel "push" shrinks the renderer viewport to the central rect, but the UI (ImGui,
+  // sized to the full window) must stay full-window so the docked bars are not clipped. Render the
+  // overlay props into a full-window texture regardless of the (possibly central) renderer viewport,
+  // then restore it for the scene composite below. ImGui's DisplaySize already uses the full window.
+  double savedViewport[4];
+  r->GetViewport(savedViewport);
+  r->SetViewport(0.0, 0.0, 1.0, 1.0);
+
   this->OverlayPass->Render(&overlayState);
+
+  r->SetViewport(savedViewport);
   r->SetBackground(bgColor);
 
   this->CompositeOverlay(s);
@@ -140,10 +150,22 @@ void vtkF3DOverlayRenderPass::CompositeOverlay(const vtkRenderState* s)
     this->FrameBufferObject->SetContext(renWin);
   }
 
+  // Render the 3D scene delegate into ColorTexture at the central rect's SIZE but with the renderer
+  // viewport ORIGIN zeroed. The inner chain (vtkOpenGLCamera::Render, FXAA, SSAA, the F3D blend
+  // quad) re-applies the renderer's window-space origin via glViewport; against the central-sized
+  // FBO that would shift the scene out of bounds. Zeroing the origin (size, hence aspect ratio,
+  // unchanged) keeps them correct — the central offset is re-applied only at the final full-window
+  // composite below (the scene texcoord remap).
+  double savedViewport[4];
+  r->GetViewport(savedViewport);
+  r->SetViewport(0.0, 0.0, savedViewport[2] - savedViewport[0], savedViewport[3] - savedViewport[1]);
+
   renWin->GetState()->PushFramebufferBindings();
   this->RenderDelegate(
     s, size[0], size[1], size[0], size[1], this->FrameBufferObject, this->ColorTexture);
   renWin->GetState()->PopFramebufferBindings();
+
+  r->SetViewport(savedViewport);
 
   if (!this->QuadHelper)
   {
@@ -152,6 +174,10 @@ void vtkF3DOverlayRenderPass::CompositeOverlay(const vtkRenderState* s)
     vtkShaderProgram::Substitute(FSSource, "//VTK::FSQ::Decl",
       "uniform sampler2D texScene;\n"
       "uniform sampler2D texOverlay;\n"
+      // Central rect (normalized window coords) the (central-sized) scene texture maps into. {0,0}
+      // and {1,1} when the panel is closed, i.e. the scene fills the whole window as before.
+      "uniform vec2 uSceneMin;\n"
+      "uniform vec2 uSceneSize;\n"
       "vec3 toLinear(vec3 color) { return pow(color.rgb, vec3(2.2)); }\n"
       "vec3 toSRGB(vec3 color) { return pow(color.rgb, vec3(1.0 / 2.2)); }\n"
       "//VTK::FSQ::Decl");
@@ -165,9 +191,14 @@ void vtkF3DOverlayRenderPass::CompositeOverlay(const vtkRenderState* s)
       "  ovlSample.rgb *= ovlSample.a;\n"
       "//VTK::FSQ::Impl");
 
-    // the scene texture is not alpha premultiplied, so it should not be divided
+    // the scene texture is not alpha premultiplied, so it should not be divided.
+    // The quad is drawn full-window (so the full-window overlay/bars composite), but the scene
+    // texture only covers the central rect, so its texcoord is remapped into [uSceneMin, +uSceneSize].
+    // Outside that rect we are under an opaque bar (overlay alpha == 1), so the clamped scene sample
+    // there is fully covered and never seen.
     vtkShaderProgram::Substitute(FSSource, "//VTK::FSQ::Impl",
-      "  vec4 sceneSample = texture(texScene, texCoord);\n"
+      "  vec2 sceneCoord = (texCoord - uSceneMin) / uSceneSize;\n"
+      "  vec4 sceneSample = texture(texScene, sceneCoord);\n"
       "  vec3 initialSceneColor = sceneSample.rgb;\n"
       "  sceneSample.rgb = toLinear(sceneSample.rgb);\n"
       "  sceneSample.rgb *= sceneSample.a;\n"
@@ -211,10 +242,22 @@ void vtkF3DOverlayRenderPass::CompositeOverlay(const vtkRenderState* s)
     "texOverlay", this->OverlayPass->GetColorTexture()->GetTextureUnit());
   this->QuadHelper->Program->SetUniformi("texScene", this->ColorTexture->GetTextureUnit());
 
+  // The composite quad covers the FULL window so the full-window overlay (and the docked bars
+  // outside the central rect) are drawn. The central rect [pos,size] — where the central-sized scene
+  // texture lives — is passed normalized so the shader maps the scene into it. When the panel is
+  // closed pos/size span the whole window, so this is identical to a plain full-window blit.
+  const int* winSize = renWin->GetSize();
+  const float fw = static_cast<float>(winSize[0] > 0 ? winSize[0] : 1);
+  const float fh = static_cast<float>(winSize[1] > 0 ? winSize[1] : 1);
+  const float sceneMin[2] = { pos[0] / fw, pos[1] / fh };
+  const float sceneSize[2] = { size[0] / fw, size[1] / fh };
+  this->QuadHelper->Program->SetUniform2f("uSceneMin", sceneMin);
+  this->QuadHelper->Program->SetUniform2f("uSceneSize", sceneSize);
+
   ostate->vtkglDisable(GL_BLEND);
   ostate->vtkglDisable(GL_DEPTH_TEST);
-  ostate->vtkglViewport(pos[0], pos[1], size[0], size[1]);
-  ostate->vtkglScissor(pos[0], pos[1], size[0], size[1]);
+  ostate->vtkglViewport(0, 0, winSize[0], winSize[1]);
+  ostate->vtkglScissor(0, 0, winSize[0], winSize[1]);
 
   this->QuadHelper->Render();
 

@@ -109,6 +109,22 @@ private:
   void RenderControlPanel(vtkOpenGLRenderWindow* renWin) override;
 
   /**
+   * Advance the panel slide once per frame, pre-pass and self-timed (steady_clock). See base class.
+   */
+  void UpdateControlPanelSlide() override;
+
+  /**
+   * True while the panel slide has not settled at the state implied by the current visibility.
+   */
+  bool IsControlPanelAnimating() override;
+
+  /**
+   * The central VTK viewport (normalized, y-up) the 3D scene must occupy for the current eased open
+   * fraction; full window when closed. See base class.
+   */
+  void GetControlPanelViewport(const int windowSize[2], double vp[4]) override;
+
+  /**
    * Render the console widget
    */
   void RenderConsole(bool) override;
@@ -139,9 +155,9 @@ private:
   float CalcBadgeWidth(const std::string& text);
 
   /**
-   * Advance the control panel / FAB animation once per frame (eased slide + fade). Idempotent
-   * within a frame (the shared G3DFrameClock yields the delta only once per frame), so it is safe to
-   * call from both RenderControlPanel and RenderControlToggle regardless of order.
+   * Advance the FAB (toggle button) opacity/idle animation once per frame. Called from
+   * RenderControlToggle, inside the ImGui frame. The panel slide is advanced separately, pre-pass,
+   * in UpdateControlPanelSlide so the bars and the 3D viewport read the same eased fraction.
    */
   void AdvanceControlAnim();
 
@@ -159,14 +175,17 @@ private:
    * G3DAnimation helpers. The interactive event loop re-renders the UI every tick, which is what
    * drives these transitions forward.
    */
-  G3DFrameClock ControlClock;     ///< per-frame steady_clock delta source
-  G3DAnimatedFloat PanelAnim;     ///< panel slide progress, 0 closed .. 1 open
+  G3DFrameClock ControlClock;     ///< per-frame steady_clock delta source (FAB, ticked in-pass)
+  G3DAnimatedFloat PanelAnim;     ///< panel slide progress, 0 closed .. 1 open (advanced pre-pass)
   G3DAnimatedFloat FabAlpha;      ///< FAB opacity, eased for fade in/out
   G3DAnimatedFloat FabHover;      ///< FAB hover progress (eased), lifts the glass fill
   G3DAnimatedFloat FabPress;      ///< FAB press progress (eased), drives the press scale
   G3DFrameClock FabInteractClock; ///< per-frame delta for FAB hover/press (ticked in RenderControlToggle)
+  G3DFrameClock SlideClock;       ///< steady_clock delta for the pre-pass panel slide advance
+  int SlideFrame = 0;             ///< ever-incrementing id so SlideClock yields a real delta per call
   double ControlIdleSec = 0.0;    ///< seconds since last viewport activity (FAB idle auto-hide)
-  bool ControlAnimInit = false;   ///< false until the first frame snaps to the initial state
+  bool ControlAnimInit = false;   ///< false until the first frame snaps the FAB to its initial state
+  bool PanelAnimInit = false;     ///< false until the first pre-pass frame snaps the slide
   ///@}
 };
 

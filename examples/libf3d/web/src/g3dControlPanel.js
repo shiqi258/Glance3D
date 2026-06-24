@@ -47,6 +47,10 @@ export function initG3DControlPanel(engine) {
   const sync = () => {
     const open = isOpen();
     panel.classList.toggle("is-open", open);
+    // Expand the right grid column on #main: this physically pushes (shrinks) the canvas, and the
+    // ResizeObserver on the canvas (main.js) re-sizes the WebGL render so the 3D view re-fits as it
+    // narrows — the web counterpart of the desktop viewport "push".
+    host.classList.toggle("g3d-pushing", open);
     fab.classList.toggle("is-active", open);
     fab.setAttribute("aria-pressed", String(open));
     if (open) {

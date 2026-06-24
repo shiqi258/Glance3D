@@ -298,20 +298,21 @@ f3d(settings)
     });
 
     // Keep the WebGL drawing buffer in sync with the canvas's displayed size.
-    // The canvas now fills the page via CSS (#main flexes to fill the viewport),
-    // so the render size must track the layout — both at startup and on every
-    // window/layout resize. devicePixelRatio scaling keeps the output crisp on
-    // HiDPI displays.
-    const main = document.getElementById("main");
+    // The canvas sits in the center cell of the #main grid; when the control panel opens it takes a
+    // real column and the canvas cell physically shrinks (the "push"). We therefore observe and
+    // measure the CANVAS box itself (not #main, which keeps its size) so the render size — and hence
+    // the 3D framing — tracks the canvas both at startup and through the 0.22s slide. devicePixelRatio
+    // scaling keeps the output crisp on HiDPI displays.
+    const canvas = Module.canvas || document.getElementById("canvas");
     const resizeWindowToCanvas = () => {
       const scale = window.devicePixelRatio || 1;
-      const renderWidth = Math.max(1, Math.round(scale * main.clientWidth));
-      const renderHeight = Math.max(1, Math.round(scale * main.clientHeight));
+      const renderWidth = Math.max(1, Math.round(scale * canvas.clientWidth));
+      const renderHeight = Math.max(1, Math.round(scale * canvas.clientHeight));
       Module.engineInstance.getWindow().setSize(renderWidth, renderHeight);
       Module.engineInstance.getWindow().render();
       logViewerState("window sized", {
-        mainClientWidth: main.clientWidth,
-        mainClientHeight: main.clientHeight,
+        canvasClientWidth: canvas.clientWidth,
+        canvasClientHeight: canvas.clientHeight,
         renderWidth,
         renderHeight,
       });
@@ -319,9 +320,9 @@ f3d(settings)
     resizeWindowToCanvas();
 
     if (typeof ResizeObserver !== "undefined") {
-      // ResizeObserver fires an initial callback on observe() and again whenever
-      // the canvas box changes (window resize, sidebar/devtools toggling, etc.).
-      new ResizeObserver(() => resizeWindowToCanvas()).observe(main);
+      // ResizeObserver fires on observe() and again whenever the canvas box changes — including each
+      // animation frame of the panel's grid-column transition, so the push narrows smoothly.
+      new ResizeObserver(() => resizeWindowToCanvas()).observe(canvas);
     } else {
       window.addEventListener("resize", resizeWindowToCanvas);
     }

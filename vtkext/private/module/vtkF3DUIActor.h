@@ -241,6 +241,40 @@ public:
   }
 
   /**
+   * Advance the docked control-panel slide animation by one frame. Called once per frame by the
+   * renderer BEFORE the render pass so the 3D viewport (derived from the eased fraction) and the
+   * bars (drawn during the UI pass) read the same value with no one-frame seam. Self-timed
+   * (steady_clock) in the concrete actor. No-op when there is no immediate-mode UI.
+   */
+  virtual void UpdateControlPanelSlide()
+  {
+  }
+
+  /**
+   * True while the control-panel slide is mid-animation (or has not yet reached the state implied by
+   * the current visibility). Drives forced full renders so the shrinking 3D viewport re-renders at
+   * the new size each frame. False by default.
+   */
+  virtual bool IsControlPanelAnimating()
+  {
+    return false;
+  }
+
+  /**
+   * Central viewport the 3D scene must occupy while the control panel is open, in VTK normalized
+   * coordinates {xmin,ymin,xmax,ymax} in [0,1], y-up. Returns the full window {0,0,1,1} when the
+   * panel is closed (so the default preview state is unchanged). @p windowSize is the render window
+   * pixel size used for the pixel->normalized conversion and y-flip.
+   */
+  virtual void GetControlPanelViewport(const int[2], double vp[4])
+  {
+    vp[0] = 0.0;
+    vp[1] = 0.0;
+    vp[2] = 1.0;
+    vp[3] = 1.0;
+  }
+
+  /**
    * Add notification info to deque
    */
   void AddNotification(const std::string& desc, const std::string& value, const std::string& bind,

@@ -93,6 +93,58 @@ inline Result Compute(const Rect& work, const Sizes& s, float frac)
   return o;
 }
 
+/// Fully-open thicknesses of the four docked bars, in pixels at UI scale 1.0. Kept here (not in the
+/// ImGui actor) so the renderer derives the central VTK viewport from the SAME numbers the bars are
+/// drawn with — a single source of truth for both presenters. The right bar matches the inspector
+/// panel width.
+inline constexpr float BAR_TOP_H = 44.f;
+inline constexpr float BAR_BOTTOM_H = 40.f;
+inline constexpr float BAR_LEFT_W = 240.f;
+inline constexpr float BAR_RIGHT_W = 300.f;
+
+/// Build the (scale-multiplied) fully-open bar sizes for the layout solver.
+inline Sizes DefaultBarSizes(float scale)
+{
+  return Sizes{ BAR_TOP_H * scale, BAR_LEFT_W * scale, BAR_RIGHT_W * scale, BAR_BOTTOM_H * scale };
+}
+
+/**
+ * Convert the central rect (pixels, y-down, top-left origin — ImGui convention) into a VTK
+ * normalized viewport {xmin,ymin,xmax,ymax} in [0,1], y-up (bottom-left origin).
+ *
+ * This is the ONE place the y axis is flipped between the UI (which draws the bars, y-down) and the
+ * 3D viewport (VTK, y-up); getting it wrong puts the scene in the wrong vertical band. @p W / @p H
+ * are the window pixel size. The result is clamped into [0,1] with a minimum strictly-positive
+ * extent so VTK never receives a degenerate viewport (which would break the projection).
+ */
+inline void CenterToVTKViewport(const Rect& center, int W, int H, double out[4])
+{
+  const double w = (W > 0) ? static_cast<double>(W) : 1.0;
+  const double h = (H > 0) ? static_cast<double>(H) : 1.0;
+  double x0 = center.x / w;
+  double y0 = (h - (static_cast<double>(center.y) + center.h)) / h; // y-down top -> y-up bottom
+  double x1 = (static_cast<double>(center.x) + center.w) / w;
+  double y1 = (h - center.y) / h;
+
+  constexpr double minExtent = 0.01;
+  x0 = std::clamp(x0, 0.0, 1.0);
+  y0 = std::clamp(y0, 0.0, 1.0);
+  x1 = std::clamp(x1, 0.0, 1.0);
+  y1 = std::clamp(y1, 0.0, 1.0);
+  if (x1 - x0 < minExtent)
+  {
+    x1 = std::min(1.0, x0 + minExtent);
+  }
+  if (y1 - y0 < minExtent)
+  {
+    y1 = std::min(1.0, y0 + minExtent);
+  }
+  out[0] = x0;
+  out[1] = y0;
+  out[2] = x1;
+  out[3] = y1;
+}
+
 } // namespace G3DLayout
 
 #endif

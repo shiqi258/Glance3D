@@ -535,6 +535,12 @@ public:
    */
   void SetUIDeltaTime(double time);
 
+  /**
+   * True while the docked control panel is sliding open/closed. The interactor uses this to force
+   * full (not UI-only) renders during the slide so the shrinking 3D viewport re-renders each frame.
+   */
+  bool IsControlPanelAnimating();
+
   //@{
   /**
    * Set/Get the total application time in seconds
@@ -617,6 +623,15 @@ private:
    * Configure the different render passes
    */
   void ConfigureRenderPasses();
+
+  /**
+   * Pre-pass control-panel "push": advance the slide animation (self-timed), then drive the renderer
+   * viewport to the central rect between the docked bars and, when that rect changed because of the
+   * slide (not a window resize), compensate the camera zoom so the model keeps its apparent size
+   * (policy B — preserve the user's framing). Called once per frame at the top of Render(); a no-op
+   * (full-window viewport, untouched camera) whenever the panel is closed.
+   */
+  void UpdateControlPanelPush();
 
   /**
    * Rotate camera and apply up direction to scene.
@@ -709,6 +724,15 @@ private:
   vtkNew<vtkF3DOpenGLGridMapper> GridMapper;
   vtkNew<vtkSkybox> SkyboxActor;
   vtkNew<vtkF3DUIActor> UIActor;
+
+  // Control-panel "push": each frame the renderer viewport is driven to the central rect between the
+  // docked bars (full window when the panel is closed). ControlPanelViewport caches the last applied
+  // normalized viewport so we only re-fit when it changes; ControlPanelPrevCenterH caches its
+  // normalized height for the policy-B zoom compensation that preserves the user's framing as the
+  // viewport shrinks (negative = uninitialized / reset on window resize).
+  double ControlPanelViewport[4] = { 0.0, 0.0, 1.0, 1.0 };
+  double ControlPanelPrevCenterH = -1.0;
+  int ControlPanelPrevWinSize[2] = { -1, -1 };
 
   unsigned int Timer = 0; // Timer OpenGL query
 

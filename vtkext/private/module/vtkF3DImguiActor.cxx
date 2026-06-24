@@ -73,26 +73,14 @@ constexpr float LOADING_TWO_PI = 6.2831853071795864769f;
 constexpr float LOADING_SPIN_PERIOD_SEC = 4.4f; // seconds per revolution (slow, calm)
 
 // Control panel (FAB + sliding panel) geometry and animation tuning. Grouped so the feel is easy
-// to retune in one place.
-constexpr float CONTROL_PANEL_WIDTH = 300.f;    // right (inspector) bar width when fully open
+// to retune in one place. The fully-open bar thicknesses themselves live in G3DLayout.h
+// (G3DLayout::DefaultBarSizes) so the renderer derives the central viewport from the same numbers;
+// CONTROL_PANEL_WIDTH below mirrors G3DLayout::BAR_RIGHT_W and is reused only to place the FAB.
+constexpr float CONTROL_PANEL_WIDTH = G3DLayout::BAR_RIGHT_W; // right (inspector) bar width, open
 constexpr float CONTROL_FAB_SIZE = 40.f;        // toggle button (FAB) size
 constexpr double CONTROL_PANEL_ANIM_SEC = 0.22; // panel slide in/out duration
 constexpr double CONTROL_FAB_FADE_SEC = 0.18;   // FAB fade in/out duration
 constexpr double CONTROL_FAB_IDLE_SEC = 2.5;    // idle before the FAB starts fading out
-
-// Fully-open thicknesses of the four docked bars (pixels at FontScale 1.0). The right bar reuses
-// the inspector width above; the others are sized for their PR1 content (left = scene tree).
-constexpr float CONTROL_BAR_TOP_H = 44.f;
-constexpr float CONTROL_BAR_BOTTOM_H = 40.f;
-constexpr float CONTROL_BAR_LEFT_W = 240.f;
-constexpr float CONTROL_BAR_RIGHT_W = CONTROL_PANEL_WIDTH;
-
-// Build the (scaled) fully-open bar sizes for the layout solver.
-inline G3DLayout::Sizes ControlBarSizes(float scale)
-{
-  return G3DLayout::Sizes{ CONTROL_BAR_TOP_H * scale, CONTROL_BAR_LEFT_W * scale,
-    CONTROL_BAR_RIGHT_W * scale, CONTROL_BAR_BOTTOM_H * scale };
-}
 
 const inline ImVec4 ColorToImVec4(const std::array<double, 3>& color)
 {
@@ -1388,11 +1376,65 @@ void vtkF3DImguiActor::RenderFpsCounter()
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DImguiActor::UpdateControlPanelSlide()
+{
+  // The panel SLIDE is advanced here, once per frame, BEFORE the render pass (the renderer calls
+  // this ahead of Superclass::Render). That keeps the two consumers of the eased fraction in
+  // lockstep: the 3D viewport the renderer derives from it, and the bars drawn during the UI pass.
+  // Self-timed on steady_clock (via a dedicated clock fed an ever-incrementing id) so it keeps
+  // ticking even while a blocking load stalls the ImGui frame clock — same reasoning as the loading
+  // overlay spinner.
+  const double dt = this->SlideClock.Tick(++this->SlideFrame);
+  const float target = this->ControlPanelVisible ? 1.f : 0.f;
+
+  if (!this->PanelAnimInit)
+  {
+    // Snap on the first frame so a single offscreen/headless render shows the correct end state.
+    this->PanelAnim.Snap(target);
+    this->PanelAnimInit = true;
+    return;
+  }
+
+  this->PanelAnim.AnimateTo(target);
+  this->PanelAnim.Update(dt);
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DImguiActor::IsControlPanelAnimating()
+{
+  // Animating while the eased value is still in flight OR has not yet reached the state implied by
+  // the current visibility (covers the frame right after a toggle, before the first advance runs).
+  const float target = this->ControlPanelVisible ? 1.f : 0.f;
+  return this->PanelAnim.IsAnimating() || this->PanelAnim.Value() != target;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::GetControlPanelViewport(const int windowSize[2], double vp[4])
+{
+  const float eased = this->PanelAnim.Value();
+  const int W = windowSize[0];
+  const int H = windowSize[1];
+  if (eased < 0.002f || W < 1 || H < 1)
+  {
+    vp[0] = 0.0;
+    vp[1] = 0.0;
+    vp[2] = 1.0;
+    vp[3] = 1.0;
+    return;
+  }
+
+  const float scale = static_cast<float>(this->FontScale);
+  const G3DLayout::Rect work{ 0.f, 0.f, static_cast<float>(W), static_cast<float>(H) };
+  const G3DLayout::Result r = G3DLayout::Compute(work, G3DLayout::DefaultBarSizes(scale), eased);
+  G3DLayout::CenterToVTKViewport(r.center, W, H, vp);
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiActor::AdvanceControlAnim()
 {
-  // One shared frame clock advances the animation exactly once per frame: it yields the real delta
-  // the first time it is asked in a new frame and 0 afterwards, so calling this from both
-  // RenderControlPanel and RenderControlToggle (in either order) never double-advances.
+  // FAB-only animation (opacity fade + idle auto-hide). The panel SLIDE is advanced pre-pass in
+  // UpdateControlPanelSlide so the 3D viewport and the bars stay in lockstep; the FAB lives entirely
+  // in the full-window UI texture, so its timing can stay on the ImGui frame clock here.
   const double dt = this->ControlClock.Tick(ImGui::GetFrameCount());
 
   // Mouse movement / clicks count as activity and refresh the FAB idle timer.
@@ -1401,7 +1443,6 @@ void vtkF3DImguiActor::AdvanceControlAnim()
     io.MouseDown[1] || io.MouseDown[2];
   this->ControlIdleSec = mouseActive ? 0.0 : this->ControlIdleSec + dt;
 
-  const float panelTarget = this->ControlPanelVisible ? 1.f : 0.f;
   // The FAB stays visible while the panel is open/animating (it is the panel's handle); otherwise it
   // shows only while the viewport was recently active.
   const bool fabWanted = this->ControlPanelVisible || this->PanelAnim.Value() > 0.001f ||
@@ -1411,15 +1452,12 @@ void vtkF3DImguiActor::AdvanceControlAnim()
   if (!this->ControlAnimInit)
   {
     // Snap on the first frame so a single offscreen/headless render shows the correct end state.
-    this->PanelAnim.Snap(panelTarget);
     this->FabAlpha.Snap(fabTarget);
     this->ControlAnimInit = true;
     return;
   }
 
-  this->PanelAnim.AnimateTo(panelTarget);
   this->FabAlpha.AnimateTo(fabTarget);
-  this->PanelAnim.Update(dt);
   this->FabAlpha.Update(dt);
 }
 
@@ -1528,8 +1566,8 @@ void vtkF3DImguiActor::RenderControlToggle()
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 {
-  this->AdvanceControlAnim();
-
+  // The slide fraction is advanced pre-pass in UpdateControlPanelSlide; here we only read it so the
+  // bars match the 3D viewport the renderer derived from the same value this frame.
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   const float eased = this->PanelAnim.Value();
   if (viewport->WorkSize.x < 10 || viewport->WorkSize.y < 10 || eased < 0.002f)
@@ -1540,13 +1578,13 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   const float scale = static_cast<float>(this->FontScale);
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
-  const G3DLayout::Result r = G3DLayout::Compute(work, ::ControlBarSizes(scale), eased);
+  const G3DLayout::Result r = G3DLayout::Compute(work, G3DLayout::DefaultBarSizes(scale), eased);
 
-  // Docked bars are opaque chrome (unlike the floating overlays): they frame the 3D viewport which
-  // keeps rendering full-window underneath, so the model stays visible in the central gap between
-  // them. (Physically shrinking the 3D viewport is deferred — F3D renders the scene into a
-  // viewport-sized FBO, which would crop the ImGui overlay with it; that needs a separate
-  // full-window UI render target.)
+  // Docked bars are opaque chrome that frame the 3D viewport. The scene is physically pushed into
+  // the central gap: the renderer derives its VTK viewport from this same G3DLayout `center` rect
+  // (via GetControlPanelViewport) and vtkF3DOverlayRenderPass composites the (now central-sized)
+  // scene texture into it while keeping this UI texture full-window. So the bars never overlap live
+  // 3D — they tile the area around it.
   ImGuiStyle& style = ImGui::GetStyle();
   style.Colors[ImGuiCol_WindowBg] =
     ImVec4(this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2], 1.0f);

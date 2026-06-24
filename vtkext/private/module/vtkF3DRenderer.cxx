@@ -100,6 +100,7 @@
 
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <numbers>
 #include <sstream>
 
@@ -2184,6 +2185,10 @@ void vtkF3DRenderer::Render()
     this->UpdateNormalGlyphsScale();
   }
 
+  // Drive the viewport "push" (and camera framing) before the render pass runs, so the 3D viewport
+  // and the docked bars read the same eased fraction this frame.
+  this->UpdateControlPanelPush();
+
   if (!this->TimerVisible)
   {
     this->Superclass::Render();
@@ -3711,6 +3716,70 @@ void vtkF3DRenderer::SetCheatSheetConfigured(bool flag)
 void vtkF3DRenderer::SetUIDeltaTime(double time)
 {
   this->UIActor->SetDeltaTime(time);
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DRenderer::IsControlPanelAnimating()
+{
+  return this->UIActor->IsControlPanelAnimating();
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DRenderer::UpdateControlPanelPush()
+{
+  // Advance the panel slide (pre-pass, self-timed on steady_clock) so the viewport derived below and
+  // the bars drawn during the UI pass read the same eased fraction this frame.
+  this->UIActor->UpdateControlPanelSlide();
+
+  int sz[2] = { 0, 0 };
+  if (this->RenderWindow)
+  {
+    const int* s = this->RenderWindow->GetSize();
+    sz[0] = s[0];
+    sz[1] = s[1];
+  }
+  const bool resized =
+    sz[0] != this->ControlPanelPrevWinSize[0] || sz[1] != this->ControlPanelPrevWinSize[1];
+  this->ControlPanelPrevWinSize[0] = sz[0];
+  this->ControlPanelPrevWinSize[1] = sz[1];
+
+  double vp[4];
+  this->UIActor->GetControlPanelViewport(sz, vp);
+
+  constexpr double eps = 1e-4;
+  const double* cur = this->ControlPanelViewport;
+  const bool differs = std::abs(vp[0] - cur[0]) > eps || std::abs(vp[1] - cur[1]) > eps ||
+    std::abs(vp[2] - cur[2]) > eps || std::abs(vp[3] - cur[3]) > eps;
+  if (!differs && !resized)
+  {
+    return; // stable viewport (idle — open or closed): leave the camera and viewport untouched
+  }
+
+  // Policy B (preserve the user's framing): compensate the camera zoom by the inverse central-height
+  // ratio so the model keeps its apparent pixel size as the viewport shrinks/grows during the slide.
+  // Skipped on a window resize (re-baseline only; VTK's own resize framing is kept).
+  if (differs && !resized)
+  {
+    const double prevH = cur[3] - cur[1]; // last applied central-rect normalized height = baseline
+    const double newH = vp[3] - vp[1];
+    vtkCamera* cam = this->GetActiveCamera();
+    if (cam && prevH > 0.0 && newH > 0.0)
+    {
+      const double ratio = prevH / newH;
+      if (std::abs(ratio - 1.0) > eps)
+      {
+        cam->Zoom(ratio); // shorter viewport (ratio>1) -> zoom in to keep the model's pixel size
+      }
+    }
+  }
+
+  this->SetViewport(vp);
+  this->ControlPanelViewport[0] = vp[0];
+  this->ControlPanelViewport[1] = vp[1];
+  this->ControlPanelViewport[2] = vp[2];
+  this->ControlPanelViewport[3] = vp[3];
+
+  this->ResetCameraClippingRange();
 }
 
 //----------------------------------------------------------------------------

@@ -47,17 +47,30 @@
         display: flex;
       }
 
+      /* #main is a grid so the docked panel occupies a real column and physically pushes
+         (shrinks) the canvas cell — the web counterpart of the desktop viewport "push". The
+         column animates 0 -> open over 0.22s; the ResizeObserver on #canvas (see main.js) keeps
+         the WebGL render size in sync, so the 3D view re-fits as it narrows. Extra bars
+         (top/left/bottom) can be added later as more grid tracks without touching the push. */
       #main {
         position: relative;
         flex: 1 1 auto;
         min-height: 0;
         width: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 0px;
+        transition: grid-template-columns 0.22s ease;
+      }
+      #main.g3d-pushing {
+        grid-template-columns: minmax(0, 1fr) min(300px, 80%);
       }
 
       #canvas {
         display: block;
         width: 100%;
         height: 100%;
+        grid-column: 1;
+        min-width: 0;
       }
 
       /* Glance3D control panel — DOM presenter (shares the libf3d `ui.control_panel` state).
@@ -114,28 +127,29 @@
         color: #ffffff;
       }
 
+      /* The panel is the right grid column (column 2). Its width is driven by #main's
+         grid-template-columns (0 when closed), so it pushes the canvas instead of overlaying it.
+         overflow:hidden clips the fixed-width inner content while the column animates, so the
+         text never reflows during the slide. */
       .g3d-control-panel {
-        position: absolute;
-        top: 0;
-        right: 0;
+        grid-column: 2;
+        position: relative;
         height: 100%;
-        width: 300px;
-        max-width: 80%;
-        box-sizing: border-box;
-        padding: 16px;
+        overflow: hidden;
         background: rgba(24, 26, 33, 0.92);
         -webkit-backdrop-filter: blur(10px);
         backdrop-filter: blur(10px);
         color: #eef1ff;
         border-left: 1px solid rgba(255, 255, 255, 0.12);
         box-shadow: -4px 0 16px rgba(0, 0, 0, 0.3);
-        transform: translateX(100%);
-        transition: transform 0.22s ease;
         z-index: 9;
-        overflow-y: auto;
       }
-      .g3d-control-panel.is-open {
-        transform: translateX(0);
+      .g3d-control-panel__inner {
+        width: min(300px, 80vw);
+        height: 100%;
+        box-sizing: border-box;
+        padding: 16px;
+        overflow-y: auto;
       }
       .theme-light .g3d-control-panel {
         background: rgba(250, 250, 252, 0.95);
@@ -303,17 +317,19 @@
                 </svg>
               </button>
               <aside id="g3d-control-panel" class="g3d-control-panel">
-                <p class="g3d-control-panel__title">Inspector (placeholder)</p>
-                <p class="g3d-control-panel__body">
-                  The professional control panel will live here.
-                </p>
-                <button
-                  id="g3d-control-collapse"
-                  class="button is-small"
-                  type="button"
-                >
-                  Collapse
-                </button>
+                <div class="g3d-control-panel__inner">
+                  <p class="g3d-control-panel__title">Inspector (placeholder)</p>
+                  <p class="g3d-control-panel__body">
+                    The professional control panel will live here.
+                  </p>
+                  <button
+                    id="g3d-control-collapse"
+                    class="button is-small"
+                    type="button"
+                  >
+                    Collapse
+                  </button>
+                </div>
               </aside>
             </div>
           </div>
