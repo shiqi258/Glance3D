@@ -25,6 +25,7 @@ export function initG3DControlPanel(engine) {
 
   const options = engine.getOptions();
   const dataInfoEl = document.querySelector("#g3d-data-info");
+  const controlsEl = document.querySelector("#g3d-controls");
 
   // Read-only data-info group, sourced from the shared `scene.getG3DDataInfo()` API (same data the
   // desktop inspector shows). Guarded so a wasm built before this binding existed degrades to an
@@ -90,6 +91,118 @@ export function initG3DControlPanel(engine) {
     }
   };
 
+  // Appearance / Material control groups — the web counterpart of the desktop inspector groups.
+  // Controls read the current option value and write changes straight to the shared libf3d options
+  // (getAsString/setAsString/toggle), then request a render so the change applies immediately.
+  const getStr = (name) => {
+    try {
+      return options.getAsString(name);
+    } catch {
+      return null; // unset-optional / unknown
+    }
+  };
+  const getBool = (name, fallback) => {
+    const v = getStr(name);
+    return v === null ? fallback : v === "true" || v === "1";
+  };
+  const getFloat = (name, fallback) => {
+    const v = parseFloat(getStr(name));
+    return Number.isFinite(v) ? v : fallback;
+  };
+  const rgbToHex = (name, fallback) => {
+    const v = getStr(name);
+    if (!v) return fallback;
+    const p = v.split(",").map((x) => parseFloat(x));
+    if (p.length < 3 || p.some((x) => !Number.isFinite(x))) return fallback;
+    return (
+      "#" +
+      p
+        .slice(0, 3)
+        .map((x) =>
+          Math.round(Math.max(0, Math.min(1, x)) * 255)
+            .toString(16)
+            .padStart(2, "0"),
+        )
+        .join("")
+    );
+  };
+  const hexToRgb = (hex) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return "0,0,0";
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+      .map((c) => Number((c / 255).toFixed(4)))
+      .join(",");
+  };
+  const setOpt = (name, value) => {
+    try {
+      options.setAsString(name, value);
+      engine.getWindow().render();
+    } catch {
+      /* ignore unknown options on stale wasm */
+    }
+  };
+
+  let ctlUid = 0;
+  const toggleRow = (label, name) => {
+    const id = `g3d-ctl-${ctlUid++}`;
+    const row = el("div", "g3d-controls__row");
+    const input = el("input");
+    input.type = "checkbox";
+    input.id = id;
+    input.className = "switch is-rounded is-small";
+    input.checked = getBool(name, false);
+    input.addEventListener("change", () => setOpt(name, input.checked ? "true" : "false"));
+    const lab = el("label", "g3d-controls__label", label);
+    lab.setAttribute("for", id);
+    row.append(input, lab);
+    return row;
+  };
+  const sliderRow = (label, name, fallback) => {
+    const row = el("div", "g3d-controls__row g3d-controls__slider");
+    const input = el("input");
+    input.type = "range";
+    input.min = "0";
+    input.max = "1";
+    input.step = "0.01";
+    input.value = String(getFloat(name, fallback));
+    const valEl = el("span", "g3d-controls__value", Number(input.value).toFixed(2));
+    input.addEventListener("input", () => {
+      valEl.textContent = Number(input.value).toFixed(2);
+      setOpt(name, input.value);
+    });
+    row.append(el("span", "g3d-controls__label", label), input, valEl);
+    return row;
+  };
+  const colorRow = (label, name, fallback) => {
+    const row = el("div", "g3d-controls__row g3d-controls__color");
+    const input = el("input");
+    input.type = "color";
+    input.value = rgbToHex(name, fallback);
+    input.addEventListener("input", () => setOpt(name, hexToRgb(input.value)));
+    row.append(input, el("span", "g3d-controls__label", label));
+    return row;
+  };
+
+  const renderControls = () => {
+    if (!controlsEl) {
+      return;
+    }
+    controlsEl.replaceChildren();
+    controlsEl.append(el("p", "g3d-controls__section", "Appearance"));
+    controlsEl.append(toggleRow("Show edges", "render.show_edges"));
+    controlsEl.append(toggleRow("Grid", "render.grid.enable"));
+    controlsEl.append(toggleRow("Ambient occlusion", "render.effect.ambient_occlusion"));
+    controlsEl.append(toggleRow("Anti-aliasing", "render.effect.antialiasing.enable"));
+    controlsEl.append(toggleRow("Tone mapping", "render.effect.tone_mapping"));
+    controlsEl.append(colorRow("Background", "render.background.color", "#333333"));
+    controlsEl.append(el("p", "g3d-controls__section", "Material"));
+    controlsEl.append(sliderRow("Metallic", "model.material.metallic", 0));
+    controlsEl.append(sliderRow("Roughness", "model.material.roughness", 0.3));
+    controlsEl.append(sliderRow("Opacity", "model.color.opacity", 1));
+    controlsEl.append(colorRow("Base color", "model.color.rgb", "#ffffff"));
+  };
+
   // Prefer the shared, headless libf3d option as the single source of truth (matches desktop). The
   // bundled wasm may predate this option (built before it existed); detect that up front by listing
   // the known option names — which never touches the missing option — and fall back to a DOM-only
@@ -122,14 +235,16 @@ export function initG3DControlPanel(engine) {
       // Never auto-hide the FAB while the panel is open.
       fab.classList.remove("is-idle");
       renderDataInfo(); // refresh the read-only data each time the panel is shown
+      renderControls(); // and reflect current option values into the controls
     }
   };
 
-  // Refresh the data-info when a new file finishes loading, if the panel is open (main.js dispatches
+  // Refresh the inspector when a new file finishes loading, if the panel is open (main.js dispatches
   // this after a successful load). Decoupled via a window event so the presenter stays standalone.
   window.addEventListener("g3d:scene-loaded", () => {
     if (isOpen()) {
       renderDataInfo();
+      renderControls();
     }
   });
 

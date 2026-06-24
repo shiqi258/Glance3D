@@ -202,6 +202,48 @@
         opacity: 0.55;
         margin-top: 8px;
       }
+
+      /* Appearance / Material control groups (web counterpart of the desktop inspector groups). */
+      .g3d-controls {
+        font-size: 0.8125rem;
+      }
+      .g3d-controls__section {
+        font-weight: 600;
+        opacity: 0.55;
+        margin: 14px 0 6px;
+      }
+      .g3d-controls__row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 26px;
+      }
+      .g3d-controls__label {
+        flex: 0 0 auto;
+        cursor: default;
+      }
+      .g3d-controls__slider .g3d-controls__label {
+        flex: 0 0 6.5em;
+      }
+      .g3d-controls__slider input[type="range"] {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .g3d-controls__value {
+        flex: 0 0 2.6em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        opacity: 0.7;
+      }
+      .g3d-controls__color input[type="color"] {
+        width: 26px;
+        height: 18px;
+        padding: 0;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 4px;
+        background: none;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -356,6 +398,7 @@
                 <div class="g3d-control-panel__inner">
                   <p class="g3d-control-panel__title">Inspector</p>
                   <div id="g3d-data-info" class="g3d-data-info"></div>
+                  <div id="g3d-controls" class="g3d-controls"></div>
                   <button
                     id="g3d-control-collapse"
                     class="button is-small"
