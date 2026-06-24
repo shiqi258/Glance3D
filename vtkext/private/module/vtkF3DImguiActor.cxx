@@ -55,6 +55,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -129,65 +130,139 @@ public:
     this->ImporterId = index;
   }
 
+  /**
+   * Bind the actor-owned scene-tree selection (importer index / node id / depth / parent node id) so
+   * the visitor can both highlight the selected row and write the selection back on a row click.
+   */
+  void SetSelection(int* importer, int* node, int* depth, int* parent)
+  {
+    this->SelImporter = importer;
+    this->SelNode = node;
+    this->SelDepth = depth;
+    this->SelParent = parent;
+  }
+
 protected:
   void EndSubTree(int vtkNotUsed(nodeid)) override
   {
-    ImGui::TreePop();
+    --this->Depth;
   }
 
   bool GetTraverseSubtree(int vtkNotUsed(nodeid)) override
   {
-    return this->CurrentNodeOpened;
+    // Descend into open groups only; deepen the indentation for the children we are about to visit.
+    if (this->CurrentOpen)
+    {
+      ++this->Depth;
+    }
+    return this->CurrentOpen;
   }
 
   void Visit(int nodeid) override
   {
-    int flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DrawLinesToNodes;
+    const vtkDataAssembly* asm_ = this->GetAssembly();
+    const int childCount = asm_->GetNumberOfChildren(nodeid);
+    const bool hasChildren = childCount > 0;
+    const bool collapsed = asm_->GetAttributeOrDefault(nodeid, "g3d_collapsed", 0) != 0;
+    const bool visible = asm_->GetAttributeOrDefault(nodeid, "g3d_visible", 1) != 0;
+    this->CurrentOpen = hasChildren && !collapsed;
 
-    if (!this->GetAssembly()->GetAttributeOrDefault(nodeid, "g3d_collapsed", 0))
+    // Track the ancestor path so the selected node's parent guide column can be highlighted.
+    if (static_cast<int>(this->Path.size()) <= this->Depth)
     {
-      flags |= ImGuiTreeNodeFlags_DefaultOpen;
+      this->Path.resize(this->Depth + 1);
+    }
+    this->Path[this->Depth] = nodeid;
+    const int parent = this->Depth > 0 ? this->Path[this->Depth - 1] : -1;
+
+    G3DWidgets::TreeRowDesc row;
+    row.depth = this->Depth;
+    row.twisty = !hasChildren ? G3DWidgets::TreeTwisty::Leaf
+                              : (collapsed ? G3DWidgets::TreeTwisty::Collapsed
+                                           : G3DWidgets::TreeTwisty::Open);
+
+    // Icon by role: root = collection, inner group = folder, leaf = mesh.
+    if (this->Depth == 0)
+    {
+      row.icon = G3DIconId::Layers;
+      row.iconVariant = G3DWidgets::TreeIconVariant::Root;
+    }
+    else if (hasChildren)
+    {
+      row.icon = this->CurrentOpen ? G3DIconId::FolderOpen : G3DIconId::Folder;
+      row.iconVariant = G3DWidgets::TreeIconVariant::Folder;
+    }
+    else
+    {
+      row.icon = G3DIconId::Cube;
+      row.iconVariant = G3DWidgets::TreeIconVariant::Default;
     }
 
-    if (this->GetAssembly()->GetNumberOfChildren(nodeid) == 0)
+    const char* defaultLabel = hasChildren ? "<group>" : "<object>";
+    row.label = asm_->GetAttributeOrDefault(nodeid, "label", defaultLabel);
+    const std::string metaStr = hasChildren ? std::to_string(childCount) : std::string();
+    row.meta = hasChildren ? metaStr.c_str() : nullptr;
+    // styleguide: only the root collection is brightened; inner folders share the muted label color
+    // and are distinguished by their folder icon, not text weight.
+    row.group = this->Depth == 0;
+    row.hidden = !visible;
+    row.showVisibility = true;
+    row.visible = visible;
+
+    // Selection state + parent-guide highlight (only within the selected importer's tree).
+    const bool isSelected =
+      this->SelImporter && *this->SelImporter == this->ImporterId && *this->SelNode == nodeid;
+    row.selected = isSelected;
+    row.focused = isSelected;
+    if (this->SelImporter && *this->SelImporter == this->ImporterId && *this->SelDepth >= 1 &&
+      this->Depth >= *this->SelDepth &&
+      this->Path[*this->SelDepth - 1] == *this->SelParent)
     {
-      flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
+      row.activeGuide = *this->SelDepth - 1;
     }
 
     // this is only used internally by imgui, it must be unique
     const int uuid = (this->ImporterId << 16) + nodeid;
+    const G3DWidgets::TreeRowHit hit =
+      G3DWidgets::TreeRow(("##tree_" + std::to_string(uuid)).c_str(), row);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-    this->CurrentNodeOpened = ImGui::TreeNodeEx(("##tree_" + std::to_string(uuid)).c_str(), flags);
-
-    ImGui::SameLine();
-
-    // get the current visibility state
-    bool visible = (this->GetAssembly()->GetAttributeOrDefault(nodeid, "g3d_visible", 1) != 0);
-
-    const char* defaultLabel =
-      this->GetAssembly()->GetNumberOfChildren(nodeid) > 0 ? "<group>" : "<object>";
-
-    ImGui::PushID(uuid);
-    if (ImGui::Checkbox(
-          this->GetAssembly()->GetAttributeOrDefault(nodeid, "label", defaultLabel), &visible))
+    switch (hit)
     {
-      vtkF3DMetaImporter::SetG3DDataAssemblyNodeVisibility(
-        const_cast<vtkDataAssembly*>(this->GetAssembly()), this->Importer, nodeid, visible);
-
-      this->RenderWindow->GetInteractor()->InvokeEvent(
-        vtkF3DUserEvents::SceneHierarchyChangedEvent, nullptr);
+      case G3DWidgets::TreeRowHit::Twisty:
+        const_cast<vtkDataAssembly*>(asm_)->SetAttribute(nodeid, "g3d_collapsed", collapsed ? 0 : 1);
+        break;
+      case G3DWidgets::TreeRowHit::Visibility:
+        vtkF3DMetaImporter::SetG3DDataAssemblyNodeVisibility(
+          const_cast<vtkDataAssembly*>(asm_), this->Importer, nodeid, !visible);
+        this->RenderWindow->GetInteractor()->InvokeEvent(
+          vtkF3DUserEvents::SceneHierarchyChangedEvent, nullptr);
+        break;
+      case G3DWidgets::TreeRowHit::Row:
+        if (this->SelImporter)
+        {
+          *this->SelImporter = this->ImporterId;
+          *this->SelNode = nodeid;
+          *this->SelDepth = this->Depth;
+          *this->SelParent = parent;
+        }
+        break;
+      case G3DWidgets::TreeRowHit::None:
+      default:
+        break;
     }
-
-    ImGui::PopID();
-    ImGui::PopStyleVar();
   }
 
 private:
-  bool CurrentNodeOpened = true;
+  bool CurrentOpen = false;
+  int Depth = 0;
+  std::vector<int> Path; // node id per depth level along the current traversal path
   vtkOpenGLRenderWindow* RenderWindow = nullptr;
   vtkImporter* Importer = nullptr;
   int ImporterId = -1;
+  int* SelImporter = nullptr;
+  int* SelNode = nullptr;
+  int* SelDepth = nullptr;
+  int* SelParent = nullptr;
 };
 vtkStandardNewMacro(vtkF3DRenderDataAssemblyVisitor);
 
@@ -720,6 +795,8 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   vtkF3DMetaImporter* importer = ren->GetMetaImporter();
   assert(importer != nullptr);
 
+  // Reusable styleguide outliner (compact density), driven by the importer data assemblies.
+  G3DWidgets::BeginTree(G3DWidgets::TreeDensity::Compact);
   for (int i = 0; i < importer->GetImporterInfoCount(); i++)
   {
     vtkF3DMetaImporter::ImporterInfo info = importer->GetImporterInfo(i);
@@ -728,9 +805,12 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
     visitor->SetRenderWindow(renWin);
     visitor->SetImporter(info.Importer);
     visitor->SetImporterIndex(i);
+    visitor->SetSelection(&this->SceneTreeSelImporter, &this->SceneTreeSelNode,
+      &this->SceneTreeSelDepth, &this->SceneTreeSelParent);
 
     info.DataAssembly->Visit(vtkDataAssembly::GetRootNode(), visitor);
   }
+  G3DWidgets::EndTree();
 }
 
 //----------------------------------------------------------------------------

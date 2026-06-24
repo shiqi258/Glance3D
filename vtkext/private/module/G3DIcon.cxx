@@ -1,6 +1,7 @@
 #include "G3DIcon.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -130,6 +131,80 @@ void DrawCube(const IconCanvas& c)
   c.dl->AddLine(ctr, ll, c.color, c.th);
   c.dl->AddLine(ctr, lr, c.color, c.th);
 }
+
+void DrawFolder(const IconCanvas& c, bool open)
+{
+  // Back panel with a raised tab on the upper-left, like a manila folder.
+  ImVec2 body[6] = { c.P(0.16f, 0.32f), c.P(0.40f, 0.32f), c.P(0.48f, 0.42f), c.P(0.84f, 0.42f),
+    c.P(0.84f, 0.76f), c.P(0.16f, 0.76f) };
+  if (open)
+  {
+    // Outline the back, then sweep the open lid as a slanted quad so it reads as "expanded".
+    c.dl->AddLine(c.P(0.16f, 0.76f), c.P(0.16f, 0.36f), c.color, c.th);
+    c.dl->AddLine(c.P(0.16f, 0.36f), c.P(0.40f, 0.36f), c.color, c.th);
+    c.dl->AddLine(c.P(0.40f, 0.36f), c.P(0.48f, 0.46f), c.color, c.th);
+    c.dl->AddLine(c.P(0.48f, 0.46f), c.P(0.80f, 0.46f), c.color, c.th);
+    ImVec2 lid[4] = { c.P(0.16f, 0.76f), c.P(0.30f, 0.54f), c.P(0.96f, 0.54f), c.P(0.84f, 0.76f) };
+    c.Poly(lid, 4);
+    c.dl->AddLine(lid[3], c.P(0.84f, 0.46f), c.color, c.th);
+  }
+  else
+  {
+    ImVec2 closed[7] = { body[0], body[1], body[2], body[3], body[4], body[5], body[0] };
+    c.Poly(closed, 7);
+  }
+}
+
+void DrawLayers(const IconCanvas& c)
+{
+  // Three stacked diamonds (isometric sheets).
+  auto sheet = [&](float cy)
+  {
+    ImVec2 d[5] = { c.P(0.50f, cy - 0.13f), c.P(0.82f, cy), c.P(0.50f, cy + 0.13f),
+      c.P(0.18f, cy), c.P(0.50f, cy - 0.13f) };
+    c.Poly(d, 5);
+  };
+  sheet(0.30f);
+  // Lower two sheets drawn as side rails so the stack reads without clutter.
+  c.dl->AddLine(c.P(0.18f, 0.50f), c.P(0.50f, 0.63f), c.color, c.th);
+  c.dl->AddLine(c.P(0.82f, 0.50f), c.P(0.50f, 0.63f), c.color, c.th);
+  c.dl->AddLine(c.P(0.18f, 0.66f), c.P(0.50f, 0.79f), c.color, c.th);
+  c.dl->AddLine(c.P(0.82f, 0.66f), c.P(0.50f, 0.79f), c.color, c.th);
+}
+
+void DrawLight(const IconCanvas& c)
+{
+  // Sun: a small disc with radiating spokes.
+  c.Ring(0.50f, 0.46f, 0.16f);
+  const float r0 = 0.26f, r1 = 0.36f;
+  for (int i = 0; i < 8; ++i)
+  {
+    const float ang = i * 0.7853981f; // 45° steps
+    const float dx = std::cos(ang), dy = std::sin(ang);
+    c.Line(0.50f + dx * r0, 0.46f + dy * r0, 0.50f + dx * r1, 0.46f + dy * r1);
+  }
+}
+
+void DrawImage(const IconCanvas& c)
+{
+  c.dl->AddRect(c.P(0.16f, 0.22f), c.P(0.84f, 0.78f), c.color, c.R(0.06f), ImDrawFlags_None, c.th);
+  c.Dot(0.36f, 0.40f, 0.06f); // sun
+  // Mountain range along the bottom edge.
+  ImVec2 hill[5] = { c.P(0.16f, 0.70f), c.P(0.38f, 0.50f), c.P(0.52f, 0.62f), c.P(0.66f, 0.46f),
+    c.P(0.84f, 0.70f) };
+  c.Poly(hill, 5);
+}
+
+void DrawLock(const IconCanvas& c)
+{
+  // Shackle arc above, body rectangle below.
+  c.dl->AddBezierQuadratic(
+    c.P(0.34f, 0.46f), c.P(0.34f, 0.20f), c.P(0.50f, 0.20f), c.color, c.th);
+  c.dl->AddBezierQuadratic(
+    c.P(0.50f, 0.20f), c.P(0.66f, 0.20f), c.P(0.66f, 0.46f), c.color, c.th);
+  c.dl->AddRect(c.P(0.30f, 0.46f), c.P(0.70f, 0.80f), c.color, c.R(0.05f), ImDrawFlags_None, c.th);
+  c.Dot(0.50f, 0.63f, 0.05f);
+}
 }
 
 //----------------------------------------------------------------------------
@@ -198,6 +273,24 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Cube:
       DrawCube(c);
+      break;
+    case G3DIconId::Folder:
+      DrawFolder(c, false);
+      break;
+    case G3DIconId::FolderOpen:
+      DrawFolder(c, true);
+      break;
+    case G3DIconId::Layers:
+      DrawLayers(c);
+      break;
+    case G3DIconId::Light:
+      DrawLight(c);
+      break;
+    case G3DIconId::Image:
+      DrawImage(c);
+      break;
+    case G3DIconId::Lock:
+      DrawLock(c);
       break;
   }
 

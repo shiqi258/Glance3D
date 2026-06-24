@@ -34,6 +34,12 @@ enum class G3DIconId
   Axis,
   Camera,
   Cube,
+  Folder,     ///< closed folder (tree group)
+  FolderOpen, ///< open folder (expanded tree group)
+  Layers,     ///< stacked layers (scene collection / root)
+  Light,      ///< light source (sun)
+  Image,      ///< picture / texture / material
+  Lock,       ///< padlock (locked node)
 };
 
 namespace G3DIcon

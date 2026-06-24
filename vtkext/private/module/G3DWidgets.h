@@ -68,6 +68,121 @@ bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hi
 /// Tooltip for the last item, with a unified hover delay.
 void ItemTooltip(const char* text);
 
+//----------------------------------------------------------------------------
+// Tree / outliner
+//
+// A reusable, data-source-agnostic outliner that mirrors the styleguide tree (doc/dev/
+// ui-styleguide.html: <g3d-tree> / <g3d-trow>). It follows the industry "headless + slots" split:
+// the widget owns *structure* (indentation rails, twisty, selection background, hit-testing, the
+// drag-drop anchor) while the caller composes the *cell content* from ordinary widgets between
+// BeginTreeRow()/EndTreeRow(). Three layers, smallest-to-largest:
+//   1. BeginTreeRow()/EndTreeRow()  — headless row; draw any content (icon, label, an InputText for
+//      inline rename, extra IconButtons, badges) in between. The row's hit area is the current ImGui
+//      item right after BeginTreeRow(), so ImGui::BeginDragDropSource()/Target() attach to it.
+//   2. TreeRowIcon()/TreeRowLabel()/TreeRowMeta()/TreeRowAction()  — slot helpers for the styleguide
+//      default cells (the right-aligned ones handle their own placement).
+//   3. TreeRow()  — convenience wrapper drawing the common "icon + label + meta + eye" row at once.
+//----------------------------------------------------------------------------
+
+/// Row-height density, mirroring styleguide <g3d-tree den="...">.
+enum class TreeDensity
+{
+  Standard, ///< 24px rows
+  Compact,  ///< 22px rows (styleguide tree default)
+  Dense,    ///< 20px rows
+  Comfy,    ///< 28px rows
+};
+
+/// Expand/collapse affordance state for a row.
+enum class TreeTwisty
+{
+  Leaf,     ///< no children — no twisty drawn
+  Open,     ///< expanded (chevron down)
+  Collapsed ///< collapsed (chevron right)
+};
+
+/// Semantic tint for the node type icon, mirroring styleguide icv.
+enum class TreeIconVariant
+{
+  Default, ///< muted text
+  Folder,  ///< subtle (group)
+  Light,   ///< warning/amber
+  Tex,     ///< accent (texture/material)
+  Root,    ///< accent (collection root)
+};
+
+/// Set the density (and indentation baseline) for the following tree rows. Pushes a small state
+/// frame; pair each BeginTree() with one EndTree(). May nest.
+void BeginTree(TreeDensity density = TreeDensity::Compact);
+void EndTree();
+
+/// Structural description of a row — everything the headless row owns (no cell content).
+struct TreeRowChrome
+{
+  int depth = 0;                        ///< indentation level (number of rails drawn)
+  TreeTwisty twisty = TreeTwisty::Leaf; ///< none / open / collapsed
+  bool selected = false;                ///< full-row selection background + left accent bar
+  bool focused = false;                 ///< selected and focused (deeper background)
+  bool disabled = false;                ///< not interactive, dimmed
+  int activeGuide = -1;                 ///< indent rail column to highlight (selection guide), -1 none
+};
+
+/// What the user clicked on a row this frame.
+struct TreeRowResult
+{
+  bool rowClicked = false;    ///< the row body was clicked (use for selection)
+  bool twistyClicked = false; ///< the expand/collapse twisty was toggled
+  bool hovered = false;       ///< the row is hovered (drives trailing-action reveal, etc.)
+};
+
+/// Begin a row: paints the chrome, hit-tests the twisty and the row body, places the ImGui cursor at
+/// the content start, and leaves the row's hit item as the current ImGui item (so the caller may
+/// call ImGui::BeginDragDropSource()/Target() before EndTreeRow()). @p id must be unique per row.
+TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome);
+void EndTreeRow();
+
+/// Node type icon at the content cursor. @p dim fades it (hidden node).
+void TreeRowIcon(G3DIconId icon, TreeIconVariant variant = TreeIconVariant::Default, bool dim = false);
+/// Node label at the content cursor. @p group brightens it; @p dim fades it (hidden node).
+void TreeRowLabel(const char* text, bool group = false, bool dim = false);
+/// Right-aligned metadata (e.g. child count). Place after the label.
+void TreeRowMeta(const char* text);
+/// Trailing icon action button (right-aligned, reveals on row hover). @p on tints it with the accent.
+/// Returns true when clicked. @p id unique within the row.
+bool TreeRowAction(const char* id, G3DIconId icon, bool on = false);
+
+/// Which part of a convenience TreeRow() was clicked this frame.
+enum class TreeRowHit
+{
+  None,
+  Row,        ///< row body (select)
+  Twisty,     ///< expand/collapse
+  Visibility, ///< the eye action
+};
+
+/// Convenience full row description (icon + label + optional meta + optional eye).
+struct TreeRowDesc
+{
+  int depth = 0;
+  TreeTwisty twisty = TreeTwisty::Leaf;
+  G3DIconId icon = G3DIconId::Cube;
+  TreeIconVariant iconVariant = TreeIconVariant::Default;
+  const char* label = "";
+  const char* meta = nullptr; ///< optional right-aligned metadata
+  bool selected = false;
+  bool focused = false;
+  bool group = false;          ///< collection/group header (brighter label)
+  bool hidden = false;         ///< not visible (icon + label dimmed)
+  bool locked = false;         ///< reserved (no extra interaction)
+  bool disabled = false;
+  bool showVisibility = false; ///< include the eye/eyeoff action
+  bool visible = true;         ///< eye state when showVisibility
+  int activeGuide = -1;        ///< indent rail column to highlight, -1 none
+};
+
+/// Draw the common row in one call (built on BeginTreeRow + slot helpers). Returns the click hit.
+TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc);
+
 } // namespace G3DWidgets
 
 #endif

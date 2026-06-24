@@ -162,11 +162,23 @@ private:
   void AdvanceControlAnim();
 
   /**
-   * Draw the scene hierarchy tree (importer data assemblies with visibility checkboxes) into the
-   * current ImGui window. Shared by the floating Scene Hierarchy widget and the docked left bar so
-   * there is a single traversal implementation.
+   * Draw the scene hierarchy tree (importer data assemblies) into the current ImGui window using the
+   * reusable G3DWidgets outliner. Shared by the floating Scene Hierarchy widget and the docked left
+   * bar so there is a single traversal implementation.
    */
   void DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin);
+
+  ///@{
+  /**
+   * Local UI selection in the scene tree, persisted across frames (not part of the SDK state; a
+   * foundation the inspector can later read). Identifies the highlighted node and, via its depth and
+   * parent node id, lets the tree highlight the parent's indentation guide. -1 means no selection.
+   */
+  int SceneTreeSelImporter = -1; ///< selected importer index
+  int SceneTreeSelNode = -1;     ///< selected vtkDataAssembly node id
+  int SceneTreeSelDepth = -1;    ///< selected node depth
+  int SceneTreeSelParent = -1;   ///< selected node's parent node id
+  ///@}
 
 
   ///@{

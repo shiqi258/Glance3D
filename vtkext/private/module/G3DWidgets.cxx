@@ -4,7 +4,9 @@
 #include "G3DTheme.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -685,6 +687,409 @@ void ItemTooltip(const char* text)
   {
     ImGui::SetTooltip("%s", text);
   }
+}
+
+//----------------------------------------------------------------------------
+// Tree / outliner
+//----------------------------------------------------------------------------
+namespace
+{
+// Per-tree state (density / indentation / font), pushed by BeginTree.
+struct TreeFrame
+{
+  float rowH;     // row height (scaled px)
+  float indent;   // indentation per depth level (scaled px)
+  float fontSize; // label font size (scaled px) — the styleguide tree font, not the big UI font
+};
+std::vector<TreeFrame> gTreeStack;
+
+// Per-row state, live between BeginTreeRow and EndTreeRow. The slot helpers read/advance it.
+struct TreeRowFrame
+{
+  ImVec2 p0;       // row top-left (screen)
+  float width;     // row width
+  float rowH;      // row height
+  float scale;     // DPI/scale factor
+  float contentX;  // advancing left content cursor (screen x)
+  float rightX;    // receding right content cursor (screen x) for right-aligned cells
+  float hoverT;    // row hover animation value (0..1)
+  float fontSize;  // label font size (scaled px)
+  bool selected;   // row is selected (keeps trailing actions revealed)
+  bool pressed;    // the row hit item was clicked this frame
+  ImVec2 mouse;    // mouse position at the click (for routing twisty/action clicks)
+};
+std::vector<TreeRowFrame> gRowStack;
+
+float TreeRowHeight(TreeDensity d, float s)
+{
+  switch (d)
+  {
+    case TreeDensity::Standard:
+      return 24.f * s;
+    case TreeDensity::Dense:
+      return 20.f * s;
+    case TreeDensity::Comfy:
+      return 28.f * s;
+    case TreeDensity::Compact:
+    default:
+      return 22.f * s;
+  }
+}
+
+// styleguide tree font: 13px (12px when dense). Authored against screen px, so scaled by s.
+float TreeFontSize(TreeDensity d, float s)
+{
+  return (d == TreeDensity::Dense ? 12.f : 13.f) * s;
+}
+
+// styleguide icv -> icon tint.
+ImVec4 TreeIconColor(TreeIconVariant v)
+{
+  switch (v)
+  {
+    case TreeIconVariant::Folder:
+    {
+      ImVec4 c = G3DTheme::Text();
+      c.w *= 0.50f; // text-subtle, between muted (.6) and disabled (.38)
+      return c;
+    }
+    case TreeIconVariant::Light:
+      return G3DTheme::Warning();
+    case TreeIconVariant::Tex:
+    case TreeIconVariant::Root:
+      return G3DTheme::Accent();
+    case TreeIconVariant::Default:
+    default:
+      return G3DTheme::TextMuted();
+  }
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+void BeginTree(TreeDensity density)
+{
+  const float s = Scale();
+  gTreeStack.push_back(
+    { TreeRowHeight(density, s), G3DTheme::Spacing::Lg * s, TreeFontSize(density, s) });
+}
+
+//----------------------------------------------------------------------------
+void EndTree()
+{
+  if (!gTreeStack.empty())
+  {
+    gTreeStack.pop_back();
+  }
+}
+
+//----------------------------------------------------------------------------
+TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
+{
+  TreeRowResult res;
+  ImGui::PushID(id);
+
+  const float s = Scale();
+  const float rowH = gTreeStack.empty() ? 22.f * s : gTreeStack.back().rowH;
+  const float indent = gTreeStack.empty() ? G3DTheme::Spacing::Lg * s : gTreeStack.back().indent;
+  const float twistyW = indent;
+  const float width = std::max(rowH, ImGui::GetContentRegionAvail().x);
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+
+  // One item for the whole row (twisty + trailing actions are hit-routed manually so the row stays
+  // the single ImGui item — a stable anchor for ImGui drag-drop).
+  const bool pressed = ImGui::InvisibleButton("##row", ImVec2(width, rowH));
+  const bool hovered = ImGui::IsItemHovered();
+  const bool held = ImGui::IsItemActive();
+  const WidgetAnim& a = Interact(ImGui::GetID("##row"), hovered && !chrome.disabled, held);
+  if (hovered && !chrome.disabled)
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+
+  const float cy = p0.y + rowH * 0.5f;
+  const float twX = p0.x + chrome.depth * indent;
+
+  // Route the click: twisty region toggles expand, the rest selects.
+  res.hovered = hovered;
+  if (pressed && !chrome.disabled)
+  {
+    const ImVec2 mp = ImGui::GetIO().MousePos;
+    const bool inTwisty =
+      chrome.twisty != TreeTwisty::Leaf && mp.x >= twX && mp.x <= twX + twistyW;
+    if (inTwisty)
+    {
+      res.twistyClicked = true;
+    }
+    else
+    {
+      res.rowClicked = true;
+    }
+  }
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  AAGuard aa(dl);
+
+  // Row background: selection fill (accent-soft, deeper when focused) or a hover step.
+  const float ht = a.hover.Value();
+  ImVec4 fill(0.f, 0.f, 0.f, 0.f);
+  if (chrome.selected)
+  {
+    fill = G3DTheme::AccentSoft();
+    fill.w = chrome.focused ? 0.24f : 0.16f;
+  }
+  else if (ht > 0.001f)
+  {
+    fill = G3DTheme::SurfaceHover();
+    fill.w = ht;
+  }
+  const float radius = G3DTheme::Radius::Small * s;
+  if (fill.w > 0.001f)
+  {
+    dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + rowH), U32(fill), radius);
+  }
+  // Left accent bar marks the selected row.
+  if (chrome.selected)
+  {
+    dl->AddRectFilled(ImVec2(p0.x, p0.y + 3.f * s), ImVec2(p0.x + 2.f * s, p0.y + rowH - 3.f * s),
+      U32(G3DTheme::Accent()), 1.f * s);
+  }
+
+  // Indentation rails (continuing guide lines), one per depth column.
+  for (int i = 0; i < chrome.depth; ++i)
+  {
+    const float rx = p0.x + i * indent + indent * 0.5f;
+    const bool active = i == chrome.activeGuide;
+    ImVec4 col = G3DTheme::Border();
+    if (active)
+    {
+      col = G3DTheme::Accent();
+      col.w = 0.6f;
+    }
+    dl->AddLine(ImVec2(rx, p0.y), ImVec2(rx, p0.y + rowH), U32(col), 1.f * s);
+  }
+
+  // Twisty chevron (down when open, right when collapsed; nothing for a leaf). styleguide twisty is
+  // text-subtle, brightening to text on hover.
+  if (chrome.twisty != TreeTwisty::Leaf)
+  {
+    ImVec4 subtle = G3DTheme::Text();
+    subtle.w *= 0.50f;
+    const ImVec4 twCol = G3DTheme::LerpColor(subtle, G3DTheme::Text(), ht);
+    const G3DIconId chev =
+      chrome.twisty == TreeTwisty::Open ? G3DIconId::ChevronDown : G3DIconId::ChevronRight;
+    G3DIcon::Draw(dl, chev, ImVec2(twX + twistyW * 0.5f, cy), G3DTheme::Size::IconSm * s, U32(twCol));
+  }
+
+  // Content starts after the rails + twisty slot; right cell cursor starts at the padded right edge.
+  TreeRowFrame f;
+  f.p0 = p0;
+  f.width = width;
+  f.rowH = rowH;
+  f.scale = s;
+  f.contentX = twX + twistyW;
+  f.rightX = p0.x + width - G3DTheme::Spacing::Sm * s;
+  f.hoverT = ht;
+  f.fontSize = gTreeStack.empty() ? 13.f * s : gTreeStack.back().fontSize;
+  f.selected = chrome.selected;
+  f.pressed = pressed && !chrome.disabled;
+  f.mouse = ImGui::GetIO().MousePos;
+  gRowStack.push_back(f);
+
+  // Leave the ImGui cursor at the content start so a caller-drawn real widget (e.g. an InputText for
+  // inline rename) lands in the label slot.
+  ImGui::SetCursorScreenPos(ImVec2(f.contentX, p0.y + std::max(0.f, (rowH - ImGui::GetFontSize()) * 0.5f)));
+  return res;
+}
+
+//----------------------------------------------------------------------------
+void EndTreeRow()
+{
+  if (gRowStack.empty())
+  {
+    ImGui::PopID();
+    return;
+  }
+  const TreeRowFrame f = gRowStack.back();
+  gRowStack.pop_back();
+  // Stack the next row flush against this one (no inter-row spacing).
+  ImGui::SetCursorScreenPos(ImVec2(f.p0.x, f.p0.y + f.rowH));
+  ImGui::PopID();
+}
+
+//----------------------------------------------------------------------------
+void TreeRowIcon(G3DIconId icon, TreeIconVariant variant, bool dim)
+{
+  if (gRowStack.empty())
+  {
+    return;
+  }
+  TreeRowFrame& f = gRowStack.back();
+  // styleguide .tree-ticon: 15px icon, margin 0 6px 0 2px.
+  const float iconSz = std::min(15.f * f.scale, f.rowH - 4.f * f.scale);
+  const float cy = f.p0.y + f.rowH * 0.5f;
+  ImVec4 col = TreeIconColor(variant);
+  if (dim)
+  {
+    col.w *= 0.45f;
+  }
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  f.contentX += 2.f * f.scale;
+  G3DIcon::Draw(dl, icon, ImVec2(f.contentX + iconSz * 0.5f, cy), iconSz, U32(col));
+  f.contentX += iconSz + G3DTheme::Spacing::Sm * f.scale * 0.75f;
+}
+
+//----------------------------------------------------------------------------
+void TreeRowLabel(const char* text, bool group, bool dim)
+{
+  if (gRowStack.empty() || !text)
+  {
+    return;
+  }
+  TreeRowFrame& f = gRowStack.back();
+  ImVec4 col = group ? G3DTheme::Text() : G3DTheme::TextMuted();
+  if (dim)
+  {
+    col.w *= 0.45f;
+  }
+  ImFont* font = ImGui::GetFont();
+  const float fsz = f.fontSize;
+  const float cy = f.p0.y + f.rowH * 0.5f;
+  const float avail = std::max(0.f, f.rightX - G3DTheme::Spacing::Xs * f.scale - f.contentX);
+  const ImVec2 ts = font->CalcTextSizeA(fsz, FLT_MAX, 0.f, text);
+
+  // Truncate with an ellipsis on overflow (styleguide text-overflow: ellipsis), cutting on UTF-8
+  // codepoint boundaries so multibyte/CJK names are never split mid-character.
+  std::string shown;
+  const char* draw = text;
+  if (ts.x > avail)
+  {
+    const float ellW = font->CalcTextSizeA(fsz, FLT_MAX, 0.f, "...").x;
+    const float budget = avail - ellW;
+    const char* p = text;
+    const char* fit = text;
+    while (*p)
+    {
+      const char* next = p + 1;
+      while ((static_cast<unsigned char>(*next) & 0xC0) == 0x80)
+      {
+        ++next;
+      }
+      if (font->CalcTextSizeA(fsz, FLT_MAX, 0.f, text, next).x > budget)
+      {
+        break;
+      }
+      fit = next;
+      p = next;
+    }
+    shown.assign(text, fit);
+    shown += "...";
+    draw = shown.c_str();
+  }
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->PushClipRect(ImVec2(f.contentX, f.p0.y), ImVec2(f.contentX + avail, f.p0.y + f.rowH), true);
+  dl->AddText(font, fsz, ImVec2(f.contentX, cy - ts.y * 0.5f), U32(col), draw);
+  dl->PopClipRect();
+  f.contentX += std::min(ts.x, avail);
+}
+
+//----------------------------------------------------------------------------
+void TreeRowMeta(const char* text)
+{
+  if (gRowStack.empty() || !text || !text[0])
+  {
+    return;
+  }
+  TreeRowFrame& f = gRowStack.back();
+  ImFont* font = ImGui::GetFont();
+  const float fsz = std::max(9.f * f.scale, f.fontSize - 2.f * f.scale); // styleguide meta 11px
+  const float cy = f.p0.y + f.rowH * 0.5f;
+  const ImVec2 ts = font->CalcTextSizeA(fsz, FLT_MAX, 0.f, text);
+  const float x = f.rightX - ts.x;
+  ImVec4 col = G3DTheme::Text();
+  col.w *= 0.42f; // text-subtle
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->AddText(font, fsz, ImVec2(x, cy - ts.y * 0.5f), U32(col), text);
+  f.rightX = x - G3DTheme::Spacing::Sm * f.scale;
+}
+
+//----------------------------------------------------------------------------
+bool TreeRowAction(const char* id, G3DIconId icon, bool on)
+{
+  if (gRowStack.empty())
+  {
+    return false;
+  }
+  TreeRowFrame& f = gRowStack.back();
+  const float btn = std::min(20.f * f.scale, f.rowH);
+  const float cy = f.p0.y + f.rowH * 0.5f;
+  const ImVec2 c0(f.rightX - btn, cy - btn * 0.5f);
+  const ImVec2 c1(f.rightX, cy + btn * 0.5f);
+  f.rightX = c0.x - 1.f * f.scale;
+
+  // Actions are revealed on row hover / selection; an "on" action stays visible (e.g. hidden eye).
+  const float reveal = std::max({ f.hoverT, f.selected ? 1.f : 0.f, on ? 1.f : 0.f });
+  const ImVec2 mp = ImGui::GetIO().MousePos;
+  const bool localHover = mp.x >= c0.x && mp.x <= c1.x && mp.y >= c0.y && mp.y <= c1.y;
+  const bool clicked = f.pressed && mp.x >= c0.x && mp.x <= c1.x;
+
+  if (reveal > 0.02f)
+  {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    AAGuard aa(dl);
+    if (localHover)
+    {
+      dl->AddRectFilled(c0, c1, U32(G3DTheme::SurfacePress(), reveal), G3DTheme::Radius::Small * f.scale);
+    }
+    ImVec4 ic = on ? G3DTheme::Accent() : G3DTheme::TextMuted();
+    ic.w *= reveal;
+    G3DIcon::Draw(dl, icon, ImVec2((c0.x + c1.x) * 0.5f, cy), btn * 0.7f, U32(ic));
+  }
+  (void)id;
+  return clicked;
+}
+
+//----------------------------------------------------------------------------
+TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
+{
+  TreeRowChrome chrome;
+  chrome.depth = desc.depth;
+  chrome.twisty = desc.twisty;
+  chrome.selected = desc.selected;
+  chrome.focused = desc.focused;
+  chrome.disabled = desc.disabled;
+  chrome.activeGuide = desc.activeGuide;
+
+  const TreeRowResult r = BeginTreeRow(id, chrome);
+  TreeRowIcon(desc.icon, desc.iconVariant, desc.hidden);
+  // Reserve the right-aligned cells (eye rightmost, then meta) before the label so the label clips
+  // to the remaining space — matching the styleguide flex layout (label flex:1, trailing flex:none).
+  bool eyeClicked = false;
+  if (desc.showVisibility)
+  {
+    eyeClicked = TreeRowAction("##vis", desc.visible ? G3DIconId::Eye : G3DIconId::EyeOff, !desc.visible);
+  }
+  if (desc.meta)
+  {
+    TreeRowMeta(desc.meta);
+  }
+  TreeRowLabel(desc.label, desc.group, desc.hidden);
+  EndTreeRow();
+
+  // Eye takes priority over the row body (matches the styleguide stopPropagation on actions).
+  if (eyeClicked)
+  {
+    return TreeRowHit::Visibility;
+  }
+  if (r.twistyClicked)
+  {
+    return TreeRowHit::Twisty;
+  }
+  if (r.rowClicked)
+  {
+    return TreeRowHit::Row;
+  }
+  return TreeRowHit::None;
 }
 
 } // namespace G3DWidgets
