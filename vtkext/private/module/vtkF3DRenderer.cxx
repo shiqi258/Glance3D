@@ -634,10 +634,37 @@ void vtkF3DRenderer::UpdateAxisWidgetSize()
 #if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 5, 20251001)
   if (this->ModernAxisRepresentation)
   {
-    int* size = this->GetSize();
-    // Maintain the axis widget size proportional (15%) to the shortest viewport dimension.
-    int widgetSize = static_cast<int>(std::min(size[0], size[1]) * 0.15);
+    // Size against the full window (constant through the control-panel slide) rather than the
+    // possibly-shrunk renderer viewport, so the gizmo does not pulse while the panel animates.
+    int winSize[2] = { 0, 0 };
+    if (this->RenderWindow)
+    {
+      const int* w = this->RenderWindow->GetSize();
+      winSize[0] = w[0];
+      winSize[1] = w[1];
+    }
+    else
+    {
+      const int* s = this->GetSize();
+      winSize[0] = s[0];
+      winSize[1] = s[1];
+    }
+
+    // Maintain the axis widget size proportional (15%) to the shortest window dimension.
+    const int widgetSize = static_cast<int>(std::min(winSize[0], winSize[1]) * 0.15);
     this->ModernAxisRepresentation->SetSize(widgetSize, widgetSize);
+
+    // The gizmo anchors to the renderer viewport's lower-right, but it renders in the full-window UI
+    // overlay, so without help it lands at the window corner — floating over the docked bars when the
+    // control panel is open. Shift its padding inward by the right-bar width and bottom-bar height
+    // (window pixels) so it sits at the central (visible 3D) viewport's corner instead. With the
+    // panel closed the bars are zero-width, so this reduces to the default padding.
+    double vp[4];
+    this->UIActor->GetControlPanelViewport(winSize, vp);
+    constexpr int basePad = 10;
+    const int padX = basePad + static_cast<int>((1.0 - vp[2]) * winSize[0] + 0.5);
+    const int padY = basePad + static_cast<int>(vp[1] * winSize[1] + 0.5);
+    this->ModernAxisRepresentation->SetPadding(padX, padY);
   }
 #endif
 }
@@ -3780,6 +3807,9 @@ void vtkF3DRenderer::UpdateControlPanelPush()
   this->ControlPanelViewport[3] = vp[3];
 
   this->ResetCameraClippingRange();
+
+  // Keep the orientation gizmo anchored to the (now moved) central viewport corner as it slides.
+  this->UpdateAxisWidgetSize();
 }
 
 //----------------------------------------------------------------------------
