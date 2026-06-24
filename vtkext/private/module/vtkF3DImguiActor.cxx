@@ -537,6 +537,23 @@ void SetupNextWindow(std::optional<ImVec2> position, std::optional<ImVec2> size)
     ImGui::SetNextWindowPos(position.value());
   }
 }
+
+// Fully-open bar sizes, honoring user drag overrides for the left/right widths (nominal px, < 0 =
+// keep the G3DLayout default). Used by BOTH the bar layout and the central-viewport derivation so a
+// resize stays in lockstep.
+G3DLayout::Sizes ResolvedBarSizes(float scale, float leftOverride, float rightOverride)
+{
+  G3DLayout::Sizes sizes = G3DLayout::DefaultBarSizes(scale);
+  if (leftOverride > 0.f)
+  {
+    sizes.leftW = leftOverride * scale;
+  }
+  if (rightOverride > 0.f)
+  {
+    sizes.rightW = rightOverride * scale;
+  }
+  return sizes;
+}
 }
 
 vtkStandardNewMacro(vtkF3DImguiActor);
@@ -1546,7 +1563,8 @@ bool vtkF3DImguiActor::IsControlPanelAnimating()
   // Animating while the eased value is still in flight OR has not yet reached the state implied by
   // the current visibility (covers the frame right after a toggle, before the first advance runs).
   const float target = this->ControlPanelVisible ? 1.f : 0.f;
-  return this->PanelAnim.IsAnimating() || this->PanelAnim.Value() != target;
+  return this->PanelAnim.IsAnimating() || this->PanelAnim.Value() != target ||
+    this->ControlBarDragging;
 }
 
 //----------------------------------------------------------------------------
@@ -1566,7 +1584,8 @@ void vtkF3DImguiActor::GetControlPanelViewport(const int windowSize[2], double v
 
   const float scale = static_cast<float>(this->FontScale);
   const G3DLayout::Rect work{ 0.f, 0.f, static_cast<float>(W), static_cast<float>(H) };
-  const G3DLayout::Result r = G3DLayout::Compute(work, G3DLayout::DefaultBarSizes(scale), eased);
+  const G3DLayout::Result r = G3DLayout::Compute(
+    work, ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW), eased);
   G3DLayout::CenterToVTKViewport(r.center, W, H, vp);
 }
 
@@ -2169,7 +2188,8 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   const float scale = static_cast<float>(this->FontScale);
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
-  const G3DLayout::Result r = G3DLayout::Compute(work, G3DLayout::DefaultBarSizes(scale), eased);
+  const G3DLayout::Result r = G3DLayout::Compute(
+    work, ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW), eased);
 
   // Docked bars are opaque chrome that frame the 3D viewport. The scene is physically pushed into
   // the central gap: the renderer derives its VTK viewport from this same G3DLayout `center` rect
@@ -2280,6 +2300,69 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     this->DrawTimelineContent();
     ImGui::End();
   }
+
+  // Resize handles at the left|center and center|right seams. Dragging adjusts the bar width; the
+  // central viewport derives from the same width (ResolvedBarSizes), so the 3D re-fits in lockstep
+  // (ControlBarDragging forces a full render while held).
+  this->ControlBarDragging = false;
+  const float splitterW = 8.f * scale;
+  const float minBarW = 180.f;
+  const float maxBarW = (work.w / scale) * 0.4f;
+  auto drawSplitter = [&](const char* id, float boundaryX, const G3DLayout::Rect& bar, bool isLeft)
+  {
+    if (bar.w < 1.f || bar.h < 1.f)
+    {
+      return;
+    }
+    ::SetupNextWindow(ImVec2(boundaryX - splitterW * 0.5f, bar.y), ImVec2(splitterW, bar.h));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+    constexpr ImGuiWindowFlags sflags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+      ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+      ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground;
+    ImGui::Begin(id, nullptr, sflags);
+    ImGui::InvisibleButton("##h", ImVec2(splitterW, bar.h));
+    const bool hovered = ImGui::IsItemHovered();
+    const bool active = ImGui::IsItemActive();
+    if (hovered || active)
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    }
+    if (active)
+    {
+      this->ControlBarDragging = true;
+      const float d = ImGui::GetIO().MouseDelta.x / scale; // drag right widens the left bar
+      if (isLeft)
+      {
+        if (this->ControlBarLeftW < 0.f)
+        {
+          this->ControlBarLeftW = G3DLayout::BAR_LEFT_W;
+        }
+        this->ControlBarLeftW = std::clamp(this->ControlBarLeftW + d, minBarW, maxBarW);
+      }
+      else
+      {
+        if (this->ControlBarRightW < 0.f)
+        {
+          this->ControlBarRightW = G3DLayout::BAR_RIGHT_W;
+        }
+        this->ControlBarRightW = std::clamp(this->ControlBarRightW - d, minBarW, maxBarW);
+      }
+    }
+    if (hovered || active)
+    {
+      ImDrawList* dl = ImGui::GetWindowDrawList();
+      const ImVec2 p = ImGui::GetWindowPos();
+      const float cx = p.x + splitterW * 0.5f;
+      ImVec4 col = G3DTheme::Accent();
+      col.w = active ? 0.9f : 0.5f;
+      dl->AddLine(ImVec2(cx, p.y), ImVec2(cx, p.y + bar.h), G3DTheme::U32(col), 1.5f * scale);
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+  };
+  drawSplitter("##g3d.split.left", r.center.x, r.left, true);
+  drawSplitter("##g3d.split.right", r.right.x, r.right, false);
 
   // Hairline frame around the central viewport — a crisp seam between the opaque docked chrome and
   // the live 3D. This single line is what makes the bars read as panels framing a viewport rather

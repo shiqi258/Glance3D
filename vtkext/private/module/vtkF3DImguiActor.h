@@ -235,6 +235,17 @@ private:
   bool ControlAnimInit = false;   ///< false until the first frame snaps the FAB to its initial state
   bool PanelAnimInit = false;     ///< false until the first pre-pass frame snaps the slide
   ///@}
+
+  ///@{
+  /**
+   * Draggable left/right bar widths (nominal px, < 0 = use the G3DLayout default). Both the bars and
+   * the central viewport derive from these, so resizing a bar re-fits the 3D in lockstep.
+   * ControlBarDragging is true while a splitter is held (forces a full render so the push tracks).
+   */
+  float ControlBarLeftW = -1.f;
+  float ControlBarRightW = -1.f;
+  bool ControlBarDragging = false;
+  ///@}
 };
 
 #endif
