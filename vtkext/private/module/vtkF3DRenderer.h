@@ -727,11 +727,8 @@ private:
 
   // Control-panel "push": each frame the renderer viewport is driven to the central rect between the
   // docked bars (full window when the panel is closed). ControlPanelViewport caches the last applied
-  // normalized viewport so we only re-fit when it changes; ControlPanelPrevCenterH caches its
-  // normalized height for the policy-B zoom compensation that preserves the user's framing as the
-  // viewport shrinks (negative = uninitialized / reset on window resize).
+  // normalized viewport so we only re-fit when it changes (reset on window resize).
   double ControlPanelViewport[4] = { 0.0, 0.0, 1.0, 1.0 };
-  double ControlPanelPrevCenterH = -1.0;
   int ControlPanelPrevWinSize[2] = { -1, -1 };
 
   unsigned int Timer = 0; // Timer OpenGL query
