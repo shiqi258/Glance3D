@@ -310,12 +310,8 @@ f3d(settings)
       const renderHeight = Math.max(1, Math.round(scale * canvas.clientHeight));
       Module.engineInstance.getWindow().setSize(renderWidth, renderHeight);
       Module.engineInstance.getWindow().render();
-      logViewerState("window sized", {
-        canvasClientWidth: canvas.clientWidth,
-        canvasClientHeight: canvas.clientHeight,
-        renderWidth,
-        renderHeight,
-      });
+      // No per-resize log here on purpose: the ResizeObserver fires every frame of the panel-push
+      // slide, so logging would flood g3d_*_web.log.
     };
     resizeWindowToCanvas();
 
