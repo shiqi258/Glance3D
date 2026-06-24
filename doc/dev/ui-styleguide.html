@@ -88,6 +88,17 @@
         --s-6: 24px;
         --s-8: 32px;
 
+        /* Type scale — ONE regular size, deliberate deviations.
+           常规基准 = 14px：正文 + 全部控件（按钮/输入/菜单/标签页/树行），与业内成熟
+           规范一致（Ant Design 14 / Fluent 14 / Material 14；CJK 比 13px 的 Latin IDE 略大
+           更耐读）。其余场景按"为什么"分级：标题放大利于扫读，次要/分组信息缩小提升密度。 */
+        --fs-title: 20px; /* 页面 / 分区标题 */
+        --fs-subtitle: 16px; /* 面板 / 对话框标题 */
+        --fs-base: 14px; /* 常规：正文 + 控件（统一基准） */
+        --fs-caption: 12px; /* 次要：字段标签 / 提示 / 数值 / 计数 */
+        --fs-overline: 11px; /* 分组标题(大写) / 微标签 */
+        --fs-dense: 13px; /* 超密集数据行（树/表 dense 模式）降一级 */
+
         /* Elevation  (≈ImGui: layered translucent rounded rects) */
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
         --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
@@ -151,7 +162,7 @@
         background: var(--bg);
         color: var(--text);
         font-family: var(--font);
-        font-size: 14px;
+        font-size: var(--fs-base);
         line-height: 1.5;
         -webkit-font-smoothing: antialiased;
       }
@@ -242,7 +253,7 @@
       nav.toc .group {
         margin-top: var(--s-3);
         padding: 6px 10px;
-        font-size: 11px;
+        font-size: var(--fs-overline);
         text-transform: uppercase;
         letter-spacing: 0.08em;
         color: var(--text-subtle);
@@ -255,7 +266,7 @@
         scroll-margin-top: 84px;
       }
       .block > h2 {
-        font-size: 20px;
+        font-size: var(--fs-title);
         margin-bottom: var(--s-2);
       }
       .block > .desc {
@@ -272,7 +283,7 @@
         gap: 4px 6px;
         max-width: 72ch;
         margin: -8px 0 var(--s-5);
-        font-size: 12px;
+        font-size: var(--fs-caption);
         color: var(--text-muted);
         line-height: 1.7;
       }
@@ -309,7 +320,7 @@
         gap: var(--s-3);
       }
       .state-label {
-        font-size: 11px;
+        font-size: var(--fs-overline);
         color: var(--text-subtle);
         text-transform: uppercase;
         letter-spacing: 0.06em;
@@ -324,7 +335,7 @@
         text-align: center;
       }
       .note {
-        font-size: 12px;
+        font-size: var(--fs-caption);
         color: var(--text-subtle);
         margin-top: var(--s-3);
       }
@@ -359,7 +370,7 @@
       }
       .swatch .meta {
         padding: 8px 10px;
-        font-size: 12px;
+        font-size: var(--fs-caption);
       }
       .swatch .meta b {
         font-weight: 600;
@@ -368,7 +379,7 @@
         display: block;
         color: var(--text-subtle);
         font-family: var(--mono);
-        font-size: 11px;
+        font-size: var(--fs-overline);
       }
       .typescale > div {
         display: flex;
@@ -380,7 +391,7 @@
       .typescale .lbl {
         width: 120px;
         color: var(--text-subtle);
-        font-size: 12px;
+        font-size: var(--fs-caption);
         font-family: var(--mono);
       }
       .scalebars {
@@ -396,7 +407,7 @@
       .scalebars .b span {
         display: block;
         text-align: center;
-        font-size: 11px;
+        font-size: var(--fs-overline);
         color: var(--text-subtle);
         margin-top: 4px;
         font-family: var(--mono);
@@ -414,7 +425,7 @@
         display: grid;
         place-items: end center;
         padding-bottom: 6px;
-        font-size: 11px;
+        font-size: var(--fs-overline);
         font-family: var(--mono);
         color: var(--text-subtle);
       }
@@ -431,7 +442,7 @@
         border-radius: var(--r-md);
         display: grid;
         place-items: center;
-        font-size: 11px;
+        font-size: var(--fs-overline);
         font-family: var(--mono);
         color: var(--text-subtle);
       }
@@ -463,7 +474,7 @@
         border: 1px solid var(--border);
         border-radius: var(--r-md);
         color: var(--text);
-        font-size: 11px;
+        font-size: var(--fs-overline);
         transition: border-color var(--t-micro) var(--ease), background var(--t-micro) var(--ease),
           transform var(--t-micro) var(--ease);
       }
@@ -493,7 +504,7 @@
         appearance: none;
         font: inherit;
         font-weight: 550;
-        font-size: 13px;
+        font-size: var(--fs-base);
         color: var(--btn-fg);
         background: var(--btn-bg);
         border: 1px solid var(--border);
@@ -537,12 +548,12 @@
       }
       .btn.sm {
         height: 26px;
-        font-size: 12px;
+        font-size: var(--fs-caption);
         padding: 0 10px;
       }
       .btn.lg {
         height: 38px;
-        font-size: 14px;
+        font-size: var(--fs-base);
         padding: 0 18px;
       }
 
@@ -680,7 +691,7 @@
         gap: 6px;
       }
       .field > label {
-        font-size: 12px;
+        font-size: var(--fs-caption);
         color: var(--text-muted);
         font-weight: 500;
       }
@@ -707,7 +718,7 @@
         background: transparent;
         color: var(--text);
         font: inherit;
-        font-size: 13px;
+        font-size: var(--fs-base);
         width: 100%;
       }
       .input input::placeholder {
@@ -727,7 +738,7 @@
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 30%, transparent);
       }
       .field .hint {
-        font-size: 11px;
+        font-size: var(--fs-caption);
         color: var(--text-subtle);
       }
       .field .hint.err {
@@ -790,7 +801,7 @@
         width: 100%;
         appearance: none;
         font: inherit;
-        font-size: 13px;
+        font-size: var(--fs-base);
         text-align: left;
         color: var(--text);
         background: transparent;
@@ -937,7 +948,7 @@
         z-index: 1;
         appearance: none;
         font: inherit;
-        font-size: 12px;
+        font-size: var(--fs-caption);
         font-weight: 550;
         color: var(--text-muted);
         background: transparent;
@@ -1023,7 +1034,7 @@
         background: var(--surface-2);
       }
       .tree-toolbar .ttitle {
-        font-size: 11px;
+        font-size: var(--fs-overline);
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.08em;
@@ -1042,7 +1053,7 @@
         font-size: 14px;
       }
       .tree-toolbar .tsearch input {
-        font-size: 12px;
+        font-size: var(--fs-caption);
       }
       .tree-toolbar .tbtn {
         width: 24px;
@@ -1066,7 +1077,7 @@
         padding: 6px 10px;
         border-top: 1px solid var(--border);
         background: var(--surface-2);
-        font-size: 11px;
+        font-size: var(--fs-overline);
         font-family: var(--mono);
         color: var(--text-subtle);
       }
@@ -1086,7 +1097,7 @@
         --indent: 16px;
         --row-h: 24px;
         user-select: none;
-        font-size: 13px;
+        font-size: var(--fs-base);
         line-height: 1;
         color: var(--text-muted);
       }
@@ -1095,7 +1106,7 @@
       }
       .tree.dense {
         --row-h: 20px;
-        font-size: 12px;
+        font-size: var(--fs-dense);
       }
       .tree.comfy {
         --row-h: 28px;
@@ -1231,7 +1242,7 @@
       .tree-meta {
         flex: none;
         margin-left: 8px;
-        font-size: 11px;
+        font-size: var(--fs-overline);
         font-family: var(--mono);
         color: var(--text-subtle);
       }
@@ -1388,13 +1399,13 @@
         box-shadow: 0 0 0 1px var(--accent), var(--shadow-md);
       }
       .card h3 {
-        font-size: 14px;
+        font-size: var(--fs-base);
         margin-bottom: 4px;
       }
       .card p {
         margin: 0;
         color: var(--text-muted);
-        font-size: 13px;
+        font-size: var(--fs-base);
       }
       .card .card-head {
         display: flex;
@@ -1418,7 +1429,7 @@
       }
 
       .sectiontitle {
-        font-size: 11px;
+        font-size: var(--fs-overline);
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.08em;
@@ -1440,7 +1451,7 @@
       .proprow > .k {
         width: 120px;
         color: var(--text-muted);
-        font-size: 13px;
+        font-size: var(--fs-base);
         flex: none;
       }
       .proprow > .v {
@@ -1465,7 +1476,7 @@
         min-width: 42px;
         text-align: right;
         font-family: var(--mono);
-        font-size: 12px;
+        font-size: var(--fs-caption);
         color: var(--text-muted);
         flex: none;
       }
@@ -1474,7 +1485,7 @@
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        font-size: 11px;
+        font-size: var(--fs-overline);
         font-weight: 600;
         padding: 2px 8px;
         border-radius: var(--r-pill);
@@ -1518,7 +1529,7 @@
       .tabs button {
         appearance: none;
         font: inherit;
-        font-size: 13px;
+        font-size: var(--fs-base);
         font-weight: 550;
         color: var(--text-muted);
         background: none;
@@ -1558,7 +1569,7 @@
         color: var(--text);
         border: 1px solid var(--border);
         box-shadow: var(--shadow-md);
-        font-size: 12px;
+        font-size: var(--fs-caption);
         padding: 6px 10px;
         border-radius: var(--r-md);
         white-space: nowrap;
@@ -1711,15 +1722,25 @@
         <section class="block" id="type">
           <h2>字体层级</h2>
           <p class="desc">
-            应用内主字体为单字重 MonaspaceNeon，故层级靠<strong>字号 + 颜色 + 间距</strong>区分，不依赖粗体。
+            <strong>常规（基准）字号 = 14px</strong>，正文与<strong>主要控件</strong>（按钮 / 输入 / 菜单 / 标签页 / 树行）统一用它。
+            这是业内成熟规范对专业工具的"常规"取值：Ant Design 14、Microsoft Fluent 14、Material 14；
+            macOS HIG 13pt、VS Code ~13 偏 Latin IDE，Figma/Blender ~11 偏超密集创作工具——CJK 界面取 14
+            比 13 更耐读。桌面端（ImGui）同步为 14px。
+          </p>
+          <p class="desc" style="margin-top: calc(var(--s-3) * -1)">
+            <strong>各场景统一吗？</strong>不完全统一——常规是 14px，其余<strong>按"为什么"刻意分级</strong>：标题放大利于扫读，次要 / 分组信息缩小提升密度，超密集数据行降一级以容纳更多内容。
           </p>
           <div class="panel typescale">
-            <div><span class="lbl">Title / 20</span><span style="font-size: 20px; font-weight: 600">操作面板 Inspector</span></div>
-            <div><span class="lbl">Subtitle / 16</span><span style="font-size: 16px; font-weight: 600">材质 Material</span></div>
-            <div><span class="lbl">Body / 14</span><span style="font-size: 14px">默认正文，控件标签与说明文字。</span></div>
-            <div><span class="lbl">Control / 13</span><span style="font-size: 13px">按钮 / 输入框内文字</span></div>
-            <div><span class="lbl">Caption / 12</span><span style="font-size: 12px; color: var(--text-muted)">次要说明、字段标签</span></div>
-            <div><span class="lbl">Section / 11</span><span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-subtle)">SECTION TITLE 分组标题</span></div>
+            <div><span class="lbl">Title / 20</span><span style="font-size: var(--fs-title); font-weight: 600">操作面板 Inspector</span><span class="note" style="margin: 0">页面 / 分区标题</span></div>
+            <div><span class="lbl">Subtitle / 16</span><span style="font-size: var(--fs-subtitle); font-weight: 600">材质 Material</span><span class="note" style="margin: 0">面板 / 对话框标题</span></div>
+            <div><span class="lbl">Base / 14 ★</span><span style="font-size: var(--fs-base)">常规：正文 + 按钮 / 输入 / 菜单 / 标签页 / 树行</span><span class="note" style="margin: 0">统一基准</span></div>
+            <div><span class="lbl">Caption / 12</span><span style="font-size: var(--fs-caption); color: var(--text-muted)">次要：字段标签 / 提示 / 数值 / 计数 · 紧凑控件（分段）</span><span class="note" style="margin: 0">次要信息 / 密集控件降一级</span></div>
+            <div><span class="lbl">Overline / 11</span><span style="font-size: var(--fs-overline); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-subtle)">SECTION TITLE 分组标题</span><span class="note" style="margin: 0">大写 + 字距，弱化为结构标识</span></div>
+            <div><span class="lbl">Dense / 13</span><span style="font-size: var(--fs-dense)">超密集数据行（树 / 表 dense 模式）</span><span class="note" style="margin: 0">为容纳更多行降一级</span></div>
+          </div>
+          <div class="note">
+            令牌见 <code>:root</code> 的 <code>--fs-title / --fs-subtitle / --fs-base / --fs-caption / --fs-overline / --fs-dense</code>；
+            组件只引用令牌，改基准改这一处。注：本规范主字体为单字重 MonaspaceNeon，层级靠<strong>字号 + 颜色 + 间距</strong>区分，不依赖粗体。
           </div>
         </section>
 
