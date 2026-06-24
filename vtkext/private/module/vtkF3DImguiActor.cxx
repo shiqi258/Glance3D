@@ -2117,6 +2117,118 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     ImGui::PopItemWidth();
   }
 
+  // Colormap presets. "Default" resets to the libf3d default; others set explicit transfer-function
+  // control points (val,r,g,b,...). The current option value is matched back to a preset for preview.
+  struct ColormapPreset
+  {
+    const char* name;
+    const char* points; // empty => reset to default
+  };
+  static const ColormapPreset presets[] = {
+    { "Default", "" },
+    { "Grayscale", "0,0,0,0,1,1,1,1" },
+    { "Cool to warm", "0,0.231,0.298,0.753,0.5,0.865,0.865,0.865,1,0.706,0.016,0.149" },
+    { "Viridis",
+      "0,0.267,0.005,0.329,0.25,0.231,0.322,0.545,0.5,0.128,0.567,0.551,0.75,0.369,0.788,0.382,1,"
+      "0.993,0.906,0.144" },
+    { "Jet", "0,0,0,0.5,0.35,0,1,1,0.66,0.5,1,0.5,0.89,1,1,0,1,0.5,0,0" },
+  };
+  const std::string currentMap = this->QueryOption("model.scivis.colormap").value_or("");
+  std::string mapPreview = currentMap.empty() ? loc.Translate("Default") : loc.Translate("Custom");
+  for (const auto& preset : presets)
+  {
+    if (currentMap == preset.points)
+    {
+      mapPreview = loc.Translate(preset.name);
+      break;
+    }
+  }
+  ImGui::PushItemWidth(-1.f);
+  if (ImGui::BeginCombo(loc.Translate("Colormap").c_str(), mapPreview.c_str()))
+  {
+    for (const auto& preset : presets)
+    {
+      if (ImGui::Selectable(loc.Translate(preset.name).c_str(), currentMap == preset.points))
+      {
+        if (preset.points[0] == '\0')
+        {
+          this->SendCommand("reset model.scivis.colormap");
+        }
+        else
+        {
+          this->SendCommand(std::string("set model.scivis.colormap \"") + preset.points + "\"");
+        }
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::PopItemWidth();
+
+  // Value-range override [min,max] (unset = auto from data); bounds are the array's magnitude range.
+  const F3DColoringInfoHandler::ColoringInfo* currentInfo = nullptr;
+  for (const auto& array : arrays)
+  {
+    if (array.Name == current)
+    {
+      currentInfo = &array;
+      break;
+    }
+  }
+  if (currentInfo != nullptr && currentInfo->MagnitudeRange[1] > currentInfo->MagnitudeRange[0])
+  {
+    const float dataMin = static_cast<float>(currentInfo->MagnitudeRange[0]);
+    const float dataMax = static_cast<float>(currentInfo->MagnitudeRange[1]);
+    float rmin = dataMin;
+    float rmax = dataMax;
+    const std::optional<std::string> rangeStr = this->QueryOption("model.scivis.range");
+    if (rangeStr)
+    {
+      std::stringstream ss(*rangeStr);
+      std::string token;
+      if (std::getline(ss, token, ','))
+      {
+        try
+        {
+          rmin = std::stof(token);
+        }
+        catch (...)
+        {
+        }
+      }
+      if (std::getline(ss, token, ','))
+      {
+        try
+        {
+          rmax = std::stof(token);
+        }
+        catch (...)
+        {
+        }
+      }
+    }
+    ImGui::PushItemWidth(-1.f);
+    bool rangeChanged = false;
+    rangeChanged |=
+      G3DWidgets::SliderFloat(loc.Translate("Range min").c_str(), &rmin, dataMin, dataMax, "%.4g");
+    rangeChanged |=
+      G3DWidgets::SliderFloat(loc.Translate("Range max").c_str(), &rmax, dataMin, dataMax, "%.4g");
+    ImGui::PopItemWidth();
+    if (rangeChanged)
+    {
+      if (rmin > rmax)
+      {
+        std::swap(rmin, rmax);
+      }
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "%.6g,%.6g", rmin, rmax);
+      this->SendCommand(std::string("set model.scivis.range ") + buf);
+    }
+    if (G3DWidgets::Button(loc.Translate("Auto range").c_str(), G3DWidgets::ButtonVariant::Ghost))
+    {
+      this->SendCommand("reset model.scivis.range");
+    }
+  }
+
   bool scalarBar = this->ReadOptionBool("ui.scalar_bar", false);
   if (G3DWidgets::Toggle(loc.Translate("Scalar bar").c_str(), &scalarBar))
   {
