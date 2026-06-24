@@ -26,6 +26,7 @@ export function initG3DControlPanel(engine) {
   const options = engine.getOptions();
   const dataInfoEl = document.querySelector("#g3d-data-info");
   const controlsEl = document.querySelector("#g3d-controls");
+  const coloringEl = document.querySelector("#g3d-coloring");
   const timelineEl = document.querySelector("#g3d-timeline");
 
   // Read-only data-info group, sourced from the shared `scene.getG3DDataInfo()` API (same data the
@@ -184,6 +185,23 @@ export function initG3DControlPanel(engine) {
     row.append(input, el("span", "g3d-controls__label", label));
     return row;
   };
+  // Dropdown row. @p opts is [{label, value}]; onChange receives the chosen value.
+  const selectRow = (label, opts, current, onChange) => {
+    const row = el("div", "g3d-controls__row");
+    row.append(el("span", "g3d-controls__label", label));
+    const sel = el("select", "g3d-controls__select");
+    for (const o of opts) {
+      const opt = el("option", null, o.label);
+      opt.value = o.value;
+      if (o.value === current) {
+        opt.selected = true;
+      }
+      sel.append(opt);
+    }
+    sel.addEventListener("change", () => onChange(sel.value));
+    row.append(sel);
+    return row;
+  };
 
   const renderControls = () => {
     if (!controlsEl) {
@@ -328,6 +346,64 @@ export function initG3DControlPanel(engine) {
     }
   };
 
+  // Scalar-coloring group (scivis): enable + array + point/cell + component + scalar bar. Shown only
+  // when the scene exposes colorable arrays (context-sensitive). Array list comes from getG3DDataInfo
+  // (same source the desktop uses); writes go through model.scivis.* options.
+  const renderColoring = () => {
+    if (!coloringEl) {
+      return;
+    }
+    const s = sceneApi();
+    let info = null;
+    if (s && typeof s.getG3DDataInfo === "function") {
+      info = safe(() => s.getG3DDataInfo(), null);
+    }
+    const arrays = info && info.arrays ? info.arrays : [];
+    coloringEl.replaceChildren();
+    if (arrays.length === 0) {
+      coloringEl.style.display = "none";
+      return;
+    }
+    coloringEl.style.display = "";
+    const pointArrays = arrays.filter((a) => a.association === "point");
+    const cellArrays = arrays.filter((a) => a.association === "cell");
+    const cells = getBool("model.scivis.cells", false);
+    const active = cells && cellArrays.length ? cellArrays : pointArrays;
+
+    coloringEl.append(el("p", "g3d-controls__section", "Coloring"));
+    coloringEl.append(toggleRow("Enable", "model.scivis.enable"));
+    if (pointArrays.length && cellArrays.length) {
+      coloringEl.append(toggleRow("Cell data", "model.scivis.cells"));
+    }
+
+    const current = getStr("model.scivis.array_name") || "";
+    coloringEl.append(
+      selectRow(
+        "Array",
+        active.map((a) => ({ label: a.name, value: a.name })),
+        current,
+        (name) => {
+          setOpt("model.scivis.array_name", name);
+          setOpt("model.scivis.enable", "true");
+        },
+      ),
+    );
+
+    const curArr = active.find((a) => a.name === current);
+    if (curArr && curArr.components > 1) {
+      const comp = String(Math.round(getFloat("model.scivis.component", -1)));
+      const opts = [{ label: "Magnitude", value: "-1" }];
+      for (let i = 0; i < curArr.components; i++) {
+        opts.push({ label: `#${i}`, value: String(i) });
+      }
+      coloringEl.append(
+        selectRow("Component", opts, comp, (v) => setOpt("model.scivis.component", v)),
+      );
+    }
+
+    coloringEl.append(toggleRow("Scalar bar", "ui.scalar_bar"));
+  };
+
   // Prefer the shared, headless libf3d option as the single source of truth (matches desktop). The
   // bundled wasm may predate this option (built before it existed); detect that up front by listing
   // the known option names — which never touches the missing option — and fall back to a DOM-only
@@ -360,6 +436,7 @@ export function initG3DControlPanel(engine) {
       // Never auto-hide the FAB while the panel is open.
       fab.classList.remove("is-idle");
       renderDataInfo(); // refresh the read-only data each time the panel is shown
+      renderColoring(); // scalar-coloring group (context-sensitive on arrays)
       renderControls(); // and reflect current option values into the controls
       buildTimeline(); // (re)build the animation timeline for the current scene
     }
@@ -370,6 +447,7 @@ export function initG3DControlPanel(engine) {
   window.addEventListener("g3d:scene-loaded", () => {
     if (isOpen()) {
       renderDataInfo();
+      renderColoring();
       renderControls();
       buildTimeline();
     }

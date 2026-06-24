@@ -244,6 +244,20 @@
         background: none;
         cursor: pointer;
       }
+      .g3d-controls__select {
+        flex: 1 1 auto;
+        min-width: 0;
+        background: rgba(255, 255, 255, 0.06);
+        color: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-size: 0.8125rem;
+      }
+      .theme-light .g3d-controls__select {
+        background: rgba(0, 0, 0, 0.04);
+        border-color: rgba(0, 0, 0, 0.18);
+      }
 
       /* Animation timeline (shown only when the scene has animations). */
       .g3d-timeline {
@@ -448,6 +462,7 @@
                 <div class="g3d-control-panel__inner">
                   <p class="g3d-control-panel__title">Inspector</p>
                   <div id="g3d-data-info" class="g3d-data-info"></div>
+                  <div id="g3d-coloring" class="g3d-controls"></div>
                   <div id="g3d-controls" class="g3d-controls"></div>
                   <div id="g3d-timeline" class="g3d-timeline"></div>
                   <button
