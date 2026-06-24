@@ -182,6 +182,13 @@ private:
   void DrawMaterialContent();
 
   /**
+   * Draw the scalar-coloring inspector group (scivis): enable, array selection (point/cell),
+   * component, and scalar bar. Only shown when the scene exposes colorable arrays. Reads the array
+   * list from the renderer's coloring handler; writes through model.scivis.* commands.
+   */
+  void DrawColoringContent(vtkOpenGLRenderWindow* renWin);
+
+  /**
    * Draw the animation timeline (bottom bar): play/pause, scrubber, speed, animation cycling. Reads
    * the pushed UIAnimationState; writes through commands (toggle_animation / load_animation_time).
    */

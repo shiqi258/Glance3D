@@ -65,6 +65,14 @@
   "Pause": "暂停",
   "Next animation": "下一个动画",
 
+  "Coloring": "着色",
+  "Enable": "启用",
+  "Cell data": "单元数据",
+  "Array": "数组",
+  "Component": "分量",
+  "Magnitude": "模长",
+  "Scalar bar": "色标",
+
   "Search...": "搜索…",
   "Description": "描述",
   "Keybind": "快捷键",

@@ -1978,6 +1978,119 @@ void vtkF3DImguiActor::DrawMaterialContent()
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
+{
+  vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+  if (ren == nullptr)
+  {
+    return;
+  }
+  vtkF3DMetaImporter* importer = ren->GetMetaImporter();
+  if (importer == nullptr)
+  {
+    return;
+  }
+  F3DColoringInfoHandler& coloring = importer->GetColoringInfoHandler();
+  const std::vector<F3DColoringInfoHandler::ColoringInfo> pointArrays = coloring.GetPointDataArrays();
+  const std::vector<F3DColoringInfoHandler::ColoringInfo> cellArrays = coloring.GetCellDataArrays();
+  if (pointArrays.empty() && cellArrays.empty())
+  {
+    return; // context-sensitive: no coloring controls without colorable arrays
+  }
+
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const float scale = static_cast<float>(this->FontScale);
+  static bool coloringOpen = true;
+  if (!G3DWidgets::CollapsingSection(loc.Translate("Coloring").c_str(), &coloringOpen))
+  {
+    return;
+  }
+  ImGui::Indent(G3DTheme::Spacing::Sm * scale);
+
+  bool enable = this->ReadOptionBool("model.scivis.enable", false);
+  if (G3DWidgets::Toggle(loc.Translate("Enable").c_str(), &enable))
+  {
+    this->SendCommand(std::string("set model.scivis.enable ") + (enable ? "true" : "false"));
+  }
+
+  // Point vs cell data (only offer the switch when both are present).
+  bool cells = this->ReadOptionBool("model.scivis.cells", false);
+  if (!pointArrays.empty() && !cellArrays.empty())
+  {
+    if (G3DWidgets::Toggle(loc.Translate("Cell data").c_str(), &cells))
+    {
+      this->SendCommand(std::string("set model.scivis.cells ") + (cells ? "true" : "false"));
+    }
+  }
+  const std::vector<F3DColoringInfoHandler::ColoringInfo>& arrays =
+    (cells && !cellArrays.empty()) ? cellArrays : pointArrays;
+
+  // Array selector. Writing the name also enables coloring so a pick takes effect immediately.
+  const std::string current = this->QueryOption("model.scivis.array_name").value_or("");
+  ImGui::PushItemWidth(-1.f);
+  if (ImGui::BeginCombo("##g3d.scivis.array", current.c_str()))
+  {
+    for (const auto& array : arrays)
+    {
+      const bool selected = array.Name == current;
+      if (ImGui::Selectable(array.Name.c_str(), selected))
+      {
+        this->SendCommand(std::string("set model.scivis.array_name \"") + array.Name + "\"");
+        this->SendCommand("set model.scivis.enable true");
+      }
+      if (selected)
+      {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::PopItemWidth();
+
+  // Component: magnitude (-1) or a specific component of the current array.
+  int maxComponents = 1;
+  for (const auto& array : arrays)
+  {
+    if (array.Name == current)
+    {
+      maxComponents = std::max(1, array.MaximumNumberOfComponents);
+      break;
+    }
+  }
+  if (maxComponents > 1)
+  {
+    const int component = static_cast<int>(this->ReadOptionFloat("model.scivis.component", -1.f));
+    const std::string componentLabel =
+      component < 0 ? loc.Translate("Magnitude") : (std::string("#") + std::to_string(component));
+    ImGui::PushItemWidth(-1.f);
+    if (ImGui::BeginCombo(loc.Translate("Component").c_str(), componentLabel.c_str()))
+    {
+      if (ImGui::Selectable(loc.Translate("Magnitude").c_str(), component < 0))
+      {
+        this->SendCommand("set model.scivis.component -1");
+      }
+      for (int i = 0; i < maxComponents; i++)
+      {
+        if (ImGui::Selectable((std::string("#") + std::to_string(i)).c_str(), component == i))
+        {
+          this->SendCommand("set model.scivis.component " + std::to_string(i));
+        }
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::PopItemWidth();
+  }
+
+  bool scalarBar = this->ReadOptionBool("ui.scalar_bar", false);
+  if (G3DWidgets::Toggle(loc.Translate("Scalar bar").c_str(), &scalarBar))
+  {
+    this->SendCommand(std::string("set ui.scalar_bar ") + (scalarBar ? "true" : "false"));
+  }
+
+  ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiActor::DrawTimelineContent()
 {
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
@@ -2154,6 +2267,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     G3DWidgets::PanelHeader(loc.Translate("Inspector").c_str(), G3DIconId::Sliders);
     ImGui::BeginChild("##g3d.inspector", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
     this->DrawDataInfoContent(renWin);
+    this->DrawColoringContent(renWin);
     this->DrawAppearanceContent();
     this->DrawMaterialContent();
     ImGui::EndChild();
