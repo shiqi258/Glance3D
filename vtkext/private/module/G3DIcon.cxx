@@ -134,25 +134,22 @@ void DrawCube(const IconCanvas& c)
 
 void DrawFolder(const IconCanvas& c, bool open)
 {
-  // Back panel with a raised tab on the upper-left, like a manila folder.
-  ImVec2 body[6] = { c.P(0.16f, 0.32f), c.P(0.40f, 0.32f), c.P(0.48f, 0.42f), c.P(0.84f, 0.42f),
-    c.P(0.84f, 0.76f), c.P(0.16f, 0.76f) };
   if (open)
   {
-    // Outline the back, then sweep the open lid as a slanted quad so it reads as "expanded".
-    c.dl->AddLine(c.P(0.16f, 0.76f), c.P(0.16f, 0.36f), c.color, c.th);
-    c.dl->AddLine(c.P(0.16f, 0.36f), c.P(0.40f, 0.36f), c.color, c.th);
-    c.dl->AddLine(c.P(0.40f, 0.36f), c.P(0.48f, 0.46f), c.color, c.th);
-    c.dl->AddLine(c.P(0.48f, 0.46f), c.P(0.80f, 0.46f), c.color, c.th);
-    ImVec2 lid[4] = { c.P(0.16f, 0.76f), c.P(0.30f, 0.54f), c.P(0.96f, 0.54f), c.P(0.84f, 0.76f) };
-    c.Poly(lid, 4);
-    c.dl->AddLine(lid[3], c.P(0.84f, 0.46f), c.color, c.th);
+    // Back panel + tab peeking above, then the opened front as a flared tray (both closed shapes so
+    // the glyph never reads as an incomplete outline).
+    ImVec2 back[7] = { c.P(0.15f, 0.52f), c.P(0.15f, 0.30f), c.P(0.37f, 0.30f), c.P(0.44f, 0.40f),
+      c.P(0.85f, 0.40f), c.P(0.85f, 0.52f), c.P(0.15f, 0.52f) };
+    c.Poly(back, 7);
+    ImVec2 tray[5] = { c.P(0.07f, 0.73f), c.P(0.22f, 0.50f), c.P(0.93f, 0.50f), c.P(0.78f, 0.73f),
+      c.P(0.07f, 0.73f) };
+    c.Poly(tray, 5);
+    return;
   }
-  else
-  {
-    ImVec2 closed[7] = { body[0], body[1], body[2], body[3], body[4], body[5], body[0] };
-    c.Poly(closed, 7);
-  }
+  // Closed folder: a raised tab on the upper-left, then the body — one closed outline.
+  ImVec2 p[7] = { c.P(0.15f, 0.30f), c.P(0.37f, 0.30f), c.P(0.44f, 0.40f), c.P(0.85f, 0.40f),
+    c.P(0.85f, 0.74f), c.P(0.15f, 0.74f), c.P(0.15f, 0.30f) };
+  c.Poly(p, 7);
 }
 
 void DrawLayers(const IconCanvas& c)
