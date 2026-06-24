@@ -108,6 +108,20 @@ void DrawAxis(const IconCanvas& c)
   c.Line(ox, oy, 0.58f, 0.50f); // depth
 }
 
+void DrawFit(const IconCanvas& c)
+{
+  // Four corner brackets framing the center — the universal "fit / frame to view" glyph.
+  const float a = 0.22f, b = 0.78f, k = 0.18f;
+  c.Line(a, a, a + k, a);
+  c.Line(a, a, a, a + k); // top-left
+  c.Line(b, a, b - k, a);
+  c.Line(b, a, b, a + k); // top-right
+  c.Line(a, b, a + k, b);
+  c.Line(a, b, a, b - k); // bottom-left
+  c.Line(b, b, b - k, b);
+  c.Line(b, b, b, b - k); // bottom-right
+}
+
 void DrawCamera(const IconCanvas& c)
 {
   c.dl->AddRect(c.P(0.14f, 0.34f), c.P(0.86f, 0.78f), c.color, c.R(0.06f), ImDrawFlags_None, c.th);
@@ -192,6 +206,23 @@ void DrawImage(const IconCanvas& c)
   c.Poly(hill, 5);
 }
 
+void DrawEdges(const IconCanvas& c)
+{
+  // Triangle outline with emphasized vertices — reads as mesh edges / wireframe.
+  ImVec2 t[4] = { c.P(0.50f, 0.20f), c.P(0.82f, 0.78f), c.P(0.18f, 0.78f), c.P(0.50f, 0.20f) };
+  c.Poly(t, 4);
+  c.Dot(0.50f, 0.20f, 0.07f);
+  c.Dot(0.82f, 0.78f, 0.07f);
+  c.Dot(0.18f, 0.78f, 0.07f);
+}
+
+void DrawInfo(const IconCanvas& c)
+{
+  c.Ring(0.50f, 0.50f, 0.32f);
+  c.Dot(0.50f, 0.35f, 0.045f);      // dot of the "i"
+  c.Line(0.50f, 0.47f, 0.50f, 0.67f); // stem
+}
+
 void DrawLock(const IconCanvas& c)
 {
   // Shackle arc above, body rectangle below.
@@ -265,6 +296,9 @@ void G3DIcon::Draw(
     case G3DIconId::Axis:
       DrawAxis(c);
       break;
+    case G3DIconId::Fit:
+      DrawFit(c);
+      break;
     case G3DIconId::Camera:
       DrawCamera(c);
       break;
@@ -288,6 +322,12 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Lock:
       DrawLock(c);
+      break;
+    case G3DIconId::Info:
+      DrawInfo(c);
+      break;
+    case G3DIconId::Edges:
+      DrawEdges(c);
       break;
   }
 

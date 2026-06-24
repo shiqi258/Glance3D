@@ -32,6 +32,7 @@ enum class G3DIconId
   EyeOff,
   Grid,
   Axis,
+  Fit, ///< four corner brackets (fit / reset view to frame the model)
   Camera,
   Cube,
   Folder,     ///< closed folder (tree group)
@@ -40,6 +41,8 @@ enum class G3DIconId
   Light,      ///< light source (sun)
   Image,      ///< picture / texture / material
   Lock,       ///< padlock (locked node)
+  Info,       ///< circled "i" (data / details panel)
+  Edges,      ///< triangle with vertex dots (mesh edges / wireframe)
 };
 
 namespace G3DIcon

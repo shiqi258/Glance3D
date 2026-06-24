@@ -50,8 +50,42 @@ bool IconButton(
 bool BeginCard(const char* id, bool hoverable = false, float padding = -1.f);
 bool EndCard();
 
-/// Muted, smaller-feeling group heading.
+/// Overline group heading (uppercase-feeling, subtle, letter-spaced) — mirrors styleguide
+/// .sectiontitle. Use to label a group of rows inside a panel.
 void SectionTitle(const char* text);
+
+/// Full-width hairline divider with vertical breathing room (mirrors styleguide .divider).
+void Divider();
+
+/// Panel header: a title with a full-width hairline beneath it, spanning the whole panel width
+/// (ignores window padding). Use at the very top of a docked panel / sidebar to title it (mirrors
+/// styleguide .tree-toolbar title row). The second overload prefixes an accent-tinted leading icon.
+void PanelHeader(const char* title);
+void PanelHeader(const char* title, G3DIconId icon);
+
+/// Read-only key/value row for inspectors / stat panels: muted label on the left, primary value
+/// right-aligned on the same line (mirrors styleguide .proprow used read-only).
+void StatRow(const char* key, const char* value);
+
+/// Collapsible property-panel header (the signature DCC inspector panel, e.g. Blender's Transform /
+/// Relations): a full-width clickable header with a disclosure triangle + title on a subtle raised
+/// surface; clicking toggles @p open. Returns whether the section is open, so the caller guards its
+/// content with `if (CollapsingSection(...)) { ... }`. @p open persists the state across frames.
+bool CollapsingSection(const char* label, bool* open);
+
+/// Pill badge tint.
+enum class BadgeVariant
+{
+  Neutral, ///< subtle surface fill, muted text
+  Accent,  ///< accent-soft fill, accent text
+};
+
+/// Small inline pill badge (mirrors styleguide g3d-badge). Advances the layout cursor like a normal
+/// item, so it composes with ImGui::SameLine().
+void Badge(const char* text, BadgeVariant variant = BadgeVariant::Neutral);
+
+/// Width a Badge() would occupy for @p text (for right-aligning a trailing badge).
+float BadgeWidth(const char* text);
 
 /// Animated on/off switch. Returns true when toggled this frame.
 bool Toggle(const char* label, bool* v);

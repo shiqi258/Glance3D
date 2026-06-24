@@ -48,6 +48,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -1718,65 +1719,117 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
   }
 
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-
-  // Key/value row: muted label, value on the same line.
-  auto kv = [](const std::string& label, const std::string& value)
-  {
-    ImGui::TextColored(G3DTheme::TextMuted(), "%s", label.c_str());
-    ImGui::SameLine();
-    ImGui::TextUnformatted(value.c_str());
-  };
+  const float scale = static_cast<float>(this->FontScale);
 
   // Own scroll region (the docked bar is NoScrollbar), like the scene tree.
   ImGui::BeginChild("##g3d.datainfo", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
 
+  // Collapsible inspector panels (DCC properties-editor layout). Open state persists across frames.
+  static bool geomOpen = true;
+  static bool arraysOpen = true;
+
+  // --- Geometry: read-only key/value stats, right-aligned values. ---
   const vtkF3DMetaImporter::G3DDataStats stats = importer->GetG3DDataStats();
-  G3DWidgets::SectionTitle(loc.Translate("Data info").c_str());
-  kv(loc.Translate("Points"), std::to_string(stats.points));
-  kv(loc.Translate("Cells"), std::to_string(stats.cells));
-  kv(loc.Translate("Actors"), std::to_string(stats.actors));
-  if (stats.files > 1)
+  if (G3DWidgets::CollapsingSection(loc.Translate("Geometry").c_str(), &geomOpen))
   {
-    kv(loc.Translate("Files"), std::to_string(stats.files));
+    ImGui::Indent(G3DTheme::Spacing::Sm * scale);
+    G3DWidgets::StatRow(loc.Translate("Points").c_str(), std::to_string(stats.points).c_str());
+    G3DWidgets::StatRow(loc.Translate("Cells").c_str(), std::to_string(stats.cells).c_str());
+    G3DWidgets::StatRow(loc.Translate("Actors").c_str(), std::to_string(stats.actors).c_str());
+    if (stats.files > 1)
+    {
+      G3DWidgets::StatRow(loc.Translate("Files").c_str(), std::to_string(stats.files).c_str());
+    }
+
+    const vtkBoundingBox& bbox = importer->GetGeometryBoundingBox();
+    if (bbox.IsValid())
+    {
+      double length[3];
+      bbox.GetLengths(length);
+      char buf[96];
+      std::snprintf(
+        buf, sizeof(buf), "%.4g \xc3\x97 %.4g \xc3\x97 %.4g", length[0], length[1], length[2]);
+      G3DWidgets::StatRow(loc.Translate("Size").c_str(), buf);
+    }
+    ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
   }
 
-  const vtkBoundingBox& bbox = importer->GetGeometryBoundingBox();
-  if (bbox.IsValid())
-  {
-    double length[3];
-    bbox.GetLengths(length);
-    char buf[96];
-    std::snprintf(buf, sizeof(buf), "%.4g x %.4g x %.4g", length[0], length[1], length[2]);
-    kv(loc.Translate("Size"), buf);
-  }
-
-  // Available scalar arrays (point + cell), read-only here; coloring controls land in a later step.
+  // --- Arrays: one block per scalar array (name + association/component badge, value range). ---
   F3DColoringInfoHandler& coloring = importer->GetColoringInfoHandler();
   const std::vector<F3DColoringInfoHandler::ColoringInfo> pointArrays = coloring.GetPointDataArrays();
   const std::vector<F3DColoringInfoHandler::ColoringInfo> cellArrays = coloring.GetCellDataArrays();
 
-  if (pointArrays.empty() && cellArrays.empty())
+  if (G3DWidgets::CollapsingSection(loc.Translate("Arrays").c_str(), &arraysOpen))
   {
-    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Sm));
-    ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No data arrays").c_str());
-  }
-  else
-  {
-    G3DWidgets::SectionTitle(loc.Translate("Arrays").c_str());
-    auto drawArrays = [&](const std::vector<F3DColoringInfoHandler::ColoringInfo>& arrays,
-                         const std::string& assoc)
+    ImGui::Indent(G3DTheme::Spacing::Sm * scale);
+    if (pointArrays.empty() && cellArrays.empty())
     {
-      for (const auto& a : arrays)
+      ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
+      ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No data arrays").c_str());
+    }
+
+    // One array entry: name on the left, an accent component-count badge right-aligned, and the
+    // value range on a muted, indented second line. The whole entry lifts on hover (a subtle row
+    // surface) so it reads as an addressable item — ready for click-to-color later.
+    auto arrayRow = [&](const F3DColoringInfoHandler::ColoringInfo& a, const std::string& assoc)
+    {
+      ImDrawList* dl = ImGui::GetWindowDrawList();
+      const float w = ImGui::GetContentRegionAvail().x;
+      const float lineH = ImGui::GetTextLineHeight();
+      const float padY = G3DTheme::Spacing::Xs * scale;
+      const float bleed = G3DTheme::Spacing::Xs * scale; // hover surface padding around content
+
+      // Split so the hover surface can be painted behind the content once its full height is known.
+      dl->ChannelsSplit(2);
+      dl->ChannelsSetCurrent(1);
+
+      ImGui::Dummy(ImVec2(0.f, padY));
+      const ImVec2 top = ImGui::GetCursorScreenPos();
+
+      // Line 1: array name (primary, clipped) on the left + trailing component badge on the right.
+      char tag[48];
+      std::snprintf(tag, sizeof(tag), "%s \xc2\xb7 %dc", assoc.c_str(), a.MaximumNumberOfComponents);
+      const float bw = G3DWidgets::BadgeWidth(tag);
+      const float nameW = std::max(0.f, w - bw - G3DTheme::Spacing::Sm * scale);
+      dl->PushClipRect(top, ImVec2(top.x + nameW, top.y + lineH), true);
+      dl->AddText(top, G3DTheme::U32(G3DTheme::Text()), a.Name.c_str());
+      dl->PopClipRect();
+      // Badge right-aligned on the same line (it advances the layout cursor to the next line).
+      ImGui::SetCursorScreenPos(ImVec2(top.x + w - bw, top.y));
+      G3DWidgets::Badge(tag, G3DWidgets::BadgeVariant::Accent);
+
+      // Line 2: value range, muted + indented.
+      char rng[64];
+      std::snprintf(rng, sizeof(rng), "[%.4g, %.4g]", a.MagnitudeRange[0], a.MagnitudeRange[1]);
+      ImGui::Dummy(ImVec2(0.f, 2.f * scale));
+      const ImVec2 p2 = ImGui::GetCursorScreenPos();
+      dl->AddText(ImVec2(p2.x + G3DTheme::Spacing::Md * scale, p2.y),
+        G3DTheme::U32(G3DTheme::TextMuted()), rng);
+      ImGui::Dummy(ImVec2(w, lineH + padY));
+
+      // Hover surface behind the whole entry (channel 0), bleeding slightly past the content so the
+      // text sits in a padded row.
+      const float botY = ImGui::GetCursorScreenPos().y;
+      const ImVec2 r0(top.x - bleed, top.y - padY);
+      const ImVec2 r1(top.x + w + bleed, botY);
+      dl->ChannelsSetCurrent(0);
+      if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(r0, r1))
       {
-        ImGui::TextUnformatted(a.Name.c_str());
-        char meta[112];
-        std::snprintf(meta, sizeof(meta), "  %s \xc2\xb7 %dc  [%.4g, %.4g]", assoc.c_str(),
-          a.MaximumNumberOfComponents, a.MagnitudeRange[0], a.MagnitudeRange[1]);
-        ImGui::TextColored(G3DTheme::TextMuted(), "%s", meta);
+        dl->AddRectFilled(
+          r0, r1, G3DTheme::U32(G3DTheme::SurfaceHover(), 0.5f), G3DTheme::Radius::Small * scale);
       }
+      dl->ChannelsMerge();
     };
-    drawArrays(pointArrays, loc.Translate("point"));
-    drawArrays(cellArrays, loc.Translate("cell"));
+
+    for (const auto& a : pointArrays)
+    {
+      arrayRow(a, loc.Translate("point"));
+    }
+    for (const auto& a : cellArrays)
+    {
+      arrayRow(a, loc.Translate("cell"));
+    }
+    ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
   }
 
   ImGui::EndChild();
@@ -1826,17 +1879,64 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     return true;
   };
 
-  // Top bar — command toolbar (buttons land in a later step).
+  // The short strip bars (bottom timeline) are single-row: a vertically-centered overline title
+  // reads as an intentional, titled strip rather than a label dropped in a corner.
+  auto barTitle = [&](const char* text)
+  {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float fs = 12.f * scale;
+    const ImVec2 wp = ImGui::GetWindowPos();
+    const ImVec2 wsz = ImGui::GetWindowSize();
+    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.f, text);
+    const ImVec2 pad = ImGui::GetStyle().WindowPadding;
+    dl->AddText(ImGui::GetFont(), fs, ImVec2(wp.x + pad.x, wp.y + (wsz.y - ts.y) * 0.5f),
+      G3DTheme::U32(G3DTheme::TextMuted()), text);
+  };
+
+  // Top bar — command toolbar: vertically-centered icon buttons for safe, momentary view actions and
+  // display toggles, dispatched through the same command path the FAB uses.
   if (beginBar("##g3d.bar.top", r.top))
   {
-    G3DWidgets::SectionTitle(loc.Translate("Toolbar").c_str());
+    const float btn = G3DTheme::Size::IconButton * scale;
+    const ImVec2 wp = ImGui::GetWindowPos();
+    ImGui::SetCursorScreenPos(
+      ImVec2(wp.x + ImGui::GetStyle().WindowPadding.x, wp.y + (r.top.h - btn) * 0.5f));
+
+    auto toolButton = [&](const char* id, G3DIconId icon, const char* cmd, const char* tip)
+    {
+      if (G3DWidgets::IconButton(id, icon, -1.f, false, tip))
+      {
+        vtkOutputWindow::GetInstance()->InvokeEvent(
+          vtkF3DUserEvents::TriggerEvent, const_cast<char*>(cmd));
+      }
+      ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
+    };
+    auto toolSeparator = [&]()
+    {
+      const ImVec2 sp = ImGui::GetCursorScreenPos();
+      ImGui::GetWindowDrawList()->AddLine(ImVec2(sp.x, sp.y + btn * 0.22f),
+        ImVec2(sp.x, sp.y + btn * 0.78f), G3DTheme::U32(G3DTheme::Border()),
+        G3DTheme::Size::Border * scale);
+      ImGui::Dummy(ImVec2(G3DTheme::Spacing::Sm * scale, btn));
+      ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
+    };
+
+    toolButton("##tb.fit", G3DIconId::Fit, "reset_camera", loc.Translate("Reset view").c_str());
+    toolButton(
+      "##tb.iso", G3DIconId::Cube, "set_camera isometric", loc.Translate("Isometric view").c_str());
+    toolSeparator();
+    toolButton(
+      "##tb.grid", G3DIconId::Grid, "toggle render.grid.enable", loc.Translate("Grid").c_str());
+    toolButton("##tb.axis", G3DIconId::Axis, "toggle ui.axis", loc.Translate("Axes").c_str());
+    toolButton(
+      "##tb.edges", G3DIconId::Edges, "toggle render.show_edges", loc.Translate("Edges").c_str());
     ImGui::End();
   }
 
   // Left bar — scene hierarchy tree (shared traversal with the floating widget).
   if (beginBar("##g3d.bar.left", r.left))
   {
-    G3DWidgets::SectionTitle(loc.Translate("Scene").c_str());
+    G3DWidgets::PanelHeader(loc.Translate("Scene").c_str(), G3DIconId::Layers);
     this->DrawSceneTreeContent(renWin);
     ImGui::End();
   }
@@ -1844,6 +1944,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // Right bar — property inspector. Data-info group first (read-only); more groups land later.
   if (beginBar("##g3d.bar.right", r.right))
   {
+    G3DWidgets::PanelHeader(loc.Translate("Data info").c_str(), G3DIconId::Info);
     this->DrawDataInfoContent(renWin);
     ImGui::End();
   }
@@ -1851,8 +1952,22 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // Bottom bar — animation timeline / status (lands in a later step).
   if (beginBar("##g3d.bar.bottom", r.bottom))
   {
-    G3DWidgets::SectionTitle(loc.Translate("Timeline").c_str());
+    barTitle(loc.Translate("Timeline").c_str());
     ImGui::End();
+  }
+
+  // Hairline frame around the central viewport — a crisp seam between the opaque docked chrome and
+  // the live 3D. This single line is what makes the bars read as panels framing a viewport rather
+  // than a flat dark wash. Drawn on the foreground so it sits above the bar fills at the boundary;
+  // its alpha follows the open fraction so it fades in/out with the panel.
+  if (r.center.w > 1.f && r.center.h > 1.f)
+  {
+    ImDrawList* fg = ImGui::GetForegroundDrawList();
+    ImVec4 seam = G3DTheme::BorderStrong();
+    seam.w *= eased;
+    fg->AddRect(ImVec2(r.center.x, r.center.y),
+      ImVec2(r.center.x + r.center.w, r.center.y + r.center.h), G3DTheme::U32(seam), 0.f, 0,
+      G3DTheme::Size::Border * scale);
   }
 }
 

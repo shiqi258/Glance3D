@@ -4,6 +4,7 @@
 #include "G3DTheme.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
 #include <string>
 #include <unordered_map>
@@ -398,16 +399,229 @@ bool EndCard()
   return clicked;
 }
 
+namespace
+{
+// Overline type size (styleguide --fs-overline 11px), proportional to the live DPI scale.
+float OverlineSize()
+{
+  return 11.f * Scale();
+}
+
+// Draw text at an explicit pixel size (the design system uses smaller sizes for overlines / badges
+// than the base UI font; ImGui scales the font glyphs to that size).
+void DrawTextSized(ImDrawList* dl, const ImVec2& pos, ImU32 col, const char* text, float px)
+{
+  dl->AddText(ImGui::GetFont(), px, pos, col, text);
+}
+
+ImVec2 CalcTextSized(const char* text, float px)
+{
+  return ImGui::GetFont()->CalcTextSizeA(px, FLT_MAX, 0.f, text);
+}
+} // namespace
+
 //----------------------------------------------------------------------------
 void SectionTitle(const char* text)
 {
   const float s = Scale();
-  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * s));
+  // Overline: one step below the 14px base, in muted (not subtle) text so the group label stays
+  // clearly legible at small size while still reading quieter than the content it heads.
+  const float fs = 12.f * s;
+  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Md * s)); // top breathing room (styleguide s-4)
   ImDrawList* dl = ImGui::GetWindowDrawList();
   const ImVec2 p = ImGui::GetCursorScreenPos();
-  dl->AddText(p, U32(G3DTheme::TextMuted()), text);
-  const ImVec2 ts = ImGui::CalcTextSize(text);
-  ImGui::Dummy(ImVec2(ts.x, ts.y + G3DTheme::Spacing::Xs * s));
+  DrawTextSized(dl, p, U32(G3DTheme::TextMuted()), text, fs);
+  const ImVec2 ts = CalcTextSized(text, fs);
+  ImGui::Dummy(ImVec2(ts.x, ts.y + G3DTheme::Spacing::Sm * s)); // bottom margin (styleguide s-2)
+}
+
+//----------------------------------------------------------------------------
+void Divider()
+{
+  const float s = Scale();
+  const float m = G3DTheme::Spacing::Md * s;
+  ImGui::Dummy(ImVec2(0.f, m));
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  const float w = ImGui::GetContentRegionAvail().x;
+  dl->AddLine(p, ImVec2(p.x + w, p.y), U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
+  ImGui::Dummy(ImVec2(w, m));
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+void PanelHeaderImpl(const char* title, const G3DIconId* icon)
+{
+  const float s = Scale();
+  // The panel header is the strongest label in the panel: 13px and near-full-strength text, so each
+  // docked panel is clearly and confidently titled (louder than the in-content section overlines).
+  const float fs = 13.f * s;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+
+  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * s));
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  const ImVec2 ts = CalcTextSized(title, fs);
+  float rowH = ts.y;
+  float tx = p.x;
+  if (icon)
+  {
+    const float isz = 15.f * s;
+    rowH = std::max(rowH, isz);
+    G3DIcon::Draw(
+      dl, *icon, ImVec2(p.x + isz * 0.5f, p.y + rowH * 0.5f), isz, U32(G3DTheme::Accent()));
+    tx = p.x + isz + G3DTheme::Spacing::Sm * s;
+  }
+  ImVec4 titleCol = G3DTheme::Text();
+  titleCol.w *= 0.92f;
+  DrawTextSized(dl, ImVec2(tx, p.y + (rowH - ts.y) * 0.5f), U32(titleCol), title, fs);
+  ImGui::Dummy(ImVec2(tx - p.x + ts.x, rowH + G3DTheme::Spacing::Sm * s));
+
+  // Full-width hairline beneath the title — spans the whole panel, ignoring window padding, so it
+  // reads as the panel's header seam.
+  const float lineY = ImGui::GetCursorScreenPos().y;
+  const ImVec2 wp = ImGui::GetWindowPos();
+  const float ww = ImGui::GetWindowSize().x;
+  dl->AddLine(
+    ImVec2(wp.x, lineY), ImVec2(wp.x + ww, lineY), U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
+  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Sm * s));
+}
+} // namespace
+
+void PanelHeader(const char* title)
+{
+  PanelHeaderImpl(title, nullptr);
+}
+
+void PanelHeader(const char* title, G3DIconId icon)
+{
+  PanelHeaderImpl(title, &icon);
+}
+
+//----------------------------------------------------------------------------
+void StatRow(const char* key, const char* value)
+{
+  const float s = Scale();
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const float pad = 4.f * s;
+  ImGui::Dummy(ImVec2(0.f, pad));
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  const float w = ImGui::GetContentRegionAvail().x;
+  const float lineH = ImGui::GetTextLineHeight();
+
+  const ImVec2 kts = ImGui::CalcTextSize(key);
+  dl->AddText(p, U32(G3DTheme::TextMuted()), key);
+
+  const ImVec2 vts = ImGui::CalcTextSize(value);
+  // Right-align the value, but never let it run back over the key.
+  const float vx = std::max(p.x + kts.x + G3DTheme::Spacing::Sm * s, p.x + w - vts.x);
+  dl->PushClipRect(ImVec2(vx, p.y), ImVec2(p.x + w, p.y + lineH), true);
+  dl->AddText(ImVec2(vx, p.y), U32(G3DTheme::Text()), value);
+  dl->PopClipRect();
+
+  ImGui::Dummy(ImVec2(w, lineH + pad));
+}
+
+//----------------------------------------------------------------------------
+bool CollapsingSection(const char* label, bool* open)
+{
+  ImGui::PushID(label);
+  const float s = Scale();
+  const float h = 26.f * s;
+  const float w = ImGui::GetContentRegionAvail().x;
+
+  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * s)); // breathing room above the panel
+  const ImVec2 hp = ImGui::GetCursorScreenPos();
+  const bool clicked = ImGui::InvisibleButton("##sec", ImVec2(w, h));
+  if (clicked && open)
+  {
+    *open = !*open;
+  }
+  const bool hovered = ImGui::IsItemHovered();
+  const bool held = ImGui::IsItemActive();
+  const WidgetAnim& a = Interact(ImGui::GetID("##sec"), hovered, held);
+  if (hovered)
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+  const bool isOpen = open ? *open : true;
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  {
+    AAGuard aa(dl);
+    // Subtle raised header surface that brightens on hover (DCC panel-header look).
+    ImVec4 bg = G3DTheme::SurfaceHover();
+    bg.w = 0.30f + 0.30f * a.hover.Value();
+    dl->AddRectFilled(hp, ImVec2(hp.x + w, hp.y + h), U32(bg), G3DTheme::Radius::Control * s);
+  }
+
+  const float cy = hp.y + h * 0.5f;
+  const float pad = G3DTheme::Spacing::Sm * s;
+  const ImVec4 chevCol = LerpColor(G3DTheme::TextMuted(), G3DTheme::Text(), a.hover.Value());
+  G3DIcon::Draw(dl, isOpen ? G3DIconId::ChevronDown : G3DIconId::ChevronRight,
+    ImVec2(hp.x + pad + 6.f * s, cy), 14.f * s, U32(chevCol));
+
+  const float fs = 13.f * s;
+  const ImVec2 ts = CalcTextSized(label, fs);
+  DrawTextSized(dl, ImVec2(hp.x + pad + 18.f * s, cy - ts.y * 0.5f), U32(G3DTheme::Text()), label, fs);
+
+  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * s)); // gap between header and content
+  ImGui::PopID();
+  return isOpen;
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+ImVec2 BadgeMetrics(const char* text, float& padX, float& padY, float& fs)
+{
+  const float s = Scale();
+  fs = OverlineSize();
+  padX = G3DTheme::Spacing::Sm * s; // styleguide .badge padding: 2px 8px
+  padY = 2.f * s;
+  const ImVec2 ts = CalcTextSized(text, fs);
+  return ImVec2(ts.x + padX * 2.f, ts.y + padY * 2.f);
+}
+} // namespace
+
+float BadgeWidth(const char* text)
+{
+  float padX, padY, fs;
+  return BadgeMetrics(text, padX, padY, fs).x;
+}
+
+void Badge(const char* text, BadgeVariant variant)
+{
+  float padX, padY, fs;
+  const ImVec2 size = BadgeMetrics(text, padX, padY, fs);
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  ImGui::Dummy(size);
+
+  ImVec4 bg, fg;
+  bool border = false;
+  if (variant == BadgeVariant::Accent)
+  {
+    // accent-soft fill, accent text, no border (styleguide .badge.accent).
+    bg = G3DTheme::AccentSoft();
+    fg = G3DTheme::Accent();
+  }
+  else
+  {
+    // surface-3 fill, muted text, hairline border (styleguide .badge).
+    bg = G3DTheme::SurfaceHover();
+    fg = G3DTheme::TextMuted();
+    border = true;
+  }
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  AAGuard aa(dl);
+  const ImVec2 p1(p0.x + size.x, p0.y + size.y);
+  const float r = size.y * 0.5f;
+  dl->AddRectFilled(p0, p1, U32(bg), r);
+  if (border)
+  {
+    dl->AddRect(p0, p1, U32(G3DTheme::Border()), r, 0, G3DTheme::Size::Border * Scale());
+  }
+  DrawTextSized(dl, ImVec2(p0.x + padX, p0.y + padY), U32(fg), text, fs);
 }
 
 //----------------------------------------------------------------------------

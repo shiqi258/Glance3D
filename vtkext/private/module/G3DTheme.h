@@ -163,6 +163,19 @@ inline ImVec4 TextDisabled()
   t.w *= 0.38f;
   return t;
 }
+/// Subtle text (styleguide text-subtle) — quieter than muted, used for overlines / metadata.
+inline ImVec4 TextSubtle()
+{
+  ImVec4 t = Text();
+  t.w *= 0.45f;
+  return t;
+}
+
+/// Panel surface (styleguide surface-1) — the darkest elevation, used for docked panel chrome.
+inline ImVec4 Panel()
+{
+  return Hex(0x131519);
+}
 
 /// Elevation surfaces (styleguide surface ramp), opaque so fills read over the panel.
 inline ImVec4 Surface()
