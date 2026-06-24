@@ -571,6 +571,506 @@ bool CollapsingSection(const char* label, bool* open)
 }
 
 //----------------------------------------------------------------------------
+// Collapse / accordion
+//----------------------------------------------------------------------------
+namespace
+{
+// A bordered container (Card collapse / accordion) defers its background+border behind
+// variable-height content via ChannelsSplit; that splitter is not re-entrant on one draw list, so
+// only the outermost container owns the channels. Nested panels (Sub/Ghost) detect depth>0 and
+// render borderless + immediate.
+int gChannelDepth = 0;
+
+struct CollapseFrame
+{
+  ImVec2 p0;
+  float width;
+  float headerH;
+  float scale;
+  bool open;
+  bool hasBorder;    // draws a wrapping card bg + border (Card / Overline, standalone)
+  bool ownsChannels; // this panel split the draw list (must merge in EndCollapse)
+  bool inAccordion;  // rendered as a flush accordion item
+  bool disabledBody; // enable toggle is off -> body wrapped in BeginDisabled
+  float leftPad;
+  float botPad;
+  bool standalone;   // add a trailing gap after the card (not for accordion items / nested)
+};
+std::vector<CollapseFrame> gCollapseStack;
+
+struct AccordionFrame
+{
+  ImVec2 p0;
+  float width;
+  float scale;
+  bool exclusive;
+  bool ownsChannels;        // this accordion split the draw list (must merge in EndAccordion)
+  int itemCount;
+  std::vector<bool*> opens; // every child's open flag (for exclusive enforcement)
+  bool* justOpened;         // a child opened this frame (exclusive: close the rest)
+};
+std::vector<AccordionFrame> gAccordionStack;
+
+float CollapseHeaderHeight(G3DWidgets::CollapseDensity d, G3DWidgets::CollapseVariant v, float s)
+{
+  if (v == G3DWidgets::CollapseVariant::Sub)
+  {
+    return 28.f * s; // styleguide .collapse.sub header
+  }
+  switch (d)
+  {
+    case G3DWidgets::CollapseDensity::Compact:
+      return 30.f * s;
+    case G3DWidgets::CollapseDensity::Dense:
+      return 26.f * s;
+    case G3DWidgets::CollapseDensity::Default:
+    default:
+      // overline header is 30px even at default density (styleguide .collapse.overline)
+      return v == G3DWidgets::CollapseVariant::Overline ? 30.f * s : 36.f * s;
+  }
+}
+
+// styleguide .collapse-ic: muted by default, accent (or other icv tint) when set.
+ImVec4 CollapseIconColor(G3DWidgets::TreeIconVariant v)
+{
+  switch (v)
+  {
+    case G3DWidgets::TreeIconVariant::Light:
+      return G3DTheme::Warning();
+    case G3DWidgets::TreeIconVariant::Tex:
+    case G3DWidgets::TreeIconVariant::Root:
+      return G3DTheme::Accent();
+    case G3DWidgets::TreeIconVariant::Folder:
+    {
+      ImVec4 c = G3DTheme::Text();
+      c.w *= 0.50f;
+      return c;
+    }
+    case G3DWidgets::TreeIconVariant::Default:
+    default:
+      return G3DTheme::TextMuted();
+  }
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+void BeginAccordion(const char* id, bool exclusive)
+{
+  ImGui::PushID(id);
+  const float s = Scale();
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const float width = ImGui::GetContentRegionAvail().x;
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  AccordionFrame f;
+  f.ownsChannels = gChannelDepth == 0;
+  if (f.ownsChannels)
+  {
+    dl->ChannelsSplit(2); // 0 = container bg/border, 1 = items
+    dl->ChannelsSetCurrent(1);
+    ++gChannelDepth;
+  }
+
+  f.p0 = p0;
+  f.width = width;
+  f.scale = s;
+  f.exclusive = exclusive;
+  f.itemCount = 0;
+  f.justOpened = nullptr;
+  gAccordionStack.push_back(f);
+}
+
+//----------------------------------------------------------------------------
+void EndAccordion()
+{
+  if (gAccordionStack.empty())
+  {
+    ImGui::PopID();
+    return;
+  }
+  const AccordionFrame f = gAccordionStack.back();
+  gAccordionStack.pop_back();
+
+  const float s = f.scale;
+  const float bottomY = ImGui::GetCursorScreenPos().y;
+  const ImVec2 mn = f.p0;
+  const ImVec2 mx(f.p0.x + f.width, bottomY);
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  if (f.ownsChannels)
+  {
+    dl->ChannelsSetCurrent(0); // container background, beneath the items
+    {
+      AAGuard aa(dl);
+      // styleguide .accordion: surface-1 fill + hairline border + lg radius.
+      dl->AddRectFilled(mn, mx, U32(G3DTheme::Panel()), G3DTheme::Radius::Card * s);
+      dl->AddRect(mn, mx, U32(G3DTheme::Border()), G3DTheme::Radius::Card * s, 0,
+        G3DTheme::Size::Border * s);
+    }
+    dl->ChannelsMerge();
+    --gChannelDepth;
+  }
+
+  // Exclusive: a panel opened this frame -> close every other registered panel.
+  if (f.exclusive && f.justOpened)
+  {
+    for (bool* o : f.opens)
+    {
+      if (o && o != f.justOpened)
+      {
+        *o = false;
+      }
+    }
+  }
+
+  ImGui::SetCursorScreenPos(ImVec2(f.p0.x, mx.y));
+  ImGui::Dummy(ImVec2(f.width, G3DTheme::Spacing::Xs * s)); // trailing gap after the list
+  ImGui::PopID();
+}
+
+//----------------------------------------------------------------------------
+CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
+{
+  CollapseResult res;
+  ImGui::PushID(id);
+  const float s = Scale();
+
+  const bool inAccordion = !gAccordionStack.empty();
+  const float width =
+    inAccordion ? gAccordionStack.back().width : ImGui::GetContentRegionAvail().x;
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const float headerH = CollapseHeaderHeight(desc.density, desc.variant, s);
+
+  // Does this panel own a wrapping card border? Card/Overline do, but only standalone (not as an
+  // accordion item, and not nested inside another bordered container — the splitter is not nestable).
+  bool hasBorder = (desc.variant == CollapseVariant::Card ||
+                     desc.variant == CollapseVariant::Overline) &&
+    !inAccordion;
+  const bool ownsChannels = hasBorder && gChannelDepth == 0;
+  if (hasBorder && !ownsChannels)
+  {
+    hasBorder = false; // nested bordered panel: degrade to borderless to keep draw order correct
+  }
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  if (ownsChannels)
+  {
+    dl->ChannelsSplit(2); // 0 = card bg/border, 1 = header + body
+    dl->ChannelsSetCurrent(1);
+    ++gChannelDepth;
+  }
+
+  // Hairline separator above every accordion item except the first.
+  bool firstInAccordion = false;
+  if (inAccordion)
+  {
+    AccordionFrame& af = gAccordionStack.back();
+    firstInAccordion = af.itemCount == 0;
+    if (!firstInAccordion)
+    {
+      dl->AddLine(p0, ImVec2(p0.x + width, p0.y), U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
+    }
+  }
+
+  // Whole-header hit item (trailing actions / enable toggle are hit-routed manually so the header
+  // stays one ImGui item).
+  const bool pressed = ImGui::InvisibleButton("##hd", ImVec2(width, headerH));
+  const bool hovered = ImGui::IsItemHovered();
+  const bool held = ImGui::IsItemActive();
+  const WidgetAnim& a = Interact(ImGui::GetID("##hd"), hovered, held);
+  if (hovered)
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+  const float hoverT = a.hover.Value();
+  const float cy = p0.y + headerH * 0.5f;
+  const ImVec2 mp = ImGui::GetIO().MousePos;
+
+  const float headPadL =
+    (desc.variant == CollapseVariant::Ghost ? 2.f : desc.variant == CollapseVariant::Sub ? 6.f : 8.f) *
+    s;
+  const float headPadR = 10.f * s;
+
+  AAGuard aa(dl);
+
+  // Header hover background (rest = none; the card/accordion surface shows through). For a flush
+  // accordion item it is surface-2, otherwise surface-3 (one step above the card).
+  if (hoverT > 0.001f)
+  {
+    const ImVec4 hbg = inAccordion ? G3DTheme::Surface() : G3DTheme::SurfaceHover();
+    ImDrawFlags rf = ImDrawFlags_RoundCornersNone;
+    float rr = 0.f;
+    if (desc.variant == CollapseVariant::Sub || desc.variant == CollapseVariant::Ghost)
+    {
+      rr = G3DTheme::Radius::Small * s;
+      rf = ImDrawFlags_RoundCornersAll;
+    }
+    else if (hasBorder || firstInAccordion)
+    {
+      rr = G3DTheme::Radius::Card * s; // round the top to follow the card's rounded corners
+      rf = ImDrawFlags_RoundCornersTop;
+    }
+    dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + headerH), U32(hbg, hoverT), rr, rf);
+  }
+
+  // --- trailing items, laid out right-to-left; record their hit so the click routes correctly. ---
+  float rightX = p0.x + width - headPadR;
+  bool trailingHit = false;
+
+  // Enable toggle (rightmost).
+  if (desc.enable)
+  {
+    const float tH = std::min(20.f * s, headerH - 6.f * s);
+    const float tW = tH * 1.8f;
+    const ImVec2 t1(rightX, cy + tH * 0.5f);
+    const ImVec2 t0(rightX - tW, cy - tH * 0.5f);
+    WidgetAnim& tw = Ensure(ImGui::GetID("##en"));
+    DriveValue(tw, *desc.enable ? 1.f : 0.f);
+    const ImVec4 track = LerpColor(G3DTheme::SurfacePress(), G3DTheme::Accent(), tw.value.Value());
+    dl->AddRectFilled(t0, t1, U32(track), tH * 0.5f);
+    const float knobR = tH * 0.5f - 2.f * s;
+    const float kx = G3DLerp(t0.x + tH * 0.5f, t1.x - tH * 0.5f, tw.value.Value());
+    dl->AddCircleFilled(ImVec2(kx, cy), knobR, U32(ImVec4(1.f, 1.f, 1.f, 1.f)), 24);
+    if (pressed && mp.x >= t0.x && mp.x <= t1.x)
+    {
+      *desc.enable = !*desc.enable;
+      res.enableChanged = true;
+      trailingHit = true;
+    }
+    rightX = t0.x - G3DTheme::Spacing::Sm * s;
+  }
+
+  // Hover-revealed action buttons (right-to-left).
+  for (int i = desc.actionCount - 1; i >= 0; --i)
+  {
+    const CollapseAction& act = desc.actions[i];
+    const float btn = 22.f * s;
+    const ImVec2 c0(rightX - btn, cy - btn * 0.5f);
+    const ImVec2 c1(rightX, cy + btn * 0.5f);
+    const float reveal = std::max(hoverT, act.on ? 1.f : 0.f);
+    const bool localHover = mp.x >= c0.x && mp.x <= c1.x && mp.y >= c0.y && mp.y <= c1.y;
+    if (reveal > 0.02f)
+    {
+      if (localHover)
+      {
+        dl->AddRectFilled(c0, c1, U32(G3DTheme::SurfacePress(), reveal), G3DTheme::Radius::Small * s);
+      }
+      ImVec4 ic = act.on ? G3DTheme::Accent() : G3DTheme::TextSubtle();
+      ic.w *= reveal;
+      G3DIcon::Draw(dl, act.icon, ImVec2((c0.x + c1.x) * 0.5f, cy), 15.f * s, U32(ic));
+    }
+    if (pressed && mp.x >= c0.x && mp.x <= c1.x)
+    {
+      res.clickedAction = i;
+      trailingHit = true;
+    }
+    rightX = c0.x - 1.f * s;
+  }
+
+  // Count pill (left of the actions).
+  if (desc.count && desc.count[0])
+  {
+    const float fs = 11.f * s;
+    const ImVec2 ts = CalcTextSized(desc.count, fs);
+    const float px = 7.f * s;
+    const float py = 1.f * s;
+    const float pillW = ts.x + 2.f * px;
+    const float pillH = ts.y + 2.f * py;
+    const ImVec2 q1(rightX, cy + pillH * 0.5f);
+    const ImVec2 q0(rightX - pillW, cy - pillH * 0.5f);
+    dl->AddRectFilled(q0, q1, U32(G3DTheme::SurfaceHover()), pillH * 0.5f);
+    dl->AddRect(q0, q1, U32(G3DTheme::Border()), pillH * 0.5f, 0, G3DTheme::Size::Border * s);
+    DrawTextSized(dl, ImVec2(q0.x + px, cy - ts.y * 0.5f), U32(G3DTheme::TextSubtle()), desc.count, fs);
+    rightX = q0.x - G3DTheme::Spacing::Sm * s;
+  }
+
+  // --- leading items, left-to-right. ---
+  float leftX = p0.x + headPadL;
+  // Twisty chevron (right = collapsed, down = open), text-subtle brightening to text on hover.
+  const bool isOpen = desc.open ? *desc.open : true;
+  {
+    const float twBox = 18.f * s;
+    ImVec4 subtle = G3DTheme::Text();
+    subtle.w *= 0.45f;
+    const ImVec4 twCol = LerpColor(subtle, G3DTheme::Text(), hoverT);
+    G3DIcon::Draw(dl, isOpen ? G3DIconId::ChevronDown : G3DIconId::ChevronRight,
+      ImVec2(leftX + twBox * 0.5f, cy), 15.f * s, U32(twCol));
+    leftX += twBox;
+  }
+  // Leading type icon.
+  if (desc.hasIcon)
+  {
+    const float isz = 16.f * s;
+    G3DIcon::Draw(
+      dl, desc.icon, ImVec2(leftX + isz * 0.5f, cy), isz, U32(CollapseIconColor(desc.iconVariant)));
+    leftX += isz + G3DTheme::Spacing::Sm * s;
+  }
+  // Title — size / color per variant, clipped to the space before the trailing items.
+  {
+    float fs = ImGui::GetFontSize(); // base 14
+    ImVec4 col = G3DTheme::Text();
+    if (desc.variant == CollapseVariant::Overline)
+    {
+      fs = 11.f * s;
+      col = G3DTheme::TextSubtle();
+    }
+    else if (desc.variant == CollapseVariant::Sub)
+    {
+      fs = 12.f * s;
+      col = G3DTheme::TextMuted();
+    }
+    else if (desc.density == CollapseDensity::Dense)
+    {
+      fs = 13.f * s;
+    }
+    const ImVec2 ts = CalcTextSized(desc.title, fs);
+    const float avail = std::max(0.f, rightX - G3DTheme::Spacing::Sm * s - leftX);
+    dl->PushClipRect(ImVec2(leftX, p0.y), ImVec2(leftX + avail, p0.y + headerH), true);
+    DrawTextSized(dl, ImVec2(leftX, cy - ts.y * 0.5f), U32(col), desc.title, fs);
+    dl->PopClipRect();
+  }
+
+  // Route the header click: only toggles open when it didn't land on a trailing control.
+  if (pressed && !trailingHit && desc.open)
+  {
+    *desc.open = !*desc.open;
+    if (inAccordion && *desc.open)
+    {
+      gAccordionStack.back().justOpened = desc.open; // exclusive close handled in EndAccordion
+    }
+  }
+  res.open = desc.open ? *desc.open : true;
+
+  // Register with the accordion (item index + open flag for exclusive enforcement).
+  if (inAccordion)
+  {
+    AccordionFrame& af = gAccordionStack.back();
+    ++af.itemCount;
+    if (desc.open)
+    {
+      af.opens.push_back(desc.open);
+    }
+  }
+
+  // Body padding/indent per variant + density (styleguide .collapse-body-inner).
+  float leftPad = 16.f * s, rightPad = 16.f * s, topPad = 12.f * s, botPad = 16.f * s;
+  bool bodyTopBorder = false;
+  switch (desc.variant)
+  {
+    case CollapseVariant::Sub:
+      leftPad = 18.f * s;
+      rightPad = 0.f;
+      topPad = 2.f * s;
+      botPad = 6.f * s;
+      break;
+    case CollapseVariant::Ghost:
+      leftPad = 0.f;
+      rightPad = 0.f;
+      break;
+    case CollapseVariant::Card:
+    case CollapseVariant::Overline:
+    default:
+      if (desc.density != CollapseDensity::Default)
+      {
+        leftPad = rightPad = botPad = 12.f * s;
+        topPad = 8.f * s;
+      }
+      // a hairline seam between header and body, but only for a standalone card (not in a list).
+      bodyTopBorder = !inAccordion;
+      break;
+  }
+
+  CollapseFrame cf;
+  cf.p0 = p0;
+  cf.width = width;
+  cf.headerH = headerH;
+  cf.scale = s;
+  cf.open = res.open;
+  cf.hasBorder = hasBorder;
+  cf.ownsChannels = ownsChannels;
+  cf.inAccordion = inAccordion;
+  cf.disabledBody = false;
+  cf.leftPad = leftPad;
+  cf.botPad = botPad;
+  cf.standalone = !inAccordion && desc.variant != CollapseVariant::Sub &&
+    desc.variant != CollapseVariant::Ghost;
+
+  if (res.open)
+  {
+    if (bodyTopBorder)
+    {
+      const float by = ImGui::GetCursorScreenPos().y;
+      dl->AddLine(ImVec2(p0.x, by), ImVec2(p0.x + width, by), U32(G3DTheme::Border()),
+        G3DTheme::Size::Border * s);
+    }
+    ImGui::Indent(leftPad);
+    // Negative item width = "extend to the right edge minus N px"; 0 would mean ImGui's default, so
+    // for variants with no right pad use a 1px margin (effectively full width).
+    ImGui::PushItemWidth(rightPad > 0.f ? -rightPad : -1.f);
+    ImGui::Dummy(ImVec2(0.f, topPad));
+    if (desc.enable && !*desc.enable)
+    {
+      ImGui::BeginDisabled(); // styleguide: enable toggle off -> body dimmed & inert
+      cf.disabledBody = true;
+    }
+  }
+
+  gCollapseStack.push_back(cf);
+  return res;
+}
+
+//----------------------------------------------------------------------------
+void EndCollapse()
+{
+  if (gCollapseStack.empty())
+  {
+    ImGui::PopID();
+    return;
+  }
+  const CollapseFrame cf = gCollapseStack.back();
+  gCollapseStack.pop_back();
+  const float s = cf.scale;
+
+  if (cf.open)
+  {
+    if (cf.disabledBody)
+    {
+      ImGui::EndDisabled();
+    }
+    ImGui::Dummy(ImVec2(0.f, cf.botPad)); // bottom padding (matches the variant, set in BeginCollapse)
+    ImGui::PopItemWidth();
+    ImGui::Unindent(cf.leftPad);
+  }
+
+  const float bottomY = ImGui::GetCursorScreenPos().y;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+
+  if (cf.hasBorder && cf.ownsChannels)
+  {
+    const ImVec2 mn = cf.p0;
+    const ImVec2 mx(cf.p0.x + cf.width, bottomY);
+    dl->ChannelsSetCurrent(0); // card background, beneath the header/body
+    {
+      AAGuard aa(dl);
+      dl->AddRectFilled(mn, mx, U32(G3DTheme::Surface()), G3DTheme::Radius::Card * s);
+      dl->AddRect(mn, mx, U32(G3DTheme::Border()), G3DTheme::Radius::Card * s, 0,
+        G3DTheme::Size::Border * s);
+    }
+    dl->ChannelsMerge();
+    --gChannelDepth;
+  }
+
+  // Standalone cards get a small trailing gap so a stack of them is visually separated; accordion
+  // items and nested panels stay flush.
+  ImGui::SetCursorScreenPos(ImVec2(cf.p0.x, bottomY));
+  if (cf.standalone)
+  {
+    ImGui::Dummy(ImVec2(cf.width, G3DTheme::Spacing::Sm * s));
+  }
+  ImGui::PopID();
+}
+
+//----------------------------------------------------------------------------
 namespace
 {
 ImVec2 BadgeMetrics(const char* text, float& padX, float& padY, float& fs)

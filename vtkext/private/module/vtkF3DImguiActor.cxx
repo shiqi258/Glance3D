@@ -1757,113 +1757,123 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
   const float scale = static_cast<float>(this->FontScale);
 
-  // Collapsible inspector panels (DCC properties-editor layout). Open state persists across frames.
-  // The host (right inspector bar) owns the scroll region so all groups scroll together.
+  // Collapsible inspector panels — each is a styleguide collapse card (G3DWidgets::BeginCollapse).
+  // Open state persists across frames; the host (right inspector bar) owns the shared scroll region.
   static bool geomOpen = true;
   static bool arraysOpen = true;
 
   // --- Geometry: read-only key/value stats, right-aligned values. ---
   const vtkF3DMetaImporter::G3DDataStats stats = importer->GetG3DDataStats();
-  if (G3DWidgets::CollapsingSection(loc.Translate("Geometry").c_str(), &geomOpen))
   {
-    ImGui::Indent(G3DTheme::Spacing::Sm * scale);
-    G3DWidgets::StatRow(loc.Translate("Points").c_str(), std::to_string(stats.points).c_str());
-    G3DWidgets::StatRow(loc.Translate("Cells").c_str(), std::to_string(stats.cells).c_str());
-    G3DWidgets::StatRow(loc.Translate("Actors").c_str(), std::to_string(stats.actors).c_str());
-    if (stats.files > 1)
+    const std::string title = loc.Translate("Geometry");
+    G3DWidgets::CollapseDesc d;
+    d.title = title.c_str();
+    d.hasIcon = true;
+    d.icon = G3DIconId::Info;
+    d.open = &geomOpen;
+    if (G3DWidgets::BeginCollapse("g3d.sec.geom", d).open)
     {
-      G3DWidgets::StatRow(loc.Translate("Files").c_str(), std::to_string(stats.files).c_str());
+      G3DWidgets::StatRow(loc.Translate("Points").c_str(), std::to_string(stats.points).c_str());
+      G3DWidgets::StatRow(loc.Translate("Cells").c_str(), std::to_string(stats.cells).c_str());
+      G3DWidgets::StatRow(loc.Translate("Actors").c_str(), std::to_string(stats.actors).c_str());
+      if (stats.files > 1)
+      {
+        G3DWidgets::StatRow(loc.Translate("Files").c_str(), std::to_string(stats.files).c_str());
+      }
+      const vtkBoundingBox& bbox = importer->GetGeometryBoundingBox();
+      if (bbox.IsValid())
+      {
+        double length[3];
+        bbox.GetLengths(length);
+        char buf[96];
+        std::snprintf(
+          buf, sizeof(buf), "%.4g \xc3\x97 %.4g \xc3\x97 %.4g", length[0], length[1], length[2]);
+        G3DWidgets::StatRow(loc.Translate("Size").c_str(), buf);
+      }
     }
-
-    const vtkBoundingBox& bbox = importer->GetGeometryBoundingBox();
-    if (bbox.IsValid())
-    {
-      double length[3];
-      bbox.GetLengths(length);
-      char buf[96];
-      std::snprintf(
-        buf, sizeof(buf), "%.4g \xc3\x97 %.4g \xc3\x97 %.4g", length[0], length[1], length[2]);
-      G3DWidgets::StatRow(loc.Translate("Size").c_str(), buf);
-    }
-    ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
+    G3DWidgets::EndCollapse();
   }
 
-  // --- Arrays: one block per scalar array (name + association/component badge, value range). ---
+  // --- Arrays: one card; one block per scalar array (name + association/component badge, range). ---
   F3DColoringInfoHandler& coloring = importer->GetColoringInfoHandler();
   const std::vector<F3DColoringInfoHandler::ColoringInfo> pointArrays = coloring.GetPointDataArrays();
   const std::vector<F3DColoringInfoHandler::ColoringInfo> cellArrays = coloring.GetCellDataArrays();
-
-  if (G3DWidgets::CollapsingSection(loc.Translate("Arrays").c_str(), &arraysOpen))
   {
-    ImGui::Indent(G3DTheme::Spacing::Sm * scale);
-    if (pointArrays.empty() && cellArrays.empty())
+    const std::string title = loc.Translate("Arrays");
+    const std::string countStr = std::to_string(pointArrays.size() + cellArrays.size());
+    G3DWidgets::CollapseDesc d;
+    d.title = title.c_str();
+    d.hasIcon = true;
+    d.icon = G3DIconId::Layers;
+    d.count = countStr.c_str();
+    d.open = &arraysOpen;
+    if (G3DWidgets::BeginCollapse("g3d.sec.arrays", d).open)
     {
-      ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
-      ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No data arrays").c_str());
-    }
-
-    // One array entry: name on the left, an accent component-count badge right-aligned, and the
-    // value range on a muted, indented second line. The whole entry lifts on hover (a subtle row
-    // surface) so it reads as an addressable item — ready for click-to-color later.
-    auto arrayRow = [&](const F3DColoringInfoHandler::ColoringInfo& a, const std::string& assoc)
-    {
-      ImDrawList* dl = ImGui::GetWindowDrawList();
-      const float w = ImGui::GetContentRegionAvail().x;
-      const float lineH = ImGui::GetTextLineHeight();
-      const float padY = G3DTheme::Spacing::Xs * scale;
-      const float bleed = G3DTheme::Spacing::Xs * scale; // hover surface padding around content
-
-      // Split so the hover surface can be painted behind the content once its full height is known.
-      dl->ChannelsSplit(2);
-      dl->ChannelsSetCurrent(1);
-
-      ImGui::Dummy(ImVec2(0.f, padY));
-      const ImVec2 top = ImGui::GetCursorScreenPos();
-
-      // Line 1: array name (primary, clipped) on the left + trailing component badge on the right.
-      char tag[48];
-      std::snprintf(tag, sizeof(tag), "%s \xc2\xb7 %dc", assoc.c_str(), a.MaximumNumberOfComponents);
-      const float bw = G3DWidgets::BadgeWidth(tag);
-      const float nameW = std::max(0.f, w - bw - G3DTheme::Spacing::Sm * scale);
-      dl->PushClipRect(top, ImVec2(top.x + nameW, top.y + lineH), true);
-      dl->AddText(top, G3DTheme::U32(G3DTheme::Text()), a.Name.c_str());
-      dl->PopClipRect();
-      // Badge right-aligned on the same line (it advances the layout cursor to the next line).
-      ImGui::SetCursorScreenPos(ImVec2(top.x + w - bw, top.y));
-      G3DWidgets::Badge(tag, G3DWidgets::BadgeVariant::Accent);
-
-      // Line 2: value range, muted + indented.
-      char rng[64];
-      std::snprintf(rng, sizeof(rng), "[%.4g, %.4g]", a.MagnitudeRange[0], a.MagnitudeRange[1]);
-      ImGui::Dummy(ImVec2(0.f, 2.f * scale));
-      const ImVec2 p2 = ImGui::GetCursorScreenPos();
-      dl->AddText(ImVec2(p2.x + G3DTheme::Spacing::Md * scale, p2.y),
-        G3DTheme::U32(G3DTheme::TextMuted()), rng);
-      ImGui::Dummy(ImVec2(w, lineH + padY));
-
-      // Hover surface behind the whole entry (channel 0), bleeding slightly past the content so the
-      // text sits in a padded row.
-      const float botY = ImGui::GetCursorScreenPos().y;
-      const ImVec2 r0(top.x - bleed, top.y - padY);
-      const ImVec2 r1(top.x + w + bleed, botY);
-      dl->ChannelsSetCurrent(0);
-      if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(r0, r1))
+      if (pointArrays.empty() && cellArrays.empty())
       {
-        dl->AddRectFilled(
-          r0, r1, G3DTheme::U32(G3DTheme::SurfaceHover(), 0.5f), G3DTheme::Radius::Small * scale);
+        ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
+        ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No data arrays").c_str());
       }
-      dl->ChannelsMerge();
-    };
 
-    for (const auto& a : pointArrays)
-    {
-      arrayRow(a, loc.Translate("point"));
+      // One array entry: name on the left, an accent component-count badge right-aligned, and the
+      // value range on a muted, indented second line. The whole entry lifts on hover (a subtle row
+      // surface) so it reads as an addressable item — ready for click-to-color later.
+      auto arrayRow = [&](const F3DColoringInfoHandler::ColoringInfo& a, const std::string& assoc)
+      {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float lineH = ImGui::GetTextLineHeight();
+        const float padY = G3DTheme::Spacing::Xs * scale;
+        const float bleed = G3DTheme::Spacing::Xs * scale; // hover surface padding around content
+
+        // The entry's height is deterministic (two lines + paddings), so the hover surface is drawn
+        // FIRST (behind the content) instead of via ChannelsSplit — the splitter is not re-entrant
+        // inside the enclosing collapse card, which already owns the channels.
+        const ImVec2 base = ImGui::GetCursorScreenPos();
+        const float rowH = padY + lineH + 2.f * scale + lineH + padY;
+        const ImVec2 hr0(base.x - bleed, base.y);
+        const ImVec2 hr1(base.x + w + bleed, base.y + rowH);
+        if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(hr0, hr1))
+        {
+          dl->AddRectFilled(hr0, hr1, G3DTheme::U32(G3DTheme::SurfaceHover(), 0.5f),
+            G3DTheme::Radius::Small * scale);
+        }
+
+        ImGui::Dummy(ImVec2(0.f, padY));
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+
+        // Line 1: array name (primary, clipped) on the left + trailing component badge on the right.
+        char tag[48];
+        std::snprintf(tag, sizeof(tag), "%s \xc2\xb7 %dc", assoc.c_str(), a.MaximumNumberOfComponents);
+        const float bw = G3DWidgets::BadgeWidth(tag);
+        const float nameW = std::max(0.f, w - bw - G3DTheme::Spacing::Sm * scale);
+        dl->PushClipRect(top, ImVec2(top.x + nameW, top.y + lineH), true);
+        dl->AddText(top, G3DTheme::U32(G3DTheme::Text()), a.Name.c_str());
+        dl->PopClipRect();
+        // Badge right-aligned on the same line (it advances the layout cursor to the next line).
+        ImGui::SetCursorScreenPos(ImVec2(top.x + w - bw, top.y));
+        G3DWidgets::Badge(tag, G3DWidgets::BadgeVariant::Accent);
+
+        // Line 2: value range, muted + indented.
+        char rng[64];
+        std::snprintf(rng, sizeof(rng), "[%.4g, %.4g]", a.MagnitudeRange[0], a.MagnitudeRange[1]);
+        ImGui::Dummy(ImVec2(0.f, 2.f * scale));
+        const ImVec2 p2 = ImGui::GetCursorScreenPos();
+        dl->AddText(ImVec2(p2.x + G3DTheme::Spacing::Md * scale, p2.y),
+          G3DTheme::U32(G3DTheme::TextMuted()), rng);
+        ImGui::Dummy(ImVec2(w, lineH + padY));
+      };
+
+      for (const auto& a : pointArrays)
+      {
+        arrayRow(a, loc.Translate("point"));
+      }
+      for (const auto& a : cellArrays)
+      {
+        arrayRow(a, loc.Translate("cell"));
+      }
     }
-    for (const auto& a : cellArrays)
-    {
-      arrayRow(a, loc.Translate("cell"));
-    }
-    ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
+    G3DWidgets::EndCollapse();
   }
 }
 
@@ -1932,85 +1942,85 @@ void vtkF3DImguiActor::ReadOptionColor(const char* name, float out[3], const flo
 void vtkF3DImguiActor::DrawAppearanceContent()
 {
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const float scale = static_cast<float>(this->FontScale);
   static bool appearanceOpen = true;
-  if (!G3DWidgets::CollapsingSection(loc.Translate("Appearance").c_str(), &appearanceOpen))
+  const std::string title = loc.Translate("Appearance");
+  G3DWidgets::CollapseDesc d;
+  d.title = title.c_str();
+  d.hasIcon = true;
+  d.icon = G3DIconId::Grid;
+  d.open = &appearanceOpen;
+  if (G3DWidgets::BeginCollapse("g3d.sec.appearance", d).open)
   {
-    return;
-  }
-  ImGui::Indent(G3DTheme::Spacing::Sm * scale);
-
-  // Boolean toggles, each reads the option's current value and writes back through a command.
-  auto optionToggle = [this](const char* label, const char* option, bool fallback)
-  {
-    bool on = this->ReadOptionBool(option, fallback);
-    if (G3DWidgets::Toggle(label, &on))
+    // Boolean toggles, each reads the option's current value and writes back through a command.
+    auto optionToggle = [this](const char* label, const char* option, bool fallback)
     {
-      this->SendCommand(std::string("set ") + option + (on ? " true" : " false"));
+      bool on = this->ReadOptionBool(option, fallback);
+      if (G3DWidgets::Toggle(label, &on))
+      {
+        this->SendCommand(std::string("set ") + option + (on ? " true" : " false"));
+      }
+    };
+    optionToggle(loc.Translate("Show edges").c_str(), "render.show_edges", false);
+    optionToggle(loc.Translate("Grid").c_str(), "render.grid.enable", false);
+    optionToggle(
+      loc.Translate("Ambient occlusion").c_str(), "render.effect.ambient_occlusion", false);
+    optionToggle(loc.Translate("Anti-aliasing").c_str(), "render.effect.antialiasing.enable", false);
+    optionToggle(loc.Translate("Tone mapping").c_str(), "render.effect.tone_mapping", false);
+
+    float bg[3];
+    const float bgDefault[3] = { 0.2f, 0.2f, 0.2f };
+    this->ReadOptionColor("render.background.color", bg, bgDefault);
+    if (ImGui::ColorEdit3(loc.Translate("Background").c_str(), bg, ImGuiColorEditFlags_NoInputs))
+    {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", bg[0], bg[1], bg[2]);
+      this->SendCommand(std::string("set render.background.color ") + buf);
     }
-  };
-  optionToggle(loc.Translate("Show edges").c_str(), "render.show_edges", false);
-  optionToggle(loc.Translate("Grid").c_str(), "render.grid.enable", false);
-  optionToggle(
-    loc.Translate("Ambient occlusion").c_str(), "render.effect.ambient_occlusion", false);
-  optionToggle(loc.Translate("Anti-aliasing").c_str(), "render.effect.antialiasing.enable", false);
-  optionToggle(loc.Translate("Tone mapping").c_str(), "render.effect.tone_mapping", false);
-
-  float bg[3];
-  const float bgDefault[3] = { 0.2f, 0.2f, 0.2f };
-  this->ReadOptionColor("render.background.color", bg, bgDefault);
-  if (ImGui::ColorEdit3(loc.Translate("Background").c_str(), bg, ImGuiColorEditFlags_NoInputs))
-  {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", bg[0], bg[1], bg[2]);
-    this->SendCommand(std::string("set render.background.color ") + buf);
   }
-
-  ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
+  G3DWidgets::EndCollapse();
 }
 
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::DrawMaterialContent()
 {
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const float scale = static_cast<float>(this->FontScale);
   static bool materialOpen = true;
-  if (!G3DWidgets::CollapsingSection(loc.Translate("Material").c_str(), &materialOpen))
+  const std::string title = loc.Translate("Material");
+  G3DWidgets::CollapseDesc d;
+  d.title = title.c_str();
+  d.hasIcon = true;
+  d.icon = G3DIconId::Sliders;
+  d.open = &materialOpen;
+  if (G3DWidgets::BeginCollapse("g3d.sec.material", d).open)
   {
-    return;
-  }
-  ImGui::Indent(G3DTheme::Spacing::Sm * scale);
-
-  // PBR override sliders. When an option is unset the model's own material is used; touching a
-  // slider sets the override for all actors (libf3d semantics). The slider then reflects the
-  // override on subsequent frames.
-  auto optionSlider = [this](const char* label, const char* option, float fallback)
-  {
-    float value = this->ReadOptionFloat(option, fallback);
-    if (G3DWidgets::SliderFloat(label, &value, 0.f, 1.f))
+    // PBR override sliders. When an option is unset the model's own material is used; touching a
+    // slider sets the override for all actors (libf3d semantics). The slider then reflects the
+    // override on subsequent frames.
+    auto optionSlider = [this](const char* label, const char* option, float fallback)
     {
-      char buf[32];
-      std::snprintf(buf, sizeof(buf), "%.4g", value);
-      this->SendCommand(std::string("set ") + option + " " + buf);
+      float value = this->ReadOptionFloat(option, fallback);
+      if (G3DWidgets::SliderFloat(label, &value, 0.f, 1.f))
+      {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.4g", value);
+        this->SendCommand(std::string("set ") + option + " " + buf);
+      }
+    };
+    optionSlider(loc.Translate("Metallic").c_str(), "model.material.metallic", 0.f);
+    optionSlider(loc.Translate("Roughness").c_str(), "model.material.roughness", 0.3f);
+    optionSlider(loc.Translate("Opacity").c_str(), "model.color.opacity", 1.f);
+
+    float color[3];
+    const float colorDefault[3] = { 1.f, 1.f, 1.f };
+    this->ReadOptionColor("model.color.rgb", color, colorDefault);
+    if (ImGui::ColorEdit3(loc.Translate("Base color").c_str(), color, ImGuiColorEditFlags_NoInputs))
+    {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", color[0], color[1], color[2]);
+      this->SendCommand(std::string("set model.color.rgb ") + buf);
     }
-  };
-  ImGui::PushItemWidth(-1.f);
-  optionSlider(loc.Translate("Metallic").c_str(), "model.material.metallic", 0.f);
-  optionSlider(loc.Translate("Roughness").c_str(), "model.material.roughness", 0.3f);
-  optionSlider(loc.Translate("Opacity").c_str(), "model.color.opacity", 1.f);
-  ImGui::PopItemWidth();
-
-  float color[3];
-  const float colorDefault[3] = { 1.f, 1.f, 1.f };
-  this->ReadOptionColor("model.color.rgb", color, colorDefault);
-  if (ImGui::ColorEdit3(loc.Translate("Base color").c_str(), color, ImGuiColorEditFlags_NoInputs))
-  {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", color[0], color[1], color[2]);
-    this->SendCommand(std::string("set model.color.rgb ") + buf);
   }
-
-  ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
+  G3DWidgets::EndCollapse();
 }
 
 //----------------------------------------------------------------------------
@@ -2035,13 +2045,18 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   }
 
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const float scale = static_cast<float>(this->FontScale);
   static bool coloringOpen = true;
-  if (!G3DWidgets::CollapsingSection(loc.Translate("Coloring").c_str(), &coloringOpen))
+  const std::string title = loc.Translate("Coloring");
+  G3DWidgets::CollapseDesc d;
+  d.title = title.c_str();
+  d.hasIcon = true;
+  d.icon = G3DIconId::Image;
+  d.open = &coloringOpen;
+  if (!G3DWidgets::BeginCollapse("g3d.sec.coloring", d).open)
   {
+    G3DWidgets::EndCollapse(); // header drawn, body collapsed
     return;
   }
-  ImGui::Indent(G3DTheme::Spacing::Sm * scale);
 
   bool enable = this->ReadOptionBool("model.scivis.enable", false);
   if (G3DWidgets::Toggle(loc.Translate("Enable").c_str(), &enable))
@@ -2235,7 +2250,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     this->SendCommand(std::string("set ui.scalar_bar ") + (scalarBar ? "true" : "false"));
   }
 
-  ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
+  G3DWidgets::EndCollapse();
 }
 
 //----------------------------------------------------------------------------
