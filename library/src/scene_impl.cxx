@@ -1126,6 +1126,12 @@ std::vector<std::string> scene_impl::getAnimationNames()
 }
 
 //----------------------------------------------------------------------------
+double scene_impl::getCurrentAnimationTime() const
+{
+  return this->Internals->AnimationManager.GetCurrentTime();
+}
+
+//----------------------------------------------------------------------------
 g3d_scene_tree_snapshot scene_impl::getG3DSceneTree() const
 {
   return ConvertG3DSceneTreeSnapshot(this->Internals->MetaImporter->GetG3DSceneTree());

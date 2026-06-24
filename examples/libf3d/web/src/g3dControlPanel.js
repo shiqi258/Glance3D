@@ -26,6 +26,7 @@ export function initG3DControlPanel(engine) {
   const options = engine.getOptions();
   const dataInfoEl = document.querySelector("#g3d-data-info");
   const controlsEl = document.querySelector("#g3d-controls");
+  const timelineEl = document.querySelector("#g3d-timeline");
 
   // Read-only data-info group, sourced from the shared `scene.getG3DDataInfo()` API (same data the
   // desktop inspector shows). Guarded so a wasm built before this binding existed degrades to an
@@ -203,6 +204,130 @@ export function initG3DControlPanel(engine) {
     controlsEl.append(colorRow("Base color", "model.color.rgb", "#ffffff"));
   };
 
+  // Animation timeline — play/pause + scrubber + speed, shown only when the scene has animations.
+  // Reads via the shared scene/interactor API; the scrubber tracks live playback by polling
+  // getCurrentAnimationTime (added to the wasm binding) on a rAF loop while the panel is open.
+  const sceneApi = () => (typeof engine.getScene === "function" ? engine.getScene() : null);
+  const interactorApi = () =>
+    typeof engine.getInteractor === "function" ? engine.getInteractor() : null;
+  const safe = (fn, fallback) => {
+    try {
+      return fn();
+    } catch {
+      return fallback;
+    }
+  };
+  const animCount = () => {
+    const s = sceneApi();
+    return s && typeof s.availableAnimations === "function"
+      ? safe(() => s.availableAnimations(), 0)
+      : 0;
+  };
+  const animRange = () => {
+    const s = sceneApi();
+    return s ? safe(() => s.animationTimeRange(), [0, 0]) : [0, 0];
+  };
+  const animTime = () => {
+    const s = sceneApi();
+    return s && typeof s.getCurrentAnimationTime === "function"
+      ? safe(() => s.getCurrentAnimationTime(), 0)
+      : 0;
+  };
+  const animPlaying = () => {
+    const it = interactorApi();
+    return it && typeof it.isPlayingAnimation === "function"
+      ? safe(() => it.isPlayingAnimation(), false)
+      : false;
+  };
+  const fmtTime = (t) => Number(t).toFixed(2);
+
+  let tlPlay = null;
+  let tlScrub = null;
+  let tlCur = null;
+  let scrubbing = false;
+
+  const buildTimeline = () => {
+    if (!timelineEl) {
+      return;
+    }
+    timelineEl.replaceChildren();
+    if (animCount() === 0) {
+      timelineEl.style.display = "none";
+      return;
+    }
+    timelineEl.style.display = "";
+    const [tmin, tmax] = animRange();
+
+    tlPlay = el("button", "g3d-timeline__play");
+    tlPlay.type = "button";
+    tlPlay.textContent = animPlaying() ? "⏸" : "▶";
+    tlPlay.addEventListener("click", () => {
+      const it = interactorApi();
+      if (it && typeof it.toggleAnimation === "function") {
+        safe(() => it.toggleAnimation(), undefined);
+      }
+    });
+
+    tlScrub = el("input", "g3d-timeline__scrub");
+    tlScrub.type = "range";
+    tlScrub.min = String(tmin);
+    tlScrub.max = String(tmax);
+    tlScrub.step = String(Math.max((tmax - tmin) / 1000, 0.001));
+    tlScrub.value = String(animTime());
+    tlScrub.addEventListener("pointerdown", () => {
+      scrubbing = true;
+    });
+    const endScrub = () => {
+      scrubbing = false;
+    };
+    tlScrub.addEventListener("pointerup", endScrub);
+    tlScrub.addEventListener("pointercancel", endScrub);
+    tlScrub.addEventListener("input", () => {
+      const s = sceneApi();
+      if (s && typeof s.loadAnimationTime === "function") {
+        safe(() => {
+          s.loadAnimationTime(parseFloat(tlScrub.value));
+          engine.getWindow().render();
+        }, undefined);
+      }
+    });
+
+    tlCur = el("span", "g3d-timeline__time", fmtTime(animTime()));
+    const tlTotal = el("span", "g3d-timeline__time", `/ ${fmtTime(tmax)}s`);
+
+    const speed = el("input", "g3d-timeline__speed");
+    speed.type = "range";
+    speed.min = "0.1";
+    speed.max = "5";
+    speed.step = "0.1";
+    speed.value = String(getFloat("scene.animation.speed_factor", 1));
+    speed.addEventListener("input", () => setOpt("scene.animation.speed_factor", speed.value));
+
+    timelineEl.append(el("p", "g3d-timeline__section", "Animation"));
+    const row = el("div", "g3d-timeline__row");
+    row.append(tlPlay, tlScrub, tlCur, tlTotal);
+    const speedRow = el("div", "g3d-timeline__row");
+    speedRow.append(el("span", "g3d-timeline__label", "Speed"), speed);
+    timelineEl.append(row, speedRow);
+  };
+
+  // Live-refresh the scrubber/play state while the panel is open (drives playback tracking).
+  const updateTimeline = () => {
+    if (!timelineEl || timelineEl.style.display === "none") {
+      return;
+    }
+    if (tlPlay) {
+      tlPlay.textContent = animPlaying() ? "⏸" : "▶";
+    }
+    if (tlScrub && !scrubbing) {
+      const t = animTime();
+      tlScrub.value = String(t);
+      if (tlCur) {
+        tlCur.textContent = fmtTime(t);
+      }
+    }
+  };
+
   // Prefer the shared, headless libf3d option as the single source of truth (matches desktop). The
   // bundled wasm may predate this option (built before it existed); detect that up front by listing
   // the known option names — which never touches the missing option — and fall back to a DOM-only
@@ -236,6 +361,7 @@ export function initG3DControlPanel(engine) {
       fab.classList.remove("is-idle");
       renderDataInfo(); // refresh the read-only data each time the panel is shown
       renderControls(); // and reflect current option values into the controls
+      buildTimeline(); // (re)build the animation timeline for the current scene
     }
   };
 
@@ -245,8 +371,18 @@ export function initG3DControlPanel(engine) {
     if (isOpen()) {
       renderDataInfo();
       renderControls();
+      buildTimeline();
     }
   });
+
+  // Poll the live animation time while the panel is open so the scrubber tracks playback.
+  const tickTimeline = () => {
+    if (isOpen()) {
+      updateTimeline();
+    }
+    window.requestAnimationFrame(tickTimeline);
+  };
+  window.requestAnimationFrame(tickTimeline);
 
   const toggle = () => {
     if (useSharedOption) {

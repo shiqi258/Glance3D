@@ -292,6 +292,7 @@ EMSCRIPTEN_BINDINGS(f3d)
     .function(
       "getAnimationNames",
       +[](f3d::scene& scene) { return containerToJSArray(scene.getAnimationNames()); })
+    .function("getCurrentAnimationTime", &f3d::scene::getCurrentAnimationTime)
     .function(
       "getG3DSceneTree",
       +[](f3d::scene& scene) { return g3dSceneTreeSnapshotToJSObject(scene.getG3DSceneTree()); })
