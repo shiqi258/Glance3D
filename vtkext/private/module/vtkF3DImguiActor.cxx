@@ -764,7 +764,7 @@ void vtkF3DImguiActor::RenderSceneHierarchy(vtkOpenGLRenderWindow* renWin)
   assert(viewport);
 
   constexpr float margin = F3DStyle::GetDefaultMargin();
-  constexpr float defaultWidth = 200.f;
+  constexpr float defaultWidth = 280.f;
   float winHeight = viewport->WorkSize.y - 2.0f * margin;
 
   float posX = margin;

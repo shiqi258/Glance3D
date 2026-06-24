@@ -99,7 +99,7 @@ inline Result Compute(const Rect& work, const Sizes& s, float frac)
 /// panel width.
 inline constexpr float BAR_TOP_H = 44.f;
 inline constexpr float BAR_BOTTOM_H = 40.f;
-inline constexpr float BAR_LEFT_W = 240.f;
+inline constexpr float BAR_LEFT_W = 300.f; // scene tree — wide enough for nested node names (matches right bar)
 inline constexpr float BAR_RIGHT_W = 300.f;
 
 /// Build the (scale-multiplied) fully-open bar sizes for the layout solver.

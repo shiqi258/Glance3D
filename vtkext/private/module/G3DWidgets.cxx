@@ -712,6 +712,7 @@ struct TreeRowFrame
   float contentX;  // advancing left content cursor (screen x)
   float rightX;    // receding right content cursor (screen x) for right-aligned cells
   float hoverT;    // row hover animation value (0..1)
+  bool hovered;    // row is hovered right now (for truncation tooltip)
   bool selected;   // row is selected (keeps trailing actions revealed)
   bool pressed;    // the row hit item was clicked this frame
   ImVec2 mouse;    // mouse position at the click (for routing twisty/action clicks)
@@ -880,6 +881,7 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   f.contentX = twX + twistyW;
   f.rightX = p0.x + width - G3DTheme::Spacing::Sm * s;
   f.hoverT = ht;
+  f.hovered = hovered;
   f.selected = chrome.selected;
   f.pressed = pressed && !chrome.disabled;
   f.mouse = ImGui::GetIO().MousePos;
@@ -978,6 +980,11 @@ void TreeRowLabel(const char* text, bool group, bool dim)
   dl->PushClipRect(ImVec2(f.contentX, f.p0.y), ImVec2(f.contentX + avail, f.p0.y + f.rowH), true);
   dl->AddText(ImVec2(f.contentX, cy - ts.y * 0.5f), U32(col), draw);
   dl->PopClipRect();
+  // When the name had to be ellipsized, reveal it in full on hover (VS Code / file-explorer pattern).
+  if (draw != text && f.hovered)
+  {
+    ImGui::SetTooltip("%s", text);
+  }
   f.contentX += std::min(ts.x, avail);
 }
 
