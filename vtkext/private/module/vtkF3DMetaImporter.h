@@ -162,6 +162,19 @@ public:
   const vtkBoundingBox& GetGeometryBoundingBox();
 
   /**
+   * Structured geometry statistics of all imported data (the same numbers
+   * GetMetaDataDescription() renders as text), for the data-info panel.
+   */
+  struct G3DDataStats
+  {
+    unsigned long long points = 0;
+    unsigned long long cells = 0;
+    unsigned long long actors = 0;
+    unsigned long long files = 0;
+  };
+  G3DDataStats GetG3DDataStats() const;
+
+  /**
    * Get a meta data description of all imported data
    */
   std::string GetMetaDataDescription() const;

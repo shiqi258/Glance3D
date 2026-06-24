@@ -1407,37 +1407,45 @@ void vtkF3DMetaImporter::UpdateInfoForColoring()
 }
 
 //----------------------------------------------------------------------------
-std::string vtkF3DMetaImporter::GetMetaDataDescription() const
+vtkF3DMetaImporter::G3DDataStats vtkF3DMetaImporter::GetG3DDataStats() const
 {
-  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
-  std::string description;
-  if (this->Pimpl->Importers.size() > 1)
-  {
-    description += locale.Translate(
-      "Number of files: {n, number}", { { "n", std::to_string(this->Pimpl->Importers.size()) } });
-    description += "\n";
-  }
+  G3DDataStats stats;
+  stats.files = static_cast<unsigned long long>(this->Pimpl->Importers.size());
+  stats.actors = static_cast<unsigned long long>(this->ActorCollection->GetNumberOfItems());
 
-  description += locale.Translate("Number of actors: {n, number}",
-    { { "n", std::to_string(this->ActorCollection->GetNumberOfItems()) } });
-  description += "\n";
-
-  vtkIdType nPoints = 0;
-  vtkIdType nCells = 0;
   vtkCollectionSimpleIterator ait;
   this->ActorCollection->InitTraversal(ait);
   while (auto* actor = this->ActorCollection->GetNextActor(ait))
   {
     vtkPolyData* surface = vtkPolyDataMapper::SafeDownCast(actor->GetMapper())->GetInput();
-    nPoints += surface->GetNumberOfPoints();
-    nCells += surface->GetNumberOfCells();
+    stats.points += static_cast<unsigned long long>(surface->GetNumberOfPoints());
+    stats.cells += static_cast<unsigned long long>(surface->GetNumberOfCells());
+  }
+  return stats;
+}
+
+//----------------------------------------------------------------------------
+std::string vtkF3DMetaImporter::GetMetaDataDescription() const
+{
+  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
+  const G3DDataStats stats = this->GetG3DDataStats();
+
+  std::string description;
+  if (this->Pimpl->Importers.size() > 1)
+  {
+    description += locale.Translate(
+      "Number of files: {n, number}", { { "n", std::to_string(stats.files) } });
+    description += "\n";
   }
 
-  description +=
-    locale.Translate("Number of points: {n, number}", { { "n", std::to_string(nPoints) } });
+  description += locale.Translate(
+    "Number of actors: {n, number}", { { "n", std::to_string(stats.actors) } });
   description += "\n";
   description +=
-    locale.Translate("Number of cells: {n, number}", { { "n", std::to_string(nCells) } });
+    locale.Translate("Number of points: {n, number}", { { "n", std::to_string(stats.points) } });
+  description += "\n";
+  description +=
+    locale.Translate("Number of cells: {n, number}", { { "n", std::to_string(stats.cells) } });
   return description;
 }
 

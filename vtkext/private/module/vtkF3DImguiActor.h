@@ -168,6 +168,12 @@ private:
    */
   void DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin);
 
+  /**
+   * Draw the read-only data-info content (geometry stats, bounds, available scalar arrays) into the
+   * current ImGui window, sourced from the renderer's meta importer. Used by the right inspector bar.
+   */
+  void DrawDataInfoContent(vtkOpenGLRenderWindow* renWin);
+
   ///@{
   /**
    * Local UI selection in the scene tree, persisted across frames (not part of the SDK state; a

@@ -1,5 +1,6 @@
 #include "vtkF3DImguiActor.h"
 
+#include "F3DColoringInfoHandler.h"
 #include "F3DDefaultLogo.h"
 #include "F3DFontBuffer.h"
 #include "F3DStyle.h"
@@ -15,6 +16,7 @@
 #include "vtkF3DRenderer.h"
 #include "vtkF3DUserEvents.h"
 
+#include <vtkBoundingBox.h>
 #include <vtkCallbackCommand.h>
 #include <vtkCommand.h>
 #include <vtkDataAssembly.h>
@@ -49,6 +51,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <functional>
 #include <numeric>
@@ -1701,6 +1704,85 @@ void vtkF3DImguiActor::RenderControlToggle()
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
+{
+  vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+  if (ren == nullptr)
+  {
+    return;
+  }
+  vtkF3DMetaImporter* importer = ren->GetMetaImporter();
+  if (importer == nullptr)
+  {
+    return;
+  }
+
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+
+  // Key/value row: muted label, value on the same line.
+  auto kv = [](const std::string& label, const std::string& value)
+  {
+    ImGui::TextColored(G3DTheme::TextMuted(), "%s", label.c_str());
+    ImGui::SameLine();
+    ImGui::TextUnformatted(value.c_str());
+  };
+
+  // Own scroll region (the docked bar is NoScrollbar), like the scene tree.
+  ImGui::BeginChild("##g3d.datainfo", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
+
+  const vtkF3DMetaImporter::G3DDataStats stats = importer->GetG3DDataStats();
+  G3DWidgets::SectionTitle(loc.Translate("Data info").c_str());
+  kv(loc.Translate("Points"), std::to_string(stats.points));
+  kv(loc.Translate("Cells"), std::to_string(stats.cells));
+  kv(loc.Translate("Actors"), std::to_string(stats.actors));
+  if (stats.files > 1)
+  {
+    kv(loc.Translate("Files"), std::to_string(stats.files));
+  }
+
+  const vtkBoundingBox& bbox = importer->GetGeometryBoundingBox();
+  if (bbox.IsValid())
+  {
+    double length[3];
+    bbox.GetLengths(length);
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "%.4g x %.4g x %.4g", length[0], length[1], length[2]);
+    kv(loc.Translate("Size"), buf);
+  }
+
+  // Available scalar arrays (point + cell), read-only here; coloring controls land in a later step.
+  F3DColoringInfoHandler& coloring = importer->GetColoringInfoHandler();
+  const std::vector<F3DColoringInfoHandler::ColoringInfo> pointArrays = coloring.GetPointDataArrays();
+  const std::vector<F3DColoringInfoHandler::ColoringInfo> cellArrays = coloring.GetCellDataArrays();
+
+  if (pointArrays.empty() && cellArrays.empty())
+  {
+    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Sm));
+    ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No data arrays").c_str());
+  }
+  else
+  {
+    G3DWidgets::SectionTitle(loc.Translate("Arrays").c_str());
+    auto drawArrays = [&](const std::vector<F3DColoringInfoHandler::ColoringInfo>& arrays,
+                         const std::string& assoc)
+    {
+      for (const auto& a : arrays)
+      {
+        ImGui::TextUnformatted(a.Name.c_str());
+        char meta[112];
+        std::snprintf(meta, sizeof(meta), "  %s \xc2\xb7 %dc  [%.4g, %.4g]", assoc.c_str(),
+          a.MaximumNumberOfComponents, a.MagnitudeRange[0], a.MagnitudeRange[1]);
+        ImGui::TextColored(G3DTheme::TextMuted(), "%s", meta);
+      }
+    };
+    drawArrays(pointArrays, loc.Translate("point"));
+    drawArrays(cellArrays, loc.Translate("cell"));
+  }
+
+  ImGui::EndChild();
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 {
   // The slide fraction is advanced pre-pass in UpdateControlPanelSlide; here we only read it so the
@@ -1759,10 +1841,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::End();
   }
 
-  // Right bar — property inspector (groups land in a later step).
+  // Right bar — property inspector. Data-info group first (read-only); more groups land later.
   if (beginBar("##g3d.bar.right", r.right))
   {
-    G3DWidgets::SectionTitle(loc.Translate("Inspector").c_str());
+    this->DrawDataInfoContent(renWin);
     ImGui::End();
   }
 

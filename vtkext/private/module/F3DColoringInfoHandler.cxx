@@ -159,6 +159,30 @@ std::optional<F3DColoringInfoHandler::ColoringInfo> F3DColoringInfoHandler::GetC
 }
 
 //----------------------------------------------------------------------------
+std::vector<F3DColoringInfoHandler::ColoringInfo> F3DColoringInfoHandler::GetPointDataArrays() const
+{
+  std::vector<ColoringInfo> arrays;
+  arrays.reserve(this->PointDataColoringInfo.size());
+  for (const auto& [name, info] : this->PointDataColoringInfo)
+  {
+    arrays.push_back(info);
+  }
+  return arrays;
+}
+
+//----------------------------------------------------------------------------
+std::vector<F3DColoringInfoHandler::ColoringInfo> F3DColoringInfoHandler::GetCellDataArrays() const
+{
+  std::vector<ColoringInfo> arrays;
+  arrays.reserve(this->CellDataColoringInfo.size());
+  for (const auto& [name, info] : this->CellDataColoringInfo)
+  {
+    arrays.push_back(info);
+  }
+  return arrays;
+}
+
+//----------------------------------------------------------------------------
 void F3DColoringInfoHandler::CycleColoringArray(bool cycleToNonColoring)
 {
   const auto& data =

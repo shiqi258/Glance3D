@@ -59,6 +59,14 @@ public:
   std::optional<ColoringInfo> GetCurrentColoringInfo() const;
 
   /**
+   * List every available point-data / cell-data array (name, components, ranges), as already
+   * computed by UpdateColoringInfo. Used by the control panel to populate the data-info and coloring
+   * UI; does not change the current coloring state.
+   */
+  std::vector<ColoringInfo> GetPointDataArrays() const;
+  std::vector<ColoringInfo> GetCellDataArrays() const;
+
+  /**
    * Cycle the current coloring
    * If not coloring, this will try to find an array to color with
    * This does not change the cell/point data status
