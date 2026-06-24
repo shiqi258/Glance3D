@@ -3746,6 +3746,13 @@ void vtkF3DRenderer::SetUIDeltaTime(double time)
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DRenderer::SetUIOptionAccessor(
+  std::function<std::optional<std::string>(const std::string&)> accessor)
+{
+  this->UIActor->SetOptionAccessor(std::move(accessor));
+}
+
+//----------------------------------------------------------------------------
 bool vtkF3DRenderer::IsControlPanelAnimating()
 {
   return this->UIActor->IsControlPanelAnimating();

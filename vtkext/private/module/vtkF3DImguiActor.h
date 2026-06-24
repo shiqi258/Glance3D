@@ -174,6 +174,23 @@ private:
    */
   void DrawDataInfoContent(vtkOpenGLRenderWindow* renWin);
 
+  /**
+   * Draw the Appearance / Material inspector groups: option-backed controls that read current values
+   * via the injected option accessor and write changes through commands (set/toggle).
+   */
+  void DrawAppearanceContent();
+  void DrawMaterialContent();
+
+  /// Trigger a command string ("set/toggle/reset ...") through the user-event path.
+  void SendCommand(const std::string& cmd);
+
+  ///@{
+  /// Read a libf3d option's current value (via QueryOption), falling back when unset/unknown.
+  bool ReadOptionBool(const char* name, bool fallback) const;
+  float ReadOptionFloat(const char* name, float fallback) const;
+  void ReadOptionColor(const char* name, float out[3], const float fallback[3]) const;
+  ///@}
+
   ///@{
   /**
    * Local UI selection in the scene tree, persisted across frames (not part of the SDK state; a

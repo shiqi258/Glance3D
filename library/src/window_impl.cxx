@@ -17,6 +17,9 @@
 #include "vtkF3DRenderer.h"
 
 #include <chrono>
+#include <functional>
+#include <optional>
+#include <string>
 
 #include <vtkCamera.h>
 #include <vtkF3DRenderPass.h>
@@ -186,6 +189,27 @@ window_impl::window_impl(const options& options, const std::optional<Type>& type
     !offscreen || utils::getEnv("CTEST_F3D_CONSOLE_BADGE").has_value());
 
   this->Initialize();
+
+  // Give the UI a read-only view of option values so the inspector controls reflect current state
+  // (writes still go through commands). Set once; the options object outlives this window, so the
+  // captured pointer stays valid for the renderer/UI-actor lifetime.
+  const auto* optPtr = &this->Internals->Options;
+  this->Internals->Renderer->SetUIOptionAccessor(
+    [optPtr](const std::string& name) -> std::optional<std::string>
+    {
+      try
+      {
+        if (!optPtr->hasValue(name))
+        {
+          return std::nullopt;
+        }
+        return optPtr->getAsString(name);
+      }
+      catch (...)
+      {
+        return std::nullopt;
+      }
+    });
 
   log::debug("VTK window class type is ", this->Internals->RenWin->GetClassName());
 }

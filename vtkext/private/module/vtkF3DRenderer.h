@@ -23,6 +23,7 @@
 
 #include <array>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 
@@ -534,6 +535,12 @@ public:
    * Set the UI delta time (time between frame being rendered) in seconds
    */
   void SetUIDeltaTime(double time);
+
+  /**
+   * Forward a read-only option-value accessor to the UI actor, so the inspector controls can reflect
+   * current option state (writes still go through commands).
+   */
+  void SetUIOptionAccessor(std::function<std::optional<std::string>(const std::string&)> accessor);
 
   /**
    * True while the docked control panel is sliding open/closed. The interactor uses this to force

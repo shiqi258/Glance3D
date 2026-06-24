@@ -1721,10 +1721,8 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
   const float scale = static_cast<float>(this->FontScale);
 
-  // Own scroll region (the docked bar is NoScrollbar), like the scene tree.
-  ImGui::BeginChild("##g3d.datainfo", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
-
   // Collapsible inspector panels (DCC properties-editor layout). Open state persists across frames.
+  // The host (right inspector bar) owns the scroll region so all groups scroll together.
   static bool geomOpen = true;
   static bool arraysOpen = true;
 
@@ -1831,8 +1829,152 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     }
     ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
   }
+}
 
-  ImGui::EndChild();
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::SendCommand(const std::string& cmd)
+{
+  vtkOutputWindow::GetInstance()->InvokeEvent(
+    vtkF3DUserEvents::TriggerEvent, const_cast<char*>(cmd.c_str()));
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DImguiActor::ReadOptionBool(const char* name, bool fallback) const
+{
+  const std::optional<std::string> value = this->QueryOption(name);
+  if (!value)
+  {
+    return fallback;
+  }
+  return *value == "true" || *value == "1";
+}
+
+//----------------------------------------------------------------------------
+float vtkF3DImguiActor::ReadOptionFloat(const char* name, float fallback) const
+{
+  const std::optional<std::string> value = this->QueryOption(name);
+  if (!value)
+  {
+    return fallback;
+  }
+  try
+  {
+    return std::stof(*value);
+  }
+  catch (...)
+  {
+    return fallback;
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::ReadOptionColor(const char* name, float out[3], const float fallback[3]) const
+{
+  out[0] = fallback[0];
+  out[1] = fallback[1];
+  out[2] = fallback[2];
+  const std::optional<std::string> value = this->QueryOption(name);
+  if (!value)
+  {
+    return;
+  }
+  std::stringstream ss(*value);
+  std::string token;
+  for (int i = 0; i < 3 && std::getline(ss, token, ','); i++)
+  {
+    try
+    {
+      out[i] = std::stof(token);
+    }
+    catch (...)
+    {
+    }
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::DrawAppearanceContent()
+{
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const float scale = static_cast<float>(this->FontScale);
+  static bool appearanceOpen = true;
+  if (!G3DWidgets::CollapsingSection(loc.Translate("Appearance").c_str(), &appearanceOpen))
+  {
+    return;
+  }
+  ImGui::Indent(G3DTheme::Spacing::Sm * scale);
+
+  // Boolean toggles, each reads the option's current value and writes back through a command.
+  auto optionToggle = [this](const char* label, const char* option, bool fallback)
+  {
+    bool on = this->ReadOptionBool(option, fallback);
+    if (G3DWidgets::Toggle(label, &on))
+    {
+      this->SendCommand(std::string("set ") + option + (on ? " true" : " false"));
+    }
+  };
+  optionToggle(loc.Translate("Show edges").c_str(), "render.show_edges", false);
+  optionToggle(loc.Translate("Grid").c_str(), "render.grid.enable", false);
+  optionToggle(
+    loc.Translate("Ambient occlusion").c_str(), "render.effect.ambient_occlusion", false);
+  optionToggle(loc.Translate("Anti-aliasing").c_str(), "render.effect.antialiasing.enable", false);
+  optionToggle(loc.Translate("Tone mapping").c_str(), "render.effect.tone_mapping", false);
+
+  float bg[3];
+  const float bgDefault[3] = { 0.2f, 0.2f, 0.2f };
+  this->ReadOptionColor("render.background.color", bg, bgDefault);
+  if (ImGui::ColorEdit3(loc.Translate("Background").c_str(), bg, ImGuiColorEditFlags_NoInputs))
+  {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", bg[0], bg[1], bg[2]);
+    this->SendCommand(std::string("set render.background.color ") + buf);
+  }
+
+  ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::DrawMaterialContent()
+{
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const float scale = static_cast<float>(this->FontScale);
+  static bool materialOpen = true;
+  if (!G3DWidgets::CollapsingSection(loc.Translate("Material").c_str(), &materialOpen))
+  {
+    return;
+  }
+  ImGui::Indent(G3DTheme::Spacing::Sm * scale);
+
+  // PBR override sliders. When an option is unset the model's own material is used; touching a
+  // slider sets the override for all actors (libf3d semantics). The slider then reflects the
+  // override on subsequent frames.
+  auto optionSlider = [this](const char* label, const char* option, float fallback)
+  {
+    float value = this->ReadOptionFloat(option, fallback);
+    if (G3DWidgets::SliderFloat(label, &value, 0.f, 1.f))
+    {
+      char buf[32];
+      std::snprintf(buf, sizeof(buf), "%.4g", value);
+      this->SendCommand(std::string("set ") + option + " " + buf);
+    }
+  };
+  ImGui::PushItemWidth(-1.f);
+  optionSlider(loc.Translate("Metallic").c_str(), "model.material.metallic", 0.f);
+  optionSlider(loc.Translate("Roughness").c_str(), "model.material.roughness", 0.3f);
+  optionSlider(loc.Translate("Opacity").c_str(), "model.color.opacity", 1.f);
+  ImGui::PopItemWidth();
+
+  float color[3];
+  const float colorDefault[3] = { 1.f, 1.f, 1.f };
+  this->ReadOptionColor("model.color.rgb", color, colorDefault);
+  if (ImGui::ColorEdit3(loc.Translate("Base color").c_str(), color, ImGuiColorEditFlags_NoInputs))
+  {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", color[0], color[1], color[2]);
+    this->SendCommand(std::string("set model.color.rgb ") + buf);
+  }
+
+  ImGui::Unindent(G3DTheme::Spacing::Sm * scale);
 }
 
 //----------------------------------------------------------------------------
@@ -1941,11 +2083,16 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::End();
   }
 
-  // Right bar — property inspector. Data-info group first (read-only); more groups land later.
+  // Right bar — property inspector: data info (read-only) + appearance + material groups, all in a
+  // shared scroll region under the fixed header.
   if (beginBar("##g3d.bar.right", r.right))
   {
-    G3DWidgets::PanelHeader(loc.Translate("Data info").c_str(), G3DIconId::Info);
+    G3DWidgets::PanelHeader(loc.Translate("Inspector").c_str(), G3DIconId::Sliders);
+    ImGui::BeginChild("##g3d.inspector", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
     this->DrawDataInfoContent(renWin);
+    this->DrawAppearanceContent();
+    this->DrawMaterialContent();
+    ImGui::EndChild();
     ImGui::End();
   }
 

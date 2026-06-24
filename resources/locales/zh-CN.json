@@ -48,6 +48,18 @@
   "point": "点",
   "cell": "单元",
 
+  "Appearance": "外观",
+  "Material": "材质",
+  "Show edges": "显示边线",
+  "Ambient occlusion": "环境光遮蔽",
+  "Anti-aliasing": "抗锯齿",
+  "Tone mapping": "色调映射",
+  "Background": "背景",
+  "Metallic": "金属度",
+  "Roughness": "粗糙度",
+  "Opacity": "不透明度",
+  "Base color": "基础色",
+
   "Search...": "搜索…",
   "Description": "描述",
   "Keybind": "快捷键",

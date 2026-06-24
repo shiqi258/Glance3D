@@ -13,7 +13,9 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <map>
+#include <optional>
 #include <vtkProp.h>
 
 class vtkOpenGLRenderWindow;
@@ -182,6 +184,14 @@ public:
    * False by default
    */
   void SetControlPanelVisibility(bool show);
+
+  /**
+   * Provide a read-only accessor for libf3d option values (as strings) so the inspector controls can
+   * reflect current state. The presenter still *writes* options through commands (triggerCommand
+   * "set/toggle/reset ..."); this is only the read side. The accessor returns nullopt for an
+   * unset-optional or unknown option. Empty by default (controls then fall back to their defaults).
+   */
+  void SetOptionAccessor(std::function<std::optional<std::string>(const std::string&)> accessor);
 
   /**
    * Set the notification visibility
@@ -419,6 +429,13 @@ protected:
   bool FpsCounterVisible = false;
 
   bool ControlPanelVisible = false;
+
+  /**
+   * Query a libf3d option's current value as a string via the injected accessor. Returns nullopt if
+   * no accessor is set, or the option is unset-optional / unknown.
+   */
+  std::optional<std::string> QueryOption(const std::string& name) const;
+  std::function<std::optional<std::string>(const std::string&)> OptionAccessor;
 
   // deque instead of queue to allow for iteration
   std::deque<double> FrameTimes;

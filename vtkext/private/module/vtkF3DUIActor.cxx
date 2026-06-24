@@ -145,6 +145,23 @@ void vtkF3DUIActor::SetControlPanelVisibility(bool show)
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DUIActor::SetOptionAccessor(
+  std::function<std::optional<std::string>(const std::string&)> accessor)
+{
+  this->OptionAccessor = std::move(accessor);
+}
+
+//----------------------------------------------------------------------------
+std::optional<std::string> vtkF3DUIActor::QueryOption(const std::string& name) const
+{
+  if (this->OptionAccessor)
+  {
+    return this->OptionAccessor(name);
+  }
+  return std::nullopt;
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DUIActor::SetNotificationVisibility(bool show)
 {
   this->NotificationVisible = show;
