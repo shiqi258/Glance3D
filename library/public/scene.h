@@ -71,6 +71,34 @@ struct F3D_EXPORT g3d_scene_tree_snapshot
 };
 
 /**
+ * @struct g3d_data_array_info
+ * @brief A colorable scalar array available in the loaded scene.
+ */
+struct F3D_EXPORT g3d_data_array_info
+{
+  std::string name;
+  std::string association; ///< "point" or "cell"
+  int components = 0;
+  std::array<double, 2> range = { 0., 0. }; ///< magnitude range
+};
+
+/**
+ * @struct g3d_data_info
+ * @brief Read-only data details of the currently loaded scene (geometry stats, bounds, arrays).
+ */
+struct F3D_EXPORT g3d_data_info
+{
+  int schemaVersion = 1;
+  unsigned long long points = 0;
+  unsigned long long cells = 0;
+  unsigned long long actors = 0;
+  unsigned long long files = 0;
+  bool hasBounds = false;
+  std::array<double, 6> bounds = { 0., 0., 0., 0., 0., 0. };
+  std::vector<g3d_data_array_info> arrays;
+};
+
+/**
  * @class   scene
  * @brief   Class to load files into
  *
@@ -322,6 +350,13 @@ public:
    * it across different loaded scenes.
    */
   [[nodiscard]] virtual g3d_scene_tree_snapshot getG3DSceneTree() const = 0;
+
+  /**
+   * Return read-only data details of the currently loaded scene: geometry statistics (points,
+   * cells, actors, files), the geometry bounding box, and the list of colorable scalar arrays.
+   * Shared by the desktop and web control panels.
+   */
+  [[nodiscard]] virtual g3d_data_info getG3DDataInfo() const = 0;
 
   /**
    * Set the visibility of a scene tree node and all of its descendants.

@@ -113,6 +113,35 @@ emscripten::val g3dSceneTreeSnapshotToJSObject(const f3d::g3d_scene_tree_snapsho
   return jsSnapshot;
 }
 
+emscripten::val g3dDataInfoToJSObject(const f3d::g3d_data_info& info)
+{
+  emscripten::val js = emscripten::val::object();
+  js.set("schemaVersion", info.schemaVersion);
+  // Counts are 64-bit; JS numbers are doubles, exact well beyond any real point/cell count.
+  js.set("points", static_cast<double>(info.points));
+  js.set("cells", static_cast<double>(info.cells));
+  js.set("actors", static_cast<double>(info.actors));
+  js.set("files", static_cast<double>(info.files));
+  js.set("hasBounds", info.hasBounds);
+  if (info.hasBounds)
+  {
+    js.set("bounds", containerToJSArray(info.bounds));
+  }
+
+  emscripten::val arrays = emscripten::val::array();
+  for (const f3d::g3d_data_array_info& array : info.arrays)
+  {
+    emscripten::val jsArray = emscripten::val::object();
+    jsArray.set("name", array.name);
+    jsArray.set("association", array.association);
+    jsArray.set("components", array.components);
+    jsArray.set("range", containerToJSArray(array.range));
+    arrays.call<void>("push", jsArray);
+  }
+  js.set("arrays", arrays);
+  return js;
+}
+
 EMSCRIPTEN_BINDINGS(f3d)
 {
   // f3d::options
@@ -266,6 +295,9 @@ EMSCRIPTEN_BINDINGS(f3d)
     .function(
       "getG3DSceneTree",
       +[](f3d::scene& scene) { return g3dSceneTreeSnapshotToJSObject(scene.getG3DSceneTree()); })
+    .function(
+      "getG3DDataInfo",
+      +[](f3d::scene& scene) { return g3dDataInfoToJSObject(scene.getG3DDataInfo()); })
     .function("setG3DSceneTreeNodeVisibility", &f3d::scene::setG3DSceneTreeNodeVisibility)
     .function("setOnlyG3DSceneTreeNodeVisible", &f3d::scene::setOnlyG3DSceneTreeNodeVisible)
     .function("resetG3DSceneTreeVisibility", &f3d::scene::resetG3DSceneTreeVisibility,

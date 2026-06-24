@@ -56,6 +56,7 @@ public:
   std::string getAnimationName(int index = -1) override;
   std::vector<std::string> getAnimationNames() override;
   g3d_scene_tree_snapshot getG3DSceneTree() const override;
+  g3d_data_info getG3DDataInfo() const override;
   bool setG3DSceneTreeNodeVisibility(const std::string& nodeId, bool visible) override;
   bool setOnlyG3DSceneTreeNodeVisible(const std::string& nodeId) override;
   scene& resetG3DSceneTreeVisibility() override;

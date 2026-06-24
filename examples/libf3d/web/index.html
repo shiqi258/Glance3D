@@ -166,6 +166,42 @@
         opacity: 0.8;
         margin-bottom: 16px;
       }
+
+      /* Read-only data-info group (right panel). Mirrors the desktop inspector's Data info group. */
+      .g3d-data-info {
+        font-size: 0.8125rem;
+        margin-bottom: 16px;
+      }
+      .g3d-data-info__section {
+        font-weight: 600;
+        opacity: 0.55;
+        margin: 12px 0 4px;
+      }
+      .g3d-data-info__section:first-child {
+        margin-top: 0;
+      }
+      .g3d-data-info__row {
+        display: flex;
+        gap: 8px;
+        line-height: 1.7;
+      }
+      .g3d-data-info__key {
+        opacity: 0.55;
+      }
+      .g3d-data-info__val {
+        font-variant-numeric: tabular-nums;
+      }
+      .g3d-data-info__array {
+        margin-top: 6px;
+      }
+      .g3d-data-info__array-meta {
+        opacity: 0.55;
+        font-variant-numeric: tabular-nums;
+      }
+      .g3d-data-info__empty {
+        opacity: 0.55;
+        margin-top: 8px;
+      }
     </style>
   </head>
   <body>
@@ -318,10 +354,8 @@
               </button>
               <aside id="g3d-control-panel" class="g3d-control-panel">
                 <div class="g3d-control-panel__inner">
-                  <p class="g3d-control-panel__title">Inspector (placeholder)</p>
-                  <p class="g3d-control-panel__body">
-                    The professional control panel will live here.
-                  </p>
+                  <p class="g3d-control-panel__title">Inspector</p>
+                  <div id="g3d-data-info" class="g3d-data-info"></div>
                   <button
                     id="g3d-control-collapse"
                     class="button is-small"

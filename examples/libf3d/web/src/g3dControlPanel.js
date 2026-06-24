@@ -24,6 +24,71 @@ export function initG3DControlPanel(engine) {
   }
 
   const options = engine.getOptions();
+  const dataInfoEl = document.querySelector("#g3d-data-info");
+
+  // Read-only data-info group, sourced from the shared `scene.getG3DDataInfo()` API (same data the
+  // desktop inspector shows). Guarded so a wasm built before this binding existed degrades to an
+  // empty group instead of throwing; a rebuild (`npm run build`) activates it with no code change.
+  const fmt = (x) =>
+    Number.isFinite(x) ? Number(x.toPrecision(4)).toString() : String(x);
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  };
+  const infoRow = (key, value) => {
+    const row = el("div", "g3d-data-info__row");
+    row.append(el("span", "g3d-data-info__key", key), el("span", "g3d-data-info__val", value));
+    return row;
+  };
+  const renderDataInfo = () => {
+    if (!dataInfoEl || typeof engine.getScene !== "function") {
+      return;
+    }
+    const scene = engine.getScene();
+    if (!scene || typeof scene.getG3DDataInfo !== "function") {
+      return; // stale wasm: leave the group empty
+    }
+    let info;
+    try {
+      info = scene.getG3DDataInfo();
+    } catch {
+      return;
+    }
+    dataInfoEl.replaceChildren();
+    dataInfoEl.append(el("p", "g3d-data-info__section", "Data info"));
+    dataInfoEl.append(infoRow("Points", String(info.points)));
+    dataInfoEl.append(infoRow("Cells", String(info.cells)));
+    dataInfoEl.append(infoRow("Actors", String(info.actors)));
+    if (info.files > 1) {
+      dataInfoEl.append(infoRow("Files", String(info.files)));
+    }
+    if (info.hasBounds && info.bounds) {
+      const b = info.bounds; // {xmin,xmax,ymin,ymax,zmin,zmax}
+      dataInfoEl.append(
+        infoRow("Size", `${fmt(b[1] - b[0])} x ${fmt(b[3] - b[2])} x ${fmt(b[5] - b[4])}`),
+      );
+    }
+    const arrays = info.arrays || [];
+    if (arrays.length === 0) {
+      dataInfoEl.append(el("p", "g3d-data-info__empty", "No data arrays"));
+    } else {
+      dataInfoEl.append(el("p", "g3d-data-info__section", "Arrays"));
+      for (const array of arrays) {
+        const wrap = el("div", "g3d-data-info__array");
+        wrap.append(el("div", "g3d-data-info__array-name", array.name));
+        wrap.append(
+          el(
+            "div",
+            "g3d-data-info__array-meta",
+            `${array.association} · ${array.components}c  [${fmt(array.range[0])}, ${fmt(array.range[1])}]`,
+          ),
+        );
+        dataInfoEl.append(wrap);
+      }
+    }
+  };
 
   // Prefer the shared, headless libf3d option as the single source of truth (matches desktop). The
   // bundled wasm may predate this option (built before it existed); detect that up front by listing
@@ -56,8 +121,17 @@ export function initG3DControlPanel(engine) {
     if (open) {
       // Never auto-hide the FAB while the panel is open.
       fab.classList.remove("is-idle");
+      renderDataInfo(); // refresh the read-only data each time the panel is shown
     }
   };
+
+  // Refresh the data-info when a new file finishes loading, if the panel is open (main.js dispatches
+  // this after a successful load). Decoupled via a window event so the presenter stays standalone.
+  window.addEventListener("g3d:scene-loaded", () => {
+    if (isOpen()) {
+      renderDataInfo();
+    }
+  });
 
   const toggle = () => {
     if (useSharedOption) {

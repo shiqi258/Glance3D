@@ -212,6 +212,8 @@ f3d(settings)
       Module.engineInstance.getWindow().getCamera().resetToBounds(0.9);
       Module.engineInstance.getWindow().render();
       logViewerState("scene rendered", { name });
+      // Let the control panel refresh its read-only data-info for the newly loaded scene.
+      window.dispatchEvent(new CustomEvent("g3d:scene-loaded", { detail: { name } }));
     };
 
     // setup file open event

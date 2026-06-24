@@ -11,7 +11,10 @@
 #include "factory.h"
 #include "vtkF3DGenericImporter.h"
 #include "vtkF3DMemoryMesh.h"
+#include "F3DColoringInfoHandler.h"
 #include "vtkF3DMetaImporter.h"
+
+#include <vtkBoundingBox.h>
 #include "vtkF3DRenderer.h"
 
 #include <optional>
@@ -1106,6 +1109,45 @@ std::vector<std::string> scene_impl::getAnimationNames()
 g3d_scene_tree_snapshot scene_impl::getG3DSceneTree() const
 {
   return ConvertG3DSceneTreeSnapshot(this->Internals->MetaImporter->GetG3DSceneTree());
+}
+
+//----------------------------------------------------------------------------
+g3d_data_info scene_impl::getG3DDataInfo() const
+{
+  g3d_data_info info;
+  vtkF3DMetaImporter* mi = this->Internals->MetaImporter;
+  if (mi == nullptr)
+  {
+    return info;
+  }
+
+  const vtkF3DMetaImporter::G3DDataStats stats = mi->GetG3DDataStats();
+  info.points = stats.points;
+  info.cells = stats.cells;
+  info.actors = stats.actors;
+  info.files = stats.files;
+
+  const vtkBoundingBox& bbox = mi->GetGeometryBoundingBox();
+  if (bbox.IsValid())
+  {
+    info.hasBounds = true;
+    bbox.GetBounds(info.bounds.data());
+  }
+
+  auto append = [&info](const std::vector<F3DColoringInfoHandler::ColoringInfo>& arrays,
+                  const std::string& assoc)
+  {
+    for (const auto& a : arrays)
+    {
+      info.arrays.push_back(
+        g3d_data_array_info{ a.Name, assoc, a.MaximumNumberOfComponents, a.MagnitudeRange });
+    }
+  };
+  F3DColoringInfoHandler& coloring = mi->GetColoringInfoHandler();
+  append(coloring.GetPointDataArrays(), "point");
+  append(coloring.GetCellDataArrays(), "cell");
+
+  return info;
 }
 
 //----------------------------------------------------------------------------
