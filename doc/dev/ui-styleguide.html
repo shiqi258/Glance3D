@@ -15,9 +15,20 @@
     intended approximation (layered translucent rounded rects for shadow, AddRectFilledMultiColor
     for gradients, layered rings for glow). Everything else maps 1:1.
 
+  COMPONENT LAYER
+    Each component is defined ONCE: its style in a <style> block, its structure in the
+    "COMPONENT LAYER" script near the end of <body>. Everywhere on the page (including
+    components nested inside each other) you write a <g3d-*> placeholder tag instead of
+    re-typing the canonical inner markup — so a component is never re-"customized" in two
+    places, and "which components are used / how they differ" is legible in the markup.
+    On load the placeholders expand in-place to the exact class-based markup the CSS styles
+    (View Source = component usage; inspect DOM = canonical structure). Tags map 1:1 to
+    G3DWidgets (g3d-btn↔Button, g3d-select↔Combo, g3d-trow↔tree row, …).
+
   MAINTENANCE
     - Keep the :root token values in sync with G3DTheme.h color roles / radii / spacing / motion.
-    - When a component changes, update its block here and the matching G3DWidgets implementation.
+    - When a component changes, update three things in lockstep: its CSS block here, its
+      renderer in the COMPONENT LAYER script, and the matching G3DWidgets implementation.
 -->
 <html lang="zh-CN" data-theme="dark">
   <head>
@@ -251,6 +262,34 @@
         color: var(--text-muted);
         margin-bottom: var(--s-5);
         max-width: 64ch;
+      }
+      /* "组合" annotation — names the sub-components a component reuses, so reviewers
+         can see composition at a glance without reading the markup. */
+      .uses {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 6px;
+        max-width: 72ch;
+        margin: -8px 0 var(--s-5);
+        font-size: 12px;
+        color: var(--text-muted);
+        line-height: 1.7;
+      }
+      .uses b {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-radius: var(--r-sm);
+        padding: 1px 6px;
+        align-self: center;
+      }
+      .uses code {
+        background: var(--accent-soft);
+        color: var(--accent);
       }
       .panel {
         background: var(--surface-1);
@@ -587,6 +626,13 @@
       }
       .iconbtn.round {
         border-radius: var(--r-pill);
+      }
+      .iconbtn.xs {
+        width: 26px;
+        height: 26px;
+      }
+      .iconbtn.xs .icon {
+        font-size: 15px;
       }
       .iconbtn.active {
         background: var(--accent-soft);
@@ -953,6 +999,366 @@
       }
 
       /* ============================================================
+         TREE / OUTLINER  (专业编辑器 · 紧凑 · 大批量节点)
+         ≈ImGui: 整行选中=通道分层后画底；缩进引导线=AddLine；
+         超大列表用 ImGuiListClipper 仅绘制可视行。
+         ============================================================ */
+      /* Side-panel shell that hosts the tree (toolbar + scroll body + footer). */
+      .tree-shell {
+        width: 320px;
+        max-width: 100%;
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .tree-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        padding: 7px 8px 7px 10px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-2);
+      }
+      .tree-toolbar .ttitle {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-subtle);
+        white-space: nowrap;
+      }
+      .tree-toolbar .tsearch {
+        height: 24px;
+        padding: 0 8px;
+        gap: 6px;
+        flex: 1;
+        min-width: 0;
+        margin-left: auto;
+      }
+      .tree-toolbar .tsearch .icon {
+        font-size: 14px;
+      }
+      .tree-toolbar .tsearch input {
+        font-size: 12px;
+      }
+      .tree-toolbar .tbtn {
+        width: 24px;
+        height: 24px;
+      }
+      .tree-toolbar .tbtn .icon {
+        font-size: 16px;
+      }
+
+      .tree-scroll {
+        max-height: 380px;
+        overflow: auto;
+        padding: 4px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--surface-4) transparent;
+      }
+      .tree-foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-top: 1px solid var(--border);
+        background: var(--surface-2);
+        font-size: 11px;
+        font-family: var(--mono);
+        color: var(--text-subtle);
+      }
+      .tree-foot .sep {
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: var(--text-subtle);
+        opacity: 0.5;
+      }
+      .tree-foot .accent {
+        color: var(--accent);
+      }
+
+      /* The tree itself — density driven by --row-h, indentation by --indent. */
+      .tree {
+        --indent: 16px;
+        --row-h: 24px;
+        user-select: none;
+        font-size: 13px;
+        line-height: 1;
+        color: var(--text-muted);
+      }
+      .tree.compact {
+        --row-h: 22px;
+      }
+      .tree.dense {
+        --row-h: 20px;
+        font-size: 12px;
+      }
+      .tree.comfy {
+        --row-h: 28px;
+      }
+
+      .tree-row {
+        position: relative;
+        display: flex;
+        align-items: center;
+        height: var(--row-h);
+        padding: 0 6px 0 2px;
+        border-radius: var(--r-sm);
+        color: inherit;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .tree-row:hover,
+      .tree-row.is-hover {
+        background: var(--surface-3);
+        color: var(--text);
+      }
+      .tree-row.selected {
+        background: var(--accent-soft);
+        color: var(--text);
+      }
+      .tree-row.selected.focused {
+        background: var(--accent-soft-hover);
+      }
+      /* left accent bar marks the active/selected row */
+      .tree-row.selected::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 3px;
+        bottom: 3px;
+        width: 2px;
+        border-radius: 0 2px 2px 0;
+        background: var(--accent);
+      }
+      .tree-row.disabled {
+        color: var(--text-disabled);
+        cursor: not-allowed;
+      }
+      .tree-row.locked {
+        cursor: default;
+      }
+      .tree-row.dim {
+        opacity: 0.5;
+      }
+
+      /* indentation rails carry the continuing guide lines */
+      .tree-rail {
+        position: relative;
+        width: var(--indent);
+        align-self: stretch;
+        flex: none;
+      }
+      .tree-rail::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        border-left: 1px solid var(--border);
+      }
+      .tree-rail.active::before {
+        border-left-color: color-mix(in srgb, var(--accent) 60%, transparent);
+      }
+
+      /* expand / collapse twisty (chevron points down when open) */
+      .tree-twisty {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        color: var(--text-subtle);
+        transform: rotate(90deg);
+        transition: transform var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .tree-twisty .icon {
+        font-size: 14px;
+      }
+      .tree-row.collapsed > .tree-twisty {
+        transform: rotate(0deg);
+      }
+      .tree-row:hover .tree-twisty {
+        color: var(--text);
+      }
+      .tree-twisty.leaf {
+        visibility: hidden;
+      }
+
+      /* node type icon — mostly neutral, a single semantic color per type */
+      .tree-ticon {
+        font-size: 15px;
+        flex: none;
+        margin: 0 6px 0 2px;
+        color: var(--text-muted);
+      }
+      .tree-ticon.folder {
+        color: var(--text-subtle);
+      }
+      .tree-ticon.light {
+        color: var(--warning);
+      }
+      .tree-ticon.tex {
+        color: var(--accent);
+      }
+      .tree-ticon.root {
+        color: var(--accent);
+      }
+
+      .tree-label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tree-row.hidden .tree-label,
+      .tree-row.hidden .tree-ticon {
+        opacity: 0.45;
+      }
+      .tree-label .match {
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-radius: 3px;
+        padding: 0 1px;
+        font-weight: 600;
+      }
+
+      .tree-meta {
+        flex: none;
+        margin-left: 8px;
+        font-size: 11px;
+        font-family: var(--mono);
+        color: var(--text-subtle);
+      }
+      .tree-row.group {
+        color: var(--text);
+      }
+
+      /* trailing row actions reveal on hover (Blender / Figma pattern) */
+      .tree-actions {
+        display: flex;
+        align-items: center;
+        gap: 1px;
+        margin-left: 6px;
+        flex: none;
+        opacity: 0;
+        transition: opacity var(--t-micro) var(--ease);
+      }
+      .tree-row:hover .tree-actions,
+      .tree-row.selected .tree-actions,
+      .tree-row.hidden .tree-actions,
+      .tree-row.locked .tree-actions {
+        opacity: 1;
+      }
+      .tree-act {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        border: none;
+        background: transparent;
+        color: var(--text-subtle);
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .tree-act .icon {
+        font-size: 14px;
+      }
+      .tree-act:hover {
+        background: var(--surface-4);
+        color: var(--text);
+      }
+      .tree-act.on {
+        color: var(--accent);
+      }
+
+      /* inline rename field */
+      .tree-rename {
+        flex: 1;
+        min-width: 0;
+        height: calc(var(--row-h) - 6px);
+        margin-right: 4px;
+        padding: 0 5px;
+        font: inherit;
+        font-size: inherit;
+        color: var(--text);
+        background: var(--surface-1);
+        border: 1px solid var(--accent);
+        border-radius: var(--r-sm);
+        box-shadow: 0 0 0 2px var(--accent-ring);
+        outline: none;
+      }
+
+      /* drag & drop affordances: drop-into a folder, or insert line between rows */
+      .tree-row.drop-into {
+        background: var(--accent-soft);
+        box-shadow: inset 0 0 0 1px var(--accent);
+      }
+      .tree-row.drop-before::after,
+      .tree-row.drop-after::after {
+        content: "";
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        height: 2px;
+        background: var(--accent);
+        border-radius: 2px;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+      }
+      .tree-row.drop-before::after {
+        top: -1px;
+      }
+      .tree-row.drop-after::after {
+        bottom: -1px;
+      }
+      .tree-row.dragging {
+        opacity: 0.5;
+      }
+
+      /* compact tri-state checkbox for bulk-selection trees */
+      .tree-check {
+        width: 15px;
+        height: 15px;
+        flex: none;
+        margin-right: 5px;
+        border-radius: 4px;
+        border: 1.5px solid var(--border-strong);
+        background: var(--surface-2);
+        display: grid;
+        place-items: center;
+        transition: background var(--t-micro) var(--ease), border-color var(--t-micro) var(--ease);
+      }
+      .tree-check .icon {
+        font-size: 12px;
+        color: #fff;
+        opacity: 0;
+      }
+      .tree-check.on {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .tree-check.on .icon {
+        opacity: 1;
+      }
+      .tree-check.mixed {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .tree-check.mixed::after {
+        content: "";
+        width: 8px;
+        height: 2px;
+        border-radius: 1px;
+        background: #fff;
+      }
+
+      /* ============================================================
          CARD / SECTION / PROPERTY ROW / BADGE / TABS / TOOLTIP
          ============================================================ */
       .cards {
@@ -1005,6 +1411,10 @@
         line-height: 1;
         color: var(--accent);
         flex: none;
+        /* optical centering: flex centers the geometric boxes, but the icon's viewBox
+           padding + CJK font metrics leave it ~1px high vs the title — nudge it down */
+        position: relative;
+        top: 1px;
       }
 
       .sectiontitle {
@@ -1046,6 +1456,18 @@
         border: 1px solid var(--border);
         border-radius: var(--r-lg);
         padding: var(--s-5);
+      }
+      .w-full {
+        width: 100%;
+      }
+      /* monospace numeric readout (slider value etc.) — used via <g3d-num> */
+      .num {
+        min-width: 42px;
+        text-align: right;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text-muted);
+        flex: none;
       }
 
       .badge {
@@ -1183,23 +1605,36 @@
         <symbol id="i-camera" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5" /><path d="M8 7l1.5-2.5h5L16 7" /><circle cx="12" cy="13.5" r="3.2" /></symbol>
         <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9Z" /><path d="M12 21V12" /><path d="M12 12l8-4.5" /><path d="M12 12 4 7.5" /></symbol>
         <symbol id="i-check" viewBox="0 0 24 24"><polyline points="5 12.5 10 17 19 7" /></symbol>
+        <!-- tree / outliner node + action glyphs -->
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6l1 1a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v6.2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></symbol>
+        <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="M4 18.5V6.5a1 1 0 0 1 1-1h3.6a1 1 0 0 1 .7.3l1.2 1.2a1 1 0 0 0 .7.3H18a1 1 0 0 1 1 1V10" /><path d="M3.4 18.2 5.6 11a1 1 0 0 1 1-.7h13.2a1 1 0 0 1 1 1.3l-1.8 6a1 1 0 0 1-1 .7H4.4a1 1 0 0 1-1-1.1Z" /></symbol>
+        <symbol id="i-light" viewBox="0 0 24 24"><path d="M9.5 17.5h5" /><path d="M10 20.5h4" /><path d="M12 3.5a6 6 0 0 0-3.8 10.6c.7.6 1.3 1.4 1.3 2.4h5c0-1 .6-1.8 1.3-2.4A6 6 0 0 0 12 3.5Z" /></symbol>
+        <symbol id="i-file" viewBox="0 0 24 24"><path d="M13 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9.5Z" /><path d="M13 3.5V9.5h6" /></symbol>
+        <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2" /><circle cx="9" cy="10" r="1.8" /><path d="M20.5 15.5 16 11l-9 8.5" /></symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.5 3.5 8 12 12.5 20.5 8Z" /><path d="M3.7 12.2 12 16.5l8.3-4.3" /></symbol>
+        <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6.5" r="1.3" fill="currentColor" stroke="none" /><circle cx="15" cy="6.5" r="1.3" fill="currentColor" stroke="none" /><circle cx="9" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="9" cy="17.5" r="1.3" fill="currentColor" stroke="none" /><circle cx="15" cy="17.5" r="1.3" fill="currentColor" stroke="none" /></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></symbol>
+        <symbol id="i-expand-all" viewBox="0 0 24 24"><polyline points="8 4.5 12 8.5 16 4.5" /><polyline points="8 19.5 12 15.5 16 19.5" /><line x1="5" y1="12" x2="19" y2="12" /></symbol>
+        <symbol id="i-collapse-all" viewBox="0 0 24 24"><polyline points="8 8 12 4 16 8" /><polyline points="8 16 12 20 16 16" /><line x1="5" y1="12" x2="19" y2="12" /></symbol>
       </defs>
     </svg>
 
     <div class="topbar">
       <div class="brand">
-        <span class="logo"><svg class="icon" style="font-size: 16px"><use href="#i-cube" /></svg></span>
+        <span class="logo"><g3d-icon n="cube" sz="16"></g3d-icon></span>
         Glance3D <small>UI 组件预览 · Styleguide</small>
       </div>
       <span class="spacer"></span>
-      <span class="badge accent"><span class="dot"></span>设计预览 · 待审核</span>
+      <g3d-badge v="accent" dot>设计预览 · 待审核</g3d-badge>
       <button class="btn sm ghost" id="themeBtn">
-        <svg class="icon"><use href="#i-eye" /></svg><span id="themeLbl">浅色</span>
+        <g3d-icon n="eye"></g3d-icon><span id="themeLbl">浅色</span>
       </button>
     </div>
 
     <div class="layout">
       <nav class="toc">
+        <div class="group">约定</div>
+        <a href="#components">组件层 · 用法</a>
         <div class="group">基础</div>
         <a href="#colors">颜色角色</a>
         <a href="#type">字体</a>
@@ -1212,6 +1647,7 @@
         <a href="#inputs">输入框 / 选择</a>
         <a href="#toggles">开关 / 复选 / 分段</a>
         <a href="#sliders">滑块</a>
+        <a href="#tree">树 / 大纲</a>
         <a href="#cards">卡片</a>
         <a href="#misc">徽章 / 标签页 / 提示</a>
         <div class="group">范例</div>
@@ -1219,6 +1655,33 @@
       </nav>
 
       <main>
+        <!-- ===================== COMPONENT LAYER NOTE ===================== -->
+        <section class="block" id="components">
+          <h2>组件层 · 用法</h2>
+          <p class="desc">
+            每个组件<strong>只定义一次</strong>：样式在 <code>&lt;style&gt;</code> 的对应 CSS 块、结构在底部
+            <code>COMPONENT LAYER</code> 脚本。页面任何位置（含组件互相嵌套）一律写 <code>&lt;g3d-*&gt;</code>
+            占位标签，<strong>不再手抄内部 DOM</strong>——避免同一组件在多处被各自"自定义"而走样，也让"用到哪些组件、组件如何区分"在标记里一目了然。
+            占位标签在加载时就地展开为规范 class 标记，故<strong>查看源码=看组件用法，审查 DOM=看规范结构</strong>，且 1:1 对应 C++ 侧 <code>G3DWidgets</code>。
+          </p>
+          <div class="panel">
+            <div class="sectiontitle">组件清单（标签 → 渲染）</div>
+            <div class="proprow"><span class="k"><code>g3d-icon</code></span><span class="v"><g3d-icon n="cube"></g3d-icon><g3d-icon n="layers"></g3d-icon><g3d-icon n="camera"></g3d-icon><span class="note" style="margin: 0">线性图标原子，被所有组件复用</span></span></div>
+            <div class="proprow"><span class="k"><code>g3d-btn</code> / <code>g3d-iconbtn</code></span><span class="v"><g3d-btn v="primary" sz="sm">按钮</g3d-btn><g3d-iconbtn n="dots"></g3d-iconbtn></span></div>
+            <div class="proprow"><span class="k"><code>g3d-input</code> / <code>g3d-select</code></span><span class="v" style="max-width: 260px"><g3d-select val="A" opts="A|B|C"></g3d-select></span></div>
+            <div class="proprow"><span class="k"><code>g3d-toggle</code> / <code>check</code> / <code>radio</code></span><span class="v"><g3d-toggle on></g3d-toggle><g3d-check on></g3d-check><g3d-radio on></g3d-radio></span></div>
+            <div class="proprow"><span class="k"><code>g3d-segmented</code> / <code>g3d-tabs</code></span><span class="v"><g3d-segmented val="A" opts="A|B"></g3d-segmented></span></div>
+            <div class="proprow"><span class="k"><code>g3d-slider</code> / <code>g3d-num</code></span><span class="v" style="max-width: 220px"><g3d-slider val="40"></g3d-slider><g3d-num>0.40</g3d-num></span></div>
+            <div class="proprow"><span class="k"><code>g3d-badge</code> / <code>g3d-tip</code></span><span class="v"><g3d-badge v="accent" dot>Badge</g3d-badge></span></div>
+            <div class="proprow"><span class="k"><code>g3d-card</code> / <code>g3d-proprow</code> / <code>g3d-sectiontitle</code></span><span class="v"><span class="note" style="margin: 0">容器/布局组件，内部插任意子组件</span></span></div>
+            <div class="proprow"><span class="k"><code>g3d-tree</code> / <code>g3d-trow</code></span><span class="v"><span class="note" style="margin: 0">大纲与树节点（见「树 / 大纲」）</span></span></div>
+            <div class="note">
+              示例：检视器面板的一行 <code>&lt;g3d-proprow k="金属度"&gt;&lt;g3d-slider val="30"&gt;&lt;/g3d-slider&gt;&lt;/g3d-proprow&gt;</code> ——
+              proprow 复用 slider，slider 复用 icon，全程零重复。
+            </div>
+          </div>
+        </section>
+
         <!-- ===================== COLORS ===================== -->
         <section class="block" id="colors">
           <h2>颜色角色</h2>
@@ -1303,21 +1766,35 @@
         <!-- ===================== ICONS ===================== -->
         <section class="block" id="icons">
           <h2>图标</h2>
-          <p class="desc">本地矢量线性图标（1.75 描边、圆角端点），currentColor 随容器变色。对应 <code>G3DIconId</code>，加图标=加一项。</p>
+          <p class="desc">
+            本地矢量线性图标（1.75 描边、圆角端点），currentColor 随容器变色。对应 <code>G3DIconId</code>，加图标=加一项。
+            组件层用 <code>&lt;g3d-icon n="cube"&gt;</code>，其它组件（按钮/树节点…）内部一律复用它。
+          </p>
           <div class="panel">
             <div class="icongrid">
-              <div class="cell"><svg class="icon"><use href="#i-sliders" /></svg><span>Sliders</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-close" /></svg><span>Close</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-chevron" /></svg><span>Chevron</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-plus" /></svg><span>Plus</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-search" /></svg><span>Search</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-dots" /></svg><span>Dots</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-eye" /></svg><span>Eye</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-eyeoff" /></svg><span>EyeOff</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-grid" /></svg><span>Grid</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-axis" /></svg><span>Axis</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-camera" /></svg><span>Camera</span></div>
-              <div class="cell"><svg class="icon"><use href="#i-cube" /></svg><span>Cube</span></div>
+              <div class="cell"><g3d-icon n="sliders"></g3d-icon><span>Sliders</span></div>
+              <div class="cell"><g3d-icon n="close"></g3d-icon><span>Close</span></div>
+              <div class="cell"><g3d-icon n="chevron"></g3d-icon><span>Chevron</span></div>
+              <div class="cell"><g3d-icon n="plus"></g3d-icon><span>Plus</span></div>
+              <div class="cell"><g3d-icon n="search"></g3d-icon><span>Search</span></div>
+              <div class="cell"><g3d-icon n="dots"></g3d-icon><span>Dots</span></div>
+              <div class="cell"><g3d-icon n="eye"></g3d-icon><span>Eye</span></div>
+              <div class="cell"><g3d-icon n="eyeoff"></g3d-icon><span>EyeOff</span></div>
+              <div class="cell"><g3d-icon n="grid"></g3d-icon><span>Grid</span></div>
+              <div class="cell"><g3d-icon n="axis"></g3d-icon><span>Axis</span></div>
+              <div class="cell"><g3d-icon n="camera"></g3d-icon><span>Camera</span></div>
+              <div class="cell"><g3d-icon n="cube"></g3d-icon><span>Cube</span></div>
+              <div class="cell"><g3d-icon n="folder"></g3d-icon><span>Folder</span></div>
+              <div class="cell"><g3d-icon n="folder-open"></g3d-icon><span>FolderOpen</span></div>
+              <div class="cell"><g3d-icon n="light"></g3d-icon><span>Light</span></div>
+              <div class="cell"><g3d-icon n="file"></g3d-icon><span>File</span></div>
+              <div class="cell"><g3d-icon n="image"></g3d-icon><span>Image</span></div>
+              <div class="cell"><g3d-icon n="layers"></g3d-icon><span>Layers</span></div>
+              <div class="cell"><g3d-icon n="grip"></g3d-icon><span>Grip</span></div>
+              <div class="cell"><g3d-icon n="lock"></g3d-icon><span>Lock</span></div>
+              <div class="cell"><g3d-icon n="expand-all"></g3d-icon><span>ExpandAll</span></div>
+              <div class="cell"><g3d-icon n="collapse-all"></g3d-icon><span>CollapseAll</span></div>
+              <div class="cell"><g3d-icon n="check"></g3d-icon><span>Check</span></div>
             </div>
           </div>
         </section>
@@ -1326,32 +1803,33 @@
         <section class="block" id="buttons">
           <h2>按钮</h2>
           <p class="desc">变体：Primary（渐变+微投影）/ Default / Soft / Ghost / Danger。主按钮 hover 提亮微浮、active 轻微缩放、focus 焦点环。</p>
+          <p class="uses"><b>组合</b>按钮 <code>g3d-btn</code> 内部复用 图标 <code>g3d-icon</code>（前置图标），加载态复用 <code>spinner</code>。</p>
           <div class="panel stack">
             <div class="row">
-              <button class="btn primary"><svg class="icon"><use href="#i-plus" /></svg>主要操作</button>
-              <button class="btn">默认</button>
-              <button class="btn soft">柔和</button>
-              <button class="btn ghost">幽灵</button>
-              <button class="btn danger">危险</button>
-              <button class="btn danger outline">危险描边</button>
-              <button class="btn" disabled>禁用</button>
-              <button class="btn primary"><span class="spinner"></span>加载中</button>
+              <g3d-btn v="primary" ic="plus">主要操作</g3d-btn>
+              <g3d-btn>默认</g3d-btn>
+              <g3d-btn v="soft">柔和</g3d-btn>
+              <g3d-btn v="ghost">幽灵</g3d-btn>
+              <g3d-btn v="danger">危险</g3d-btn>
+              <g3d-btn v="danger outline">危险描边</g3d-btn>
+              <g3d-btn disabled>禁用</g3d-btn>
+              <g3d-btn v="primary" loading>加载中</g3d-btn>
             </div>
             <div class="divider"></div>
             <div class="state-label">尺寸</div>
             <div class="row">
-              <button class="btn primary lg">Large</button>
-              <button class="btn primary">Medium</button>
-              <button class="btn primary sm">Small</button>
+              <g3d-btn v="primary" sz="lg">Large</g3d-btn>
+              <g3d-btn v="primary">Medium</g3d-btn>
+              <g3d-btn v="primary" sz="sm">Small</g3d-btn>
             </div>
             <div class="divider"></div>
             <div class="state-label">状态（强制展示）</div>
             <div class="states">
-              <div><div class="state-label">rest</div><button class="btn primary">按钮</button></div>
-              <div><div class="state-label">hover</div><button class="btn primary is-hover">按钮</button></div>
-              <div><div class="state-label">active</div><button class="btn primary is-active">按钮</button></div>
-              <div><div class="state-label">focus</div><button class="btn primary is-focus">按钮</button></div>
-              <div><div class="state-label">disabled</div><button class="btn primary is-disabled">按钮</button></div>
+              <div><div class="state-label">rest</div><g3d-btn v="primary">按钮</g3d-btn></div>
+              <div><div class="state-label">hover</div><g3d-btn v="primary" state="hover">按钮</g3d-btn></div>
+              <div><div class="state-label">active</div><g3d-btn v="primary" state="active">按钮</g3d-btn></div>
+              <div><div class="state-label">focus</div><g3d-btn v="primary" state="focus">按钮</g3d-btn></div>
+              <div><div class="state-label">disabled</div><g3d-btn v="primary" state="disabled">按钮</g3d-btn></div>
             </div>
           </div>
         </section>
@@ -1359,17 +1837,19 @@
         <!-- ===================== ICON BUTTONS ===================== -->
         <section class="block" id="iconbuttons">
           <h2>图标按钮 / FAB</h2>
+          <p class="desc">无文字的方形按钮；FAB 为视口悬浮的玻璃拟态变体，激活态切到渐变主色。</p>
+          <p class="uses"><b>组合</b>图标按钮 <code>g3d-iconbtn</code> = 仅含一枚 图标 <code>g3d-icon</code> 的按钮容器。</p>
           <div class="panel stack">
             <div class="row">
-              <button class="iconbtn"><svg class="icon"><use href="#i-camera" /></svg></button>
-              <button class="iconbtn"><svg class="icon"><use href="#i-grid" /></svg></button>
-              <button class="iconbtn active"><svg class="icon"><use href="#i-eye" /></svg></button>
-              <button class="iconbtn round"><svg class="icon"><use href="#i-axis" /></svg></button>
-              <button class="iconbtn"><svg class="icon"><use href="#i-dots" /></svg></button>
+              <g3d-iconbtn n="camera"></g3d-iconbtn>
+              <g3d-iconbtn n="grid"></g3d-iconbtn>
+              <g3d-iconbtn n="eye" v="active"></g3d-iconbtn>
+              <g3d-iconbtn n="axis" v="round"></g3d-iconbtn>
+              <g3d-iconbtn n="dots"></g3d-iconbtn>
               <span style="width: 16px"></span>
               <span class="state-label" style="margin: 0">视口悬浮 FAB →</span>
-              <button class="iconbtn fab"><svg class="icon" style="font-size: 20px"><use href="#i-sliders" /></svg></button>
-              <button class="iconbtn fab active"><svg class="icon" style="font-size: 20px"><use href="#i-sliders" /></svg></button>
+              <g3d-iconbtn n="sliders" sz="20" v="fab"></g3d-iconbtn>
+              <g3d-iconbtn n="sliders" sz="20" v="fab active"></g3d-iconbtn>
             </div>
             <div class="note">FAB 为玻璃拟态（毛玻璃底 + 投影 <span class="tag-impl">≈ImGui</span>），激活态切到渐变主色。</div>
           </div>
@@ -1379,38 +1859,27 @@
         <section class="block" id="inputs">
           <h2>输入框 / 选择</h2>
           <p class="desc">聚焦 = 主色描边 + 焦点环 + 底色微亮；支持前置图标、占位符、错误态、下拉。</p>
+          <p class="uses"><b>组合</b>输入框 <code>g3d-input</code> 可内嵌 图标 <code>g3d-icon</code>（前置）；下拉 <code>g3d-select</code> 的触发器复用 <code>g3d-input</code>，并用 <code>g3d-icon</code> 画 chevron 与选中勾。</p>
           <div class="panel">
             <div class="row" style="align-items: flex-start; gap: var(--s-6)">
               <div class="field" style="width: 220px">
                 <label>数组名称</label>
-                <div class="input"><svg class="icon"><use href="#i-search" /></svg><input placeholder="搜索数组…" /></div>
+                <g3d-input ic="search" ph="搜索数组…"></g3d-input>
                 <div class="hint">point data / cell data</div>
               </div>
               <div class="field" style="width: 220px">
                 <label>聚焦态</label>
-                <div class="input is-focus"><input value="Temperature" /></div>
+                <g3d-input val="Temperature" state="is-focus"></g3d-input>
                 <div class="hint">focus 焦点环</div>
               </div>
               <div class="field" style="width: 220px">
                 <label>错误态</label>
-                <div class="input error"><input value="-1" /></div>
+                <g3d-input val="-1" state="error"></g3d-input>
                 <div class="hint err">值需为正数</div>
               </div>
               <div class="field" style="width: 220px">
                 <label>下拉选择 / 色谱</label>
-                <div class="dropdown" data-dropdown>
-                  <button class="input select-trigger">
-                    <span class="val">Viridis</span>
-                    <svg class="icon chev"><use href="#i-chevron" /></svg>
-                  </button>
-                  <div class="menu">
-                    <button class="menu-item is-selected">Viridis<svg class="icon check-spot"><use href="#i-check" /></svg></button>
-                    <button class="menu-item">Plasma<svg class="icon check-spot"><use href="#i-check" /></svg></button>
-                    <button class="menu-item">Inferno<svg class="icon check-spot"><use href="#i-check" /></svg></button>
-                    <button class="menu-item">Cool to Warm<svg class="icon check-spot"><use href="#i-check" /></svg></button>
-                    <button class="menu-item">Grayscale<svg class="icon check-spot"><use href="#i-check" /></svg></button>
-                  </div>
-                </div>
+                <g3d-select val="Viridis" opts="Viridis|Plasma|Inferno|Cool to Warm|Grayscale"></g3d-select>
                 <div class="hint">点击展开 · chevron 旋转</div>
               </div>
             </div>
@@ -1420,20 +1889,20 @@
         <!-- ===================== TOGGLES ===================== -->
         <section class="block" id="toggles">
           <h2>开关 / 复选 / 单选 / 分段</h2>
+          <p class="desc">开关/复选/单选可单独用，也常与文字标签成行（switchrow）。分段是独立的单选条。</p>
+          <p class="uses"><b>组合</b>带标签整行 <code>g3d-switchrow</code> = <code>g3d-toggle</code> / <code>g3d-check</code> / <code>g3d-radio</code> + 文本；其中 <code>g3d-check</code> 内含 图标 <code>g3d-icon</code>（对勾）。<code>g3d-segmented</code> 不依赖其它组件。</p>
           <div class="panel stack">
             <div class="row" style="gap: var(--s-6)">
-              <label class="switchrow"><span class="toggle on" data-toggle></span> 显示网格</label>
-              <label class="switchrow"><span class="toggle" data-toggle></span> 坐标轴</label>
-              <label class="switchrow"><span class="check on" data-check><svg class="icon"><use href="#i-check" /></svg></span> 显示边线</label>
-              <label class="switchrow"><span class="check" data-check><svg class="icon"><use href="#i-check" /></svg></span> 反转不透明度</label>
-              <label class="switchrow"><span class="radio on" data-radio></span> 点</label>
-              <label class="switchrow"><span class="radio" data-radio></span> 单元</label>
+              <g3d-switchrow ctrl="toggle" on>显示网格</g3d-switchrow>
+              <g3d-switchrow ctrl="toggle">坐标轴</g3d-switchrow>
+              <g3d-switchrow ctrl="check" on>显示边线</g3d-switchrow>
+              <g3d-switchrow ctrl="check">反转不透明度</g3d-switchrow>
+              <g3d-switchrow ctrl="radio" on>点</g3d-switchrow>
+              <g3d-switchrow ctrl="radio">单元</g3d-switchrow>
             </div>
             <div class="divider"></div>
             <div class="state-label">分段选择 (Segmented)</div>
-            <div class="segmented" data-segmented>
-              <button class="on">表面</button><button>带边线</button><button>线框</button><button>点</button>
-            </div>
+            <g3d-segmented val="表面" opts="表面|带边线|线框|点"></g3d-segmented>
           </div>
         </section>
 
@@ -1441,10 +1910,130 @@
         <section class="block" id="sliders">
           <h2>滑块</h2>
           <p class="desc">轨道 + 主色填充 + 圆形滑块，hover/拖动时滑块外发光。</p>
+          <p class="uses"><b>组合</b>此处放在属性行 <code>g3d-proprow</code> 内：左标签、右侧 滑块 <code>g3d-slider</code> + 数值 <code>g3d-num</code>。滑块本身为原子组件。</p>
           <div class="panel stack" style="max-width: 420px">
-            <div class="proprow"><span class="k">金属度</span><span class="v"><span class="slider" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 35%"></span><span class="thumb" style="left: 35%"></span></span></span><span style="width: 42px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--text-muted)">0.35</span></span></div>
-            <div class="proprow"><span class="k">粗糙度</span><span class="v"><span class="slider" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 70%"></span><span class="thumb" style="left: 70%"></span></span></span><span style="width: 42px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--text-muted)">0.70</span></span></div>
-            <div class="proprow"><span class="k">光强</span><span class="v"><span class="slider is-hover" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 50%"></span><span class="thumb" style="left: 50%"></span></span></span><span style="width: 42px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--text-muted)">1.00</span></span></div>
+            <g3d-proprow k="金属度"><g3d-slider val="35"></g3d-slider><g3d-num>0.35</g3d-num></g3d-proprow>
+            <g3d-proprow k="粗糙度"><g3d-slider val="70"></g3d-slider><g3d-num>0.70</g3d-num></g3d-proprow>
+            <g3d-proprow k="光强"><g3d-slider val="50" state="hover"></g3d-slider><g3d-num>1.00</g3d-num></g3d-proprow>
+          </div>
+        </section>
+
+        <!-- ===================== TREE / OUTLINER ===================== -->
+        <section class="block" id="tree">
+          <h2>树 / 大纲 <span class="tag-impl">≈ImGui Clipper</span></h2>
+          <p class="desc">
+            面向专业编辑器的场景大纲（Outliner）：默认<strong>紧凑高密度</strong>、整行选中、缩进引导线、悬停行内操作、可见性/锁定开关、拖拽排序。
+            借鉴 VS Code Outline、Blender Outliner、Figma 图层。<strong>大批量节点</strong>靠固定行高 + 虚拟化（仅绘制可视行）支撑。
+          </p>
+          <p class="uses"><b>组合</b>每行 <code>g3d-trow</code> 复用 图标 <code>g3d-icon</code>（类型 / 折叠箭头 / 行内操作）与 复选 <code>g3d-check</code>（三态批量选）；工具栏复用 输入框 <code>g3d-input</code> + 图标按钮 <code>g3d-iconbtn</code>，密度切换复用 分段 <code>g3d-segmented</code>。</p>
+
+          <!-- density switch — the SAME <g3d-segmented>, bound to the hero tree by id -->
+          <div class="row" style="margin-bottom: var(--s-4)">
+            <span class="state-label" style="margin: 0">行高密度</span>
+            <g3d-segmented bind="#heroTree" val="紧凑 22" opts="标准 24|紧凑 22|超紧凑 20"></g3d-segmented>
+          </div>
+
+          <!-- hero: full-featured scene outliner — every row is one <g3d-trow> -->
+          <div class="tree-shell">
+            <div class="tree-toolbar">
+              <span class="ttitle">大纲 Outliner</span>
+              <g3d-input cls="tsearch" ic="search" ph="过滤节点…"></g3d-input>
+              <g3d-iconbtn cls="tbtn" n="expand-all" data-tree-expand="#heroTree" title="全部展开"></g3d-iconbtn>
+              <g3d-iconbtn cls="tbtn" n="collapse-all" data-tree-collapse="#heroTree" title="全部折叠"></g3d-iconbtn>
+              <g3d-iconbtn cls="tbtn" n="plus" title="新建分组"></g3d-iconbtn>
+            </div>
+            <div class="tree-scroll">
+              <g3d-tree id="heroTree" tree den="compact">
+                <g3d-trow d="0" tw="open" ic="layers" icv="root" lbl="Scene Collection" meta="18" cls="group" act="dots"></g3d-trow>
+                <g3d-trow d="1" tw="open" ic="folder-open" icv="folder" lbl="Environment" meta="2" act="eye dots"></g3d-trow>
+                <g3d-trow d="2" ic="light" icv="light" lbl="Sun" act="eye dots"></g3d-trow>
+                <g3d-trow d="2" ic="cube" lbl="Sky Dome" act="eye dots"></g3d-trow>
+                <g3d-trow d="1" tw="open" ic="folder-open" icv="folder" lbl="Vehicle" meta="9" act="eye dots"></g3d-trow>
+                <g3d-trow d="2" tw="open" ic="folder-open" icv="folder" lbl="Body" meta="3" act="eye dots"></g3d-trow>
+                <g3d-trow d="3" aguide="2" ic="cube" lbl="Chassis" cls="selected focused" act="eye dots"></g3d-trow>
+                <g3d-trow d="3" aguide="2" ic="cube" lbl="Hood" act="eye dots"></g3d-trow>
+                <g3d-trow d="3" aguide="2" ic="cube" lbl="Doors" cls="hidden" act="eyeoff dots"></g3d-trow>
+                <g3d-trow d="2" tw="collapsed" ic="folder" icv="folder" lbl="Wheels" meta="4" act="eye dots"></g3d-trow>
+                <g3d-trow d="3" ic="cube" lbl="Wheel_FL" act="eye dots"></g3d-trow>
+                <g3d-trow d="3" ic="cube" lbl="Wheel_FR" act="eye dots"></g3d-trow>
+                <g3d-trow d="3" ic="cube" lbl="Wheel_RL" act="eye dots"></g3d-trow>
+                <g3d-trow d="3" ic="cube" lbl="Wheel_RR" act="eye dots"></g3d-trow>
+                <g3d-trow d="2" ic="image" icv="tex" lbl="CarPaint.mat" act="dots"></g3d-trow>
+                <g3d-trow d="1" tw="open" ic="folder-open" icv="folder" lbl="Cameras" meta="2" act="eye dots"></g3d-trow>
+                <g3d-trow d="2" ic="camera" lbl="Camera_Main" act="eye dots"></g3d-trow>
+                <g3d-trow d="2" ic="camera" lbl="Camera_Top" cls="locked" act="lock dots"></g3d-trow>
+                <g3d-trow d="1" ic="cube" lbl="Ground" act="eye dots"></g3d-trow>
+              </g3d-tree>
+            </div>
+            <div class="tree-foot">
+              <span>18 个对象</span><span class="sep"></span><span class="accent">已选 1</span><span class="sep"></span><span>已隐藏 1</span>
+            </div>
+          </div>
+          <div class="note">
+            交互可用：点 ▸ 展开/折叠（Wheels 默认折叠）· 点行选中（整行高亮 + 左侧主色条 + 缩进引导线高亮）· 点眼睛切换可见性 · 工具栏全部展开/折叠 · 顶部切换密度。
+          </div>
+
+          <!-- states + variants -->
+          <div class="panel stack" style="margin-top: var(--s-5)">
+            <div class="state-label">交互状态（强制展示）</div>
+            <div class="tree-shell" style="width: 300px">
+              <div class="tree-scroll" style="max-height: none; padding: 4px">
+                <g3d-tree den="compact">
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Rest" meta="默认"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Hover" meta="悬停" cls="is-hover"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Selected" meta="选中" cls="selected"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Active" meta="选中·聚焦" cls="selected focused"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Multi_A" meta="多选" cls="selected"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Multi_B" meta="多选" cls="selected"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Hidden" cls="hidden" act="eyeoff"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Locked" cls="locked" act="lock"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Disabled" meta="禁用" cls="disabled"></g3d-trow>
+                  <g3d-trow d="0" ic="cube" lbl="Mesh_Rename" rename></g3d-trow>
+                </g3d-tree>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="state-label">拖拽排序 / 放入</div>
+            <div class="tree-shell" style="width: 300px">
+              <div class="tree-scroll" style="max-height: none; padding: 4px">
+                <g3d-tree den="compact">
+                  <g3d-trow d="0" tw="open" ic="folder-open" icv="folder" lbl="Group A" meta="放入" cls="drop-into"></g3d-trow>
+                  <g3d-trow d="1" ic="cube" lbl="Item X" meta="插入上方" cls="drop-before"></g3d-trow>
+                  <g3d-trow d="1" ic="grip" lbl="Item Y（拖拽中）" cls="dragging"></g3d-trow>
+                </g3d-tree>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="state-label">三态复选树 · 批量选择</div>
+            <div class="tree-shell" style="width: 300px">
+              <div class="tree-scroll" style="max-height: none; padding: 4px">
+                <g3d-tree den="compact">
+                  <g3d-trow d="0" tw="open" chk="mixed" ic="folder-open" icv="folder" lbl="All Layers" meta="2/3"></g3d-trow>
+                  <g3d-trow d="1" chk="on" ic="layers" lbl="Base"></g3d-trow>
+                  <g3d-trow d="1" chk="on" ic="layers" lbl="Overlay"></g3d-trow>
+                  <g3d-trow d="1" chk="off" ic="layers" lbl="Debug"></g3d-trow>
+                </g3d-tree>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="state-label">搜索过滤 · 命中高亮（保留祖先路径，置灰非命中）</div>
+            <div class="tree-shell" style="width: 300px">
+              <div class="tree-scroll" style="max-height: none; padding: 4px">
+                <g3d-tree den="compact">
+                  <g3d-trow d="0" tw="open" ic="folder-open" icv="folder" lbl="Vehicle" cls="dim"></g3d-trow>
+                  <g3d-trow d="1" tw="open" ic="folder-open" icv="folder" lbl="Wheels" cls="dim"></g3d-trow>
+                  <g3d-trow d="2" ic="cube"><span class="match">Whe</span>el_FL</g3d-trow>
+                  <g3d-trow d="2" ic="cube"><span class="match">Whe</span>el_FR</g3d-trow>
+                </g3d-tree>
+              </div>
+            </div>
+
+            <div class="note">
+              <strong>大批量节点</strong>：行高固定 → 用虚拟化（<code>ImGuiListClipper</code> / DOM 窗口化）只绘制可视行，10w+ 节点也流畅；缩进引导线随展开实时重算；选中/可见性/锁定均为 O(1) 状态位。
+            </div>
           </div>
         </section>
 
@@ -1452,11 +2041,12 @@
         <section class="block" id="cards">
           <h2>卡片</h2>
           <p class="desc">普通 / 可悬停（悬停抬升+加深投影 <span class="tag-impl">≈ImGui</span>）/ 选中（主色描边）。</p>
+          <p class="uses"><b>组合</b>卡片 <code>g3d-card</code> 标题区复用 图标 <code>g3d-icon</code>；正文可再嵌任意组件。</p>
           <div class="panel">
             <div class="cards">
-              <div class="card"><div class="card-head"><svg class="icon"><use href="#i-cube" /></svg><h3>几何信息</h3></div><p>12,480 点 · 6,240 面</p></div>
-              <div class="card hover-demo"><div class="card-head"><svg class="icon"><use href="#i-camera" /></svg><h3>相机</h3></div><p>悬停我 — 抬升 + 投影</p></div>
-              <div class="card selected"><div class="card-head"><svg class="icon"><use href="#i-grid" /></svg><h3>已选中</h3></div><p>主色描边表示选中</p></div>
+              <g3d-card ic="cube" title="几何信息">12,480 点 · 6,240 面</g3d-card>
+              <g3d-card v="hover-demo" ic="camera" title="相机">悬停我 — 抬升 + 投影</g3d-card>
+              <g3d-card v="selected" ic="grid" title="已选中">主色描边表示选中</g3d-card>
             </div>
           </div>
         </section>
@@ -1464,21 +2054,21 @@
         <!-- ===================== MISC ===================== -->
         <section class="block" id="misc">
           <h2>徽章 / 标签页 / 提示</h2>
+          <p class="desc">徽章（状态点+文字）/ 标签页（滑动下划线）/ 提示气泡（延迟淡入）。</p>
+          <p class="uses"><b>组合</b>提示 <code>g3d-tip</code> 包裹任意组件触发（此处包的是 按钮 <code>g3d-btn</code>）；<code>g3d-badge</code> 与 <code>g3d-tabs</code> 为独立组件。</p>
           <div class="panel stack">
             <div class="row">
-              <span class="badge accent"><span class="dot"></span>glTF</span>
-              <span class="badge success"><span class="dot"></span>已加载</span>
-              <span class="badge warn"><span class="dot"></span>近似</span>
-              <span class="badge danger"><span class="dot"></span>失败</span>
-              <span class="badge">point data</span>
+              <g3d-badge v="accent" dot>glTF</g3d-badge>
+              <g3d-badge v="success" dot>已加载</g3d-badge>
+              <g3d-badge v="warn" dot>近似</g3d-badge>
+              <g3d-badge v="danger" dot>失败</g3d-badge>
+              <g3d-badge>point data</g3d-badge>
             </div>
             <div class="divider"></div>
-            <div class="tabs" data-tabs>
-              <button class="on">数据</button><button>着色</button><button>渲染</button><button>材质</button>
-            </div>
+            <g3d-tabs val="数据" opts="数据|着色|渲染|材质"></g3d-tabs>
             <div class="divider"></div>
             <div class="row">
-              <span class="tip"><button class="btn ghost">悬停看提示</button><span class="bubble">Tooltip · 延迟淡入</span></span>
+              <g3d-tip text="Tooltip · 延迟淡入"><g3d-btn v="ghost">悬停看提示</g3d-btn></g3d-tip>
             </div>
           </div>
         </section>
@@ -1487,34 +2077,208 @@
         <section class="block" id="inspector">
           <h2>范例：检视器面板</h2>
           <p class="desc">把以上组件按"分区标题 + 属性行（左标签右控件）"组织，就是专业检视器的骨架。下面是它叠在视口上的样子。</p>
+          <p class="uses"><b>组合</b>整面板复用：分区 <code>g3d-sectiontitle</code> + 属性行 <code>g3d-proprow</code> ×{下拉 <code>g3d-select</code> / 分段 <code>g3d-segmented</code> / 开关 <code>g3d-toggle</code> / 滑块 <code>g3d-slider</code>} + <code>g3d-divider</code> + 关闭 <code>g3d-iconbtn</code> + 收起 <code>g3d-btn</code>，层层往下都落到 图标 <code>g3d-icon</code>。</p>
           <div class="viewport-demo">
             <div style="position: absolute; top: 12px; right: 12px">
-              <button class="iconbtn fab active"><svg class="icon" style="font-size: 20px"><use href="#i-sliders" /></svg></button>
+              <g3d-iconbtn n="sliders" sz="20" v="fab active"></g3d-iconbtn>
             </div>
             <div class="inspector" style="position: absolute; top: 0; right: 0; height: 100%; border-radius: 0; border-top: none; border-right: none; border-bottom: none; width: 300px; overflow: auto; backdrop-filter: blur(8px); background: color-mix(in srgb, var(--surface-1) 88%, transparent)">
-              <div class="row" style="justify-content: space-between"><strong>检视器</strong><button class="iconbtn" style="width: 26px; height: 26px"><svg class="icon" style="font-size: 15px"><use href="#i-close" /></svg></button></div>
-              <div class="sectiontitle">着色</div>
-              <div class="proprow"><span class="k">按数组</span><span class="v">
-                <div class="dropdown" data-dropdown style="flex: 1">
-                  <button class="input select-trigger"><span class="val">Temperature</span><svg class="icon chev"><use href="#i-chevron" /></svg></button>
-                  <div class="menu">
-                    <button class="menu-item is-selected">Temperature<svg class="icon check-spot"><use href="#i-check" /></svg></button>
-                    <button class="menu-item">Pressure<svg class="icon check-spot"><use href="#i-check" /></svg></button>
-                    <button class="menu-item">Velocity<svg class="icon check-spot"><use href="#i-check" /></svg></button>
-                  </div>
-                </div></span></div>
-              <div class="proprow"><span class="k">分量</span><span class="v"><div class="segmented" data-segmented><button class="on">模长</button><button>X</button><button>Y</button></div></span></div>
-              <div class="proprow"><span class="k">色标</span><span class="v"><label class="switchrow"><span class="toggle on" data-toggle></span></label></span></div>
-              <div class="sectiontitle">材质</div>
-              <div class="proprow"><span class="k">金属度</span><span class="v"><span class="slider" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 30%"></span><span class="thumb" style="left: 30%"></span></span></span></span></div>
-              <div class="proprow"><span class="k">粗糙度</span><span class="v"><span class="slider" data-slider style="flex: 1"><span class="track"><span class="fill" style="width: 60%"></span><span class="thumb" style="left: 60%"></span></span></span></span></div>
-              <div class="divider"></div>
-              <button class="btn ghost" style="width: 100%">收起</button>
+              <div class="row" style="justify-content: space-between"><strong>检视器</strong><g3d-iconbtn n="close" cls="xs"></g3d-iconbtn></div>
+              <g3d-sectiontitle>着色</g3d-sectiontitle>
+              <g3d-proprow k="按数组"><g3d-select grow val="Temperature" opts="Temperature|Pressure|Velocity"></g3d-select></g3d-proprow>
+              <g3d-proprow k="分量"><g3d-segmented val="模长" opts="模长|X|Y"></g3d-segmented></g3d-proprow>
+              <g3d-proprow k="色标"><g3d-toggle on></g3d-toggle></g3d-proprow>
+              <g3d-sectiontitle>材质</g3d-sectiontitle>
+              <g3d-proprow k="金属度"><g3d-slider val="30"></g3d-slider></g3d-proprow>
+              <g3d-proprow k="粗糙度"><g3d-slider val="60"></g3d-slider></g3d-proprow>
+              <g3d-divider></g3d-divider>
+              <g3d-btn v="ghost" cls="w-full">收起</g3d-btn>
             </div>
           </div>
         </section>
       </main>
     </div>
+
+    <!-- ============================================================
+         COMPONENT LAYER  (单一定义 · 可组合)
+
+         本文件里每个组件只在「下方 CSS」定义一次样式、在「这里」定义一次结构。
+         页面任何位置（含组件相互嵌套，如检视器里用到 select/slider/proprow、
+         树节点里用到 icon/check）都只写 <g3d-*> 占位标签，绝不再手抄内部 DOM —— 避免
+         同一组件在多处被各自"自定义"而逐渐走样，也让"用到了哪些组件 / 组件如何区分"
+         在标记上一目了然。
+
+         运行方式：DOM 解析完、各组件交互 init 之前，把 <g3d-*> 占位标签就地展开为
+         规范 class 标记（即下面各 CSS 块对应的结构）。展开产物与手写完全一致，故
+         查看源码=看组件用法，审查 DOM=看规范结构。展开 1:1 对应 C++ 侧 G3DWidgets，
+         标签名 ≈ 对应 widget 函数（g3d-btn↔Button、g3d-select↔Combo …）。
+         ============================================================ -->
+    <script>
+      (() => {
+        const a = (el, n, d = "") => (el.hasAttribute(n) ? el.getAttribute(n) : d);
+        const has = (el, n) => el.hasAttribute(n);
+        const inner = (el) => el.innerHTML.trim();
+        const cls = (...xs) => xs.filter(Boolean).join(" ");
+        const icon = (n, sz) =>
+          n ? `<svg class="icon"${sz ? ` style="font-size:${sz}px"` : ""}><use href="#i-${n}" /></svg>` : "";
+        // map a forced-state attr to the guide's is-* classes (states demos)
+        const stateCls = (s) =>
+          ({ hover: "is-hover", active: "is-active", focus: "is-focus", disabled: "is-disabled" }[s] || "");
+        // pass-through: extra classes (cls="...") + any data-* wiring on the placeholder,
+        // so a shared component can still carry one-off layout/binding without a re-write.
+        const passData = (el) =>
+          [...el.attributes]
+            .filter((at) => at.name.startsWith("data-"))
+            .map((at) => ` ${at.name}="${at.value}"`)
+            .join("");
+
+        // Each entry renders ONE component to its canonical class-based markup.
+        const R = {
+          // — atoms —
+          "g3d-icon": (el) => icon(a(el, "n"), a(el, "sz")),
+          "g3d-spinner": () => `<span class="spinner"></span>`,
+
+          // — buttons —
+          "g3d-btn": (el) => {
+            const lead = has(el, "loading") ? `<span class="spinner"></span>` : icon(a(el, "ic"));
+            const c = cls("btn", a(el, "v"), a(el, "sz"), a(el, "cls"), stateCls(a(el, "state")));
+            return `<button class="${c}"${has(el, "disabled") ? " disabled" : ""}>${lead}${inner(el)}</button>`;
+          },
+          "g3d-iconbtn": (el) =>
+            `<button class="${cls("iconbtn", a(el, "v"), a(el, "cls"), stateCls(a(el, "state")))}"${passData(el)}>${icon(a(el, "n"), a(el, "sz"))}</button>`,
+
+          // — inputs —
+          "g3d-input": (el) => {
+            const val = has(el, "val") ? ` value="${a(el, "val")}"` : "";
+            const ph = has(el, "ph") ? ` placeholder="${a(el, "ph")}"` : "";
+            return `<div class="${cls("input", a(el, "cls"), a(el, "state"))}"${passData(el)}>${icon(a(el, "ic"))}<input${val}${ph} /></div>`;
+          },
+          "g3d-select": (el) => {
+            const val = a(el, "val");
+            const items = a(el, "opts")
+              .split("|")
+              .filter(Boolean)
+              .map(
+                (o) =>
+                  `<button class="menu-item${o === val ? " is-selected" : ""}">${o}<svg class="icon check-spot"><use href="#i-check" /></svg></button>`,
+              )
+              .join("");
+            const grow = has(el, "grow") ? ` style="flex:1"` : "";
+            return `<div class="dropdown" data-dropdown${grow}><button class="input select-trigger"><span class="val">${val}</span><svg class="icon chev"><use href="#i-chevron" /></svg></button><div class="menu">${items}</div></div>`;
+          },
+
+          // — toggles / selection —
+          "g3d-toggle": (el) => `<span class="toggle${has(el, "on") ? " on" : ""}" data-toggle></span>`,
+          "g3d-check": (el) => `<span class="check${has(el, "on") ? " on" : ""}" data-check>${icon("check")}</span>`,
+          "g3d-radio": (el) => `<span class="radio${has(el, "on") ? " on" : ""}" data-radio></span>`,
+          "g3d-switchrow": (el) => {
+            const ctrl = a(el, "ctrl", "toggle");
+            const on = has(el, "on") ? " on" : "";
+            const node =
+              ctrl === "check"
+                ? `<span class="check${on}" data-check>${icon("check")}</span>`
+                : `<span class="${ctrl}${on}" data-${ctrl}></span>`;
+            return `<label class="switchrow">${node} ${inner(el)}</label>`;
+          },
+          "g3d-segmented": (el) => {
+            const val = a(el, "val");
+            const btns = a(el, "opts")
+              .split("|")
+              .filter(Boolean)
+              .map((o) => `<button class="${o === val ? "on" : ""}">${o}</button>`)
+              .join("");
+            const extra = has(el, "bind") ? ` data-tree-density="${a(el, "bind")}"` : "";
+            return `<div class="segmented" data-segmented${extra}>${btns}</div>`;
+          },
+          "g3d-tabs": (el) => {
+            const val = a(el, "val");
+            const btns = a(el, "opts")
+              .split("|")
+              .filter(Boolean)
+              .map((o) => `<button class="${o === val ? "on" : ""}">${o}</button>`)
+              .join("");
+            return `<div class="tabs" data-tabs>${btns}</div>`;
+          },
+          "g3d-slider": (el) => {
+            const v = a(el, "val", "50");
+            const st = a(el, "state") === "hover" ? " is-hover" : "";
+            return `<span class="slider${st}" data-slider style="flex:1"><span class="track"><span class="fill" style="width:${v}%"></span><span class="thumb" style="left:${v}%"></span></span></span>`;
+          },
+          "g3d-num": (el) => `<span class="num">${inner(el)}</span>`,
+
+          // — display —
+          "g3d-badge": (el) =>
+            `<span class="${cls("badge", a(el, "v"))}">${has(el, "dot") ? `<span class="dot"></span>` : ""}${inner(el)}</span>`,
+          "g3d-tip": (el) => `<span class="tip">${inner(el)}<span class="bubble">${a(el, "text")}</span></span>`,
+          "g3d-card": (el) => {
+            const head = has(el, "title")
+              ? `<div class="card-head">${icon(a(el, "ic"))}<h3>${a(el, "title")}</h3></div>`
+              : "";
+            return `<div class="${cls("card", a(el, "v"))}">${head}<p>${inner(el)}</p></div>`;
+          },
+          "g3d-sectiontitle": (el) => `<div class="sectiontitle">${inner(el)}</div>`,
+          "g3d-divider": () => `<div class="divider"></div>`,
+          "g3d-proprow": (el) => `<div class="proprow"><span class="k">${a(el, "k")}</span><span class="v">${inner(el)}</span></div>`,
+
+          // — tree / outliner —
+          "g3d-tree": (el) => {
+            const id = has(el, "id") ? ` id="${a(el, "id")}"` : "";
+            const t = has(el, "tree") ? " data-tree" : "";
+            return `<div class="${cls("tree", a(el, "den"))}"${id}${t}>${inner(el)}</div>`;
+          },
+          "g3d-trow": (el) => {
+            const d = parseInt(a(el, "d", "0"), 10);
+            const aguide = has(el, "aguide") ? parseInt(a(el, "aguide"), 10) : -1;
+            let rails = "";
+            for (let i = 0; i < d; i++) rails += `<span class="tree-rail${i === aguide ? " active" : ""}"></span>`;
+            const tw = a(el, "tw", "leaf");
+            const twisty =
+              tw === "leaf"
+                ? `<span class="tree-twisty leaf"></span>`
+                : `<span class="tree-twisty"><svg class="icon"><use href="#i-chevron" /></svg></span>`;
+            const chk = a(el, "chk");
+            const check = chk
+              ? `<span class="tree-check${chk === "on" ? " on" : chk === "mixed" ? " mixed" : ""}">${chk === "on" ? icon("check") : ""}</span>`
+              : "";
+            const ticon = has(el, "ic")
+              ? `<svg class="${cls("icon tree-ticon", a(el, "icv"))}"><use href="#i-${a(el, "ic")}" /></svg>`
+              : "";
+            const label = has(el, "rename")
+              ? `<input class="tree-rename" value="${a(el, "lbl")}" />`
+              : `<span class="tree-label">${inner(el) || a(el, "lbl")}</span>`;
+            const meta = has(el, "meta") ? `<span class="tree-meta">${a(el, "meta")}</span>` : "";
+            const acts = a(el, "act")
+              .split(" ")
+              .filter(Boolean)
+              .map((x) => {
+                if (x === "eye") return `<button class="tree-act vis" title="可见性">${icon("eye")}</button>`;
+                if (x === "eyeoff") return `<button class="tree-act vis on" title="已隐藏">${icon("eyeoff")}</button>`;
+                if (x === "lock") return `<button class="tree-act on" title="已锁定">${icon("lock")}</button>`;
+                if (x === "dots") return `<button class="tree-act" title="更多">${icon("dots")}</button>`;
+                return "";
+              })
+              .join("");
+            const actions = acts ? `<span class="tree-actions">${acts}</span>` : "";
+            const rowCls = cls("tree-row", tw === "collapsed" ? "collapsed" : "", a(el, "cls"));
+            return `<div class="${rowCls}" data-depth="${d}">${rails}${twisty}${check}${ticon}${label}${meta}${actions}</div>`;
+          },
+        };
+
+        // Expand repeatedly until no placeholder remains (handles nested components).
+        // Skipping detached nodes is required: replacing a container reparses its
+        // descendants, so an earlier-captured child ref may already be gone.
+        const TAGS = Object.keys(R);
+        const sel = TAGS.join(",");
+        let guard = 0;
+        while (guard++ < 40 && document.querySelector(sel)) {
+          for (const tag of TAGS) {
+            for (const el of document.querySelectorAll(tag)) {
+              if (el.isConnected) el.outerHTML = R[tag](el);
+            }
+          }
+        }
+      })();
+    </script>
 
     <script>
       // Dev aid: ?shot=<sectionId> scrolls that section into view on load (used for screenshots;
@@ -1650,6 +2414,116 @@
         sl.addEventListener("pointermove", (e) => dragging && set(e.clientX));
         sl.addEventListener("pointerup", () => (dragging = false));
       });
+
+      // Tree / outliner: flat row list keyed by data-depth. Expand/collapse hides the
+      // contiguous descendant block; selection draws a continuous active indent guide.
+      (() => {
+        const depthOf = (row) => parseInt(row.getAttribute("data-depth") || "0", 10);
+
+        // Recompute visibility: a row is hidden if any ancestor is collapsed.
+        const rebuild = (tree) => {
+          const stack = []; // depths of active collapsed nodes
+          tree.querySelectorAll(".tree-row").forEach((row) => {
+            const d = depthOf(row);
+            while (stack.length && d <= stack[stack.length - 1]) stack.pop();
+            const visible = stack.length === 0;
+            row.style.display = visible ? "" : "none";
+            if (visible && row.classList.contains("collapsed")) stack.push(d);
+          });
+        };
+
+        const visibleRows = (tree) =>
+          [...tree.querySelectorAll(".tree-row")].filter((r) => r.style.display !== "none");
+
+        // Highlight the parent's guide column across the selected node's sibling block.
+        const setActiveGuides = (tree, row) => {
+          tree.querySelectorAll(".tree-rail.active").forEach((r) => r.classList.remove("active"));
+          const d = depthOf(row);
+          if (d < 1) return;
+          const col = d - 1;
+          const rows = visibleRows(tree);
+          let a = rows.indexOf(row);
+          let b = a;
+          while (a - 1 >= 0 && depthOf(rows[a - 1]) >= d) a--;
+          while (b + 1 < rows.length && depthOf(rows[b + 1]) >= d) b++;
+          for (let k = a; k <= b; k++) {
+            const rails = rows[k].querySelectorAll(".tree-rail");
+            if (rails[col]) rails[col].classList.add("active");
+          }
+        };
+
+        document.querySelectorAll("[data-tree]").forEach((tree) => {
+          rebuild(tree);
+          tree.addEventListener("click", (e) => {
+            const row = e.target.closest(".tree-row");
+            if (!row) return;
+            // visibility eye toggle
+            const vis = e.target.closest(".tree-act.vis");
+            if (vis) {
+              e.stopPropagation();
+              const hidden = row.classList.toggle("hidden");
+              vis.classList.toggle("on", hidden);
+              const use = vis.querySelector("use");
+              if (use) use.setAttribute("href", hidden ? "#i-eyeoff" : "#i-eye");
+              return;
+            }
+            if (e.target.closest(".tree-act")) {
+              e.stopPropagation();
+              return;
+            }
+            // twisty toggles collapse
+            const tw = e.target.closest(".tree-twisty");
+            if (tw && !tw.classList.contains("leaf")) {
+              row.classList.toggle("collapsed");
+              rebuild(tree);
+              const sel = tree.querySelector(".tree-row.selected");
+              if (sel) setActiveGuides(tree, sel);
+              return;
+            }
+            if (row.classList.contains("disabled")) return;
+            // single select
+            tree
+              .querySelectorAll(".tree-row.selected")
+              .forEach((r) => r.classList.remove("selected", "focused"));
+            row.classList.add("selected", "focused");
+            setActiveGuides(tree, row);
+          });
+        });
+
+        // toolbar expand-all / collapse-all
+        document.querySelectorAll("[data-tree-expand]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const tree = document.querySelector(btn.getAttribute("data-tree-expand"));
+            if (!tree) return;
+            tree.querySelectorAll(".tree-row.collapsed").forEach((r) => r.classList.remove("collapsed"));
+            rebuild(tree);
+          });
+        });
+        document.querySelectorAll("[data-tree-collapse]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const tree = document.querySelector(btn.getAttribute("data-tree-collapse"));
+            if (!tree) return;
+            tree.querySelectorAll(".tree-row").forEach((r) => {
+              const tw = r.querySelector(".tree-twisty");
+              if (tw && !tw.classList.contains("leaf")) r.classList.add("collapsed");
+            });
+            rebuild(tree);
+          });
+        });
+
+        // density switch (also a [data-segmented] for the sliding indicator)
+        document.querySelectorAll("[data-tree-density]").forEach((grp) => {
+          const target = document.querySelector(grp.getAttribute("data-tree-density"));
+          const map = ["", "compact", "dense"];
+          grp.querySelectorAll("button").forEach((b, i) => {
+            b.addEventListener("click", () => {
+              if (!target) return;
+              target.classList.remove("compact", "dense", "comfy");
+              if (map[i]) target.classList.add(map[i]);
+            });
+          });
+        });
+      })();
     </script>
   </body>
 </html>
