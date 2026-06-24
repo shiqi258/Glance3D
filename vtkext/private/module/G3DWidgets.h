@@ -19,6 +19,7 @@
 #include "G3DIcon.h"
 
 #include <cstddef>
+#include <functional>
 
 namespace G3DWidgets
 {
@@ -182,6 +183,14 @@ struct TreeRowDesc
 
 /// Draw the common row in one call (built on BeginTreeRow + slot helpers). Returns the click hit.
 TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc);
+
+/// Virtualized tree body for large node counts: only the rows currently visible in the scroll region
+/// are emitted (wraps ImGuiListClipper using the row height of the active BeginTree density), so a
+/// 100k-node tree stays O(on-screen rows) per frame. Call inside a scrolling region, between
+/// BeginTree/EndTree. @p drawRow(i) draws the i-th currently-visible row (0-based) with BeginTreeRow/
+/// TreeRow — the caller maps i to its (already flattened, collapse-resolved) node. All rows must be
+/// the uniform tree row height.
+void TreeVirtual(int rowCount, const std::function<void(int)>& drawRow);
 
 } // namespace G3DWidgets
 

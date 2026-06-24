@@ -762,6 +762,9 @@ ImVec4 TreeIconColor(TreeIconVariant v)
 void BeginTree(TreeDensity density)
 {
   const float s = Scale();
+  // Rows stack flush (zero inter-row gap) so each row consumes exactly its row height — required for
+  // ImGuiListClipper virtualization (TreeVirtual) to position rows correctly and for contiguous rails.
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.f));
   gTreeStack.push_back({ TreeRowHeight(density, s), G3DTheme::Spacing::Lg * s });
 }
 
@@ -772,6 +775,7 @@ void EndTree()
   {
     gTreeStack.pop_back();
   }
+  ImGui::PopStyleVar();
 }
 
 //----------------------------------------------------------------------------
@@ -887,24 +891,20 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   f.mouse = ImGui::GetIO().MousePos;
   gRowStack.push_back(f);
 
-  // Leave the ImGui cursor at the content start so a caller-drawn real widget (e.g. an InputText for
-  // inline rename) lands in the label slot.
-  ImGui::SetCursorScreenPos(ImVec2(f.contentX, p0.y + std::max(0.f, (rowH - ImGui::GetFontSize()) * 0.5f)));
+  // The row's InvisibleButton already advanced the ImGui cursor by exactly one row height (zero item
+  // spacing set in BeginTree). Cell content is painted via ImDrawList at absolute positions (the slot
+  // helpers), so we deliberately do NOT move the cursor here — that keeps layout/scroll accounting in
+  // sync with ImGuiListClipper (manual cursor moves would trip ImGui's content-size warning).
   return res;
 }
 
 //----------------------------------------------------------------------------
 void EndTreeRow()
 {
-  if (gRowStack.empty())
+  if (!gRowStack.empty())
   {
-    ImGui::PopID();
-    return;
+    gRowStack.pop_back();
   }
-  const TreeRowFrame f = gRowStack.back();
-  gRowStack.pop_back();
-  // Stack the next row flush against this one (no inter-row spacing).
-  ImGui::SetCursorScreenPos(ImVec2(f.p0.x, f.p0.y + f.rowH));
   ImGui::PopID();
 }
 
@@ -1083,6 +1083,29 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
     return TreeRowHit::Row;
   }
   return TreeRowHit::None;
+}
+
+//----------------------------------------------------------------------------
+void TreeVirtual(int rowCount, const std::function<void(int)>& drawRow)
+{
+  if (rowCount <= 0 || !drawRow)
+  {
+    return;
+  }
+  const float rowH = gTreeStack.empty() ? 22.f * Scale() : gTreeStack.back().rowH;
+  // Uniform-height clipping: only rows inside the scroll viewport are emitted, so cost is O(on-screen
+  // rows) regardless of total node count. rowH must match the height each BeginTreeRow/EndTreeRow
+  // consumes (it does — EndTreeRow stacks rows flush at exactly rowH).
+  ImGuiListClipper clipper;
+  clipper.Begin(rowCount, rowH);
+  while (clipper.Step())
+  {
+    for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+    {
+      drawRow(i);
+    }
+  }
+  clipper.End();
 }
 
 } // namespace G3DWidgets
