@@ -225,6 +225,18 @@
       "type": "bool",
       "default_value": "false"
     },
+    "control_left": {
+      "type": "bool",
+      "default_value": "true"
+    },
+    "control_right": {
+      "type": "bool",
+      "default_value": "true"
+    },
+    "control_bottom": {
+      "type": "bool",
+      "default_value": "true"
+    },
     "cheatsheet": {
       "type": "bool",
       "default_value": "false"

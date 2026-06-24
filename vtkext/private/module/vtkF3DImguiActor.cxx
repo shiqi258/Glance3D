@@ -539,9 +539,11 @@ void SetupNextWindow(std::optional<ImVec2> position, std::optional<ImVec2> size)
 }
 
 // Fully-open bar sizes, honoring user drag overrides for the left/right widths (nominal px, < 0 =
-// keep the G3DLayout default). Used by BOTH the bar layout and the central-viewport derivation so a
-// resize stays in lockstep.
-G3DLayout::Sizes ResolvedBarSizes(float scale, float leftOverride, float rightOverride)
+// keep the G3DLayout default) and per-bar visibility (a hidden bar collapses to 0 so the center
+// grows). Used by BOTH the bar layout and the central-viewport derivation so resize/hide stays in
+// lockstep. The top bar (toolbar, which hosts the toggles) is always shown.
+G3DLayout::Sizes ResolvedBarSizes(float scale, float leftOverride, float rightOverride,
+  bool leftVisible, bool rightVisible, bool bottomVisible)
 {
   G3DLayout::Sizes sizes = G3DLayout::DefaultBarSizes(scale);
   if (leftOverride > 0.f)
@@ -551,6 +553,18 @@ G3DLayout::Sizes ResolvedBarSizes(float scale, float leftOverride, float rightOv
   if (rightOverride > 0.f)
   {
     sizes.rightW = rightOverride * scale;
+  }
+  if (!leftVisible)
+  {
+    sizes.leftW = 0.f;
+  }
+  if (!rightVisible)
+  {
+    sizes.rightW = 0.f;
+  }
+  if (!bottomVisible)
+  {
+    sizes.bottomH = 0.f;
   }
   return sizes;
 }
@@ -1584,8 +1598,11 @@ void vtkF3DImguiActor::GetControlPanelViewport(const int windowSize[2], double v
 
   const float scale = static_cast<float>(this->FontScale);
   const G3DLayout::Rect work{ 0.f, 0.f, static_cast<float>(W), static_cast<float>(H) };
-  const G3DLayout::Result r = G3DLayout::Compute(
-    work, ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW), eased);
+  const G3DLayout::Result r = G3DLayout::Compute(work,
+    ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW,
+      this->ReadOptionBool("ui.control_left", true), this->ReadOptionBool("ui.control_right", true),
+      this->ReadOptionBool("ui.control_bottom", true)),
+    eased);
   G3DLayout::CenterToVTKViewport(r.center, W, H, vp);
 }
 
@@ -2188,8 +2205,11 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   const float scale = static_cast<float>(this->FontScale);
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
-  const G3DLayout::Result r = G3DLayout::Compute(
-    work, ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW), eased);
+  const G3DLayout::Result r = G3DLayout::Compute(work,
+    ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW,
+      this->ReadOptionBool("ui.control_left", true), this->ReadOptionBool("ui.control_right", true),
+      this->ReadOptionBool("ui.control_bottom", true)),
+    eased);
 
   // Docked bars are opaque chrome that frame the 3D viewport. The scene is physically pushed into
   // the central gap: the renderer derives its VTK viewport from this same G3DLayout `center` rect
@@ -2269,6 +2289,14 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     toolButton("##tb.axis", G3DIconId::Axis, "toggle ui.axis", loc.Translate("Axes").c_str());
     toolButton(
       "##tb.edges", G3DIconId::Edges, "toggle render.show_edges", loc.Translate("Edges").c_str());
+    toolSeparator();
+    // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits).
+    toolButton(
+      "##tb.tree", G3DIconId::Layers, "toggle ui.control_left", loc.Translate("Scene").c_str());
+    toolButton("##tb.inspector", G3DIconId::Sliders, "toggle ui.control_right",
+      loc.Translate("Inspector").c_str());
+    toolButton(
+      "##tb.timeline", G3DIconId::Play, "toggle ui.control_bottom", loc.Translate("Timeline").c_str());
     ImGui::End();
   }
 
