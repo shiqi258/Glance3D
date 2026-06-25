@@ -587,7 +587,7 @@ struct CollapseFrame
   float width;
   float headerH;
   float scale;
-  bool open;
+  bool showBody;     // body is drawn this frame (open OR mid open/close animation)
   bool hasBorder;    // draws a wrapping card bg + border (Card / Overline, standalone)
   bool ownsChannels; // this panel split the draw list (must merge in EndCollapse)
   bool inAccordion;  // rendered as a flush accordion item
@@ -595,8 +595,19 @@ struct CollapseFrame
   float leftPad;
   float botPad;
   bool standalone;   // add a trailing gap after the card (not for accordion items / nested)
+  // open/close height animation (mirrors styleguide grid-rows 0fr<->1fr over --t-std):
+  ImGuiID hid;       // header id, keys the open-value anim + the body-height cache
+  float openT;       // eased open fraction 0..1
+  float cachedH;     // last measured full body height (the animation target)
+  float bodyStartY;  // screen y where the body begins (== p0.y + headerH)
+  bool clipped;      // body was clipped to the animated height this frame
 };
 std::vector<CollapseFrame> gCollapseStack;
+
+// Full body height per panel (keyed by header id), measured when drawn and used as the open/close
+// animation target on the next frame. The body content is laid out at full height every drawn frame,
+// so a freshly-toggled panel always animates toward an up-to-date height.
+std::unordered_map<ImGuiID, float> gCollapseBodyH;
 
 struct AccordionFrame
 {
@@ -795,6 +806,30 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   // the click is routed, so it matches the twisty (both settle one frame after a toggle).
   const bool isOpen = desc.open ? *desc.open : true;
 
+  // Open/close height animation (styleguide grid-rows 0fr<->1fr, --t-std). The header's WidgetAnim
+  // value channel eases toward open; it snaps on first appearance (default-open panels load expanded)
+  // and animates on later toggles. The body is drawn whenever openT > 0, so the caller keeps it alive
+  // through the close tween (res.open == "should I draw the body").
+  const ImGuiID hid = ImGui::GetID("##hd");
+  WidgetAnim& wa = Ensure(hid);
+  DriveValue(wa, isOpen ? 1.f : 0.f);
+  float openT = wa.value.Value();
+  float cachedH = 0.f;
+  if (auto it = gCollapseBodyH.find(hid); it != gCollapseBodyH.end())
+  {
+    cachedH = it->second;
+  }
+  // First open of a never-measured panel: no height to animate into yet, so snap it open this once
+  // (it gets measured this frame; later toggles animate normally).
+  if (isOpen && openT < 1.f && cachedH <= 0.f)
+  {
+    wa.value.Snap(1.f);
+    openT = 1.f;
+  }
+  const bool showBody = openT > 0.001f;
+  const bool animating = showBody && openT < 0.999f;
+  res.open = showBody;
+
   const float headPadL =
     (desc.variant == CollapseVariant::Ghost ? 2.f : desc.variant == CollapseVariant::Sub ? 6.f : 8.f) *
     s;
@@ -819,10 +854,11 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
     }
     else if (hasBorder)
     {
-      // Standalone card: collapsed -> the header IS the whole card, round all four corners; open ->
-      // round only the top (the body continues below behind a straight seam).
+      // Standalone card: only when fully collapsed is the header the whole card (round all four
+      // corners). Open OR mid-animation, the body sits below behind a straight seam -> round the top
+      // only (keyed on the animated openT so the corners don't pop during the tween).
       rr = G3DTheme::Radius::Card * s;
-      rf = isOpen ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll;
+      rf = showBody ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll;
     }
     else if (firstInAccordion)
     {
@@ -949,7 +985,9 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
     dl->PopClipRect();
   }
 
-  // Route the header click: only toggles open when it didn't land on a trailing control.
+  // Route the header click: only toggles open when it didn't land on a trailing control. The new
+  // state takes effect next frame (isOpen/openT above already settle one frame after a toggle, in
+  // step with the twisty); res.open this frame stays driven by the animation (set above).
   if (pressed && !trailingHit && desc.open)
   {
     *desc.open = !*desc.open;
@@ -958,7 +996,6 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
       gAccordionStack.back().justOpened = desc.open; // exclusive close handled in EndAccordion
     }
   }
-  res.open = desc.open ? *desc.open : true;
 
   // Register with the accordion (item index + open flag for exclusive enforcement).
   if (inAccordion)
@@ -1004,7 +1041,7 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   cf.width = width;
   cf.headerH = headerH;
   cf.scale = s;
-  cf.open = res.open;
+  cf.showBody = showBody;
   cf.hasBorder = hasBorder;
   cf.ownsChannels = ownsChannels;
   cf.inAccordion = inAccordion;
@@ -1013,14 +1050,27 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   cf.botPad = botPad;
   cf.standalone = !inAccordion && desc.variant != CollapseVariant::Sub &&
     desc.variant != CollapseVariant::Ghost;
+  cf.hid = hid;
+  cf.openT = openT;
+  cf.cachedH = cachedH;
+  cf.bodyStartY = p0.y + headerH;
+  cf.clipped = false;
 
-  if (res.open)
+  if (showBody)
   {
+    // While animating, clip the body (render AND interaction, via ImGui::PushClipRect) to the eased
+    // height; the content still lays out at full height so EndCollapse can measure it. The card rect
+    // (EndCollapse) follows the cursor, so the whole card grows/shrinks. Settled-open draws naturally.
+    if (animating)
+    {
+      const float animH = std::max(0.f, openT * cachedH);
+      ImGui::PushClipRect(ImVec2(p0.x, cf.bodyStartY), ImVec2(p0.x + width, cf.bodyStartY + animH), true);
+      cf.clipped = true;
+    }
     if (bodyTopBorder)
     {
-      const float by = ImGui::GetCursorScreenPos().y;
-      dl->AddLine(ImVec2(p0.x, by), ImVec2(p0.x + width, by), U32(G3DTheme::Border()),
-        G3DTheme::Size::Border * s);
+      dl->AddLine(ImVec2(p0.x, cf.bodyStartY), ImVec2(p0.x + width, cf.bodyStartY),
+        U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
     }
     ImGui::Indent(leftPad);
     // Negative item width = "extend to the right edge minus N px"; 0 would mean ImGui's default, so
@@ -1049,8 +1099,9 @@ void EndCollapse()
   const CollapseFrame cf = gCollapseStack.back();
   gCollapseStack.pop_back();
   const float s = cf.scale;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
 
-  if (cf.open)
+  if (cf.showBody)
   {
     if (cf.disabledBody)
     {
@@ -1059,10 +1110,26 @@ void EndCollapse()
     ImGui::Dummy(ImVec2(0.f, cf.botPad)); // bottom padding (matches the variant, set in BeginCollapse)
     ImGui::PopItemWidth();
     ImGui::Unindent(cf.leftPad);
+
+    // The body laid out at full height; measure it (drop the trailing ItemSpacing.y) and cache it as
+    // next frame's animation target.
+    const float fullH =
+      std::max(0.f, ImGui::GetCursorScreenPos().y - cf.bodyStartY - ImGui::GetStyle().ItemSpacing.y);
+    gCollapseBodyH[cf.hid] = fullH;
+    if (cf.clipped)
+    {
+      ImGui::PopClipRect();
+      // Visible body height = eased value; pin the cursor so the card rect + following content follow.
+      ImGui::SetCursorScreenPos(ImVec2(cf.p0.x, cf.bodyStartY + std::max(0.f, cf.openT * cf.cachedH)));
+    }
+    else
+    {
+      // Settled open: the card hugs the body's exact height (no trailing ImGui spacing).
+      ImGui::SetCursorScreenPos(ImVec2(cf.p0.x, cf.bodyStartY + fullH));
+    }
   }
 
   const float bottomY = ImGui::GetCursorScreenPos().y;
-  ImDrawList* dl = ImGui::GetWindowDrawList();
 
   if (cf.hasBorder && cf.ownsChannels)
   {
