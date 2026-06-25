@@ -1842,6 +1842,455 @@
         border-top: none;
       }
 
+      /* ============================================================
+         COLOR PICKER  (颜色选择器 · 专业编辑器 · 紧凑)
+         行内色块触发器 + 弹出取色面板（SV 取色方块 + 色相/透明度条 + 吸管 +
+         预览 + 格式切换 + 主值/透明度输入 + 预设色板）。借鉴 Photoshop / Figma /
+         Chrome DevTools / Ant Design ColorPicker / Blender 取色器。默认紧凑高密度。
+         ≈ImGui: ColorEdit4（行内色块 + 弹出）/ ColorPicker4（SV 方块 + 色相/透明度条，
+         自定义绘制：AddRectFilledMultiColor 双向渐变 + 圆形手柄）。棋盘格=分层半透明方块。
+         ============================================================ */
+      /* 棋盘格底（透明度可视化）——触发色块 / 预览 / 透明度条 / 预设色块共用 */
+      .colorswatch-chip,
+      .cp-preview,
+      .cp-alpha,
+      .cp-swatch {
+        background-color: #fff;
+        background-image: linear-gradient(45deg, #c2c8d2 25%, transparent 25%),
+          linear-gradient(-45deg, #c2c8d2 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #c2c8d2 75%),
+          linear-gradient(-45deg, transparent 75%, #c2c8d2 75%);
+        background-size: 8px 8px;
+        background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+      }
+
+      /* —— 行内触发器（色块字段，复用 input 的尺寸/聚焦语汇）—— */
+      .colorswatch {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-2);
+        height: var(--ctrl-h);
+        min-width: 104px;
+        padding: 0 8px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        cursor: pointer;
+        font: inherit;
+        color: var(--text);
+        transition: border-color var(--t-micro) var(--ease), box-shadow var(--t-micro) var(--ease),
+          background var(--t-micro) var(--ease);
+      }
+      .colorswatch:hover,
+      .colorswatch.is-hover {
+        border-color: var(--border-strong);
+        background: var(--surface-3);
+      }
+      .colorswatch:focus-visible,
+      .colorswatch.is-focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--accent-ring);
+        background: var(--surface-3);
+      }
+      .colorswatch.is-disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .colorswatch-chip {
+        position: relative;
+        width: 20px;
+        height: 20px;
+        flex: none;
+        border-radius: var(--r-sm);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+      }
+      .colorswatch-chip::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: var(--c, var(--accent));
+      }
+      .colorswatch-val {
+        font-family: var(--mono);
+        font-size: var(--fs-caption);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      /* grow = fill the property-row cell like the sibling select/slider controls (the proprow
+         value column) instead of sitting content-width with a stranded, floating chevron */
+      .colorswatch.grow {
+        flex: 1;
+        min-width: 0;
+      }
+      .colorswatch .chev {
+        margin-left: auto;
+        flex: none;
+        font-size: 14px;
+        color: var(--text-subtle);
+        transform: rotate(90deg);
+      }
+      .colorswatch.compact {
+        height: 26px;
+        min-width: 0;
+        padding: 0 6px;
+      }
+      .colorswatch.compact .colorswatch-chip {
+        width: 16px;
+        height: 16px;
+      }
+
+      /* —— 弹出取色面板（浮层卡片）—— */
+      .colorpicker {
+        width: 276px;
+        max-width: 100%;
+        background: var(--surface-2);
+        /* subtle hairline (matches the dropdown .menu); elevation comes from shadow-lg, so a
+           strong white border isn't needed and would read as a light edge on the rounded corners */
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-lg);
+        padding: var(--s-3);
+        display: flex;
+        flex-direction: column;
+        gap: var(--s-3);
+        user-select: none;
+      }
+      /* SV 取色区：底色=纯色相，叠加 白→透明(饱和度，→右) + 透明→黑(明度，↑) */
+      .cp-sv {
+        position: relative;
+        height: 150px;
+        border-radius: var(--r-md);
+        overflow: hidden;
+        background-color: var(--cp-hue, #7c8cff);
+        cursor: crosshair;
+        touch-action: none;
+      }
+      .cp-sv::before,
+      .cp-sv::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+      }
+      .cp-sv::before {
+        background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0));
+      }
+      .cp-sv::after {
+        background: linear-gradient(to top, #000, rgba(0, 0, 0, 0));
+      }
+      .cp-sv-cursor {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.5);
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+      /* 中段：吸管 + 预览 + (色相条 / 透明度条 堆叠) */
+      .cp-mid {
+        display: flex;
+        align-items: center;
+        gap: var(--s-3);
+      }
+      .cp-eyedrop {
+        flex: none;
+      }
+      .cp-preview {
+        position: relative;
+        width: 30px;
+        height: 30px;
+        flex: none;
+        border-radius: var(--r-md);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+      }
+      .cp-preview::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: var(--cp-color, var(--accent));
+      }
+      .cp-sliders {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--s-2);
+      }
+      .cp-track {
+        position: relative;
+        height: 12px;
+        border-radius: var(--r-pill);
+        cursor: pointer;
+        touch-action: none;
+      }
+      .cp-hue {
+        background: linear-gradient(
+          to right,
+          #ff0000 0%,
+          #ffff00 17%,
+          #00ff00 33%,
+          #00ffff 50%,
+          #0000ff 67%,
+          #ff00ff 83%,
+          #ff0000 100%
+        );
+      }
+      /* 透明度条：棋盘格底（共用规则）+ 透明→当前色渐变覆盖（JS 设 --cp-rgb） */
+      .cp-alpha-grad {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(to right, transparent, rgb(var(--cp-rgb, 124 140 255)));
+      }
+      .cp-thumb {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        border: 1px solid rgba(0, 0, 0, 0.25);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+        transform: translate(-50%, -50%);
+        z-index: 2;
+        pointer-events: none;
+      }
+      /* 紧凑控制行（强度 / 格式·空间·浮点·复制 / 色板）共用骨架 */
+      .cp-row {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+      }
+      .cp-row-label {
+        flex: none;
+        width: 30px;
+        font-size: var(--fs-overline);
+        font-family: var(--mono);
+        letter-spacing: 0.04em;
+        color: var(--text-subtle);
+      }
+      /* 强度（HDR 倍数）滑条：中性→主色暗示"越右越亮"，>1 即进入 HDR */
+      .cp-intensity {
+        flex: 1;
+        min-width: 0;
+        background: linear-gradient(to right, var(--surface-4), var(--accent));
+      }
+      /* 格式切换钮（循环 HEX / RGB / HSB / HSL） */
+      .cp-format {
+        height: 28px;
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 0 5px 0 8px;
+        background: var(--surface-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--text-muted);
+        font: inherit;
+        font-size: var(--fs-overline);
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .cp-format:hover {
+        background: var(--surface-4);
+        color: var(--text);
+      }
+      .cp-format .icon {
+        font-size: 13px;
+        color: var(--text-subtle);
+      }
+      /* 迷你分段（色彩空间 sRGB|线性 / 浮点 255|0–1）——复用 segmented 观感、由 picker 自管状态 */
+      .cp-seg {
+        display: inline-flex;
+        flex: none;
+        gap: 2px;
+        padding: 2px;
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+      }
+      .cp-seg button {
+        appearance: none;
+        font: inherit;
+        font-size: var(--fs-overline);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--text-subtle);
+        background: transparent;
+        border: none;
+        border-radius: 4px;
+        padding: 3px 6px;
+        cursor: pointer;
+        transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+      }
+      .cp-seg button:hover {
+        color: var(--text);
+      }
+      .cp-seg button.on {
+        background: var(--surface-4);
+        color: var(--text);
+      }
+      .cp-copy {
+        width: 28px;
+        height: 28px;
+        margin-left: auto;
+      }
+      .cp-copy .icon {
+        font-size: 15px;
+      }
+      .cp-copy.copied {
+        color: var(--success);
+      }
+      /* 数值输入：HEX 单字段 / R·G·B·A 通道字段 共用底样式 */
+      .cp-value,
+      .cp-channel input {
+        width: 100%;
+        height: 28px;
+        padding: 0 8px;
+        font-family: var(--mono);
+        font-size: var(--fs-caption);
+        text-align: center;
+        color: var(--text);
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        outline: none;
+        transition: border-color var(--t-micro) var(--ease), box-shadow var(--t-micro) var(--ease);
+      }
+      .cp-int-val {
+        flex: none;
+        width: 48px;
+      }
+      .cp-value:focus,
+      .cp-channel input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--accent-ring);
+      }
+      /* 输入区：HEX 单字段铺满，或 R/G/B/A 通道字段等分（每分量独立可编辑） */
+      .cp-inputs {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+      }
+      .cp-hexfield {
+        flex: 1;
+        min-width: 0;
+        text-align: left;
+        text-transform: uppercase;
+      }
+      .cp-channel {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+      .cp-channel label {
+        font-size: var(--fs-overline);
+        font-family: var(--mono);
+        letter-spacing: 0.04em;
+        color: var(--text-subtle);
+      }
+      /* 预设 / 最近 色板行（左标签 + 色块流 + 末尾＋存当前色） */
+      .cp-swatch-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .cp-swatches {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        flex: 1;
+        min-width: 0;
+      }
+      .cp-swatch {
+        position: relative;
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        flex: none;
+        border: none;
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        transition: transform var(--t-micro) var(--ease);
+      }
+      /* Color lives on ::before (over the checker base), edged by a subtle DARK inset hairline —
+         a translucent-WHITE border fringes at the rounded corners and "outlines" dark swatches. */
+      .cp-swatch::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: var(--c);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+      }
+      /* selected = a centered checkmark INSIDE the swatch (Ant ColorPicker / Material / Figma) —
+         NO outer ring. The check tint flips with swatch luminance (.on-light → near-black check)
+         so it stays legible on both light and dark colors. ::after is masked to the tick shape. */
+      .cp-swatch::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-color: #fff;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12.5 10 17 19 7' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 12.5 10 17 19 7' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px no-repeat;
+        opacity: 0;
+        transform: scale(0.5);
+        transition: opacity var(--t-micro) var(--ease), transform var(--t-micro) var(--ease);
+        pointer-events: none;
+      }
+      .cp-swatch.selected::after {
+        opacity: 1;
+        transform: scale(1);
+      }
+      .cp-swatch.selected.on-light::after {
+        background-color: rgba(0, 0, 0, 0.82);
+      }
+      .cp-swatch:hover {
+        transform: scale(1.14);
+      }
+      .cp-add {
+        width: 18px;
+        height: 18px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        color: var(--text-subtle);
+        background: var(--surface-1);
+        border: 1px dashed var(--border);
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        transition: color var(--t-micro) var(--ease), border-color var(--t-micro) var(--ease);
+      }
+      .cp-add:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      .cp-add .icon {
+        font-size: 12px;
+      }
+      .cp-recent-empty {
+        font-size: var(--fs-overline);
+        color: var(--text-subtle);
+        font-style: italic;
+      }
+
       .viewport-demo {
         position: relative;
         height: 560px;
@@ -1887,6 +2336,10 @@
         <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></symbol>
         <symbol id="i-expand-all" viewBox="0 0 24 24"><polyline points="8 4.5 12 8.5 16 4.5" /><polyline points="8 19.5 12 15.5 16 19.5" /><line x1="5" y1="12" x2="19" y2="12" /></symbol>
         <symbol id="i-collapse-all" viewBox="0 0 24 24"><polyline points="8 8 12 4 16 8" /><polyline points="8 16 12 20 16 16" /><line x1="5" y1="12" x2="19" y2="12" /></symbol>
+        <!-- color picker: eyedropper (pipette) + format swap (chevrons up/down) -->
+        <symbol id="i-eyedropper" viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9" /><path d="M3 21v-3l9-9" /><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z" /></symbol>
+        <symbol id="i-updown" viewBox="0 0 24 24"><polyline points="8 9 12 5 16 9" /><polyline points="8 15 12 19 16 15" /></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></symbol>
       </defs>
     </svg>
 
@@ -1918,6 +2371,7 @@
         <a href="#inputs">输入框 / 选择</a>
         <a href="#toggles">开关 / 复选 / 分段</a>
         <a href="#sliders">滑块</a>
+        <a href="#colorpicker">颜色选择器</a>
         <a href="#tree">树 / 大纲</a>
         <a href="#collapse">折叠面板 / 手风琴</a>
         <a href="#cards">卡片</a>
@@ -1948,6 +2402,7 @@
             <div class="proprow"><span class="k"><code>g3d-card</code> / <code>g3d-proprow</code> / <code>g3d-sectiontitle</code></span><span class="v"><span class="note" style="margin: 0">容器/布局组件，内部插任意子组件</span></span></div>
             <div class="proprow"><span class="k"><code>g3d-tree</code> / <code>g3d-trow</code></span><span class="v"><span class="note" style="margin: 0">大纲与树节点（见「树 / 大纲」）</span></span></div>
             <div class="proprow"><span class="k"><code>g3d-collapse</code> / <code>g3d-accordion</code></span><span class="v"><span class="note" style="margin: 0">可折叠分组与连续列表（见「折叠面板」）</span></span></div>
+            <div class="proprow"><span class="k"><code>g3d-colorswatch</code> / <code>g3d-colorpicker</code></span><span class="v"><g3d-colorswatch val="#7C8CFF" nochev></g3d-colorswatch><span class="note" style="margin: 0">取色器触发块与弹出面板（见「颜色选择器」）</span></span></div>
             <div class="note">
               示例：检视器面板的一行 <code>&lt;g3d-proprow k="金属度"&gt;&lt;g3d-slider val="30"&gt;&lt;/g3d-slider&gt;&lt;/g3d-proprow&gt;</code> ——
               proprow 复用 slider，slider 复用 icon，全程零重复。
@@ -2198,6 +2653,71 @@
             <g3d-proprow k="金属度"><g3d-slider val="35"></g3d-slider><g3d-num>0.35</g3d-num></g3d-proprow>
             <g3d-proprow k="粗糙度"><g3d-slider val="70"></g3d-slider><g3d-num>0.70</g3d-num></g3d-proprow>
             <g3d-proprow k="光强"><g3d-slider val="50" state="hover"></g3d-slider><g3d-num>1.00</g3d-num></g3d-proprow>
+          </div>
+        </section>
+
+        <!-- ===================== COLOR PICKER ===================== -->
+        <section class="block" id="colorpicker">
+          <h2>颜色选择器 <span class="tag-impl">≈ImGui ColorEdit / ColorPicker</span></h2>
+          <p class="desc">
+            面向专业 3D / 科学可视化编辑器的取色器：<strong>行内色块触发器</strong>点击弹出
+            <strong>取色面板</strong>——SV 取色方块 + 色相条 + 透明度条 + 吸管 + 预览，叠加专业能力：
+            <strong>HDR 强度</strong>倍数（自发光 / 光照）、<strong>sRGB ⇄ 线性</strong>色彩空间、<strong>0–255 / 0–1 浮点</strong>、
+            格式切换 <strong>HEX / RGB / HSB / HSL</strong> 且<strong>逐通道可编辑</strong>（↑↓ 微调、Shift×10）、8 位
+            <code>#RRGGBBAA</code>、复制、可保存 / 最近色板。借鉴 Photoshop / Figma / Chrome DevTools /
+            Ant Design ColorPicker / Blender / Unity HDR 取色器。
+          </p>
+          <p class="uses"><b>组合</b>触发器 <code>g3d-colorswatch</code> = 棋盘底色块 + 十六进制值 + chevron；面板 <code>g3d-colorpicker</code> 复用 图标 <code>g3d-icon</code>（吸管 / 格式 / 复制 / ＋）、图标按钮 <code>g3d-iconbtn</code>，SV 方块 / 色相 / 透明度 / 强度条 / 通道输入 / 迷你分段 / 色板为专用原子。面板取色实时回填联动的触发器（<code>link</code>）。</p>
+
+          <div class="row" style="align-items: flex-start; gap: var(--s-6); flex-wrap: wrap">
+            <!-- closed trigger fields inside inspector property rows -->
+            <div style="width: 320px">
+              <div class="state-label">行内触发器（检视器属性行）</div>
+              <div class="panel stack">
+                <g3d-proprow k="基础色"><g3d-colorswatch grow id="heroSwatch" val="#7C8CFF"></g3d-colorswatch></g3d-proprow>
+                <g3d-proprow k="自发光"><g3d-colorswatch grow val="#F3B13F"></g3d-colorswatch></g3d-proprow>
+                <g3d-proprow k="描边 · 半透明"><g3d-colorswatch grow val="#5FD08A" chip="rgba(95,208,138,.4)"></g3d-colorswatch></g3d-proprow>
+              </div>
+              <div class="note">点击色块弹出取色面板；面板取色实时回填上方「基础色」的色块与色值（二者已联动 <code>link="#heroSwatch"</code>）。</div>
+            </div>
+
+            <!-- open popover · HEX mode, linked to the hero swatch -->
+            <div>
+              <div class="state-label">面板 · HEX 模式（与「基础色」联动）</div>
+              <g3d-colorpicker val="#7C8CFF" a="100" link="#heroSwatch"></g3d-colorpicker>
+            </div>
+
+            <!-- open popover · HDR + linear + RGB 0–1 channels -->
+            <div>
+              <div class="state-label">面板 · HDR 强度 · 线性空间 · RGB 0–1 通道</div>
+              <g3d-colorpicker val="#F3B13F" a="100" fmt="RGB" float intensity="2.5" space="linear"></g3d-colorpicker>
+            </div>
+          </div>
+
+          <!-- trigger states -->
+          <div class="panel stack" style="margin-top: var(--s-5)">
+            <div class="state-label">触发器状态（强制展示）</div>
+            <div class="states">
+              <div><div class="state-label">默认</div><g3d-colorswatch val="#7C8CFF"></g3d-colorswatch></div>
+              <div><div class="state-label">悬停</div><g3d-colorswatch val="#7C8CFF" state="hover"></g3d-colorswatch></div>
+              <div><div class="state-label">聚焦</div><g3d-colorswatch val="#7C8CFF" state="focus"></g3d-colorswatch></div>
+              <div><div class="state-label">禁用</div><g3d-colorswatch val="#7C8CFF" state="disabled"></g3d-colorswatch></div>
+              <div><div class="state-label">超紧凑 · 仅色块</div><g3d-colorswatch val="#F56A57" v="compact" nochev nolabel></g3d-colorswatch></div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="state-label">专业能力一览</div>
+            <g3d-proprow k="HDR 强度"><span class="note" style="margin: 0">强度倍数 >1 → 自发光 / 光照过亮；CSS 无法渲染 >1 亮度，用预览光晕暗示，0–1 浮点模式下数值随之 >1.0</span></g3d-proprow>
+            <g3d-proprow k="色彩空间"><span class="note" style="margin: 0">sRGB ⇄ 线性：RGB / 浮点数值按所选空间换算（PBR、科学可视化在线性域取色）</span></g3d-proprow>
+            <g3d-proprow k="数值范围"><span class="note" style="margin: 0">0–255 整数 或 0–1 浮点（VTK / libf3d 颜色选项即 <code>double 0–1</code>）</span></g3d-proprow>
+            <g3d-proprow k="逐通道编辑"><span class="note" style="margin: 0">HEX / RGB / HSB / HSL 切换，每分量独立字段；方向键 ↑↓ 微调、Shift×10、回车提交</span></g3d-proprow>
+            <g3d-proprow k="十六进制"><span class="note" style="margin: 0">支持 3 / 6 位与 8 位 <code>#RRGGBBAA</code>（携带透明度）</span></g3d-proprow>
+            <g3d-proprow k="色板 / 复制"><span class="note" style="margin: 0">预设 + 最近：＋ 存当前色、点色块回填；复制钮按当前格式拷贝色值串</span></g3d-proprow>
+            <g3d-proprow k="吸管"><span class="note" style="margin: 0">支持时调用浏览器 <code>EyeDropper</code> 屏幕采样（桌面端对应视口像素拾取）</span></g3d-proprow>
+          </div>
+          <div class="note">
+            ≈ImGui：对应 <code>ColorEdit4</code>（行内色块 + 点开弹出）与 <code>ColorPicker4</code>（SV 方块 + 色相 / 透明度条），并加一条 HDR 强度字段。
+            桌面端棋盘格用分层半透明方块近似；SV / 色相 / 透明度 / 强度用自定义绘制（<code>AddRectFilledMultiColor</code> 双向渐变 + 圆形手柄）；sRGB↔线性、HDR 直接用浮点色；弹层走 overlay、勿受面板裁剪（同 combo）。
           </div>
         </section>
 
@@ -2596,6 +3116,72 @@
             return `<span class="slider${st}" data-slider style="flex:1"><span class="track"><span class="fill" style="width:${v}%"></span><span class="thumb" style="left:${v}%"></span></span></span>`;
           },
           "g3d-num": (el) => `<span class="num">${inner(el)}</span>`,
+
+          // — color picker —
+          // trigger: checkerboard-backed color chip + hex value (+ chevron). The chip color
+          // (--c) and the value label are overwritten live by a linked g3d-colorpicker.
+          "g3d-colorswatch": (el) => {
+            const val = a(el, "val", "#7C8CFF");
+            const chip = a(el, "chip", val); // css color for the chip (may carry alpha)
+            const c = cls("colorswatch", has(el, "grow") ? "grow" : "", a(el, "v"), a(el, "cls"), stateCls(a(el, "state")));
+            const id = has(el, "id") ? ` id="${a(el, "id")}"` : "";
+            const lbl = has(el, "nolabel") ? "" : `<span class="colorswatch-val">${val}</span>`;
+            const chev = has(el, "nochev") ? "" : `<svg class="icon chev"><use href="#i-chevron" /></svg>`;
+            return `<button class="${c}"${id} data-colorswatch${passData(el)}><span class="colorswatch-chip" style="--c:${chip}"></span>${lbl}${chev}</button>`;
+          },
+          // popover panel: SV area + hue/alpha + HDR intensity + format/space/float controls +
+          // per-channel inputs + editable presets/recent. The init script (HSV/HSL + sRGB↔linear
+          // math lives there ONCE) fills .cp-inputs / .cp-recent and computes every position/value
+          // from data-* — the renderer only emits the skeleton. (≈ImGui ColorEdit4 / ColorPicker4.)
+          "g3d-colorpicker": (el) => {
+            const color = a(el, "val", "#7C8CFF");
+            const alpha = a(el, "a", "100");
+            const fmt = a(el, "fmt", "HEX");
+            const space = a(el, "space", "srgb"); // srgb | linear
+            const float = has(el, "float") ? "1" : "0"; // 0–255 vs 0–1 for RGB
+            const intensity = a(el, "intensity", "1"); // HDR multiplier (1 = LDR)
+            const link = has(el, "link") ? ` data-link="${a(el, "link")}"` : "";
+            const presets = a(
+              el,
+              "presets",
+              "#7C8CFF|#5566F0|#22D3EE|#5FD08A|#F3B13F|#F56A57|#F472B6|#A78BFA|#E8EAF0|#9AA1AD|#3A3F4A|#0B0C10",
+            );
+            const sw = presets
+              .split("|")
+              .filter(Boolean)
+              .map((c) => `<button class="cp-swatch" data-c="${c}" style="--c:${c}" title="${c}"></button>`)
+              .join("");
+            const segOn = (v, cur) => (v === cur ? " on" : "");
+            return `<div class="colorpicker" data-colorpicker data-color="${color}" data-alpha="${alpha}" data-fmt="${fmt}" data-space="${space}" data-float="${float}" data-intensity="${intensity}"${link}>
+              <div class="cp-sv"><span class="cp-sv-cursor"></span></div>
+              <div class="cp-mid">
+                <button class="cp-eyedrop iconbtn" title="吸管取色（屏幕采样）">${icon("eyedropper")}</button>
+                <span class="cp-preview"></span>
+                <div class="cp-sliders">
+                  <span class="cp-track cp-hue"><span class="cp-thumb"></span></span>
+                  <span class="cp-track cp-alpha"><span class="cp-alpha-grad"></span><span class="cp-thumb"></span></span>
+                </div>
+              </div>
+              <div class="cp-row" title="HDR 强度倍数（>1 = 自发光 / 光照过亮）">
+                <span class="cp-row-label">强度</span>
+                <span class="cp-track cp-intensity"><span class="cp-thumb"></span></span>
+                <input class="cp-value cp-int-val" value="${intensity}" spellcheck="false" />
+              </div>
+              <div class="cp-row cp-controls">
+                <button class="cp-format" title="切换格式 HEX / RGB / HSB / HSL"><span class="cp-format-lbl">${fmt}</span>${icon("updown")}</button>
+                <div class="cp-seg cp-space" title="色彩空间">
+                  <button data-v="srgb"${segOn("srgb", space)}>sRGB</button><button data-v="linear"${segOn("linear", space)}>线性</button>
+                </div>
+                <div class="cp-seg cp-float" title="RGB 数值范围">
+                  <button data-v="0"${segOn("0", float)}>255</button><button data-v="1"${segOn("1", float)}>0–1</button>
+                </div>
+                <button class="cp-copy iconbtn" title="复制色值">${icon("copy")}</button>
+              </div>
+              <div class="cp-inputs"></div>
+              <div class="cp-swatch-row"><span class="cp-row-label">预设</span><div class="cp-swatches cp-presets">${sw}</div></div>
+              <div class="cp-swatch-row"><span class="cp-row-label">最近</span><div class="cp-swatches cp-recent"></div><button class="cp-add" title="存入最近">${icon("plus")}</button></div>
+            </div>`;
+          },
 
           // — display —
           "g3d-badge": (el) =>
@@ -3006,6 +3592,296 @@
           tgl.addEventListener("click", sync);
         }
       });
+
+      // Color picker (professional / HDR-aware). One place owns all color math; the renderer only
+      // emits a skeleton. Features: SV + hue + alpha drag, HDR intensity multiplier, sRGB↔linear
+      // space, 0–255 / 0–1 float, format cycle HEX/RGB/HSB/HSL with per-channel editable inputs +
+      // arrow-key nudge, 8-digit hex, copy, save/recent swatches, real EyeDropper when available.
+      // Mirrors ImGui ColorEdit4 / ColorPicker4 (+ an intensity field for HDR colors).
+      (() => {
+        const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+        const round = (v, d = 0) => { const p = 10 ** d; return Math.round(v * p) / p; };
+        // hex (3/4/6/8 digit) → {r,g,b,a(0..1)} | null
+        const parseHex = (str) => {
+          let h = String(str).trim().replace(/^#/, "");
+          if (/^[0-9a-fA-F]{3}$/.test(h)) h = h.split("").map((c) => c + c).join("") + "ff";
+          else if (/^[0-9a-fA-F]{4}$/.test(h)) h = h.split("").map((c) => c + c).join("");
+          else if (/^[0-9a-fA-F]{6}$/.test(h)) h = h + "ff";
+          else if (!/^[0-9a-fA-F]{8}$/.test(h)) return null;
+          return {
+            r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16),
+            b: parseInt(h.slice(4, 6), 16), a: parseInt(h.slice(6, 8), 16) / 255,
+          };
+        };
+        // r,g,b 0..255; a 0..1 — append alpha byte only when a < 1 (8-digit hex)
+        const toHex = (r, g, b, a) => {
+          const h2 = (x) => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0");
+          const base = ("#" + h2(r) + h2(g) + h2(b)).toUpperCase();
+          return a !== undefined && a < 0.999 ? base + h2(a * 255).toUpperCase() : base;
+        };
+        const rgb2hsv = (r, g, b) => {
+          r /= 255; g /= 255; b /= 255;
+          const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+          let h = 0;
+          if (d) {
+            if (mx === r) h = ((g - b) / d) % 6;
+            else if (mx === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h = h * 60; if (h < 0) h += 360;
+          }
+          return { h, s: mx === 0 ? 0 : d / mx, v: mx };
+        };
+        const hsv2rgb = (h, s, v) => {
+          const c = v * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = v - c;
+          let r = 0, g = 0, b = 0;
+          if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+          else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+          else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+          return { r: (r + m) * 255, g: (g + m) * 255, b: (b + m) * 255 };
+        };
+        const rgb2hsl = (r, g, b) => {
+          r /= 255; g /= 255; b /= 255;
+          const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
+          let h = 0, s = 0;
+          if (d) {
+            s = d / (1 - Math.abs(2 * l - 1));
+            if (mx === r) h = ((g - b) / d) % 6;
+            else if (mx === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h = h * 60; if (h < 0) h += 360;
+          }
+          return { h, s, l };
+        };
+        const hsl2rgb = (h, s, l) => {
+          const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+          let r = 0, g = 0, b = 0;
+          if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+          else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+          else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+          return { r: (r + m) * 255, g: (g + m) * 255, b: (b + m) * 255 };
+        };
+        // sRGB transfer (channels in 0..1)
+        const s2l = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+        const l2s = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
+
+        document.querySelectorAll("[data-colorpicker]").forEach((cp) => {
+          const q = (s) => cp.querySelector(s);
+          const sv = q(".cp-sv"), svCur = q(".cp-sv-cursor");
+          const hue = q(".cp-hue"), hueThumb = hue.querySelector(".cp-thumb");
+          const alpha = q(".cp-alpha"), alphaGrad = q(".cp-alpha-grad"), alphaThumb = alpha.querySelector(".cp-thumb");
+          const intTrack = q(".cp-intensity"), intThumb = intTrack.querySelector(".cp-thumb"), intIn = q(".cp-int-val");
+          const preview = q(".cp-preview");
+          const fmtBtn = q(".cp-format"), fmtLbl = q(".cp-format-lbl");
+          const spaceSeg = q(".cp-space"), floatSeg = q(".cp-float");
+          const copyBtn = q(".cp-copy"), inputsBox = q(".cp-inputs");
+          const recentBox = q(".cp-recent"), addBtn = q(".cp-add");
+          const linkSel = cp.getAttribute("data-link");
+          const INT_MAX = 8;
+
+          const start = parseHex(cp.getAttribute("data-color") || "#7C8CFF") || { r: 124, g: 140, b: 255, a: 1 };
+          let { h, s, v } = rgb2hsv(start.r, start.g, start.b);
+          let aPct = parseFloat(cp.getAttribute("data-alpha") || "100");
+          let intensity = clamp(parseFloat(cp.getAttribute("data-intensity") || "1"), 1, INT_MAX);
+          let space = cp.getAttribute("data-space") === "linear" ? "linear" : "srgb";
+          let floatMode = cp.getAttribute("data-float") === "1";
+          const FMTS = ["HEX", "RGB", "HSB", "HSL"];
+          let fmt = (cp.getAttribute("data-fmt") || "HEX").toUpperCase();
+          if (!FMTS.includes(fmt)) fmt = "HEX";
+          const recents = [];
+
+          const base01 = () => { const c = hsv2rgb(h, s, v); return { r: c.r / 255, g: c.g / 255, b: c.b / 255 }; };
+
+          // channel layout for the current format (null = HEX single field)
+          const channelDefs = () => {
+            if (fmt === "RGB") {
+              const max = floatMode ? 1 : 255, step = floatMode ? 0.01 : 1, dec = floatMode ? 3 : 0;
+              return [
+                { k: "r", l: "R", max, step, dec }, { k: "g", l: "G", max, step, dec }, { k: "b", l: "B", max, step, dec },
+                { k: "a", l: floatMode ? "A" : "A%", max: floatMode ? 1 : 100, step: floatMode ? 0.01 : 1, dec: floatMode ? 2 : 0 },
+              ];
+            }
+            if (fmt === "HSB")
+              return [{ k: "h", l: "H", max: 360, step: 1, dec: 0 }, { k: "s", l: "S", max: 100, step: 1, dec: 0 }, { k: "b", l: "B", max: 100, step: 1, dec: 0 }, { k: "a", l: "A%", max: 100, step: 1, dec: 0 }];
+            if (fmt === "HSL")
+              return [{ k: "h", l: "H", max: 360, step: 1, dec: 0 }, { k: "s", l: "S", max: 100, step: 1, dec: 0 }, { k: "l", l: "L", max: 100, step: 1, dec: 0 }, { k: "a", l: "A%", max: 100, step: 1, dec: 0 }];
+            return null;
+          };
+          // raw (unrounded) numeric value of one channel under current space/float/intensity
+          const channelValue = (k) => {
+            const b = base01();
+            if (fmt === "RGB") {
+              if (k === "a") return floatMode ? aPct / 100 : aPct;
+              let c = b[k];
+              if (space === "linear") c = s2l(c);
+              return floatMode ? c * intensity : c * 255; // HDR float can exceed 1
+            }
+            if (fmt === "HSB") return k === "h" ? h : k === "s" ? s * 100 : k === "b" ? v * 100 : aPct;
+            const hsl = rgb2hsl(b.r * 255, b.g * 255, b.b * 255);
+            return k === "h" ? hsl.h : k === "s" ? hsl.s * 100 : k === "l" ? hsl.l * 100 : aPct;
+          };
+          // read back the channel fields → state
+          const commitChannels = () => {
+            const num = (k) => { const el = inputsBox.querySelector(`input[data-k="${k}"]`); const n = parseFloat(el && el.value); return isNaN(n) ? null : n; };
+            if (fmt === "RGB") {
+              const conv = (val) => { if (val == null) return null; let c = floatMode ? val / Math.max(intensity, 1e-6) : val / 255; if (space === "linear") c = l2s(clamp(c, 0, 4)); return clamp(c, 0, 1); };
+              const cr = conv(num("r")), cg = conv(num("g")), cb = conv(num("b")), A = num("a");
+              if (cr != null && cg != null && cb != null) { const hsv = rgb2hsv(cr * 255, cg * 255, cb * 255); h = hsv.h; s = hsv.s; v = hsv.v; }
+              if (A != null) aPct = clamp(floatMode ? A * 100 : A, 0, 100);
+            } else if (fmt === "HSB") {
+              const H = num("h"), S = num("s"), B = num("b"), A = num("a");
+              if (H != null) h = clamp(H, 0, 360); if (S != null) s = clamp(S / 100, 0, 1);
+              if (B != null) v = clamp(B / 100, 0, 1); if (A != null) aPct = clamp(A, 0, 100);
+            } else if (fmt === "HSL") {
+              const rgb = hsl2rgb(clamp(num("h") ?? 0, 0, 360), clamp((num("s") ?? 0) / 100, 0, 1), clamp((num("l") ?? 0) / 100, 0, 1));
+              const hsv = rgb2hsv(rgb.r, rgb.g, rgb.b); h = hsv.h; s = hsv.s; v = hsv.v;
+              const A = num("a"); if (A != null) aPct = clamp(A, 0, 100);
+            }
+            render();
+          };
+          // (re)build the inputs area when the format / float mode changes
+          const buildInputs = () => {
+            const defs = channelDefs();
+            if (!defs) {
+              inputsBox.innerHTML = `<input class="cp-value cp-hexfield" data-hex spellcheck="false" />`;
+              const hf = inputsBox.querySelector("[data-hex]");
+              hf.addEventListener("change", () => { const p = parseHex(hf.value); if (p) { const hsv = rgb2hsv(p.r, p.g, p.b); h = hsv.h; s = hsv.s; v = hsv.v; aPct = p.a * 100; } render(); });
+              hf.addEventListener("keydown", (e) => { if (e.key === "Enter") hf.blur(); });
+              return;
+            }
+            inputsBox.innerHTML = defs
+              .map((d) => `<div class="cp-channel"><label>${d.l}</label><input data-k="${d.k}" data-step="${d.step}" data-max="${d.max}" data-dec="${d.dec}" spellcheck="false" /></div>`)
+              .join("");
+            inputsBox.querySelectorAll("input").forEach((el) => {
+              el.addEventListener("change", commitChannels);
+              el.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") { el.blur(); return; }
+                if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                e.preventDefault();
+                const step = parseFloat(el.getAttribute("data-step")) * (e.shiftKey ? 10 : 1);
+                const max = parseFloat(el.getAttribute("data-max")), dec = parseInt(el.getAttribute("data-dec"), 10);
+                let n = parseFloat(el.value); if (isNaN(n)) n = 0;
+                n = clamp(n + (e.key === "ArrowUp" ? step : -step), 0, max);
+                el.value = dec ? round(n, dec).toFixed(dec) : String(Math.round(n));
+                commitChannels();
+              });
+            });
+          };
+          // push current values into the (unfocused) input fields
+          const fillInputs = () => {
+            if (fmt === "HEX") {
+              const hf = inputsBox.querySelector("[data-hex]");
+              if (hf && document.activeElement !== hf) { const b = base01(); hf.value = toHex(b.r * 255, b.g * 255, b.b * 255, aPct / 100); }
+              return;
+            }
+            channelDefs().forEach((d) => {
+              const el = inputsBox.querySelector(`input[data-k="${d.k}"]`);
+              if (el && document.activeElement !== el) { const raw = channelValue(d.k); el.value = d.dec > 0 ? raw.toFixed(d.dec) : String(Math.round(raw)); }
+            });
+          };
+
+          const render = () => {
+            const b = base01();
+            const R = Math.round(b.r * 255), G = Math.round(b.g * 255), B = Math.round(b.b * 255);
+            const a = clamp(aPct / 100, 0, 1);
+            sv.style.setProperty("--cp-hue", `hsl(${h} 100% 50%)`);
+            svCur.style.left = s * 100 + "%"; svCur.style.top = (1 - v) * 100 + "%";
+            svCur.style.background = `rgb(${R} ${G} ${B})`;
+            hueThumb.style.left = (h / 360) * 100 + "%";
+            alphaThumb.style.left = aPct + "%";
+            alphaGrad.style.background = `linear-gradient(to right, transparent, rgb(${R} ${G} ${B}))`;
+            intThumb.style.left = ((intensity - 1) / (INT_MAX - 1)) * 100 + "%";
+            if (document.activeElement !== intIn) intIn.value = round(intensity, 2);
+            preview.style.setProperty("--cp-color", `rgba(${R}, ${G}, ${B}, ${a})`);
+            // HDR hint: CSS can't render >1 luminance, so glow scales with intensity
+            preview.style.boxShadow = intensity > 1.01
+              ? `inset 0 0 0 1px rgba(0,0,0,.28), 0 0 ${Math.min((intensity - 1) * 6, 16)}px 1px rgba(${R},${G},${B},.65)`
+              : "inset 0 0 0 1px rgba(0,0,0,.28)";
+            fmtLbl.textContent = fmt;
+            spaceSeg.querySelectorAll("button").forEach((btn) => btn.classList.toggle("on", btn.getAttribute("data-v") === space));
+            floatSeg.querySelectorAll("button").forEach((btn) => btn.classList.toggle("on", btn.getAttribute("data-v") === (floatMode ? "1" : "0")));
+            fillInputs();
+            const hex = toHex(R, G, B);
+            cp.querySelectorAll(".cp-swatch").forEach((w) => {
+              const cc = (w.getAttribute("data-c") || "").toUpperCase();
+              w.classList.toggle("selected", cc === hex);
+              const p = parseHex(cc); // light swatch → dark check (sRGB-weighted luminance)
+              w.classList.toggle("on-light", p ? 0.2126 * p.r + 0.7152 * p.g + 0.0722 * p.b > 150 : false);
+            });
+            if (linkSel)
+              document.querySelectorAll(linkSel).forEach((sw) => {
+                const chip = sw.querySelector(".colorswatch-chip"), lbl = sw.querySelector(".colorswatch-val");
+                if (chip) chip.style.setProperty("--c", `rgba(${R}, ${G}, ${B}, ${a})`);
+                if (lbl) lbl.textContent = hex;
+              });
+          };
+
+          // pointer drag on a track/area → normalized (x, y); capture keeps it live off-element
+          const drag = (el, onMove) => {
+            const apply = (e) => { const r = el.getBoundingClientRect(); onMove(clamp((e.clientX - r.left) / r.width, 0, 1), clamp((e.clientY - r.top) / r.height, 0, 1)); render(); };
+            el.addEventListener("pointerdown", (e) => {
+              el.setPointerCapture(e.pointerId); apply(e);
+              const mv = (ev) => apply(ev);
+              const up = () => { el.removeEventListener("pointermove", mv); el.removeEventListener("pointerup", up); };
+              el.addEventListener("pointermove", mv); el.addEventListener("pointerup", up);
+            });
+          };
+          drag(sv, (x, y) => { s = x; v = 1 - y; });
+          drag(hue, (x) => { h = x * 360; });
+          drag(alpha, (x) => { aPct = x * 100; });
+          drag(intTrack, (x) => { intensity = 1 + x * (INT_MAX - 1); });
+          intIn.addEventListener("change", () => { const n = parseFloat(intIn.value); if (!isNaN(n)) intensity = clamp(n, 1, INT_MAX); render(); });
+          intIn.addEventListener("keydown", (e) => { if (e.key === "Enter") intIn.blur(); });
+
+          fmtBtn.addEventListener("click", () => { fmt = FMTS[(FMTS.indexOf(fmt) + 1) % FMTS.length]; buildInputs(); render(); });
+          spaceSeg.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => { space = btn.getAttribute("data-v"); render(); }));
+          floatSeg.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => { floatMode = btn.getAttribute("data-v") === "1"; buildInputs(); render(); }));
+
+          const applyHex = (hexStr) => { const p = parseHex(hexStr); if (p) { const hsv = rgb2hsv(p.r, p.g, p.b); h = hsv.h; s = hsv.s; v = hsv.v; aPct = p.a * 100; } render(); };
+          cp.querySelectorAll(".cp-presets .cp-swatch").forEach((w) => w.addEventListener("click", () => applyHex(w.getAttribute("data-c"))));
+
+          const renderRecent = () => {
+            if (!recents.length) { recentBox.innerHTML = `<span class="cp-recent-empty">点 ＋ 存入当前色</span>`; return; }
+            recentBox.innerHTML = recents.map((c) => `<button class="cp-swatch" data-c="${c}" style="--c:${c}" title="${c}"></button>`).join("");
+            recentBox.querySelectorAll(".cp-swatch").forEach((w) => w.addEventListener("click", () => applyHex(w.getAttribute("data-c"))));
+          };
+          addBtn.addEventListener("click", () => {
+            const b = base01(), hex = toHex(b.r * 255, b.g * 255, b.b * 255);
+            const i = recents.indexOf(hex); if (i >= 0) recents.splice(i, 1);
+            recents.unshift(hex); if (recents.length > 9) recents.pop();
+            renderRecent(); render();
+          });
+
+          const copyString = () => {
+            const b = base01(), R = Math.round(b.r * 255), G = Math.round(b.g * 255), B = Math.round(b.b * 255);
+            if (fmt === "HEX") return toHex(R, G, B, aPct / 100);
+            if (fmt === "RGB") {
+              const fn = (k, dec) => { const r = channelValue(k); return dec > 0 ? r.toFixed(dec) : String(Math.round(r)); };
+              const dec = floatMode ? 3 : 0;
+              return `rgba(${fn("r", dec)}, ${fn("g", dec)}, ${fn("b", dec)}, ${round(aPct / 100, 2)})`;
+            }
+            if (fmt === "HSB") return `hsb(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(v * 100)}%)`;
+            const hsl = rgb2hsl(R, G, B);
+            return `hsl(${Math.round(hsl.h)}, ${Math.round(hsl.s * 100)}%, ${Math.round(hsl.l * 100)}%)`;
+          };
+          copyBtn.addEventListener("click", () => {
+            const str = copyString();
+            if (navigator.clipboard) navigator.clipboard.writeText(str).catch(() => {});
+            copyBtn.classList.add("copied");
+            const u = copyBtn.querySelector("use"); if (u) u.setAttribute("href", "#i-check");
+            setTimeout(() => { copyBtn.classList.remove("copied"); if (u) u.setAttribute("href", "#i-copy"); }, 900);
+          });
+
+          // real screen eyedropper where supported (Chromium); silently no-ops elsewhere
+          q(".cp-eyedrop").addEventListener("click", async () => {
+            if (!window.EyeDropper) return;
+            try { const res = await new window.EyeDropper().open(); applyHex(res.sRGBHex); } catch (e) {}
+          });
+
+          buildInputs();
+          renderRecent();
+          render();
+        });
+      })();
     </script>
   </body>
 </html>
