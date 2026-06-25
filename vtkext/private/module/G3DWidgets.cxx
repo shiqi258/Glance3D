@@ -782,9 +782,18 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   {
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
   }
+  // Pin the layout cursor to the header's exact bottom. ImGui auto-advances by ItemSpacing.y after
+  // the InvisibleButton; left as-is that spacing becomes part of the card (the collapsed card's bg
+  // extends below the header, leaving a gap under the hover fill) and pushes the open card's body
+  // seam a gap below the header. From here the seam, the body and EndCollapse's card rect all start
+  // flush with the header bottom.
+  ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + headerH));
   const float hoverT = a.hover.Value();
   const float cy = p0.y + headerH * 0.5f;
   const ImVec2 mp = ImGui::GetIO().MousePos;
+  // Open state for THIS frame's chrome (twisty glyph + which header corners are rounded). Read before
+  // the click is routed, so it matches the twisty (both settle one frame after a toggle).
+  const bool isOpen = desc.open ? *desc.open : true;
 
   const float headPadL =
     (desc.variant == CollapseVariant::Ghost ? 2.f : desc.variant == CollapseVariant::Sub ? 6.f : 8.f) *
@@ -794,7 +803,10 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   AAGuard aa(dl);
 
   // Header hover background (rest = none; the card/accordion surface shows through). For a flush
-  // accordion item it is surface-2, otherwise surface-3 (one step above the card).
+  // accordion item it is surface-2, otherwise surface-3 (one step above the card). The fill must
+  // follow the rounded corners of whatever container it sits in — the styleguide achieves this with
+  // the card's `overflow: hidden`; here we pick matching corner-rounding flags so the highlight never
+  // pokes past a rounded corner.
   if (hoverT > 0.001f)
   {
     const ImVec4 hbg = inAccordion ? G3DTheme::Surface() : G3DTheme::SurfaceHover();
@@ -805,9 +817,17 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
       rr = G3DTheme::Radius::Small * s;
       rf = ImDrawFlags_RoundCornersAll;
     }
-    else if (hasBorder || firstInAccordion)
+    else if (hasBorder)
     {
-      rr = G3DTheme::Radius::Card * s; // round the top to follow the card's rounded corners
+      // Standalone card: collapsed -> the header IS the whole card, round all four corners; open ->
+      // round only the top (the body continues below behind a straight seam).
+      rr = G3DTheme::Radius::Card * s;
+      rf = isOpen ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll;
+    }
+    else if (firstInAccordion)
+    {
+      // First item follows the accordion's rounded top corners (the rest of the seam is straight).
+      rr = G3DTheme::Radius::Card * s;
       rf = ImDrawFlags_RoundCornersTop;
     }
     dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + headerH), U32(hbg, hoverT), rr, rf);
@@ -887,7 +907,6 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   // --- leading items, left-to-right. ---
   float leftX = p0.x + headPadL;
   // Twisty chevron (right = collapsed, down = open), text-subtle brightening to text on hover.
-  const bool isOpen = desc.open ? *desc.open : true;
   {
     const float twBox = 18.f * s;
     ImVec4 subtle = G3DTheme::Text();
