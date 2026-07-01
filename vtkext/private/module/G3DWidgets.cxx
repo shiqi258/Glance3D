@@ -4,8 +4,11 @@
 #include "G3DTheme.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
+#include <iterator>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -112,6 +115,18 @@ struct AAGuard
   }
   ~AAGuard() { this->dl->Flags = this->saved; }
 };
+
+// Snap a draw-list point to whole pixels. An even-diameter anti-aliased circle (slider thumbs, the
+// SV cursor) only rasterizes crisply when its center is on an integer pixel; at a fractional center
+// the feathered fill fringe spreads unevenly left/right and the round handle reads as a horizontal
+// ellipse. That is exactly why thumbs looked oval at mid-track values but stayed round at the ends,
+// which happen to land on whole pixels. f3d runs ImGui at FramebufferScale 1, so an integer in
+// draw-list units is an integer device pixel — snapping the center here keeps thumbs round at every
+// position. Cheap (two std::round) and has no visible effect on placement (<=0.5px).
+inline ImVec2 PxSnap(const ImVec2& p)
+{
+  return ImVec2(std::round(p.x), std::round(p.y));
+}
 
 using G3DTheme::LerpColor;
 using G3DTheme::U32;
@@ -1906,6 +1921,1290 @@ void TreeVirtual(int rowCount, const std::function<void(int)>& drawRow)
     }
   }
   clipper.End();
+}
+
+//----------------------------------------------------------------------------
+// Color picker
+//----------------------------------------------------------------------------
+namespace
+{
+// ---- color math (owned here once, mirroring the styleguide picker init) -----------------------
+struct RGBf
+{
+  float r, g, b;
+}; // each 0..1
+struct HSVf
+{
+  float h, s, v;
+}; // h 0..360, s/v 0..1
+struct HSLf
+{
+  float h, s, l;
+};
+
+HSVf RgbToHsv(float r, float g, float b)
+{
+  const float mx = std::max({ r, g, b });
+  const float mn = std::min({ r, g, b });
+  const float d = mx - mn;
+  float h = 0.f;
+  if (d > 0.f)
+  {
+    if (mx == r)
+    {
+      h = std::fmod((g - b) / d, 6.f);
+    }
+    else if (mx == g)
+    {
+      h = (b - r) / d + 2.f;
+    }
+    else
+    {
+      h = (r - g) / d + 4.f;
+    }
+    h *= 60.f;
+    if (h < 0.f)
+    {
+      h += 360.f;
+    }
+  }
+  return { h, mx == 0.f ? 0.f : d / mx, mx };
+}
+
+RGBf HsvToRgb(float h, float s, float v)
+{
+  const float c = v * s;
+  const float x = c * (1.f - std::fabs(std::fmod(h / 60.f, 2.f) - 1.f));
+  const float m = v - c;
+  float r = 0.f, g = 0.f, b = 0.f;
+  if (h < 60.f)
+  {
+    r = c;
+    g = x;
+  }
+  else if (h < 120.f)
+  {
+    r = x;
+    g = c;
+  }
+  else if (h < 180.f)
+  {
+    g = c;
+    b = x;
+  }
+  else if (h < 240.f)
+  {
+    g = x;
+    b = c;
+  }
+  else if (h < 300.f)
+  {
+    r = x;
+    b = c;
+  }
+  else
+  {
+    r = c;
+    b = x;
+  }
+  return { r + m, g + m, b + m };
+}
+
+HSLf RgbToHsl(float r, float g, float b)
+{
+  const float mx = std::max({ r, g, b });
+  const float mn = std::min({ r, g, b });
+  const float d = mx - mn;
+  const float l = (mx + mn) * 0.5f;
+  float h = 0.f, s = 0.f;
+  if (d > 0.f)
+  {
+    s = d / (1.f - std::fabs(2.f * l - 1.f));
+    if (mx == r)
+    {
+      h = std::fmod((g - b) / d, 6.f);
+    }
+    else if (mx == g)
+    {
+      h = (b - r) / d + 2.f;
+    }
+    else
+    {
+      h = (r - g) / d + 4.f;
+    }
+    h *= 60.f;
+    if (h < 0.f)
+    {
+      h += 360.f;
+    }
+  }
+  return { h, s, l };
+}
+
+RGBf HslToRgb(float h, float s, float l)
+{
+  const float c = (1.f - std::fabs(2.f * l - 1.f)) * s;
+  const float x = c * (1.f - std::fabs(std::fmod(h / 60.f, 2.f) - 1.f));
+  const float m = l - c * 0.5f;
+  float r = 0.f, g = 0.f, b = 0.f;
+  if (h < 60.f)
+  {
+    r = c;
+    g = x;
+  }
+  else if (h < 120.f)
+  {
+    r = x;
+    g = c;
+  }
+  else if (h < 180.f)
+  {
+    g = c;
+    b = x;
+  }
+  else if (h < 240.f)
+  {
+    g = x;
+    b = c;
+  }
+  else if (h < 300.f)
+  {
+    r = x;
+    b = c;
+  }
+  else
+  {
+    r = c;
+    b = x;
+  }
+  return { r + m, g + m, b + m };
+}
+
+// sRGB transfer (channel in 0..1)
+float Srgb2Linear(float c)
+{
+  return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+float Linear2Srgb(float c)
+{
+  return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.f / 2.4f) - 0.055f;
+}
+
+int To255(float c01)
+{
+  return std::clamp(static_cast<int>(std::lround(c01 * 255.f)), 0, 255);
+}
+
+// r,g,b 0..1; a 0..1 — append the alpha byte only when wantAlpha (8-digit #RRGGBBAA), uppercase.
+std::string ToHexStr(float r, float g, float b, float a, bool wantAlpha)
+{
+  char buf[10];
+  if (wantAlpha && a < 0.999f)
+  {
+    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X%02X", To255(r), To255(g), To255(b), To255(a));
+  }
+  else
+  {
+    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", To255(r), To255(g), To255(b));
+  }
+  return buf;
+}
+
+// hex (3/4/6/8 digit, '#' optional) -> rgba 0..1. Returns false on malformed input.
+bool ParseHexStr(const char* str, float& r, float& g, float& b, float& a)
+{
+  std::string h;
+  for (const char* p = str; p && *p; ++p)
+  {
+    if (std::isxdigit(static_cast<unsigned char>(*p)))
+    {
+      h.push_back(static_cast<char>(*p));
+    }
+    else if (*p != '#' && !std::isspace(static_cast<unsigned char>(*p)))
+    {
+      return false;
+    }
+  }
+  auto hx = [](char c) { return static_cast<float>(std::stoi(std::string(1, c), nullptr, 16)); };
+  if (h.size() == 3 || h.size() == 4)
+  {
+    r = hx(h[0]) * 17.f / 255.f;
+    g = hx(h[1]) * 17.f / 255.f;
+    b = hx(h[2]) * 17.f / 255.f;
+    a = h.size() == 4 ? hx(h[3]) * 17.f / 255.f : 1.f;
+    return true;
+  }
+  if (h.size() == 6 || h.size() == 8)
+  {
+    auto byte = [&](int i) { return static_cast<float>(std::stoi(h.substr(i, 2), nullptr, 16)) / 255.f; };
+    r = byte(0);
+    g = byte(2);
+    b = byte(4);
+    a = h.size() == 8 ? byte(6) : 1.f;
+    return true;
+  }
+  return false;
+}
+
+// Persistent per-picker UI state (the color itself round-trips through the caller's col[]). HSV is the
+// working source of truth while open, so dragging value/saturation to 0 never loses the hue.
+struct ColorPickerState
+{
+  float h = 0.f, s = 0.f, v = 0.f;
+  float a = 1.f;          // alpha 0..1
+  float intensity = 1.f;  // HDR multiplier (>= 1)
+  G3DWidgets::ColorFormat fmt = G3DWidgets::ColorFormat::Hex;
+  G3DWidgets::ColorSpace space = G3DWidgets::ColorSpace::Srgb;
+  bool floatMode = false;
+  bool inited = false;
+  float lastR = -1.f, lastG = -1.f, lastB = -1.f, lastA = -1.f; // detect external col[] edits
+  std::vector<unsigned int> recents;                            // packed 0x00RRGGBB, most-recent first
+  char hexBuf[16] = "";
+  char chanBuf[4][16] = { "", "", "", "" };
+  char intBuf[16] = "";
+  double copiedTime = -10.0;
+};
+std::unordered_map<ImGuiID, ColorPickerState> gColorPickers;
+
+constexpr float HDR_INT_MAX = 8.f;
+
+// The styleguide preset row (a balanced 12-swatch ramp), packed 0xRRGGBB.
+const unsigned int kPresets[] = { 0x7C8CFF, 0x5566F0, 0x22D3EE, 0x5FD08A, 0xF3B13F, 0xF56A57,
+  0xF472B6, 0xA78BFA, 0xE8EAF0, 0x9AA1AD, 0x3A3F4A, 0x0B0C10 };
+
+// Checkerboard transparency base. DARK-THEME cells (two muted grays, not the classic white/light
+// #c2c8d2) so a translucent color reads as part of the dark UI instead of flashing a white backdrop.
+// Square cells inside the bounding box; an opaque color overlay drawn on top hides them at alpha == 1.
+void DrawCheckerboard(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float cell)
+{
+  dl->AddRectFilled(p0, p1, IM_COL32(0x56, 0x5c, 0x67, 255)); // lighter cell
+  const ImU32 dark = IM_COL32(0x36, 0x3b, 0x44, 255);         // darker cell
+  dl->PushClipRect(p0, p1, true);
+  int row = 0;
+  for (float y = p0.y; y < p1.y; y += cell, ++row)
+  {
+    for (float x = p0.x + (row & 1 ? cell : 0.f); x < p1.x; x += 2.f * cell)
+    {
+      dl->AddRectFilled(
+        ImVec2(x, y), ImVec2(std::min(x + cell, p1.x), std::min(y + cell, p1.y)), dark);
+    }
+  }
+  dl->PopClipRect();
+}
+
+// Fill the four rounded-corner notches of [p0,p1] (radius r) with @p bg — i.e. clip square content
+// drawn in the rect (the checkerboard) to the rounded shape, so outside the arc reads as the chip's
+// background. ImGui has no rounded clip rect; this carves each corner (the region between the square
+// corner and the quarter-circle arc) back to bg via a concave fill. Angles are screen-space (y down):
+// 0 = right, PI/2 = down, PI = left, 3PI/2 = up; each arc goes a_min<a_max for correct AA.
+void CarveRoundedCorners(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float r, ImU32 bg)
+{
+  if (r <= 0.5f)
+  {
+    return;
+  }
+  constexpr float P = 3.14159265f;
+  dl->PathLineTo(ImVec2(p0.x, p0.y));
+  dl->PathLineTo(ImVec2(p0.x, p0.y + r));
+  dl->PathArcTo(ImVec2(p0.x + r, p0.y + r), r, P, 1.5f * P); // top-left
+  dl->PathFillConcave(bg);
+  dl->PathLineTo(ImVec2(p1.x, p0.y));
+  dl->PathLineTo(ImVec2(p1.x - r, p0.y));
+  dl->PathArcTo(ImVec2(p1.x - r, p0.y + r), r, 1.5f * P, 2.f * P); // top-right
+  dl->PathFillConcave(bg);
+  dl->PathLineTo(ImVec2(p1.x, p1.y));
+  dl->PathLineTo(ImVec2(p1.x, p1.y - r));
+  dl->PathArcTo(ImVec2(p1.x - r, p1.y - r), r, 0.f, 0.5f * P); // bottom-right
+  dl->PathFillConcave(bg);
+  dl->PathLineTo(ImVec2(p0.x, p1.y));
+  dl->PathLineTo(ImVec2(p0.x + r, p1.y));
+  dl->PathArcTo(ImVec2(p0.x + r, p1.y - r), r, 0.5f * P, P); // bottom-left
+  dl->PathFillConcave(bg);
+}
+
+// A color chip: solid rounded color + a dark inset hairline (never a translucent-white border, which
+// fringes the rounded corners on dark colors). The checkerboard is a TRANSPARENCY indicator, so it is
+// drawn ONLY when the color is actually translucent — for opaque colors the chip is the solid color,
+// reading as part of the (dark) UI. When translucent, the square checkerboard is clipped to the
+// rounded shape (CarveRoundedCorners with @p bgUnder, the surface the chip sits on) so the four
+// corners stay the background instead of leaking square checker past the arc.
+void DrawColorChip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, const ImVec4& color,
+  float rounding, const ImVec4& bgUnder)
+{
+  const float s = Scale();
+  if (color.w < 0.996f) // ~254/255: only a genuinely translucent color needs the transparency checker
+  {
+    DrawCheckerboard(dl, p0, p1, 4.f * s);
+    CarveRoundedCorners(dl, p0, p1, rounding, U32(bgUnder));
+  }
+  dl->AddRectFilled(p0, p1, U32(color), rounding);
+  dl->AddRect(p0, p1, IM_COL32(0, 0, 0, 71), rounding, 0, G3DTheme::Size::Border * s); // inset .28
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+bool ColorSwatch(const char* id, const float col[4], const ColorSwatchDesc& desc)
+{
+  ImGui::PushID(id);
+  const float s = Scale();
+  const float h = (desc.compact ? 26.f : G3DTheme::Size::Control) * s;
+  const float chip = (desc.compact ? 16.f : 20.f) * s;
+  const float padX = (desc.compact ? 6.f : 8.f) * s;
+  const float gap = G3DTheme::Spacing::Sm * s;
+  const float chevSz = 14.f * s;
+
+  const float a = desc.alpha ? col[3] : 1.f;
+  const std::string hex = ToHexStr(col[0], col[1], col[2], a, desc.alpha);
+
+  // Width: grow fills the value column (proprow), else content width with a 104px floor (non-compact).
+  float width;
+  if (desc.grow)
+  {
+    width = ImGui::GetContentRegionAvail().x;
+  }
+  else
+  {
+    width = padX * 2.f + chip;
+    if (!desc.noLabel)
+    {
+      width += gap + ImGui::CalcTextSize(hex.c_str()).x;
+    }
+    if (!desc.noChevron)
+    {
+      width += gap + chevSz;
+    }
+    if (!desc.compact)
+    {
+      width = std::max(width, 104.f * s);
+    }
+  }
+
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  if (desc.disabled)
+  {
+    ImGui::BeginDisabled();
+  }
+  const bool clicked = ImGui::InvisibleButton("##sw", ImVec2(width, h));
+  const bool hovered = ImGui::IsItemHovered();
+  const bool held = ImGui::IsItemActive();
+  const bool focused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
+  const WidgetAnim& w = Interact(ImGui::GetID("##sw"), hovered, held);
+  if (hovered)
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  AAGuard aa(dl);
+  const float t = std::max(w.hover.Value(), focused ? 1.f : 0.f);
+  const float radius = G3DTheme::Radius::Control * s;
+  const ImVec4 bg = LerpColor(G3DTheme::Surface(), G3DTheme::SurfaceHover(), t);
+  dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + h), U32(bg, desc.disabled ? 0.45f : 1.f), radius);
+  const ImVec4 border = focused ? G3DTheme::Accent() : LerpColor(G3DTheme::Border(), G3DTheme::BorderStrong(), w.hover.Value());
+  dl->AddRect(p0, ImVec2(p0.x + width, p0.y + h), U32(border, desc.disabled ? 0.45f : 1.f), radius, 0,
+    G3DTheme::Size::Border * s);
+  if (focused)
+  {
+    const float o = 1.5f * s;
+    dl->AddRect(ImVec2(p0.x - o, p0.y - o), ImVec2(p0.x + width + o, p0.y + h + o),
+      U32(G3DTheme::Accent(), 0.45f), radius + o, 0, 2.f * s);
+  }
+
+  // chip — the swatch field fill (bg) is what sits behind it, so carved corners blend with the field
+  const float cy = p0.y + h * 0.5f;
+  const ImVec2 c0(p0.x + padX, cy - chip * 0.5f);
+  DrawColorChip(dl, c0, ImVec2(c0.x + chip, c0.y + chip),
+    ImVec4(col[0], col[1], col[2], a), G3DTheme::Radius::Small * s, bg);
+
+  float tx = c0.x + chip + gap;
+  if (!desc.noChevron)
+  {
+    // chevron pinned to the right edge (rotated chevron == down)
+    G3DIcon::Draw(dl, G3DIconId::ChevronDown,
+      ImVec2(p0.x + width - padX - chevSz * 0.5f, cy), chevSz, U32(G3DTheme::TextSubtle()));
+  }
+  if (!desc.noLabel)
+  {
+    const float rightLimit =
+      p0.x + width - padX - (desc.noChevron ? 0.f : chevSz + gap);
+    dl->PushClipRect(ImVec2(tx, p0.y), ImVec2(rightLimit, p0.y + h), true);
+    // Regular UI font (no custom size) — the value is primary readable text, not a micro-label.
+    dl->AddText(ImVec2(tx, cy - ImGui::CalcTextSize(hex.c_str()).y * 0.5f), U32(G3DTheme::Text()),
+      hex.c_str());
+    dl->PopClipRect();
+  }
+
+  if (desc.disabled)
+  {
+    ImGui::EndDisabled();
+  }
+  ImGui::PopID();
+  return clicked;
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+// cp-value styled text field (surface-1 bg, hairline -> accent on focus, 28px tall, radius sm). The
+// caller positions it (x,y). Returns IsItemDeactivatedAfterEdit so the caller commits the parsed
+// value once on blur/Enter; query ImGui::IsItemActive() right after to know whether to keep refreshing
+// the buffer from the model (public API only — no imgui_internal GetActiveID).
+bool PickerField(const char* idStr, char* buf, std::size_t bufSize, float x, float y, float wdt,
+  ImGuiInputTextFlags flags)
+{
+  const float s = Scale();
+  const float h = 28.f * s;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+
+  // base box behind the (transparent) ImGui input.
+  {
+    AAGuard aa(dl);
+    const float rad = G3DTheme::Radius::Small * s;
+    dl->AddRectFilled(ImVec2(x, y), ImVec2(x + wdt, y + h), U32(G3DTheme::Panel()), rad);
+    dl->AddRect(ImVec2(x, y), ImVec2(x + wdt, y + h), U32(G3DTheme::Border()), rad, 0,
+      G3DTheme::Size::Border * s);
+  }
+
+  ImGui::SetCursorScreenPos(ImVec2(x, y));
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_FrameBgActive, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+    ImVec2(G3DTheme::Spacing::Sm * s, std::max(0.f, (h - ImGui::GetFontSize()) * 0.5f)));
+  ImGui::SetNextItemWidth(wdt);
+  ImGui::InputText(idStr, buf, bufSize, flags);
+  ImGui::PopStyleVar();
+  ImGui::PopStyleColor(3);
+
+  // focus chrome drawn on top of the (transparent-framed) input: accent border + ring.
+  if (ImGui::IsItemActive())
+  {
+    AAGuard aa(dl);
+    const float rad = G3DTheme::Radius::Small * s;
+    dl->AddRect(ImVec2(x, y), ImVec2(x + wdt, y + h), U32(G3DTheme::Accent()), rad, 0,
+      G3DTheme::Size::Border * s);
+    const float o = 1.5f * s;
+    dl->AddRect(ImVec2(x - o, y - o), ImVec2(x + wdt + o, y + h + o), U32(G3DTheme::Accent(), 0.5f),
+      rad + o, 0, 2.f * s);
+  }
+  return ImGui::IsItemDeactivatedAfterEdit();
+}
+
+// One editable channel descriptor for the current format.
+struct ChanDef
+{
+  char k;
+  const char* label;
+  float maxv;
+  float step;
+  int dec;
+};
+
+void FormatChan(char* out, std::size_t n, float value, int dec)
+{
+  if (dec > 0)
+  {
+    std::snprintf(out, n, "%.*f", dec, value);
+  }
+  else
+  {
+    std::snprintf(out, n, "%d", static_cast<int>(std::lround(value)));
+  }
+}
+
+// Draw the full popup picker panel onto the current window; returns true on frames the color changed.
+bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditDesc& desc)
+{
+  using G3DWidgets::ColorFormat;
+  using G3DWidgets::ColorSpace;
+  const float s = Scale();
+  ColorPickerState& st = gColorPickers[stateId];
+
+  // ---- sync working state from the caller's color (init, or an external edit) ----
+  const float incomingA = desc.alpha ? col[3] : 1.f;
+  const bool external = col[0] != st.lastR || col[1] != st.lastG || col[2] != st.lastB ||
+    incomingA != st.lastA;
+  if (!st.inited)
+  {
+    st.fmt = desc.format;
+    st.space = desc.space;
+    st.floatMode = desc.floatMode;
+    st.inited = true;
+  }
+  if (!st.inited || external)
+  {
+    const HSVf hsv = RgbToHsv(col[0], col[1], col[2]);
+    st.h = hsv.h;
+    st.s = hsv.s;
+    st.v = hsv.v;
+    st.a = incomingA;
+    st.lastR = col[0];
+    st.lastG = col[1];
+    st.lastB = col[2];
+    st.lastA = incomingA;
+  }
+
+  bool dirty = false;
+  auto setRgb01 = [&](float r, float g, float b, float a) {
+    const HSVf hsv = RgbToHsv(r, g, b);
+    st.h = hsv.h;
+    st.s = hsv.s;
+    st.v = hsv.v;
+    st.a = std::clamp(a, 0.f, 1.f);
+    dirty = true;
+  };
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const float W = 288.f * s; // content width (312 panel - 2*12 padding); wider so the regular-size
+                             // (14px) control row — format + space/float segments + copy — fits on one line
+  const float G = G3DTheme::Spacing::Md * s;
+  const float gap2 = G3DTheme::Spacing::Sm * s;
+  const float kRowLabelW = 36.f * s; // left label column (强度 / 预设 / 最近) at the regular 14px font
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const float x0 = origin.x;
+  float y = origin.y;
+
+  // ===== SV square (saturation x value over a pure-hue base) =====
+  {
+    const float svH = 150.f * s;
+    ImGui::SetCursorScreenPos(ImVec2(x0, y));
+    ImGui::InvisibleButton("##sv", ImVec2(W, svH));
+    if (ImGui::IsItemActive())
+    {
+      const ImVec2 m = ImGui::GetIO().MousePos;
+      st.s = std::clamp((m.x - x0) / W, 0.f, 1.f);
+      st.v = std::clamp(1.f - (m.y - y) / svH, 0.f, 1.f);
+      dirty = true;
+    }
+    AAGuard aa(dl);
+    const ImVec2 a0(x0, y), a1(x0 + W, y + svH);
+    const RGBf hueRgb = HsvToRgb(st.h, 1.f, 1.f);
+    const ImU32 hueCol = U32(ImVec4(hueRgb.r, hueRgb.g, hueRgb.b, 1.f));
+    dl->AddRectFilled(a0, a1, hueCol);
+    dl->AddRectFilledMultiColor(a0, a1, IM_COL32(255, 255, 255, 255), IM_COL32(255, 255, 255, 0),
+      IM_COL32(255, 255, 255, 0), IM_COL32(255, 255, 255, 255)); // white -> transparent (saturation)
+    dl->AddRectFilledMultiColor(a0, a1, IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0),
+      IM_COL32(0, 0, 0, 255), IM_COL32(0, 0, 0, 255)); // transparent -> black (value)
+    dl->AddRect(a0, a1, IM_COL32(0, 0, 0, 71), 0.f, 0, G3DTheme::Size::Border * s);
+    // cursor (current color fill + white ring + dark halo)
+    const ImVec2 cc = PxSnap(ImVec2(x0 + st.s * W, y + (1.f - st.v) * svH));
+    const float cr = 7.f * s;
+    const RGBf cur = HsvToRgb(st.h, st.s, st.v);
+    dl->AddCircleFilled(cc, cr, U32(ImVec4(cur.r, cur.g, cur.b, 1.f)), 24);
+    dl->AddCircle(cc, cr + 1.f * s, IM_COL32(0, 0, 0, 115), 24, 1.f * s);
+    dl->AddCircle(cc, cr, IM_COL32(255, 255, 255, 255), 24, 2.f * s);
+    y += svH + G;
+  }
+
+  // Working RGB AFTER the SV interaction this frame, so the preview / alpha gradient / swatch-selection
+  // track an SV drag without a one-frame lag.
+  const RGBf base = HsvToRgb(st.h, st.s, st.v);
+
+  // ===== mid row: eyedropper + preview + (hue / alpha tracks) =====
+  {
+    const float rowH = 32.f * s;
+    const float ctrl = 30.f * s;
+    const float ctrlMid = y + (rowH - ctrl) * 0.5f;
+
+    // eyedropper (screen / viewport sampling — desktop hook pending; visible affordance for now).
+    // Drawn manually (not IconButton) so the pipette glyph is a touch larger than the standard 0.52x
+    // icon: at the button's ~30px the Lucide detail needs the extra pixels to read clearly. Tooltip
+    // matches the styleguide title "吸管取色（屏幕采样）".
+    {
+      const char* eyeTip =
+        "\xE5\x90\xB8\xE7\xAE\xA1\xE5\x8F\x96\xE8\x89\xB2\xEF\xBC\x88\xE5\xB1\x8F\xE5\xB9\x95\xE9\x87\x87"
+        "\xE6\xA0\xB7\xEF\xBC\x89";
+      ImGui::SetCursorScreenPos(ImVec2(x0, ctrlMid));
+      ImGui::InvisibleButton("##eyedrop", ImVec2(ctrl, ctrl));
+      const bool eHov = ImGui::IsItemHovered();
+      const WidgetAnim& ea = Interact(ImGui::GetID("##eyedrop"), eHov, ImGui::IsItemActive());
+      if (eHov)
+      {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      }
+      AAGuard aa(dl);
+      if (ea.hover.Value() > 0.01f)
+      {
+        dl->AddRectFilled(ImVec2(x0, ctrlMid), ImVec2(x0 + ctrl, ctrlMid + ctrl),
+          U32(G3DTheme::SurfaceHover(), ea.hover.Value()), G3DTheme::Radius::Control * s);
+      }
+      // 18px glyph + 1.5px stroke == styleguide .iconbtn .icon (font-size 18px, Lucide stroke-width 2).
+      G3DIcon::Draw(dl, G3DIconId::Eyedropper, ImVec2(x0 + ctrl * 0.5f, ctrlMid + ctrl * 0.5f),
+        ctrl * 0.60f, U32(G3DTheme::Text()), 1.5f * s);
+      G3DWidgets::ItemTooltip(eyeTip);
+    }
+
+    // preview chip (HDR glow hints at > 1 luminance, which CSS / sRGB can't display)
+    const float px = x0 + ctrl + G;
+    const ImVec2 pv0(px, ctrlMid), pv1(px + ctrl, ctrlMid + ctrl);
+    if (st.intensity > 1.01f)
+    {
+      const float glow = std::min((st.intensity - 1.f) * 4.f * s, 16.f * s);
+      dl->AddRectFilled(ImVec2(pv0.x - glow, pv0.y - glow), ImVec2(pv1.x + glow, pv1.y + glow),
+        U32(ImVec4(base.r, base.g, base.b, 0.55f)), G3DTheme::Radius::Control * s + glow);
+    }
+    DrawColorChip(dl, pv0, pv1, ImVec4(base.r, base.g, base.b, st.a), G3DTheme::Radius::Control * s,
+      G3DTheme::Surface()); // preview sits on the popup panel — carved corners stay panel bg
+
+    // hue + alpha tracks stacked in the remaining width
+    const float trackX = px + ctrl + G;
+    const float trackW = x0 + W - trackX;
+    const float trackH = 12.f * s;
+    const float hueY = y;
+    const float alphaY = y + trackH + gap2;
+
+    // hue track (interactive)
+    ImGui::SetCursorScreenPos(ImVec2(trackX, hueY));
+    ImGui::InvisibleButton("##hue", ImVec2(trackW, trackH));
+    if (ImGui::IsItemActive())
+    {
+      st.h = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f) * 360.f;
+      dirty = true;
+    }
+    {
+      AAGuard aa(dl);
+      const int kStops = 6;
+      const ImU32 stops[kStops + 1] = { IM_COL32(255, 0, 0, 255), IM_COL32(255, 255, 0, 255),
+        IM_COL32(0, 255, 0, 255), IM_COL32(0, 255, 255, 255), IM_COL32(0, 0, 255, 255),
+        IM_COL32(255, 0, 255, 255), IM_COL32(255, 0, 0, 255) };
+      for (int i = 0; i < kStops; ++i)
+      {
+        const float sx = trackX + trackW * (i / static_cast<float>(kStops));
+        const float ex = trackX + trackW * ((i + 1) / static_cast<float>(kStops));
+        dl->AddRectFilledMultiColor(ImVec2(sx, hueY), ImVec2(ex, hueY + trackH), stops[i],
+          stops[i + 1], stops[i + 1], stops[i]);
+      }
+    }
+
+    // alpha track (checkerboard + transparent -> current color, interactive)
+    ImGui::SetCursorScreenPos(ImVec2(trackX, alphaY));
+    ImGui::InvisibleButton("##alpha", ImVec2(trackW, trackH));
+    if (ImGui::IsItemActive())
+    {
+      st.a = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f);
+      dirty = true;
+    }
+    {
+      AAGuard aa(dl);
+      const ImVec2 al0(trackX, alphaY), al1(trackX + trackW, alphaY + trackH);
+      DrawCheckerboard(dl, al0, al1, 4.f * s);
+      const ImU32 opaque = U32(ImVec4(base.r, base.g, base.b, 1.f));
+      const ImU32 clear = U32(ImVec4(base.r, base.g, base.b, 0.f));
+      dl->AddRectFilledMultiColor(al0, al1, clear, opaque, opaque, clear);
+    }
+
+    // Round thumbs, drawn last and unclipped. Two things keep them perfectly circular:
+    //  - the 14px thumb is taller than the 12px track, so clipping it to either track would shave its
+    //    top/bottom into a flat-sided oval; PushClipRectFullScreen avoids that (thumbs are tiny and
+    //    always well inside the popup, so nothing bleeds out).
+    //  - PxSnap rounds the center to a whole pixel — without it an even-diameter AA circle reads as a
+    //    horizontal ellipse at fractional mid-track positions (see PxSnap note).
+    {
+      AAGuard aa(dl);
+      dl->PushClipRectFullScreen();
+      const float thumbR = 7.f * s;
+      const float hx = trackX + (st.h / 360.f) * trackW;
+      const float ax = trackX + st.a * trackW;
+      for (const ImVec2 c : { ImVec2(hx, hueY + trackH * 0.5f), ImVec2(ax, alphaY + trackH * 0.5f) })
+      {
+        const ImVec2 cc = PxSnap(c);
+        dl->AddCircleFilled(cc, thumbR, IM_COL32(255, 255, 255, 255), 24);
+        dl->AddCircle(cc, thumbR, IM_COL32(0, 0, 0, 64), 24, 1.f * s);
+      }
+      dl->PopClipRect();
+    }
+    y += rowH + G;
+  }
+
+  // ===== HDR intensity row =====
+  if (desc.hdr)
+  {
+    const float rowH = 28.f * s;
+    const float labW = kRowLabelW;
+    const float intInW = 48.f * s;
+    const float trackX = x0 + labW + gap2;
+    const float intInX = x0 + W - intInW;
+    const float trackW = intInX - gap2 - trackX;
+    const float trackH = 12.f * s;
+    const float trackY = y + (rowH - trackH) * 0.5f;
+
+    // 强度 (intensity) — regular UI font, vertically centered.
+    dl->AddText(ImVec2(x0, y + (rowH - ImGui::GetTextLineHeight()) * 0.5f),
+      U32(G3DTheme::TextSubtle()), "\xE5\xBC\xBA\xE5\xBA\xA6");
+
+    ImGui::SetCursorScreenPos(ImVec2(trackX, trackY));
+    ImGui::InvisibleButton("##int", ImVec2(trackW, trackH));
+    if (ImGui::IsItemActive())
+    {
+      const float t = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f);
+      st.intensity = 1.f + t * (HDR_INT_MAX - 1.f);
+      dirty = true;
+    }
+    {
+      AAGuard aa(dl);
+      dl->AddRectFilledMultiColor(ImVec2(trackX, trackY), ImVec2(trackX + trackW, trackY + trackH),
+        U32(G3DTheme::SurfacePress()), U32(G3DTheme::Accent()), U32(G3DTheme::Accent()),
+        U32(G3DTheme::SurfacePress()));
+      const float ix = trackX + ((st.intensity - 1.f) / (HDR_INT_MAX - 1.f)) * trackW;
+      const ImVec2 ic = PxSnap(ImVec2(ix, trackY + trackH * 0.5f));
+      dl->PushClipRectFullScreen(); // thumb overhangs the track — draw unclipped (see hue/alpha note)
+      dl->AddCircleFilled(ic, 7.f * s, IM_COL32(255, 255, 255, 255), 24);
+      dl->AddCircle(ic, 7.f * s, IM_COL32(0, 0, 0, 64), 24, 1.f * s);
+      dl->PopClipRect();
+    }
+
+    if (PickerField("##intval", st.intBuf, sizeof(st.intBuf), intInX, y, intInW,
+          ImGuiInputTextFlags_CharsDecimal))
+    {
+      try
+      {
+        st.intensity = std::clamp(std::stof(st.intBuf), 1.f, HDR_INT_MAX);
+      }
+      catch (...)
+      {
+      }
+    }
+    if (!ImGui::IsItemActive())
+    {
+      FormatChan(st.intBuf, sizeof(st.intBuf), st.intensity, 2);
+    }
+    y += rowH + G;
+  }
+
+  // ===== controls row: format cycle + space seg + float seg + copy =====
+  {
+    const float rowH = 28.f * s;
+    float cx = x0;
+
+    // format cycle button (HEX / RGB / HSB / HSL)
+    const char* fmtLbl = st.fmt == ColorFormat::Hex ? "HEX"
+      : st.fmt == ColorFormat::Rgb                  ? "RGB"
+      : st.fmt == ColorFormat::Hsb                  ? "HSB"
+                                                    : "HSL";
+    const float fmtIc = 13.f * s;
+    const float fmtW = 8.f * s + ImGui::CalcTextSize(fmtLbl).x + 3.f * s + fmtIc + 5.f * s;
+    ImGui::SetCursorScreenPos(ImVec2(cx, y));
+    const bool fmtClick = ImGui::InvisibleButton("##fmt", ImVec2(fmtW, rowH));
+    const WidgetAnim& fa = Interact(ImGui::GetID("##fmt"), ImGui::IsItemHovered(), ImGui::IsItemActive());
+    {
+      AAGuard aa(dl);
+      const ImVec4 fbg = LerpColor(G3DTheme::SurfaceHover(), G3DTheme::SurfacePress(), fa.hover.Value());
+      dl->AddRectFilled(ImVec2(cx, y), ImVec2(cx + fmtW, y + rowH), U32(fbg), G3DTheme::Radius::Small * s);
+      dl->AddRect(ImVec2(cx, y), ImVec2(cx + fmtW, y + rowH), U32(G3DTheme::Border()),
+        G3DTheme::Radius::Small * s, 0, G3DTheme::Size::Border * s);
+      const ImVec4 fcol = LerpColor(G3DTheme::TextMuted(), G3DTheme::Text(), fa.hover.Value());
+      dl->AddText(ImVec2(cx + 8.f * s, y + (rowH - ImGui::GetTextLineHeight()) * 0.5f), U32(fcol), fmtLbl);
+      G3DIcon::Draw(dl, G3DIconId::UpDown,
+        ImVec2(cx + fmtW - 5.f * s - fmtIc * 0.5f, y + rowH * 0.5f), fmtIc, U32(G3DTheme::TextSubtle()));
+    }
+    if (fmtClick)
+    {
+      st.fmt = st.fmt == ColorFormat::Hex ? ColorFormat::Rgb
+        : st.fmt == ColorFormat::Rgb     ? ColorFormat::Hsb
+        : st.fmt == ColorFormat::Hsb     ? ColorFormat::Hsl
+                                         : ColorFormat::Hex;
+    }
+    if (ImGui::IsItemHovered())
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+    cx += fmtW + gap2;
+
+    // mini segmented control helper (self-managed state, like the styleguide .cp-seg)
+    auto miniSeg = [&](const char* idStr, const char* a, const char* b, bool bOn, float& outX) -> int
+    {
+      const float pad = 6.f * s;
+      const float aw = ImGui::CalcTextSize(a).x + pad * 2.f;
+      const float bw = ImGui::CalcTextSize(b).x + pad * 2.f;
+      const float segW = 2.f * s + aw + 2.f * s + bw + 2.f * s; // 2px outer pad + 2px gap
+      const float segH = rowH; // fill the control row so the regular-size labels sit comfortably
+      const float segY = y + (rowH - segH) * 0.5f;
+      int clickedIdx = -1;
+      ImGui::SetCursorScreenPos(ImVec2(outX, segY));
+      {
+        AAGuard aa(dl);
+        dl->AddRectFilled(ImVec2(outX, segY), ImVec2(outX + segW, segY + segH), U32(G3DTheme::Panel()),
+          G3DTheme::Radius::Small * s);
+        dl->AddRect(ImVec2(outX, segY), ImVec2(outX + segW, segY + segH), U32(G3DTheme::Border()),
+          G3DTheme::Radius::Small * s, 0, G3DTheme::Size::Border * s);
+      }
+      const char* labels[2] = { a, b };
+      const float widths[2] = { aw, bw };
+      float bx = outX + 2.f * s;
+      for (int i = 0; i < 2; ++i)
+      {
+        const bool on = (i == 1) == bOn;
+        ImGui::PushID(idStr);
+        ImGui::PushID(i);
+        ImGui::SetCursorScreenPos(ImVec2(bx, segY + 2.f * s));
+        if (ImGui::InvisibleButton("##b", ImVec2(widths[i], segH - 4.f * s)))
+        {
+          clickedIdx = i;
+        }
+        const bool segHov = ImGui::IsItemHovered();
+        if (segHov)
+        {
+          ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        }
+        ImGui::PopID();
+        ImGui::PopID();
+        AAGuard aa(dl);
+        if (on)
+        {
+          dl->AddRectFilled(ImVec2(bx, segY + 2.f * s), ImVec2(bx + widths[i], segY + segH - 2.f * s),
+            U32(G3DTheme::SurfacePress()), 4.f * s);
+        }
+        const ImVec4 tc = on ? G3DTheme::Text() : (segHov ? G3DTheme::Text() : G3DTheme::TextSubtle());
+        dl->AddText(
+          ImVec2(bx + pad, segY + (segH - ImGui::GetTextLineHeight()) * 0.5f), U32(tc), labels[i]);
+        bx += widths[i] + 2.f * s;
+      }
+      outX += segW + gap2;
+      return clickedIdx;
+    };
+
+    // "线性" == Linear (matching the styleguide segment); sRGB stays language-neutral.
+    const int spaceClick =
+      miniSeg("##space", "sRGB", "\xE7\xBA\xBF\xE6\x80\xA7", st.space == ColorSpace::Linear, cx);
+    if (spaceClick == 0)
+    {
+      st.space = ColorSpace::Srgb;
+    }
+    else if (spaceClick == 1)
+    {
+      st.space = ColorSpace::Linear;
+    }
+    const int floatClick = miniSeg("##float", "255", "0-1", st.floatMode, cx);
+    if (floatClick == 0)
+    {
+      st.floatMode = false;
+    }
+    else if (floatClick == 1)
+    {
+      st.floatMode = true;
+    }
+
+    // copy button (right-aligned)
+    const float copyW = 28.f * s;
+    const float copyX = x0 + W - copyW;
+    const bool copied = (ImGui::GetTime() - st.copiedTime) < 0.9;
+    ImGui::SetCursorScreenPos(ImVec2(copyX, y + (rowH - copyW) * 0.5f));
+    if (G3DWidgets::IconButton("##copy", copied ? G3DIconId::Check : G3DIconId::Copy, 28.f, false,
+          "Copy color value"))
+    {
+      // build the string in the current format
+      const int R = To255(base.r), Gc = To255(base.g), B = To255(base.b);
+      char out[64];
+      if (st.fmt == ColorFormat::Hex)
+      {
+        std::snprintf(out, sizeof(out), "%s",
+          ToHexStr(base.r, base.g, base.b, st.a, desc.alpha).c_str());
+      }
+      else if (st.fmt == ColorFormat::Rgb)
+      {
+        std::snprintf(out, sizeof(out), "rgba(%d, %d, %d, %.2f)", R, Gc, B, st.a);
+      }
+      else if (st.fmt == ColorFormat::Hsb)
+      {
+        std::snprintf(out, sizeof(out), "hsb(%d, %d%%, %d%%)", static_cast<int>(std::lround(st.h)),
+          static_cast<int>(std::lround(st.s * 100.f)), static_cast<int>(std::lround(st.v * 100.f)));
+      }
+      else
+      {
+        const HSLf hsl = RgbToHsl(base.r, base.g, base.b);
+        std::snprintf(out, sizeof(out), "hsl(%d, %d%%, %d%%)", static_cast<int>(std::lround(hsl.h)),
+          static_cast<int>(std::lround(hsl.s * 100.f)), static_cast<int>(std::lround(hsl.l * 100.f)));
+      }
+      ImGui::SetClipboardText(out);
+      st.copiedTime = ImGui::GetTime();
+    }
+    y += rowH + G;
+  }
+
+  // ===== editable inputs (HEX single field, or per-channel) =====
+  {
+    std::vector<ChanDef> chans;
+    if (st.fmt == ColorFormat::Rgb)
+    {
+      const float mx = st.floatMode ? 1.f : 255.f;
+      const float stp = st.floatMode ? 0.01f : 1.f;
+      const int dc = st.floatMode ? 3 : 0;
+      chans = { { 'r', "R", mx, stp, dc }, { 'g', "G", mx, stp, dc }, { 'b', "B", mx, stp, dc } };
+      if (desc.alpha)
+      {
+        chans.push_back({ 'a', st.floatMode ? "A" : "A%", st.floatMode ? 1.f : 100.f,
+          st.floatMode ? 0.01f : 1.f, st.floatMode ? 2 : 0 });
+      }
+    }
+    else if (st.fmt == ColorFormat::Hsb)
+    {
+      chans = { { 'h', "H", 360.f, 1.f, 0 }, { 's', "S", 100.f, 1.f, 0 }, { 'v', "B", 100.f, 1.f, 0 } };
+      if (desc.alpha)
+      {
+        chans.push_back({ 'a', "A%", 100.f, 1.f, 0 });
+      }
+    }
+    else if (st.fmt == ColorFormat::Hsl)
+    {
+      chans = { { 'h', "H", 360.f, 1.f, 0 }, { 's', "S", 100.f, 1.f, 0 }, { 'l', "L", 100.f, 1.f, 0 } };
+      if (desc.alpha)
+      {
+        chans.push_back({ 'a', "A%", 100.f, 1.f, 0 });
+      }
+    }
+
+    // raw channel value under the current space / float / intensity
+    auto chanVal = [&](char k) -> float {
+      const RGBf b = HsvToRgb(st.h, st.s, st.v);
+      if (st.fmt == ColorFormat::Rgb)
+      {
+        if (k == 'a')
+        {
+          return st.floatMode ? st.a : st.a * 100.f;
+        }
+        float c = (k == 'r' ? b.r : k == 'g' ? b.g : b.b);
+        if (st.space == ColorSpace::Linear)
+        {
+          c = Srgb2Linear(c);
+        }
+        return st.floatMode ? c * st.intensity : c * 255.f;
+      }
+      if (st.fmt == ColorFormat::Hsb)
+      {
+        return k == 'h' ? st.h : k == 's' ? st.s * 100.f : k == 'v' ? st.v * 100.f : st.a * 100.f;
+      }
+      const HSLf hsl = RgbToHsl(b.r, b.g, b.b);
+      return k == 'h' ? hsl.h : k == 's' ? hsl.s * 100.f : k == 'l' ? hsl.l * 100.f : st.a * 100.f;
+    };
+
+    if (st.fmt == ColorFormat::Hex)
+    {
+      const float rowH = 28.f * s;
+      if (PickerField("##hex", st.hexBuf, sizeof(st.hexBuf), x0, y, W,
+            ImGuiInputTextFlags_CharsUppercase | ImGuiInputTextFlags_CharsNoBlank))
+      {
+        float r, g, b, a;
+        if (ParseHexStr(st.hexBuf, r, g, b, a))
+        {
+          setRgb01(r, g, b, desc.alpha ? a : 1.f);
+        }
+      }
+      if (!ImGui::IsItemActive())
+      {
+        const RGBf liveRgb = HsvToRgb(st.h, st.s, st.v); // post-edit color (base[] is pre-edit)
+        std::snprintf(st.hexBuf, sizeof(st.hexBuf), "%s",
+          ToHexStr(liveRgb.r, liveRgb.g, liveRgb.b, st.a, desc.alpha).c_str());
+      }
+      y += rowH + G;
+    }
+    else
+    {
+      const float labH = ImGui::GetTextLineHeight();
+      const float fieldH = 28.f * s;
+      const float rowH = labH + 4.f * s + fieldH;
+      const int n = static_cast<int>(chans.size());
+      const float fgap = 6.f * s;
+      const float fw = (W - fgap * (n - 1)) / n;
+      bool commit = false;
+      for (int i = 0; i < n; ++i)
+      {
+        const ChanDef& cdef = chans[i];
+        const float fx = x0 + i * (fw + fgap);
+        // channel label (R / G / B / A) — regular UI font, centered over the field
+        dl->AddText(ImVec2(fx + (fw - ImGui::CalcTextSize(cdef.label).x) * 0.5f, y),
+          U32(G3DTheme::TextSubtle()), cdef.label);
+        char idStr[8];
+        std::snprintf(idStr, sizeof(idStr), "##c%d", i);
+        const bool fieldCommitted = PickerField(idStr, st.chanBuf[i], sizeof(st.chanBuf[i]), fx,
+          y + labH + 4.f * s, fw, ImGuiInputTextFlags_CharsDecimal);
+        const bool fieldActive = ImGui::IsItemActive();
+        // arrow-key nudge (Shift x10) while the field is focused
+        bool nudged = false;
+        if (fieldActive)
+        {
+          const bool up = ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
+          const bool down = ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
+          if (up || down)
+          {
+            float val = 0.f;
+            try
+            {
+              val = std::stof(st.chanBuf[i]);
+            }
+            catch (...)
+            {
+            }
+            const float step = cdef.step * (ImGui::GetIO().KeyShift ? 10.f : 1.f);
+            val = std::clamp(val + (up ? step : -step), 0.f, cdef.maxv);
+            FormatChan(st.chanBuf[i], sizeof(st.chanBuf[i]), val, cdef.dec);
+            nudged = true;
+          }
+        }
+        if (fieldCommitted || nudged)
+        {
+          commit = true;
+        }
+        // idle: keep the displayed buffer synced with the live value (chanVal recomputes from st).
+        // Skip on the commit frame so the parse below reads the user's typed value, not a stale one.
+        else if (!fieldActive)
+        {
+          FormatChan(st.chanBuf[i], sizeof(st.chanBuf[i]), chanVal(cdef.k), cdef.dec);
+        }
+      }
+      if (commit)
+      {
+        auto num = [&](char k, bool& ok) -> float {
+          ok = false;
+          for (int i = 0; i < n; ++i)
+          {
+            if (chans[i].k == k)
+            {
+              try
+              {
+                const float vv = std::stof(st.chanBuf[i]);
+                ok = true;
+                return vv;
+              }
+              catch (...)
+              {
+                return 0.f;
+              }
+            }
+          }
+          return 0.f;
+        };
+        bool okA = false;
+        const float A = num('a', okA);
+        if (st.fmt == ColorFormat::Rgb)
+        {
+          auto conv = [&](float val) {
+            float c = st.floatMode ? val / std::max(st.intensity, 1e-6f) : val / 255.f;
+            if (st.space == ColorSpace::Linear)
+            {
+              c = Linear2Srgb(std::clamp(c, 0.f, 4.f));
+            }
+            return std::clamp(c, 0.f, 1.f);
+          };
+          bool okr, okg, okb;
+          const float r = num('r', okr), g = num('g', okg), b = num('b', okb);
+          if (okr && okg && okb)
+          {
+            setRgb01(conv(r), conv(g), conv(b), okA ? (st.floatMode ? A : A / 100.f) : st.a);
+          }
+          else if (okA)
+          {
+            st.a = std::clamp(st.floatMode ? A : A / 100.f, 0.f, 1.f);
+            dirty = true;
+          }
+        }
+        else if (st.fmt == ColorFormat::Hsb)
+        {
+          bool okh, oks, okv;
+          const float H = num('h', okh), S = num('s', oks), V = num('v', okv);
+          if (okh)
+          {
+            st.h = std::clamp(H, 0.f, 360.f);
+          }
+          if (oks)
+          {
+            st.s = std::clamp(S / 100.f, 0.f, 1.f);
+          }
+          if (okv)
+          {
+            st.v = std::clamp(V / 100.f, 0.f, 1.f);
+          }
+          if (okA)
+          {
+            st.a = std::clamp(A / 100.f, 0.f, 1.f);
+          }
+          dirty = true;
+        }
+        else
+        {
+          bool okh, oks, okl;
+          const float H = num('h', okh), S = num('s', oks), L = num('l', okl);
+          const RGBf rgb = HslToRgb(std::clamp(okh ? H : st.h * 1.f, 0.f, 360.f),
+            std::clamp(oks ? S / 100.f : st.s, 0.f, 1.f), std::clamp(okl ? L / 100.f : 0.5f, 0.f, 1.f));
+          const HSVf hsv = RgbToHsv(rgb.r, rgb.g, rgb.b);
+          st.h = hsv.h;
+          st.s = hsv.s;
+          st.v = hsv.v;
+          if (okA)
+          {
+            st.a = std::clamp(A / 100.f, 0.f, 1.f);
+          }
+          dirty = true;
+        }
+      }
+      y += rowH + G;
+    }
+  }
+
+  // ===== preset + recent swatch rows =====
+  if (desc.presets)
+  {
+    const float labW = kRowLabelW;
+    const float sw = 18.f * s;
+    const float swGap = 6.f * s;
+
+    auto swatchRow = [&](const char* tag, const char* label, const unsigned int* colors, int count,
+                       bool withAdd) {
+      const float flowX = x0 + labW + swGap;
+      const float flowW = x0 + W - flowX - (withAdd ? sw + swGap : 0.f);
+      // row label (预设 / 最近) — regular UI font, vertically centered to the swatch row
+      dl->AddText(ImVec2(x0, y + (sw - ImGui::GetTextLineHeight()) * 0.5f), U32(G3DTheme::TextSubtle()),
+        label);
+      const int perRow = std::max(1, static_cast<int>((flowW + swGap) / (sw + swGap)));
+      const RGBf b = HsvToRgb(st.h, st.s, st.v);
+      const unsigned int cur = (static_cast<unsigned int>(To255(b.r)) << 16) |
+        (static_cast<unsigned int>(To255(b.g)) << 8) | static_cast<unsigned int>(To255(b.b));
+      float rowMaxY = y + sw;
+      if (count == 0)
+      {
+        dl->AddText(ImVec2(flowX, y + (sw - ImGui::GetTextLineHeight()) * 0.5f),
+          U32(G3DTheme::TextSubtle()),
+          "\xE7\x82\xB9 + \xE5\xAD\x98\xE5\x85\xA5\xE5\xBD\x93\xE5\x89\x8D\xE8\x89\xB2"); // 点 + 存入当前色
+      }
+      for (int i = 0; i < count; ++i)
+      {
+        const int rr = i / perRow, cc = i % perRow;
+        const float sx = flowX + cc * (sw + swGap);
+        const float sy = y + rr * (sw + swGap);
+        rowMaxY = std::max(rowMaxY, sy + sw);
+        const unsigned int packed = colors[i];
+        const ImVec4 scol(((packed >> 16) & 0xff) / 255.f, ((packed >> 8) & 0xff) / 255.f,
+          (packed & 0xff) / 255.f, 1.f);
+        ImGui::PushID(tag);
+        ImGui::PushID(i);
+        ImGui::SetCursorScreenPos(ImVec2(sx, sy));
+        const bool swClicked = ImGui::InvisibleButton("##s", ImVec2(sw, sw));
+        const bool swHover = ImGui::IsItemHovered();
+        if (swHover)
+        {
+          ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        }
+        ImGui::PopID();
+        ImGui::PopID();
+        const float grow = swHover ? 1.5f * s : 0.f;
+        AAGuard aa(dl);
+        DrawColorChip(dl, ImVec2(sx - grow, sy - grow), ImVec2(sx + sw + grow, sy + sw + grow), scol,
+          G3DTheme::Radius::Small * s, G3DTheme::Surface()); // swatches sit on the popup panel
+        if (packed == cur)
+        {
+          // selected: centered checkmark, tint flips with swatch luminance (Ant / Material / Figma).
+          const float lum = 0.2126f * scol.x + 0.7152f * scol.y + 0.0722f * scol.z;
+          const ImU32 tick = lum > 0.588f ? IM_COL32(0, 0, 0, 209) : IM_COL32(255, 255, 255, 255);
+          G3DIcon::Draw(dl, G3DIconId::Check, ImVec2(sx + sw * 0.5f, sy + sw * 0.5f), sw * 0.7f, tick,
+            2.2f * s);
+        }
+        if (swClicked)
+        {
+          setRgb01(scol.x, scol.y, scol.z, st.a);
+        }
+      }
+      if (withAdd)
+      {
+        const float addX = x0 + W - sw;
+        ImGui::PushID(tag);
+        ImGui::SetCursorScreenPos(ImVec2(addX, y));
+        const bool addClick = ImGui::InvisibleButton("##add", ImVec2(sw, sw));
+        const bool addHov = ImGui::IsItemHovered();
+        if (addHov)
+        {
+          ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        }
+        ImGui::PopID();
+        AAGuard aa(dl);
+        const ImVec4 ac = addHov ? G3DTheme::Accent() : G3DTheme::TextSubtle();
+        dl->AddRectFilled(ImVec2(addX, y), ImVec2(addX + sw, y + sw), U32(G3DTheme::Panel()),
+          G3DTheme::Radius::Small * s);
+        dl->AddRect(ImVec2(addX, y), ImVec2(addX + sw, y + sw), U32(ac), G3DTheme::Radius::Small * s, 0,
+          G3DTheme::Size::Border * s);
+        G3DIcon::Draw(dl, G3DIconId::Plus, ImVec2(addX + sw * 0.5f, y + sw * 0.5f), 12.f * s, U32(ac));
+        if (addClick)
+        {
+          auto& rec = st.recents;
+          rec.erase(std::remove(rec.begin(), rec.end(), cur), rec.end());
+          rec.insert(rec.begin(), cur);
+          if (rec.size() > 9)
+          {
+            rec.resize(9);
+          }
+        }
+      }
+      y = rowMaxY;
+    };
+
+    // "预设" == Presets, "最近" == Recent (matching the styleguide swatch-row labels).
+    swatchRow("##pre", "\xE9\xA2\x84\xE8\xAE\xBE", kPresets, static_cast<int>(std::size(kPresets)),
+      false);
+    y += G;
+    swatchRow("##rec", "\xE6\x9C\x80\xE8\xBF\x91", st.recents.data(),
+      static_cast<int>(st.recents.size()), true);
+  }
+
+  // size the popup content region to the panel's exact extent
+  ImGui::SetCursorScreenPos(ImVec2(x0, y));
+  ImGui::Dummy(ImVec2(W, 0.f));
+
+  // ---- commit any change back to the caller's color ----
+  if (dirty)
+  {
+    const RGBf out = HsvToRgb(st.h, st.s, st.v);
+    col[0] = out.r;
+    col[1] = out.g;
+    col[2] = out.b;
+    if (desc.alpha)
+    {
+      col[3] = st.a;
+    }
+    st.lastR = col[0];
+    st.lastG = col[1];
+    st.lastB = col[2];
+    st.lastA = desc.alpha ? st.a : incomingA;
+  }
+  return dirty;
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
+{
+  ImGui::PushID(id);
+  const float s = Scale();
+
+  ColorSwatchDesc sd;
+  sd.compact = desc.compact;
+  sd.noChevron = desc.noChevron;
+  sd.noLabel = desc.noLabel;
+  sd.grow = desc.grow;
+  sd.alpha = desc.alpha;
+  if (ColorSwatch("##sw", col, sd))
+  {
+    ImGui::OpenPopup("##cp");
+  }
+  if (std::string(id) == "g3d.bg.color") // TEMP-DEBUG: force-open so the slider-thumb log fires
+  {
+    ImGui::OpenPopup("##cp");
+  }
+
+  const ImGuiID stateId = ImGui::GetID("##cpstate");
+  bool changed = false;
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(G3DTheme::Spacing::Md * s, G3DTheme::Spacing::Md * s));
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Card * s);
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, G3DTheme::Size::Border * s);
+  ImGui::PushStyleColor(ImGuiCol_PopupBg, U32(G3DTheme::Surface()));
+  ImGui::PushStyleColor(ImGuiCol_Border, U32(G3DTheme::Border()));
+  if (ImGui::BeginPopup("##cp"))
+  {
+    changed = DrawPickerPanel(stateId, col, desc);
+    ImGui::EndPopup();
+  }
+  ImGui::PopStyleColor(2);
+  ImGui::PopStyleVar(3);
+
+  ImGui::PopID();
+  return changed;
 }
 
 } // namespace G3DWidgets

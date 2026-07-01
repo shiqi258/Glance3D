@@ -233,6 +233,69 @@ void DrawLock(const IconCanvas& c)
   c.dl->AddRect(c.P(0.30f, 0.46f), c.P(0.70f, 0.80f), c.color, c.R(0.05f), ImDrawFlags_None, c.th);
   c.Dot(0.50f, 0.63f, 0.05f);
 }
+
+void DrawCheck(const IconCanvas& c)
+{
+  // Two-segment tick (matches the styleguide swatch / copied checkmark).
+  c.Line(0.22f, 0.52f, 0.42f, 0.72f);
+  c.Line(0.42f, 0.72f, 0.78f, 0.30f);
+}
+
+void DrawCopy(const IconCanvas& c)
+{
+  // Two overlapping rounded rectangles — the universal copy-to-clipboard glyph.
+  c.dl->AddRect(c.P(0.34f, 0.18f), c.P(0.82f, 0.66f), c.color, c.R(0.06f), ImDrawFlags_None, c.th);
+  c.dl->AddRect(c.P(0.18f, 0.34f), c.P(0.66f, 0.82f), c.color, c.R(0.06f), ImDrawFlags_None, c.th);
+}
+
+void DrawUpDown(const IconCanvas& c)
+{
+  // Stacked up + down chevrons (cycle / spinner affordance next to the format label).
+  ImVec2 up[3] = { c.P(0.32f, 0.44f), c.P(0.50f, 0.26f), c.P(0.68f, 0.44f) };
+  c.Poly(up, 3);
+  ImVec2 dn[3] = { c.P(0.32f, 0.56f), c.P(0.50f, 0.74f), c.P(0.68f, 0.56f) };
+  c.Poly(dn, 3);
+}
+
+void DrawEyedropper(const IconCanvas& c)
+{
+  // Direct, verbatim transcription of the styleguide #i-eyedropper symbol (Lucide "pipette"),
+  // viewBox 0..24 — no hand-approximation. S() maps SVG units straight to screen.
+  //   path1: m2 22 1-1 h3 l9-9          -> polyline (2,22)(3,21)(6,21)(15,12)   [nib foot + tube edge]
+  //   path2: M3 21 v-3 l9-9             -> polyline (3,21)(3,18)(12,9)           [tube edge]
+  //   path3: m15 6 3.4-3.4 a2.1 2.1 0 1 1 3 3 L18 9 l.4.4 a..-3 3 l-3.8-3.8 a..3-3 l.4.4 Z  [bulb]
+  // The three `a` arcs have a 2.1 radius auto-scaled up to the (±3,±3) chord (|chord|=4.243 > 2r),
+  // so each is a 180° semicircle: center = chord midpoint, radius = |chord|/2 = 2.1213, bulging
+  // outward (away from the bulb's core). Reproduced exactly with PathArcTo.
+  ImDrawList* dl = c.dl;
+  auto S = [&](float x, float y) { return c.P(x / 24.f, y / 24.f); };
+  const float r = c.R(2.12132f / 24.f);
+  constexpr float kPi = 3.14159265f;
+
+  dl->PathClear(); // path1 (open stroke)
+  dl->PathLineTo(S(2.f, 22.f));
+  dl->PathLineTo(S(3.f, 21.f));
+  dl->PathLineTo(S(6.f, 21.f));
+  dl->PathLineTo(S(15.f, 12.f));
+  dl->PathStroke(c.color, 0, c.th);
+
+  dl->PathClear(); // path2 (open stroke)
+  dl->PathLineTo(S(3.f, 21.f));
+  dl->PathLineTo(S(3.f, 18.f));
+  dl->PathLineTo(S(12.f, 9.f));
+  dl->PathStroke(c.color, 0, c.th);
+
+  dl->PathClear(); // path3 (closed bulb): lines + the three outward semicircle arcs
+  dl->PathLineTo(S(15.f, 6.f));
+  dl->PathLineTo(S(18.4f, 2.6f));
+  dl->PathArcTo(S(19.9f, 4.1f), r, -0.75f * kPi, 0.25f * kPi); // arc to (21.4,5.6), bulges up-right
+  dl->PathLineTo(S(18.f, 9.f));
+  dl->PathLineTo(S(18.4f, 9.4f));
+  dl->PathArcTo(S(16.9f, 10.9f), r, -0.25f * kPi, 0.75f * kPi); // arc to (15.4,12.4), bulges down-right
+  dl->PathLineTo(S(11.6f, 8.6f));
+  dl->PathArcTo(S(13.1f, 7.1f), r, 0.75f * kPi, 1.75f * kPi); // arc to (14.6,5.6), bulges up-left
+  dl->PathStroke(c.color, ImDrawFlags_Closed, c.th);
+}
 }
 
 //----------------------------------------------------------------------------
@@ -339,6 +402,18 @@ void G3DIcon::Draw(
     case G3DIconId::StepForward:
       c.dl->AddTriangleFilled(c.P(0.26f, 0.26f), c.P(0.26f, 0.74f), c.P(0.60f, 0.50f), c.color);
       c.dl->AddRectFilled(c.P(0.62f, 0.26f), c.P(0.72f, 0.74f), c.color);
+      break;
+    case G3DIconId::Check:
+      DrawCheck(c);
+      break;
+    case G3DIconId::Copy:
+      DrawCopy(c);
+      break;
+    case G3DIconId::UpDown:
+      DrawUpDown(c);
+      break;
+    case G3DIconId::Eyedropper:
+      DrawEyedropper(c);
       break;
   }
 

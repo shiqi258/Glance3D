@@ -1967,15 +1967,12 @@ void vtkF3DImguiActor::DrawAppearanceContent()
     optionToggle(loc.Translate("Anti-aliasing").c_str(), "render.effect.antialiasing.enable", false);
     optionToggle(loc.Translate("Tone mapping").c_str(), "render.effect.tone_mapping", false);
 
-    float bg[3];
+    // Background color: the styleguide color picker (swatch trigger + popup picker). Drawn as a
+    // proprow — muted label left, the swatch fills the value column (grow), exactly like the
+    // styleguide "基础色" row. Reads the option, writes back through a command.
     const float bgDefault[3] = { 0.2f, 0.2f, 0.2f };
-    this->ReadOptionColor("render.background.color", bg, bgDefault);
-    if (ImGui::ColorEdit3(loc.Translate("Background").c_str(), bg, ImGuiColorEditFlags_NoInputs))
-    {
-      char buf[64];
-      std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", bg[0], bg[1], bg[2]);
-      this->SendCommand(std::string("set render.background.color ") + buf);
-    }
+    this->DrawOptionColorRow(
+      loc.Translate("Background").c_str(), "render.background.color", "g3d.bg.color", bgDefault);
   }
   G3DWidgets::EndCollapse();
 }
@@ -2010,17 +2007,38 @@ void vtkF3DImguiActor::DrawMaterialContent()
     optionSlider(loc.Translate("Roughness").c_str(), "model.material.roughness", 0.3f);
     optionSlider(loc.Translate("Opacity").c_str(), "model.color.opacity", 1.f);
 
-    float color[3];
-    const float colorDefault[3] = { 1.f, 1.f, 1.f };
-    this->ReadOptionColor("model.color.rgb", color, colorDefault);
-    if (ImGui::ColorEdit3(loc.Translate("Base color").c_str(), color, ImGuiColorEditFlags_NoInputs))
-    {
-      char buf[64];
-      std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", color[0], color[1], color[2]);
-      this->SendCommand(std::string("set model.color.rgb ") + buf);
-    }
+    const float baseDefault[3] = { 1.f, 1.f, 1.f };
+    this->DrawOptionColorRow(
+      loc.Translate("Base color").c_str(), "model.color.rgb", "g3d.basecolor", baseDefault);
   }
   G3DWidgets::EndCollapse();
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::DrawOptionColorRow(
+  const char* label, const char* option, const char* widgetId, const float fallback[3])
+{
+  float col[4] = { fallback[0], fallback[1], fallback[2], 1.f };
+  this->ReadOptionColor(option, col, fallback);
+
+  // proprow: muted label on the left, the swatch grows to fill the value column (styleguide layout).
+  const float ctrlH = G3DTheme::Size::Control * (ImGui::GetFontSize() / 14.f);
+  const ImVec2 lp = ImGui::GetCursorScreenPos();
+  const float lineH = ImGui::GetTextLineHeight();
+  ImGui::GetWindowDrawList()->AddText(ImVec2(lp.x, lp.y + (ctrlH - lineH) * 0.5f),
+    ImGui::ColorConvertFloat4ToU32(::ColorToImVec4(this->FontColor)), label);
+  const float labelCol = std::max(
+    ImGui::CalcTextSize(label).x + G3DTheme::Spacing::Md, ImGui::GetContentRegionAvail().x * 0.40f);
+  ImGui::SetCursorScreenPos(ImVec2(lp.x + labelCol, lp.y));
+
+  G3DWidgets::ColorEditDesc cpd;
+  cpd.grow = true;
+  if (G3DWidgets::ColorEdit(widgetId, col, cpd))
+  {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", col[0], col[1], col[2]);
+    this->SendCommand(std::string("set ") + option + " " + buf);
+  }
 }
 
 //----------------------------------------------------------------------------

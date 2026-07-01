@@ -182,6 +182,14 @@ private:
   void DrawMaterialContent();
 
   /**
+   * Draw one labeled color row (a proprow: muted label left + the styleguide color picker filling the
+   * value column). @p option is the libf3d color option (read via the accessor, written through a
+   * `set` command); @p widgetId is a stable ImGui id for the swatch / popup state.
+   */
+  void DrawOptionColorRow(
+    const char* label, const char* option, const char* widgetId, const float fallback[3]);
+
+  /**
    * Draw the scalar-coloring inspector group (scivis): enable, array selection (point/cell),
    * component, and scalar bar. Only shown when the scene exposes colorable arrays. Reads the array
    * list from the renderer's coloring handler; writes through model.scivis.* commands.

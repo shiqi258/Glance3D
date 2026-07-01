@@ -306,6 +306,75 @@ void EndCollapse();
 void BeginAccordion(const char* id, bool exclusive = false);
 void EndAccordion();
 
+//----------------------------------------------------------------------------
+// Color picker
+//
+// The styleguide color picker (doc/dev/ui-styleguide.html: <g3d-colorswatch> / <g3d-colorpicker>) —
+// a professional, HDR-aware color field. An inline checkerboard *swatch* trigger opens a popup
+// *picker* panel: an SV square + hue / alpha bars + an eyedropper + a live preview, plus the pro
+// capabilities of a 3D / scientific-visualization editor — an HDR intensity multiplier, sRGB<->linear
+// space, 0–255 / 0–1 float ranges, a format cycle (HEX / RGB / HSB / HSL) with per-channel editable
+// inputs (arrow-key nudge, Shift x10), 8-digit #RRGGBBAA, copy, and preset / recent swatches.
+// Mirrors ImGui ColorEdit4 / ColorPicker4 (+ an intensity field for HDR colors). The picker owns all
+// color math once; the popup is a real ImGui overlay, so it is never clipped by the host panel.
+//----------------------------------------------------------------------------
+
+/// Numeric presentation of the picker's editable channels — mirrors the styleguide format cycle.
+enum class ColorFormat
+{
+  Hex, ///< single #RRGGBB / #RRGGBBAA field
+  Rgb, ///< R / G / B (/ A) channels, honoring space + float range
+  Hsb, ///< H / S / B (== HSV) channels
+  Hsl, ///< H / S / L channels
+};
+
+/// Color space for the RGB / float readouts — mirrors the styleguide sRGB|linear segment (PBR and
+/// scientific-visualization workflows pick colors in the linear domain).
+enum class ColorSpace
+{
+  Srgb,
+  Linear,
+};
+
+/// Trigger-swatch presentation (the closed color field). Mirrors <g3d-colorswatch>.
+struct ColorSwatchDesc
+{
+  bool compact = false;   ///< 26px ultra-compact field (styleguide v="compact")
+  bool noChevron = false; ///< hide the trailing chevron (nochev)
+  bool noLabel = false;   ///< chip only, no hex value (nolabel)
+  bool grow = true;       ///< fill the value column like a sibling select / slider (proprow grow)
+  bool alpha = false;     ///< the value carries alpha (8-digit hex shown when < 1)
+  bool disabled = false;
+};
+
+/// Inline color trigger: a checkerboard-backed color chip + hex value (+ chevron), sized like an
+/// input. @p col is RGBA in 0..1 (col[3] honored only when desc.alpha). Returns true when clicked.
+/// Use when you drive the popup yourself; ColorEdit() wires it to the picker for you.
+bool ColorSwatch(
+  const char* id, const float col[4], const ColorSwatchDesc& desc = ColorSwatchDesc());
+
+/// Options for an inline color field (trigger swatch + popup picker). Mirrors <g3d-colorpicker>.
+struct ColorEditDesc
+{
+  bool alpha = false;                    ///< edit / show the alpha channel
+  bool hdr = false;                      ///< show the HDR intensity row (multiplier > 1)
+  bool presets = true;                   ///< show the preset + recent swatch rows
+  ColorFormat format = ColorFormat::Hex; ///< initial numeric format
+  ColorSpace space = ColorSpace::Srgb;   ///< initial color space
+  bool floatMode = false;                ///< initial RGB range: 0–1 float vs 0–255 integer
+  // trigger presentation (forwarded to ColorSwatchDesc):
+  bool compact = false;
+  bool noChevron = false;
+  bool noLabel = false;
+  bool grow = true;
+};
+
+/// Inline color field: a swatch trigger that opens a popup color picker (SV area + hue / alpha + HDR
+/// intensity + format / space / float controls + per-channel inputs + presets / recent + eyedropper +
+/// copy). @p col is RGBA in 0..1 (col[3] used only when desc.alpha). Returns true on the frames the
+/// color changed. Mirrors ImGui ColorEdit4 / ColorPicker4 and the styleguide color picker.
+bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc = ColorEditDesc());
+
 } // namespace G3DWidgets
 
 #endif

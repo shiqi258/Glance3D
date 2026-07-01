@@ -46,6 +46,10 @@ enum class G3DIconId
   Play,       ///< filled right-pointing triangle (animation play)
   Pause,      ///< two filled bars (animation pause)
   StepForward, ///< bar + triangle (next keyframe / cycle animation)
+  Check,       ///< checkmark (confirm / copied feedback / swatch selected)
+  Copy,        ///< two overlapping rounded rects (copy to clipboard)
+  UpDown,      ///< stacked up/down chevrons (cycle / spinner affordance)
+  Eyedropper,  ///< pipette (screen / viewport color sampling)
 };
 
 namespace G3DIcon
