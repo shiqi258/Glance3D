@@ -2337,43 +2337,120 @@ void DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, 
   dl->AddText(pos, col, clipped.c_str());
 }
 
-// Dashed rounded-rect outline (the styleguide .cp-add `border: 1px dashed`). ImGui cannot dash a
-// stroke: dash the four straight edges manually and stroke the four corner arcs solid — at the
-// 18px swatch size an arc is about one dash long, so the mix reads as a uniform dashed ring.
+// Dashed rounded-rect outline (the styleguide `border: 1px dashed`, e.g. .cp-add). ImGui has no
+// dashed stroke, so do what browsers do for CSS dashed borders: walk the whole rounded boundary by
+// ARC LENGTH and fit a whole number of dash periods onto the perimeter — corners dash exactly like
+// the straight runs (no solid-arc / stranded-dot mismatch on small controls, where a quarter arc
+// is longer than an entire edge) and the ring closes seamlessly. @p dash / @p gap set the duty
+// cycle; the actual period is `perimeter / round(perimeter / (dash + gap))`. The stroke centerline
+// is snapped onto the half-pixel grid so a hairline stays crisp instead of feathering across two
+// pixel rows.
 void DrawDashedRect(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float r, ImU32 col,
   float thickness, float dash, float gap)
 {
   const float inset = 0.5f * thickness;
-  const float step = dash + gap;
-  auto dashH = [&](float xa, float xb, float yy)
+  const ImVec2 a(std::round(p0.x) + inset, std::round(p0.y) + inset); // stroke centerline rect
+  const ImVec2 b(std::round(p1.x) - inset, std::round(p1.y) - inset);
+  if (b.x - a.x < 1.f || b.y - a.y < 1.f)
   {
-    for (float x = xa; x < xb; x += step)
-    {
-      dl->AddLine(ImVec2(x, yy), ImVec2(std::min(x + dash, xb), yy), col, thickness);
-    }
-  };
-  auto dashV = [&](float ya, float yb, float xx)
-  {
-    for (float y = ya; y < yb; y += step)
-    {
-      dl->AddLine(ImVec2(xx, y), ImVec2(xx, std::min(y + dash, yb)), col, thickness);
-    }
-  };
-  dashH(p0.x + r, p1.x - r, p0.y + inset); // top
-  dashH(p0.x + r, p1.x - r, p1.y - inset); // bottom
-  dashV(p0.y + r, p1.y - r, p0.x + inset); // left
-  dashV(p0.y + r, p1.y - r, p1.x - inset); // right
+    return;
+  }
+  const float cr = std::clamp(r - inset, 0.f, std::min(b.x - a.x, b.y - a.y) * 0.5f);
   constexpr float P = 3.14159265f;
-  const float ar = r - inset;
-  auto arc = [&](const ImVec2& c, float a0, float a1)
+
+  // closed boundary polyline, clockwise from the top edge start (arcs tessellated)
+  std::vector<ImVec2> pts;
+  pts.reserve(4 * 8 + 5);
+  auto emitArc = [&](const ImVec2& c, float a0, float a1)
   {
-    dl->PathArcTo(c, ar, a0, a1);
+    constexpr int kArcSeg = 6;
+    for (int i = 0; i <= kArcSeg; ++i)
+    {
+      const float ang = a0 + (a1 - a0) * (static_cast<float>(i) / kArcSeg);
+      pts.push_back(ImVec2(c.x + cr * std::cos(ang), c.y + cr * std::sin(ang)));
+    }
+  };
+  pts.push_back(ImVec2(a.x + cr, a.y));                   // top edge
+  pts.push_back(ImVec2(b.x - cr, a.y));
+  emitArc(ImVec2(b.x - cr, a.y + cr), 1.5f * P, 2.f * P); // top-right
+  pts.push_back(ImVec2(b.x, b.y - cr));                   // right edge
+  emitArc(ImVec2(b.x - cr, b.y - cr), 0.f, 0.5f * P);     // bottom-right
+  pts.push_back(ImVec2(a.x + cr, b.y));                   // bottom edge
+  emitArc(ImVec2(a.x + cr, b.y - cr), 0.5f * P, P);       // bottom-left
+  pts.push_back(ImVec2(a.x, a.y + cr));                   // left edge
+  emitArc(ImVec2(a.x + cr, a.y + cr), P, 1.5f * P);       // top-left, ends at the top edge start
+
+  // cumulative arc length along the polyline (duplicate joint points contribute zero)
+  std::vector<float> cum(pts.size(), 0.f);
+  for (std::size_t i = 1; i < pts.size(); ++i)
+  {
+    const float dx = pts[i].x - pts[i - 1].x, dy = pts[i].y - pts[i - 1].y;
+    cum[i] = cum[i - 1] + std::sqrt(dx * dx + dy * dy);
+  }
+  const float perim = cum.back();
+  const float period = dash + gap;
+  if (perim < 1.f || period <= 0.f)
+  {
+    return;
+  }
+  const int n = std::max(2, static_cast<int>(std::round(perim / period)));
+  const float fitPeriod = perim / static_cast<float>(n);
+  const float fitDash = fitPeriod * (dash / period);
+
+  auto pointAt = [&](float t) -> ImVec2
+  {
+    std::size_t i = 1;
+    while (i + 1 < pts.size() && cum[i] < t)
+    {
+      ++i;
+    }
+    const float segLen = cum[i] - cum[i - 1];
+    const float u = segLen > 1e-4f ? (t - cum[i - 1]) / segLen : 0.f;
+    return ImVec2(pts[i - 1].x + (pts[i].x - pts[i - 1].x) * u,
+      pts[i - 1].y + (pts[i].y - pts[i - 1].y) * u);
+  };
+
+  // emit one dash over [t0, t1] (t may wrap past the perimeter)
+  auto emitDash = [&](float t0, float t1)
+  {
+    dl->PathLineTo(pointAt(t0));
+    for (std::size_t i = 1; i + 1 < pts.size(); ++i) // boundary vertices inside the dash
+    {
+      if (cum[i] > t0 && cum[i] < t1)
+      {
+        dl->PathLineTo(pts[i]);
+      }
+    }
+    dl->PathLineTo(pointAt(t1));
     dl->PathStroke(col, 0, thickness);
   };
-  arc(ImVec2(p0.x + r, p0.y + r), P, 1.5f * P);        // top-left
-  arc(ImVec2(p1.x - r, p0.y + r), 1.5f * P, 2.f * P);  // top-right
-  arc(ImVec2(p1.x - r, p1.y - r), 0.f, 0.5f * P);      // bottom-right
-  arc(ImVec2(p0.x + r, p1.y - r), 0.5f * P, P);        // bottom-left
+
+  // phase: center one dash on the top edge middle so the pattern sits symmetric on the control
+  // (a stroke-dash phase adjustment, as vector rasterizers do) instead of half-dashes at a corner
+  const float sw = b.x - a.x - 2.f * cr; // top edge length
+  float phase = sw * 0.5f - fitDash * 0.5f;
+  if (phase < 0.f)
+  {
+    phase += perim;
+  }
+  for (int k = 0; k < n; ++k)
+  {
+    float t0 = phase + static_cast<float>(k) * fitPeriod;
+    if (t0 >= perim)
+    {
+      t0 -= perim;
+    }
+    const float t1 = t0 + fitDash;
+    if (t1 <= perim)
+    {
+      emitDash(t0, t1);
+    }
+    else // dash wraps the polyline seam: draw the two halves
+    {
+      emitDash(t0, perim);
+      emitDash(0.f, t1 - perim);
+    }
+  }
 }
 } // namespace
 
@@ -3380,7 +3457,7 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
         dl->AddRectFilled(ImVec2(addX, y), ImVec2(addX + sw, y + sw), U32(G3DTheme::Panel()),
           G3DTheme::Radius::Small * s);
         DrawDashedRect(dl, ImVec2(addX, y), ImVec2(addX + sw, y + sw), G3DTheme::Radius::Small * s,
-          U32(bc), G3DTheme::Size::Border * s, 2.5f * s, 2.5f * s);
+          U32(bc), G3DTheme::Size::Border * s, 3.5f * s, 2.5f * s);
         G3DIcon::Draw(dl, G3DIconId::Plus, ImVec2(addX + sw * 0.5f, y + sw * 0.5f), 12.f * s, U32(ic));
         if (addClick)
         {
