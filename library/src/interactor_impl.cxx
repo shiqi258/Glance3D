@@ -719,6 +719,14 @@ public:
   std::atomic<bool> StopRequested = false;
 
   double CallbackDeltaTime = 1.0 / 30; /* Default DeltaTime (30fps) */
+
+  // Glance3D: state for collapsing rapid same-target command log lines (see triggerCommand).
+  // Inspector drags issue one "set <option> <value>" per frame (~30/s); logging each one floods
+  // the always-on debug file log with hundreds of near-identical lines per drag.
+  std::string CmdLogHead;
+  std::string CmdLogLast;
+  int CmdLogRepeats = 0;
+  std::chrono::steady_clock::time_point CmdLogTime;
 };
 
 //----------------------------------------------------------------------------
@@ -1487,7 +1495,34 @@ interactor& interactor_impl::triggerEventLoop(double deltaTime)
 //----------------------------------------------------------------------------
 bool interactor_impl::triggerCommand(std::string_view command, bool keepComments)
 {
-  log::debug("Command: ", command);
+  // Glance3D: collapse rapid same-target streaks instead of logging every command. A drag in the
+  // inspector fires the same "verb option" head every frame; log the first one, swallow the rest,
+  // and when the streak ends (different head or a >500ms gap) emit the streak's LAST command once
+  // with a repeat count — the final dragged value stays in the log without the per-frame spam.
+  {
+    const auto now = std::chrono::steady_clock::now();
+    const size_t p = command.find(' ');
+    const size_t q = p == std::string_view::npos ? p : command.find(' ', p + 1);
+    const std::string_view head = q == std::string_view::npos ? command : command.substr(0, q);
+    internals& in = *this->Internals;
+    if (head == in.CmdLogHead && now - in.CmdLogTime < std::chrono::milliseconds(500))
+    {
+      in.CmdLogRepeats++;
+      in.CmdLogLast = command;
+    }
+    else
+    {
+      if (in.CmdLogRepeats > 0)
+      {
+        log::debug(
+          "Command: ", in.CmdLogLast, " (", in.CmdLogRepeats, " rapid repeats collapsed)");
+      }
+      log::debug("Command: ", command);
+      in.CmdLogRepeats = 0;
+      in.CmdLogHead = std::string(head);
+    }
+    in.CmdLogTime = now;
+  }
 
   // Resolve Alias Before Tokenizing
   auto aliasIt = this->Internals->AliasMap.find(std::string(command));
