@@ -3,9 +3,11 @@
 #include "G3DTextInputContext.h"
 #include "vtkF3DRenderPass.h"
 #include "vtkF3DRenderer.h"
+#include "vtkF3DUserEvents.h"
 
 #include <vtkInformation.h>
 #include <vtkObjectFactory.h>
+#include <vtkOutputWindow.h>
 #include <vtkRenderWindow.h>
 #include <vtkRenderWindowInteractor.h>
 #include <vtkRendererCollection.h>
@@ -13,10 +15,24 @@
 
 #include <imgui.h>
 
+#include <chrono>
+#include <cstdarg>
+#include <cstdio>
 #include <unordered_map>
 
 namespace
 {
+// Observation log for the input-event boundary (routes through the TraceEvent bridge into the
+// session log file). Press / release always; moves only while the left button is down, throttled.
+void EvtTrace(const char* fmt, ...)
+{
+  char buf[192];
+  va_list args;
+  va_start(args, fmt);
+  std::vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  vtkOutputWindow::GetInstance()->InvokeEvent(vtkF3DUserEvents::TraceEvent, buf);
+}
 ImGuiKey GetImGuiKeyFromKeySym(std::string_view&& keySym)
 {
   // clang-format off
@@ -200,6 +216,18 @@ bool vtkF3DImguiObserver::MouseMove(vtkObject* caller, unsigned long, void*)
     int* sz = that->GetRenderWindow()->GetSize();
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(static_cast<float>(p[0]), static_cast<float>(sz[1] - p[1] - 1));
+    if (io.MouseDown[ImGuiMouseButton_Left] && io.WantCaptureMouse)
+    {
+      // trace the drag trajectory the UI actually receives (UI drags only — camera orbits are not
+      // captured — and throttled to ~10 lines/s)
+      static std::chrono::steady_clock::time_point lastLog;
+      const auto now = std::chrono::steady_clock::now();
+      if (now - lastLog > std::chrono::milliseconds(100))
+      {
+        lastLog = now;
+        EvtTrace("[Trace][cp.evt] move m=(%d,%d) drag", p[0], sz[1] - p[1] - 1);
+      }
+    }
     // RenderUI is not called here on purpose to avoid too frequent UI draw
     // The event loop is taking care of it
     return io.WantCaptureMouse;
@@ -215,6 +243,10 @@ bool vtkF3DImguiObserver::MouseLeftPress(vtkObject* caller, unsigned long, void*
     vtkRenderWindowInteractor* that = static_cast<vtkRenderWindowInteractor*>(caller);
     ImGuiIO& io = ImGui::GetIO();
     this->UpdateModifiers(that);
+    int* p = that->GetEventPosition();
+    int* sz = that->GetRenderWindow()->GetSize();
+    EvtTrace("[Trace][cp.evt] Lpress m=(%d,%d) fr=%d", p[0], sz[1] - p[1] - 1,
+      ImGui::GetFrameCount());
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
     this->RenderUI(that);
     return io.WantCaptureMouse;
@@ -230,6 +262,10 @@ bool vtkF3DImguiObserver::MouseLeftRelease(vtkObject* caller, unsigned long, voi
     vtkRenderWindowInteractor* that = static_cast<vtkRenderWindowInteractor*>(caller);
     ImGuiIO& io = ImGui::GetIO();
     this->UpdateModifiers(that);
+    int* p = that->GetEventPosition();
+    int* sz = that->GetRenderWindow()->GetSize();
+    EvtTrace("[Trace][cp.evt] Lrelease m=(%d,%d) fr=%d ioM=(%.1f,%.1f)", p[0], sz[1] - p[1] - 1,
+      ImGui::GetFrameCount(), io.MousePos.x, io.MousePos.y);
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     this->RenderUI(that);
     return io.WantCaptureMouse;

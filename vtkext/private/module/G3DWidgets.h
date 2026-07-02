@@ -407,6 +407,11 @@ bool EyedropperActive();
 void SubmitEyedropperFrame(
   std::vector<unsigned char>&& rgba, int w, int h, int rectX, int rectY, int winW, int winH);
 
+/// Observation-log sink (this widget library is integration-agnostic and cannot log itself). The
+/// render integration injects a sink that routes to the session log; nullptr (default) disables.
+/// Currently feeds the color-picker drag/sync trace ("[Trace][cp.*]" lines).
+void SetTraceSink(void (*sink)(const char*));
+
 } // namespace G3DWidgets
 
 #endif

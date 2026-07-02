@@ -108,6 +108,7 @@ public:
     vtkOutputWindow::GetInstance()->AddObserver(vtkF3DUserEvents::TriggerEvent, commandCallback);
     vtkOutputWindow::GetInstance()->AddObserver(vtkF3DUserEvents::ShowEvent, commandCallback);
     vtkOutputWindow::GetInstance()->AddObserver(vtkF3DUserEvents::HideEvent, commandCallback);
+    vtkOutputWindow::GetInstance()->AddObserver(vtkF3DUserEvents::TraceEvent, commandCallback);
     this->VTKInteractor->AddObserver(vtkF3DUserEvents::SceneHierarchyChangedEvent, commandCallback);
 
     // Disable standard interactor behavior with timer event
@@ -295,6 +296,14 @@ public:
   static void OnUIEvent(vtkObject*, unsigned long event, void* clientData, void* data)
   {
     internals* self = static_cast<internals*>(clientData);
+
+    if (event == vtkF3DUserEvents::TraceEvent)
+    {
+      // Observation logging from VTK-side modules; must not request a render (tracing may not
+      // perturb the frame cadence it observes).
+      log::debug(static_cast<const char*>(data));
+      return;
+    }
 
     if (event == vtkF3DUserEvents::TriggerEvent)
     {
@@ -820,6 +829,7 @@ interactor_impl::~interactor_impl()
   vtkOutputWindow::GetInstance()->RemoveObservers(vtkF3DUserEvents::TriggerEvent);
   vtkOutputWindow::GetInstance()->RemoveObservers(vtkF3DUserEvents::ShowEvent);
   vtkOutputWindow::GetInstance()->RemoveObservers(vtkF3DUserEvents::HideEvent);
+  vtkOutputWindow::GetInstance()->RemoveObservers(vtkF3DUserEvents::TraceEvent);
 }
 
 //----------------------------------------------------------------------------

@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cfloat>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
@@ -17,6 +18,21 @@
 
 namespace
 {
+// Injected observation-log sink (see G3DWidgets::SetTraceSink). printf-style; no-op when unset.
+void (*gTraceSink)(const char*) = nullptr;
+void CpTrace(const char* fmt, ...)
+{
+  if (gTraceSink == nullptr)
+  {
+    return;
+  }
+  char buf[320];
+  va_list args;
+  va_start(args, fmt);
+  std::vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  gTraceSink(buf);
+}
 // Regular UI font size (logical px) — the design-system base, mirrored in ui-styleguide.html
 // (--fs-base) and used as the load size in vtkF3DImguiActor. Scale() = liveFont / BASE_FONT then
 // equals the DPI/user scale, so spacing tokens stay on their fixed grid and only scale with DPI.
@@ -2659,10 +2675,16 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
   // flash the picker back to the old color until the command lands. Genuine external edits within
   // the window still sync, just up to ~10 frames later.
   const float incomingA = desc.alpha ? col[3] : 1.f;
-  const bool inGrace = ImGui::GetFrameCount() - st.commitFrame <= 10;
-  const bool external = (col[0] != st.lastR || col[1] != st.lastG || col[2] != st.lastB ||
-                          incomingA != st.lastA) &&
-    !inGrace;
+  const int framesSinceCommit = ImGui::GetFrameCount() - st.commitFrame;
+  const bool inGrace = framesSinceCommit <= 10;
+  // Half an 8-bit step of tolerance: our own commits round-trip through a quantizing wire format
+  // (command string, option's user-facing string form), so the readback echo is the committed value
+  // ± noise, never bit-identical. Below half a display step it is an echo; a genuine external edit
+  // moves a channel by at least 1/255.
+  auto near = [](float a, float b) { return std::fabs(a - b) < 0.5f / 255.f; };
+  const bool colDiff = !near(col[0], st.lastR) || !near(col[1], st.lastG) ||
+    !near(col[2], st.lastB) || !near(incomingA, st.lastA);
+  const bool external = colDiff && !inGrace;
   if (!st.inited)
   {
     st.fmt = desc.format;
@@ -2670,9 +2692,21 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     st.floatMode = desc.floatMode;
     st.inited = true;
   }
+  if (colDiff && inGrace && framesSinceCommit >= 8)
+  {
+    // about to leave the grace window while the readback still disagrees with what we committed —
+    // the very next frames may silently resync (the prime "anchor jumps after release" suspect)
+    CpTrace("[Trace][cp.sync] fr=%d grace-hold dFr=%d col=(%.6f,%.6f,%.6f) last=(%.6f,%.6f,%.6f)",
+      ImGui::GetFrameCount(), framesSinceCommit, col[0], col[1], col[2], st.lastR, st.lastG,
+      st.lastB);
+  }
   if (!st.inited || external)
   {
     const HSVf hsv = RgbToHsv(col[0], col[1], col[2]);
+    CpTrace("[Trace][cp.sync] fr=%d RESYNC dFr=%d col=(%.6f,%.6f,%.6f) last=(%.6f,%.6f,%.6f) "
+            "hsv=(%.2f,%.4f,%.4f)->(%.2f,%.4f,%.4f)",
+      ImGui::GetFrameCount(), framesSinceCommit, col[0], col[1], col[2], st.lastR, st.lastG,
+      st.lastB, st.h, st.s, st.v, hsv.h, hsv.s, hsv.v);
     st.h = hsv.h;
     st.s = hsv.s;
     st.v = hsv.v;
@@ -2708,12 +2742,34 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     const float svH = 150.f * s;
     ImGui::SetCursorScreenPos(ImVec2(x0, y));
     ImGui::InvisibleButton("##sv", ImVec2(W, svH));
+    if (ImGui::IsItemActivated())
+    {
+      const ImVec2 m = ImGui::GetIO().MousePos;
+      CpTrace("[Trace][cp.sv] fr=%d press m=(%.1f,%.1f) rect=(%.1f,%.1f,%.1fx%.1f) sv=(%.4f,%.4f)",
+        ImGui::GetFrameCount(), m.x, m.y, x0, y, W, svH, st.s, st.v);
+    }
     if (ImGui::IsItemActive())
     {
       const ImVec2 m = ImGui::GetIO().MousePos;
-      st.s = std::clamp((m.x - x0) / W, 0.f, 1.f);
-      st.v = std::clamp(1.f - (m.y - y) / svH, 0.f, 1.f);
+      const float ns = std::clamp((m.x - x0) / W, 0.f, 1.f);
+      const float nv = std::clamp(1.f - (m.y - y) / svH, 0.f, 1.f);
+      if (std::fabs(ns - st.s) + std::fabs(nv - st.v) > 0.05f && !ImGui::IsItemActivated())
+      {
+        // one active frame moved the anchor by > 5% of the square — a warp, not a hand motion
+        CpTrace("[Trace][cp.sv] fr=%d JUMP m=(%.1f,%.1f) sv=(%.4f,%.4f)->(%.4f,%.4f)",
+          ImGui::GetFrameCount(), m.x, m.y, st.s, st.v, ns, nv);
+      }
+      st.s = ns;
+      st.v = nv;
       dirty = true;
+    }
+    if (ImGui::IsItemDeactivated())
+    {
+      // mouse state AT deactivation: down=1 means the drag did not end by a button release (ActiveId
+      // stolen / popup closed); m is where ImGui last saw the cursor, NOT necessarily consumed
+      const ImGuiIO& io = ImGui::GetIO();
+      CpTrace("[Trace][cp.sv] fr=%d release m=(%.1f,%.1f) down=%d final sv=(%.4f,%.4f)",
+        ImGui::GetFrameCount(), io.MousePos.x, io.MousePos.y, io.MouseDown[0] ? 1 : 0, st.s, st.v);
     }
     if (ImGui::IsItemHovered() || ImGui::IsItemActive())
     {
@@ -2837,10 +2893,27 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     // hue track (interactive)
     ImGui::SetCursorScreenPos(ImVec2(trackX, hueY));
     ImGui::InvisibleButton("##hue", ImVec2(trackW, trackH));
+    if (ImGui::IsItemActivated())
+    {
+      CpTrace("[Trace][cp.hue] fr=%d press m=(%.1f,%.1f) h=%.2f", ImGui::GetFrameCount(),
+        ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, st.h);
+    }
     if (ImGui::IsItemActive())
     {
-      st.h = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f) * 360.f;
+      const float nh = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f) * 360.f;
+      if (std::fabs(nh - st.h) > 18.f && !ImGui::IsItemActivated())
+      {
+        CpTrace("[Trace][cp.hue] fr=%d JUMP m=(%.1f,%.1f) h=%.2f->%.2f", ImGui::GetFrameCount(),
+          ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, st.h, nh);
+      }
+      st.h = nh;
       dirty = true;
+    }
+    if (ImGui::IsItemDeactivated())
+    {
+      const ImGuiIO& io = ImGui::GetIO();
+      CpTrace("[Trace][cp.hue] fr=%d release m=(%.1f,%.1f) down=%d final h=%.2f",
+        ImGui::GetFrameCount(), io.MousePos.x, io.MousePos.y, io.MouseDown[0] ? 1 : 0, st.h);
     }
     if (ImGui::IsItemHovered() || ImGui::IsItemActive())
     {
@@ -3500,6 +3573,13 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     st.lastB = col[2];
     st.lastA = desc.alpha ? st.a : incomingA;
     st.commitFrame = ImGui::GetFrameCount();
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+    {
+      // a commit while no button is held = one-shot writer (hex/field/swatch... or a ghost). Drag
+      // commits are excluded on purpose — the command log already folds those.
+      CpTrace("[Trace][cp.commit] fr=%d one-shot col=(%.6f,%.6f,%.6f) hsv=(%.2f,%.4f,%.4f)",
+        ImGui::GetFrameCount(), col[0], col[1], col[2], st.h, st.s, st.v);
+    }
   }
   return dirty;
 }
@@ -3779,6 +3859,12 @@ void SubmitEyedropperFrame(
   gEyedrop.winW = winW;
   gEyedrop.winH = winH;
   gEyedrop.frameValid = true;
+}
+
+//----------------------------------------------------------------------------
+void SetTraceSink(void (*sink)(const char*))
+{
+  gTraceSink = sink;
 }
 
 } // namespace G3DWidgets

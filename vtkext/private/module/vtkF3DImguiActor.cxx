@@ -583,6 +583,12 @@ vtkF3DImguiActor::vtkF3DImguiActor()
   // Same hover/press motion presets the G3DWidgets buttons use, so the FAB feels consistent.
   G3DTheme::Configure(this->FabHover, G3DTheme::Motions::Micro);
   G3DTheme::Configure(this->FabPress, G3DTheme::Motions::Press);
+  // Observation-log sink for the widget library (same event bridge as SendCommand → session log).
+  G3DWidgets::SetTraceSink(
+    [](const char* msg) {
+      vtkOutputWindow::GetInstance()->InvokeEvent(
+        vtkF3DUserEvents::TraceEvent, const_cast<char*>(msg));
+    });
 }
 
 namespace
@@ -1924,7 +1930,46 @@ void vtkF3DImguiActor::ReadOptionColor(const char* name, float out[3], const flo
   {
     return;
   }
-  std::stringstream ss(*value);
+  // libf3d's options::getAsString formats a color as "#RRGGBB" whenever every channel sits on the
+  // 8-bit grid (exactly what edge-clamped picker drags commit: black / white / pure primaries) and
+  // as "r,g,b" otherwise. Both forms must parse here — treating hex as unparsable used to fall back
+  // to the default color and snap the picker anchor there once the post-commit grace expired.
+  const std::string& str = *value;
+  if (str.size() == 7 && str[0] == '#')
+  {
+    auto nib = [](char c) -> int
+    {
+      if (c >= '0' && c <= '9')
+      {
+        return c - '0';
+      }
+      if (c >= 'a' && c <= 'f')
+      {
+        return c - 'a' + 10;
+      }
+      if (c >= 'A' && c <= 'F')
+      {
+        return c - 'A' + 10;
+      }
+      return -1;
+    };
+    float rgb[3];
+    for (int i = 0; i < 3; i++)
+    {
+      const int hi = nib(str[1 + 2 * i]);
+      const int lo = nib(str[2 + 2 * i]);
+      if (hi < 0 || lo < 0)
+      {
+        return; // malformed hex: keep the fallback
+      }
+      rgb[i] = static_cast<float>(hi * 16 + lo) / 255.f;
+    }
+    out[0] = rgb[0];
+    out[1] = rgb[1];
+    out[2] = rgb[2];
+    return;
+  }
+  std::stringstream ss(str);
   std::string token;
   for (int i = 0; i < 3 && std::getline(ss, token, ','); i++)
   {

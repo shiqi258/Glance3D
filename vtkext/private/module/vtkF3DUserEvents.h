@@ -18,7 +18,9 @@ enum vtkF3DUserEvents
   TriggerEvent,
   ShowEvent,
   HideEvent,
-  SceneHierarchyChangedEvent
+  SceneHierarchyChangedEvent,
+  TraceEvent ///< calldata = const char* message, routed to f3d::log::debug (observation logging
+             ///< from VTK-side modules that cannot link libf3d; lands in the session log file)
 };
 
 #endif
