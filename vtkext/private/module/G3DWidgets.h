@@ -11,6 +11,16 @@
  * Extending: add a button variant to ButtonVariant; add an icon in G3DIcon; tune feel via the motion
  * presets in G3DTheme. New widgets follow the same pattern (InvisibleButton hit-test -> Interact()
  * state -> ImDrawList paint with tokens).
+ *
+ * ROUNDED CORNERS — exactly two sanctioned ways, pick by fill type:
+ *  - SOLID fill: ImDrawList::AddRectFilled(..., rounding) under an AAGuard. Native, smooth, one
+ *    draw. Never carve a solid fill.
+ *  - NON-SOLID fill (gradients via AddRectFilledMultiColor, checkerboards, any layered content):
+ *    ImGui cannot round those. Draw the content SQUARE, then call CarveRoundedCorners() (in
+ *    G3DWidgets.cxx) to clip the corners back to the color the shape sits on. Do NOT hand-roll a
+ *    corner mask with PathFillConcave / arc strokes — the notch shape degenerates ImGui's AA fill
+ *    (miter blow-up at the tangent points), its concave triangulator (45-degree mis-ear) and open
+ *    stroke caps (steps); CarveRoundedCorners exists because all three were hit and measured.
  */
 
 #ifndef G3DWidgets_h
@@ -20,6 +30,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <vector>
 
 namespace G3DWidgets
 {
@@ -374,6 +385,27 @@ struct ColorEditDesc
 /// copy). @p col is RGBA in 0..1 (col[3] used only when desc.alpha). Returns true on the frames the
 /// color changed. Mirrors ImGui ColorEdit4 / ColorPicker4 and the styleguide color picker.
 bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc = ColorEditDesc());
+
+//----------------------------------------------------------------------------
+// Eyedropper service (desktop == viewport pixel sampling)
+//
+// The styleguide eyedropper is the browser EyeDropper on the web; on desktop it maps to picking a
+// pixel from the rendered viewport. This widget library is pure ImGui and cannot read GL itself, so
+// the render integration feeds it: while EyedropperActive() the overlay render pass submits the
+// scene texture (exactly the composited central viewport the user sees) once per frame through
+// SubmitEyedropperFrame, and the sampling overlay reads that buffer under the cursor.
+//----------------------------------------------------------------------------
+
+/// Whether a color picker is in eyedropper sampling mode this frame (poll before reading pixels
+/// back). Safe to call without an ImGui context (returns false).
+bool EyedropperActive();
+
+/// Provide the current viewport pixels for eyedropper sampling. @p rgba is tightly packed RGBA8 in
+/// GL layout (row 0 = bottom row), sized w*h*4. @p rectX / @p rectY locate the viewport rect origin
+/// in window device pixels (GL bottom-left origin); @p winW / @p winH are the full window device
+/// size. Ignored when no eyedropper is active.
+void SubmitEyedropperFrame(
+  std::vector<unsigned char>&& rgba, int w, int h, int rectX, int rectY, int winW, int winH);
 
 } // namespace G3DWidgets
 

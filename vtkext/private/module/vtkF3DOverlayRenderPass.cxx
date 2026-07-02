@@ -17,7 +17,63 @@
 #include <vtkSkybox.h>
 #include <vtkTextureObject.h>
 
+#ifdef F3D_MODULE_UI
+#include "G3DWidgets.h"
+
+#include <vtkNew.h>
+#include <vtk_glad.h>
+
+#include <vector>
+#endif
+
 vtkStandardNewMacro(vtkF3DOverlayRenderPass);
+
+#ifdef F3D_MODULE_UI
+namespace
+{
+// Feed the color-picker eyedropper: while it is sampling, read the scene texture (last frame's
+// composited central viewport — CompositeOverlay renders the delegate into ColorTexture AFTER the
+// UI pass, so its content persists into this frame's UI) back to the CPU and hand it to the widget
+// library. Runs BEFORE the overlay (UI) pass so the picker samples fresh pixels this frame.
+void SubmitEyedropperFrame(const vtkRenderState* s, vtkTextureObject* colorTexture)
+{
+  if (!G3DWidgets::EyedropperActive() || colorTexture == nullptr ||
+    colorTexture->GetHandle() == 0)
+  {
+    return;
+  }
+  const int tw = static_cast<int>(colorTexture->GetWidth());
+  const int th = static_cast<int>(colorTexture->GetHeight());
+  if (tw <= 0 || th <= 0)
+  {
+    return;
+  }
+
+  vtkRenderer* r = s->GetRenderer();
+  vtkOpenGLRenderWindow* renWin = static_cast<vtkOpenGLRenderWindow*>(r->GetRenderWindow());
+
+  // read the texture back through a transient FBO (same pattern as SaveTextureToImage)
+  std::vector<unsigned char> rgba(static_cast<std::size_t>(tw) * th * 4);
+  renWin->GetState()->PushFramebufferBindings();
+  vtkNew<vtkOpenGLFramebufferObject> fbo;
+  fbo->SetContext(renWin);
+  fbo->Bind();
+  fbo->AddColorAttachment(0, colorTexture);
+  fbo->ActivateReadBuffer(0);
+  glReadPixels(0, 0, tw, th, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+  fbo->RemoveColorAttachment(0);
+  renWin->GetState()->PopFramebufferBindings();
+
+  // the scene texture maps into the renderer's (possibly centrally pushed) viewport rect
+  int pos[2];
+  int size[2];
+  r->GetTiledSizeAndOrigin(&size[0], &size[1], &pos[0], &pos[1]);
+  const int* winSize = renWin->GetSize();
+  G3DWidgets::SubmitEyedropperFrame(
+    std::move(rgba), tw, th, pos[0], pos[1], winSize[0], winSize[1]);
+}
+} // namespace
+#endif
 
 // ----------------------------------------------------------------------------
 void vtkF3DOverlayRenderPass::Render(const vtkRenderState* s)
@@ -37,6 +93,12 @@ void vtkF3DOverlayRenderPass::Render(const vtkRenderState* s)
   overlayState.SetPropArrayAndCount(
     this->OverlayProps.data(), static_cast<int>(this->OverlayProps.size()));
   overlayState.SetFrameBuffer(s->GetFrameBuffer());
+
+#ifdef F3D_MODULE_UI
+  // color-picker eyedropper: sample source = last frame's scene texture, submitted before the UI
+  // pass below so the sampling overlay reads fresh pixels this frame
+  ::SubmitEyedropperFrame(s, this->ColorTexture);
+#endif
 
   // The control-panel "push" shrinks the renderer viewport to the central rect, but the UI (ImGui,
   // sized to the full window) must stay full-window so the docked bars are not clipped. Render the

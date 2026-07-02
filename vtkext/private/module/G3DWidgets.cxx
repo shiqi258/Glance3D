@@ -1,5 +1,6 @@
 #include "G3DWidgets.h"
 
+#include "G3DLocaleCore.h"
 #include "G3DTextInputContext.h"
 #include "G3DTheme.h"
 
@@ -8,6 +9,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <string>
 #include <unordered_map>
@@ -151,6 +153,13 @@ inline void DrawSliderThumb(ImDrawList* dl, const ImVec2& center, float r, float
 
 using G3DTheme::LerpColor;
 using G3DTheme::U32;
+
+// Translate a widget-owned UI string through the shared locale catalog (source string == key, same
+// convention as the inspector rows in vtkF3DImguiActor).
+std::string Tr(const char* key)
+{
+  return G3DLocaleCore::GetInstance().Translate(key);
+}
 
 // Shared text-button body (icon optional).
 bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DIconId* icon)
@@ -2179,13 +2188,30 @@ struct ColorPickerState
   bool floatMode = false;
   bool inited = false;
   float lastR = -1.f, lastG = -1.f, lastB = -1.f, lastA = -1.f; // detect external col[] edits
+  int commitFrame = -1000; // last frame this picker wrote col[] (external-sync grace period)
   std::vector<unsigned int> recents;                            // packed 0x00RRGGBB, most-recent first
   char hexBuf[16] = "";
   char chanBuf[4][16] = { "", "", "", "" };
   char intBuf[16] = "";
   double copiedTime = -10.0;
+  ImVec2 panelSize = ImVec2(0.f, 0.f); // last popup size, for the flip-above placement decision
 };
 std::unordered_map<ImGuiID, ColorPickerState> gColorPickers;
+
+// Eyedropper sampling mode: at most one picker owns it, and the render integration feeds it the
+// viewport pixels (SubmitEyedropperFrame). lastTouchFrame lets the service auto-expire when the
+// owning picker stops being drawn (panel hidden, widget gone) so the integration stops reading back.
+struct EyedropState
+{
+  ImGuiID owner = 0;               // stateId of the sampling picker, 0 = inactive
+  int lastTouchFrame = -1;         // last frame the owning ColorEdit ran its overlay
+  std::vector<unsigned char> rgba; // RGBA8, GL rows (row 0 = bottom)
+  int w = 0, h = 0;                // pixel buffer size
+  int rectX = 0, rectY = 0;        // viewport rect origin in window device px (GL bottom-left)
+  int winW = 0, winH = 0;          // window device size
+  bool frameValid = false;         // a frame has been submitted since sampling started
+};
+EyedropState gEyedrop;
 
 constexpr float HDR_INT_MAX = 8.f;
 
@@ -2214,33 +2240,62 @@ void DrawCheckerboard(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float 
 }
 
 // Fill the four rounded-corner notches of [p0,p1] (radius r) with @p bg — i.e. clip square content
-// drawn in the rect (the checkerboard) to the rounded shape, so outside the arc reads as the chip's
-// background. ImGui has no rounded clip rect; this carves each corner (the region between the square
-// corner and the quarter-circle arc) back to bg via a concave fill. Angles are screen-space (y down):
-// 0 = right, PI/2 = down, PI = left, 3PI/2 = up; each arc goes a_min<a_max for correct AA.
+// drawn in the rect (a checkerboard, a gradient) to the rounded shape, so outside the arc reads as
+// the underlying background. ImGui has no rounded clip rect and its gradient quads
+// (AddRectFilledMultiColor) accept no rounding, so each corner (the region between the square
+// corner and the quarter-circle arc) is carved back to bg.
+//
+// THE library-wide primitive for rounding NON-SOLID fills (see the "ROUNDED CORNERS" rule in
+// G3DWidgets.h): draw gradients / checkerboards / layered content square, then carve the corners
+// with this. Solid fills must use AddRectFilled(rounding) instead — native, cheaper, no carve.
+//
+// The notch shape (square corner minus quarter circle) is hostile to ImGui's generic AA paths:
+//  - Its outline meets the rect edges TANGENTIALLY, folding back ~180 degrees at the tangent
+//    points; the AA-fill miter (IM_FIXNORMAL2F) degenerates there and smears the fringe over
+//    several pixels (measured up to ~5px of displaced blur).
+//  - The concave triangulator (PathFillConcave) mis-ears the near-degenerate outline and covers
+//    the whole corner TRIANGLE, cutting a straight 45-degree chamfer through the arc.
+//  - Per-corner open arc STROKES fix the arcs but leave butt-cap steps where each stroke ends at
+//    the tangent points (amplified on the near-horizontal spans).
+// Working recipe, matching native rounded rects sample-for-sample:
+//  1. Hard (non-AA) TRIANGLE FANS from each corner across the arc samples (PathFillConvex fans
+//     from the first path point; every corner->arc[i]->arc[i+1] triangle lies inside the notch),
+//     using the exact PathArcToFast samples and radius clamp of ImGui's own PathRect so the fan
+//     boundary coincides with step 2's outline.
+//  2. ONE closed rounded-rect stroke (PathRect + PathStroke, 2px, AA) in the same bg color over
+//     the whole outline: closed = no stroke end caps anywhere, so coverage is continuous through
+//     the tangent points; its opaque core (+-0.5px around the outline) buries the fans' hard
+//     rasterization steps and its inner AA edge feathers the carved content. The outer half falls
+//     on the already-bg notch / surrounding panel, invisible (bg must be the color the shape
+//     sits on, which every call site already guarantees).
 void CarveRoundedCorners(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float r, ImU32 bg)
 {
-  if (r <= 0.5f)
+  // Same clamp as ImGui's PathRect (native pill/rounded fills share it), so fans, stroke and any
+  // sibling AddRectFilled agree on the corner geometry.
+  r = std::min(r, std::min(p1.x - p0.x, p1.y - p0.y) * 0.5f - 1.f);
+  if (r < 0.5f)
   {
     return;
   }
-  constexpr float P = 3.14159265f;
+  const ImDrawListFlags saved = dl->Flags;
+  dl->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+  // PathArcToFast quadrant indices: 12 o'clock = 9, 3 = 0/12, 6 = 3, 9 = 6 (see PathRect)
   dl->PathLineTo(ImVec2(p0.x, p0.y));
-  dl->PathLineTo(ImVec2(p0.x, p0.y + r));
-  dl->PathArcTo(ImVec2(p0.x + r, p0.y + r), r, P, 1.5f * P); // top-left
-  dl->PathFillConcave(bg);
+  dl->PathArcToFast(ImVec2(p0.x + r, p0.y + r), r, 6, 9); // top-left
+  dl->PathFillConvex(bg);
   dl->PathLineTo(ImVec2(p1.x, p0.y));
-  dl->PathLineTo(ImVec2(p1.x - r, p0.y));
-  dl->PathArcTo(ImVec2(p1.x - r, p0.y + r), r, 1.5f * P, 2.f * P); // top-right
-  dl->PathFillConcave(bg);
+  dl->PathArcToFast(ImVec2(p1.x - r, p0.y + r), r, 9, 12); // top-right
+  dl->PathFillConvex(bg);
   dl->PathLineTo(ImVec2(p1.x, p1.y));
-  dl->PathLineTo(ImVec2(p1.x, p1.y - r));
-  dl->PathArcTo(ImVec2(p1.x - r, p1.y - r), r, 0.f, 0.5f * P); // bottom-right
-  dl->PathFillConcave(bg);
+  dl->PathArcToFast(ImVec2(p1.x - r, p1.y - r), r, 0, 3); // bottom-right
+  dl->PathFillConvex(bg);
   dl->PathLineTo(ImVec2(p0.x, p1.y));
-  dl->PathLineTo(ImVec2(p0.x + r, p1.y));
-  dl->PathArcTo(ImVec2(p0.x + r, p1.y - r), r, 0.5f * P, P); // bottom-left
-  dl->PathFillConcave(bg);
+  dl->PathArcToFast(ImVec2(p0.x + r, p1.y - r), r, 3, 6); // bottom-left
+  dl->PathFillConvex(bg);
+  dl->Flags = saved | ImDrawListFlags_AntiAliasedLines;
+  dl->PathRect(p0, p1, r);
+  dl->PathStroke(bg, ImDrawFlags_Closed, 2.f);
+  dl->Flags = saved;
 }
 
 // A color chip: solid rounded color + a dark inset hairline (never a translucent-white border, which
@@ -2260,6 +2315,65 @@ void DrawColorChip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, const ImV
   }
   dl->AddRectFilled(p0, p1, U32(color), rounding);
   dl->AddRect(p0, p1, IM_COL32(0, 0, 0, 71), rounding, 0, G3DTheme::Size::Border * s); // inset .28
+}
+
+// Text with a trailing "..." when it does not fit in @p maxW (styleguide `text-overflow: ellipsis`;
+// ASCII dots — the U+2026 glyph is not guaranteed in the atlas for non-CJK languages).
+void DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text)
+{
+  if (ImGui::CalcTextSize(text).x <= maxW)
+  {
+    dl->AddText(pos, col, text);
+    return;
+  }
+  const float ellW = ImGui::CalcTextSize("...").x;
+  const char* end = text + std::strlen(text);
+  while (end > text && ImGui::CalcTextSize(text, end).x + ellW > maxW)
+  {
+    --end; // hex values are ASCII; per-byte stepping is safe
+  }
+  std::string clipped(text, end);
+  clipped += "...";
+  dl->AddText(pos, col, clipped.c_str());
+}
+
+// Dashed rounded-rect outline (the styleguide .cp-add `border: 1px dashed`). ImGui cannot dash a
+// stroke: dash the four straight edges manually and stroke the four corner arcs solid — at the
+// 18px swatch size an arc is about one dash long, so the mix reads as a uniform dashed ring.
+void DrawDashedRect(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float r, ImU32 col,
+  float thickness, float dash, float gap)
+{
+  const float inset = 0.5f * thickness;
+  const float step = dash + gap;
+  auto dashH = [&](float xa, float xb, float yy)
+  {
+    for (float x = xa; x < xb; x += step)
+    {
+      dl->AddLine(ImVec2(x, yy), ImVec2(std::min(x + dash, xb), yy), col, thickness);
+    }
+  };
+  auto dashV = [&](float ya, float yb, float xx)
+  {
+    for (float y = ya; y < yb; y += step)
+    {
+      dl->AddLine(ImVec2(xx, y), ImVec2(xx, std::min(y + dash, yb)), col, thickness);
+    }
+  };
+  dashH(p0.x + r, p1.x - r, p0.y + inset); // top
+  dashH(p0.x + r, p1.x - r, p1.y - inset); // bottom
+  dashV(p0.y + r, p1.y - r, p0.x + inset); // left
+  dashV(p0.y + r, p1.y - r, p1.x - inset); // right
+  constexpr float P = 3.14159265f;
+  const float ar = r - inset;
+  auto arc = [&](const ImVec2& c, float a0, float a1)
+  {
+    dl->PathArcTo(c, ar, a0, a1);
+    dl->PathStroke(col, 0, thickness);
+  };
+  arc(ImVec2(p0.x + r, p0.y + r), P, 1.5f * P);        // top-left
+  arc(ImVec2(p1.x - r, p0.y + r), 1.5f * P, 2.f * P);  // top-right
+  arc(ImVec2(p1.x - r, p1.y - r), 0.f, 0.5f * P);      // bottom-right
+  arc(ImVec2(p0.x + r, p1.y - r), 0.5f * P, P);        // bottom-left
 }
 } // namespace
 
@@ -2334,25 +2448,38 @@ bool ColorSwatch(const char* id, const float col[4], const ColorSwatchDesc& desc
   // chip — the swatch field fill (bg) is what sits behind it, so carved corners blend with the field
   const float cy = p0.y + h * 0.5f;
   const ImVec2 c0(p0.x + padX, cy - chip * 0.5f);
-  DrawColorChip(dl, c0, ImVec2(c0.x + chip, c0.y + chip),
-    ImVec4(col[0], col[1], col[2], a), G3DTheme::Radius::Small * s, bg);
+  const ImVec2 c1(c0.x + chip, c0.y + chip);
+  if (desc.disabled)
+  {
+    // Styleguide `.is-disabled { opacity: .45 }` fades the WHOLE trigger: approximate the composite
+    // fade by blending the chip toward the field fill (the transparency checker is suppressed — a
+    // dimmed flat chip is the disabled read, not a busy checker).
+    const ImVec4 flat(col[0], col[1], col[2], 1.f);
+    dl->AddRectFilled(c0, c1, U32(LerpColor(bg, flat, 0.45f)), G3DTheme::Radius::Small * s);
+    dl->AddRect(c0, c1, IM_COL32(0, 0, 0, 32), G3DTheme::Radius::Small * s, 0,
+      G3DTheme::Size::Border * s);
+  }
+  else
+  {
+    DrawColorChip(dl, c0, c1, ImVec4(col[0], col[1], col[2], a), G3DTheme::Radius::Small * s, bg);
+  }
 
+  const float dis = desc.disabled ? 0.45f : 1.f;
   float tx = c0.x + chip + gap;
   if (!desc.noChevron)
   {
     // chevron pinned to the right edge (rotated chevron == down)
     G3DIcon::Draw(dl, G3DIconId::ChevronDown,
-      ImVec2(p0.x + width - padX - chevSz * 0.5f, cy), chevSz, U32(G3DTheme::TextSubtle()));
+      ImVec2(p0.x + width - padX - chevSz * 0.5f, cy), chevSz, U32(G3DTheme::TextSubtle(), dis));
   }
   if (!desc.noLabel)
   {
     const float rightLimit =
       p0.x + width - padX - (desc.noChevron ? 0.f : chevSz + gap);
-    dl->PushClipRect(ImVec2(tx, p0.y), ImVec2(rightLimit, p0.y + h), true);
     // Regular UI font (no custom size) — the value is primary readable text, not a micro-label.
-    dl->AddText(ImVec2(tx, cy - ImGui::CalcTextSize(hex.c_str()).y * 0.5f), U32(G3DTheme::Text()),
-      hex.c_str());
-    dl->PopClipRect();
+    // Truncates with "..." when the field is narrower than the value (styleguide text-overflow).
+    DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::CalcTextSize(hex.c_str()).y * 0.5f),
+      std::max(0.f, rightLimit - tx), U32(G3DTheme::Text(), dis), hex.c_str());
   }
 
   if (desc.disabled)
@@ -2367,11 +2494,13 @@ bool ColorSwatch(const char* id, const float col[4], const ColorSwatchDesc& desc
 namespace
 {
 // cp-value styled text field (surface-1 bg, hairline -> accent on focus, 28px tall, radius sm). The
-// caller positions it (x,y). Returns IsItemDeactivatedAfterEdit so the caller commits the parsed
-// value once on blur/Enter; query ImGui::IsItemActive() right after to know whether to keep refreshing
+// caller positions it (x,y). @p centered mirrors the styleguide `.cp-value { text-align: center }`
+// (channel / intensity fields; the hex field stays left-aligned) via a dynamic left pad — ImGui has
+// no input text-align. Returns IsItemDeactivatedAfterEdit so the caller commits the parsed value
+// once on blur/Enter; query ImGui::IsItemActive() right after to know whether to keep refreshing
 // the buffer from the model (public API only — no imgui_internal GetActiveID).
 bool PickerField(const char* idStr, char* buf, std::size_t bufSize, float x, float y, float wdt,
-  ImGuiInputTextFlags flags)
+  ImGuiInputTextFlags flags, bool centered = false)
 {
   const float s = Scale();
   const float h = 28.f * s;
@@ -2386,12 +2515,17 @@ bool PickerField(const char* idStr, char* buf, std::size_t bufSize, float x, flo
       G3DTheme::Size::Border * s);
   }
 
+  float padX = G3DTheme::Spacing::Sm * s;
+  if (centered)
+  {
+    padX = std::max(padX, (wdt - ImGui::CalcTextSize(buf).x) * 0.5f);
+  }
   ImGui::SetCursorScreenPos(ImVec2(x, y));
   ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
   ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(0, 0, 0, 0));
   ImGui::PushStyleColor(ImGuiCol_FrameBgActive, IM_COL32(0, 0, 0, 0));
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
-    ImVec2(G3DTheme::Spacing::Sm * s, std::max(0.f, (h - ImGui::GetFontSize()) * 0.5f)));
+    ImVec2(padX, std::max(0.f, (h - ImGui::GetFontSize()) * 0.5f)));
   ImGui::SetNextItemWidth(wdt);
   ImGui::InputText(idStr, buf, bufSize, flags);
   ImGui::PopStyleVar();
@@ -2442,9 +2576,16 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
   ColorPickerState& st = gColorPickers[stateId];
 
   // ---- sync working state from the caller's color (init, or an external edit) ----
+  // Grace period after our own commits: callers push the color through an async command and keep
+  // re-reading the option every frame, so for a few frames after a one-shot commit (eyedropper /
+  // hex enter / swatch click) col[] still holds the PRE-commit value — resyncing from it would
+  // flash the picker back to the old color until the command lands. Genuine external edits within
+  // the window still sync, just up to ~10 frames later.
   const float incomingA = desc.alpha ? col[3] : 1.f;
-  const bool external = col[0] != st.lastR || col[1] != st.lastG || col[2] != st.lastB ||
-    incomingA != st.lastA;
+  const bool inGrace = ImGui::GetFrameCount() - st.commitFrame <= 10;
+  const bool external = (col[0] != st.lastR || col[1] != st.lastG || col[2] != st.lastB ||
+                          incomingA != st.lastA) &&
+    !inGrace;
   if (!st.inited)
   {
     st.fmt = desc.format;
@@ -2497,6 +2638,11 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       st.v = std::clamp(1.f - (m.y - y) / svH, 0.f, 1.f);
       dirty = true;
     }
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+    {
+      // pick area (the styleguide uses a crosshair; ImGui's standard cursor set has none)
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
     AAGuard aa(dl);
     const ImVec2 a0(x0, y), a1(x0 + W, y + svH);
     const RGBf hueRgb = HsvToRgb(st.h, 1.f, 1.f);
@@ -2506,7 +2652,9 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       IM_COL32(255, 255, 255, 0), IM_COL32(255, 255, 255, 255)); // white -> transparent (saturation)
     dl->AddRectFilledMultiColor(a0, a1, IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0),
       IM_COL32(0, 0, 0, 255), IM_COL32(0, 0, 0, 255)); // transparent -> black (value)
-    dl->AddRect(a0, a1, IM_COL32(0, 0, 0, 71), 0.f, 0, G3DTheme::Size::Border * s);
+    // Rounded r-md, borderless, like the styleguide .cp-sv (border-radius + overflow:hidden): the
+    // square gradients are carved back to the panel bg at the corners.
+    CarveRoundedCorners(dl, a0, a1, G3DTheme::Radius::Control * s, U32(G3DTheme::Surface()));
     // cursor (current color fill + white ring + dark halo)
     const ImVec2 cc = PxSnap(ImVec2(x0 + st.s * W, y + (1.f - st.v) * svH));
     const float cr = 7.f * s;
@@ -2521,22 +2669,47 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
   // track an SV drag without a one-frame lag.
   const RGBf base = HsvToRgb(st.h, st.s, st.v);
 
+  // Raw channel value under the current format / space / float / intensity — shared by the editable
+  // inputs AND the copy button (the styleguide copies through the same channelValue()).
+  auto chanVal = [&](char k) -> float
+  {
+    const RGBf b = HsvToRgb(st.h, st.s, st.v);
+    if (st.fmt == ColorFormat::Rgb)
+    {
+      if (k == 'a')
+      {
+        return st.floatMode ? st.a : st.a * 100.f;
+      }
+      float c = (k == 'r' ? b.r : k == 'g' ? b.g : b.b);
+      if (st.space == ColorSpace::Linear)
+      {
+        c = Srgb2Linear(c);
+      }
+      return st.floatMode ? c * st.intensity : c * 255.f;
+    }
+    if (st.fmt == ColorFormat::Hsb)
+    {
+      return k == 'h' ? st.h : k == 's' ? st.s * 100.f : k == 'v' ? st.v * 100.f : st.a * 100.f;
+    }
+    const HSLf hsl = RgbToHsl(b.r, b.g, b.b);
+    return k == 'h' ? hsl.h : k == 's' ? hsl.s * 100.f : k == 'l' ? hsl.l * 100.f : st.a * 100.f;
+  };
+
   // ===== mid row: eyedropper + preview + (hue / alpha tracks) =====
   {
     const float rowH = 32.f * s;
     const float ctrl = 30.f * s;
     const float ctrlMid = y + (rowH - ctrl) * 0.5f;
 
-    // eyedropper (screen / viewport sampling — desktop hook pending; visible affordance for now).
-    // Drawn manually (not IconButton) so the pipette glyph is a touch larger than the standard 0.52x
-    // icon: at the button's ~30px the Lucide detail needs the extra pixels to read clearly. Tooltip
-    // matches the styleguide title "吸管取色（屏幕采样）".
+    // eyedropper — clicking arms viewport pixel sampling: the popup closes so the whole viewport is
+    // visible, ColorEdit runs the fullscreen sampling overlay (magnifier + click-to-pick), and the
+    // popup reopens on commit/cancel. Drawn manually (not IconButton) so the pipette glyph is a
+    // touch larger than the standard 0.52x icon: at the button's ~30px the Lucide detail needs the
+    // extra pixels to read clearly.
     {
-      const char* eyeTip =
-        "\xE5\x90\xB8\xE7\xAE\xA1\xE5\x8F\x96\xE8\x89\xB2\xEF\xBC\x88\xE5\xB1\x8F\xE5\xB9\x95\xE9\x87\x87"
-        "\xE6\xA0\xB7\xEF\xBC\x89";
+      const std::string eyeTip = Tr("Eyedropper (screen sampling)");
       ImGui::SetCursorScreenPos(ImVec2(x0, ctrlMid));
-      ImGui::InvisibleButton("##eyedrop", ImVec2(ctrl, ctrl));
+      const bool eyeClick = ImGui::InvisibleButton("##eyedrop", ImVec2(ctrl, ctrl));
       const bool eHov = ImGui::IsItemHovered();
       const WidgetAnim& ea = Interact(ImGui::GetID("##eyedrop"), eHov, ImGui::IsItemActive());
       if (eHov)
@@ -2552,7 +2725,14 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       // 18px glyph + 1.5px stroke == styleguide .iconbtn .icon (font-size 18px, Lucide stroke-width 2).
       G3DIcon::Draw(dl, G3DIconId::Eyedropper, ImVec2(x0 + ctrl * 0.5f, ctrlMid + ctrl * 0.5f),
         ctrl * 0.60f, U32(G3DTheme::Text()), 1.5f * s);
-      G3DWidgets::ItemTooltip(eyeTip);
+      G3DWidgets::ItemTooltip(eyeTip.c_str());
+      if (eyeClick)
+      {
+        gEyedrop = EyedropState{};
+        gEyedrop.owner = stateId;
+        gEyedrop.lastTouchFrame = ImGui::GetFrameCount();
+        ImGui::CloseCurrentPopup();
+      }
     }
 
     // preview chip (HDR glow hints at > 1 luminance, which CSS / sRGB can't display)
@@ -2567,11 +2747,14 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     DrawColorChip(dl, pv0, pv1, ImVec4(base.r, base.g, base.b, st.a), G3DTheme::Radius::Control * s,
       G3DTheme::Surface()); // preview sits on the popup panel — carved corners stay panel bg
 
-    // hue + alpha tracks stacked in the remaining width
+    // hue + alpha tracks stacked in the remaining width. Without alpha editing the alpha track is
+    // omitted (a dead slider would mislead) and the hue track centers vertically in the row.
     const float trackX = px + ctrl + G;
     const float trackW = x0 + W - trackX;
     const float trackH = 12.f * s;
-    const float hueY = y;
+    const float pillR = trackH * 0.5f; // styleguide .cp-track { border-radius: pill }
+    const bool withAlpha = desc.alpha;
+    const float hueY = withAlpha ? y : y + (rowH - trackH) * 0.5f;
     const float alphaY = y + trackH + gap2;
 
     // hue track (interactive)
@@ -2581,6 +2764,10 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     {
       st.h = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f) * 360.f;
       dirty = true;
+    }
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     }
     {
       AAGuard aa(dl);
@@ -2595,23 +2782,32 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
         dl->AddRectFilledMultiColor(ImVec2(sx, hueY), ImVec2(ex, hueY + trackH), stops[i],
           stops[i + 1], stops[i + 1], stops[i]);
       }
+      // pill ends: gradients are square fills, carve the corners back to the panel bg
+      CarveRoundedCorners(
+        dl, ImVec2(trackX, hueY), ImVec2(trackX + trackW, hueY + trackH), pillR, U32(G3DTheme::Surface()));
     }
 
     // alpha track (checkerboard + transparent -> current color, interactive)
-    ImGui::SetCursorScreenPos(ImVec2(trackX, alphaY));
-    ImGui::InvisibleButton("##alpha", ImVec2(trackW, trackH));
-    if (ImGui::IsItemActive())
+    if (withAlpha)
     {
-      st.a = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f);
-      dirty = true;
-    }
-    {
+      ImGui::SetCursorScreenPos(ImVec2(trackX, alphaY));
+      ImGui::InvisibleButton("##alpha", ImVec2(trackW, trackH));
+      if (ImGui::IsItemActive())
+      {
+        st.a = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f);
+        dirty = true;
+      }
+      if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+      {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      }
       AAGuard aa(dl);
       const ImVec2 al0(trackX, alphaY), al1(trackX + trackW, alphaY + trackH);
       DrawCheckerboard(dl, al0, al1, 4.f * s);
       const ImU32 opaque = U32(ImVec4(base.r, base.g, base.b, 1.f));
       const ImU32 clear = U32(ImVec4(base.r, base.g, base.b, 0.f));
       dl->AddRectFilledMultiColor(al0, al1, clear, opaque, opaque, clear);
+      CarveRoundedCorners(dl, al0, al1, pillR, U32(G3DTheme::Surface()));
     }
 
     // Handles drawn last and UNCLIPPED: the 14px handle is taller than the 12px track, so a
@@ -2623,9 +2819,12 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       dl->PushClipRectFullScreen();
       const float thumbR = 7.f * s;
       const float hx = trackX + (st.h / 360.f) * trackW;
-      const float ax = trackX + st.a * trackW;
       DrawSliderThumb(dl, ImVec2(hx, hueY + trackH * 0.5f), thumbR, s);
-      DrawSliderThumb(dl, ImVec2(ax, alphaY + trackH * 0.5f), thumbR, s);
+      if (withAlpha)
+      {
+        const float ax = trackX + st.a * trackW;
+        DrawSliderThumb(dl, ImVec2(ax, alphaY + trackH * 0.5f), thumbR, s);
+      }
       dl->PopClipRect();
     }
     y += rowH + G;
@@ -2634,8 +2833,11 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
   // ===== HDR intensity row =====
   if (desc.hdr)
   {
+    const std::string intLabel = Tr("Intensity");
+    const std::string intTip = Tr("HDR intensity multiplier (>1 = emissive / overbright)");
     const float rowH = 28.f * s;
-    const float labW = kRowLabelW;
+    // label column widens for long translations (the styleguide fixed 30px column is zh-sized)
+    const float labW = std::max(kRowLabelW, ImGui::CalcTextSize(intLabel.c_str()).x + 4.f * s);
     const float intInW = 48.f * s;
     const float trackX = x0 + labW + gap2;
     const float intInX = x0 + W - intInW;
@@ -2643,9 +2845,13 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     const float trackH = 12.f * s;
     const float trackY = y + (rowH - trackH) * 0.5f;
 
-    // 强度 (intensity) — regular UI font, vertically centered.
+    // label — regular UI font, vertically centered; a Dummy item so the row tooltip (the styleguide
+    // puts the title on the whole .cp-row) also triggers over the label, not just the track.
+    ImGui::SetCursorScreenPos(ImVec2(x0, y));
+    ImGui::Dummy(ImVec2(labW, rowH));
+    G3DWidgets::ItemTooltip(intTip.c_str());
     dl->AddText(ImVec2(x0, y + (rowH - ImGui::GetTextLineHeight()) * 0.5f),
-      U32(G3DTheme::TextSubtle()), "\xE5\xBC\xBA\xE5\xBA\xA6");
+      U32(G3DTheme::TextSubtle()), intLabel.c_str());
 
     ImGui::SetCursorScreenPos(ImVec2(trackX, trackY));
     ImGui::InvisibleButton("##int", ImVec2(trackW, trackH));
@@ -2655,11 +2861,18 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       st.intensity = 1.f + t * (HDR_INT_MAX - 1.f);
       dirty = true;
     }
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+    G3DWidgets::ItemTooltip(intTip.c_str());
     {
       AAGuard aa(dl);
       dl->AddRectFilledMultiColor(ImVec2(trackX, trackY), ImVec2(trackX + trackW, trackY + trackH),
         U32(G3DTheme::SurfacePress()), U32(G3DTheme::Accent()), U32(G3DTheme::Accent()),
         U32(G3DTheme::SurfacePress()));
+      CarveRoundedCorners(dl, ImVec2(trackX, trackY), ImVec2(trackX + trackW, trackY + trackH),
+        trackH * 0.5f, U32(G3DTheme::Surface())); // pill ends, like the hue/alpha tracks
       const float ix = trackX + ((st.intensity - 1.f) / (HDR_INT_MAX - 1.f)) * trackW;
       dl->PushClipRectFullScreen(); // handle overhangs the track — draw unclipped (see hue/alpha note)
       DrawSliderThumb(dl, ImVec2(ix, trackY + trackH * 0.5f), 7.f * s, s);
@@ -2667,7 +2880,7 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     }
 
     if (PickerField("##intval", st.intBuf, sizeof(st.intBuf), intInX, y, intInW,
-          ImGuiInputTextFlags_CharsDecimal))
+          ImGuiInputTextFlags_CharsDecimal, true))
     {
       try
       {
@@ -2721,10 +2934,13 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     {
       ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     }
+    G3DWidgets::ItemTooltip(Tr("Cycle format HEX / RGB / HSB / HSL").c_str());
     cx += fmtW + gap2;
 
-    // mini segmented control helper (self-managed state, like the styleguide .cp-seg)
-    auto miniSeg = [&](const char* idStr, const char* a, const char* b, bool bOn, float& outX) -> int
+    // mini segmented control helper (self-managed state, like the styleguide .cp-seg). @p tip is
+    // the container title in the styleguide, surfaced on both buttons.
+    auto miniSeg = [&](const char* idStr, const char* a, const char* b, bool bOn, float& outX,
+                     const char* tip) -> int
     {
       const float pad = 6.f * s;
       const float aw = ImGui::CalcTextSize(a).x + pad * 2.f;
@@ -2755,9 +2971,15 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
           clickedIdx = i;
         }
         const bool segHov = ImGui::IsItemHovered();
+        // hover transition on the label color (styleguide .cp-seg button transition: color)
+        const WidgetAnim& sa = Interact(ImGui::GetID("##b"), segHov, ImGui::IsItemActive());
         if (segHov)
         {
           ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        }
+        if (tip != nullptr)
+        {
+          G3DWidgets::ItemTooltip(tip);
         }
         ImGui::PopID();
         ImGui::PopID();
@@ -2767,7 +2989,8 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
           dl->AddRectFilled(ImVec2(bx, segY + 2.f * s), ImVec2(bx + widths[i], segY + segH - 2.f * s),
             U32(G3DTheme::SurfacePress()), 4.f * s);
         }
-        const ImVec4 tc = on ? G3DTheme::Text() : (segHov ? G3DTheme::Text() : G3DTheme::TextSubtle());
+        const ImVec4 tc =
+          on ? G3DTheme::Text() : LerpColor(G3DTheme::TextSubtle(), G3DTheme::Text(), sa.hover.Value());
         dl->AddText(
           ImVec2(bx + pad, segY + (segH - ImGui::GetTextLineHeight()) * 0.5f), U32(tc), labels[i]);
         bx += widths[i] + 2.f * s;
@@ -2776,9 +2999,12 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       return clickedIdx;
     };
 
-    // "线性" == Linear (matching the styleguide segment); sRGB stays language-neutral.
-    const int spaceClick =
-      miniSeg("##space", "sRGB", "\xE7\xBA\xBF\xE6\x80\xA7", st.space == ColorSpace::Linear, cx);
+    // "Linear" matches the styleguide segment (线性); sRGB stays language-neutral.
+    const std::string linearLbl = Tr("Linear");
+    const std::string spaceTip = Tr("Color space");
+    const std::string floatTip = Tr("RGB value range");
+    const int spaceClick = miniSeg(
+      "##space", "sRGB", linearLbl.c_str(), st.space == ColorSpace::Linear, cx, spaceTip.c_str());
     if (spaceClick == 0)
     {
       st.space = ColorSpace::Srgb;
@@ -2787,7 +3013,7 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     {
       st.space = ColorSpace::Linear;
     }
-    const int floatClick = miniSeg("##float", "255", "0-1", st.floatMode, cx);
+    const int floatClick = miniSeg("##float", "255", "0-1", st.floatMode, cx, floatTip.c_str());
     if (floatClick == 0)
     {
       st.floatMode = false;
@@ -2797,16 +3023,37 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       st.floatMode = true;
     }
 
-    // copy button (right-aligned)
+    // copy button (right-aligned). Drawn manually rather than via IconButton so the copied state can
+    // tint the check with the success green (styleguide .cp-copy.copied { color: var(--success) }).
     const float copyW = 28.f * s;
     const float copyX = x0 + W - copyW;
+    const float copyY = y + (rowH - copyW) * 0.5f;
     const bool copied = (ImGui::GetTime() - st.copiedTime) < 0.9;
-    ImGui::SetCursorScreenPos(ImVec2(copyX, y + (rowH - copyW) * 0.5f));
-    if (G3DWidgets::IconButton("##copy", copied ? G3DIconId::Check : G3DIconId::Copy, 28.f, false,
-          "Copy color value"))
+    ImGui::SetCursorScreenPos(ImVec2(copyX, copyY));
+    const bool copyClick = ImGui::InvisibleButton("##copy", ImVec2(copyW, copyW));
+    const bool copyHov = ImGui::IsItemHovered();
+    const WidgetAnim& ca = Interact(ImGui::GetID("##copy"), copyHov, ImGui::IsItemActive());
+    if (copyHov)
     {
-      // build the string in the current format
-      const int R = To255(base.r), Gc = To255(base.g), B = To255(base.b);
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+    {
+      AAGuard aa(dl);
+      if (ca.hover.Value() > 0.01f)
+      {
+        dl->AddRectFilled(ImVec2(copyX, copyY), ImVec2(copyX + copyW, copyY + copyW),
+          U32(G3DTheme::SurfaceHover(), ca.hover.Value()), G3DTheme::Radius::Control * s);
+      }
+      // 0.52x glyph == IconButton's ratio (~15px == styleguide .cp-copy .icon font-size)
+      G3DIcon::Draw(dl, copied ? G3DIconId::Check : G3DIconId::Copy,
+        ImVec2(copyX + copyW * 0.5f, copyY + copyW * 0.5f), copyW * 0.52f,
+        U32(copied ? G3DTheme::Success() : G3DTheme::Text()));
+    }
+    G3DWidgets::ItemTooltip(Tr("Copy color value").c_str());
+    if (copyClick)
+    {
+      // build the string in the current format; RGB honors space / float / intensity through
+      // chanVal so the copied text matches the channel fields (styleguide copyString semantics)
       char out[64];
       if (st.fmt == ColorFormat::Hex)
       {
@@ -2815,7 +3062,12 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       }
       else if (st.fmt == ColorFormat::Rgb)
       {
-        std::snprintf(out, sizeof(out), "rgba(%d, %d, %d, %.2f)", R, Gc, B, st.a);
+        const int dec = st.floatMode ? 3 : 0;
+        char rs[16], gs[16], bs[16];
+        FormatChan(rs, sizeof(rs), chanVal('r'), dec);
+        FormatChan(gs, sizeof(gs), chanVal('g'), dec);
+        FormatChan(bs, sizeof(bs), chanVal('b'), dec);
+        std::snprintf(out, sizeof(out), "rgba(%s, %s, %s, %.2f)", rs, gs, bs, st.a);
       }
       else if (st.fmt == ColorFormat::Hsb)
       {
@@ -2866,30 +3118,6 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       }
     }
 
-    // raw channel value under the current space / float / intensity
-    auto chanVal = [&](char k) -> float {
-      const RGBf b = HsvToRgb(st.h, st.s, st.v);
-      if (st.fmt == ColorFormat::Rgb)
-      {
-        if (k == 'a')
-        {
-          return st.floatMode ? st.a : st.a * 100.f;
-        }
-        float c = (k == 'r' ? b.r : k == 'g' ? b.g : b.b);
-        if (st.space == ColorSpace::Linear)
-        {
-          c = Srgb2Linear(c);
-        }
-        return st.floatMode ? c * st.intensity : c * 255.f;
-      }
-      if (st.fmt == ColorFormat::Hsb)
-      {
-        return k == 'h' ? st.h : k == 's' ? st.s * 100.f : k == 'v' ? st.v * 100.f : st.a * 100.f;
-      }
-      const HSLf hsl = RgbToHsl(b.r, b.g, b.b);
-      return k == 'h' ? hsl.h : k == 's' ? hsl.s * 100.f : k == 'l' ? hsl.l * 100.f : st.a * 100.f;
-    };
-
     if (st.fmt == ColorFormat::Hex)
     {
       const float rowH = 28.f * s;
@@ -2929,7 +3157,7 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
         char idStr[8];
         std::snprintf(idStr, sizeof(idStr), "##c%d", i);
         const bool fieldCommitted = PickerField(idStr, st.chanBuf[i], sizeof(st.chanBuf[i]), fx,
-          y + labH + 4.f * s, fw, ImGuiInputTextFlags_CharsDecimal);
+          y + labH + 4.f * s, fw, ImGuiInputTextFlags_CharsDecimal, true);
         const bool fieldActive = ImGui::IsItemActive();
         // arrow-key nudge (Shift x10) while the field is focused
         bool nudged = false;
@@ -3056,7 +3284,12 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
   // ===== preset + recent swatch rows =====
   if (desc.presets)
   {
-    const float labW = kRowLabelW;
+    const std::string preLbl = Tr("Presets");
+    const std::string recLbl = Tr("Recent");
+    // one shared label column for both rows so their swatch flows stay aligned (styleguide
+    // .cp-row-label is one fixed column; widen it for long translations)
+    const float labW = std::max({ kRowLabelW, ImGui::CalcTextSize(preLbl.c_str()).x + 4.f * s,
+      ImGui::CalcTextSize(recLbl.c_str()).x + 4.f * s });
     const float sw = 18.f * s;
     const float swGap = 6.f * s;
 
@@ -3064,7 +3297,7 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
                        bool withAdd) {
       const float flowX = x0 + labW + swGap;
       const float flowW = x0 + W - flowX - (withAdd ? sw + swGap : 0.f);
-      // row label (预设 / 最近) — regular UI font, vertically centered to the swatch row
+      // row label (Presets / Recent) — regular UI font, vertically centered to the swatch row
       dl->AddText(ImVec2(x0, y + (sw - ImGui::GetTextLineHeight()) * 0.5f), U32(G3DTheme::TextSubtle()),
         label);
       const int perRow = std::max(1, static_cast<int>((flowW + swGap) / (sw + swGap)));
@@ -3074,9 +3307,9 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       float rowMaxY = y + sw;
       if (count == 0)
       {
+        const std::string emptyHint = Tr("Click + to save the current color");
         dl->AddText(ImVec2(flowX, y + (sw - ImGui::GetTextLineHeight()) * 0.5f),
-          U32(G3DTheme::TextSubtle()),
-          "\xE7\x82\xB9 + \xE5\xAD\x98\xE5\x85\xA5\xE5\xBD\x93\xE5\x89\x8D\xE8\x89\xB2"); // 点 + 存入当前色
+          U32(G3DTheme::TextSubtle()), emptyHint.c_str());
       }
       for (int i = 0; i < count; ++i)
       {
@@ -3087,32 +3320,42 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
         const unsigned int packed = colors[i];
         const ImVec4 scol(((packed >> 16) & 0xff) / 255.f, ((packed >> 8) & 0xff) / 255.f,
           (packed & 0xff) / 255.f, 1.f);
+        char hexTip[10];
+        std::snprintf(hexTip, sizeof(hexTip), "#%06X", packed & 0xffffff);
         ImGui::PushID(tag);
         ImGui::PushID(i);
         ImGui::SetCursorScreenPos(ImVec2(sx, sy));
         const bool swClicked = ImGui::InvisibleButton("##s", ImVec2(sw, sw));
         const bool swHover = ImGui::IsItemHovered();
+        // per-swatch anim: hover drives the grow (styleguide transform: scale(1.14) transition),
+        // the value channel drives the selected checkmark pop (opacity + scale micro transition)
+        WidgetAnim& swa = Interact(ImGui::GetID("##s"), swHover, ImGui::IsItemActive());
+        DriveValue(swa, packed == cur ? 1.f : 0.f);
         if (swHover)
         {
           ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         }
+        G3DWidgets::ItemTooltip(hexTip); // styleguide title="#RRGGBB"
         ImGui::PopID();
         ImGui::PopID();
-        const float grow = swHover ? 1.5f * s : 0.f;
+        const float grow = 1.5f * s * swa.hover.Value();
         AAGuard aa(dl);
         DrawColorChip(dl, ImVec2(sx - grow, sy - grow), ImVec2(sx + sw + grow, sy + sw + grow), scol,
           G3DTheme::Radius::Small * s, G3DTheme::Surface()); // swatches sit on the popup panel
-        if (packed == cur)
+        const float ct = swa.value.Value();
+        if (ct > 0.01f)
         {
-          // selected: centered checkmark, tint flips with swatch luminance (Ant / Material / Figma).
+          // selected: centered checkmark, tint flips with swatch luminance (Ant / Material / Figma);
+          // pops in with the styleguide scale(.5)->1 + fade micro transition.
           const float lum = 0.2126f * scol.x + 0.7152f * scol.y + 0.0722f * scol.z;
-          const ImU32 tick = lum > 0.588f ? IM_COL32(0, 0, 0, 209) : IM_COL32(255, 255, 255, 255);
-          G3DIcon::Draw(dl, G3DIconId::Check, ImVec2(sx + sw * 0.5f, sy + sw * 0.5f), sw * 0.7f, tick,
-            2.2f * s);
+          const ImVec4 tick = lum > 0.588f ? ImVec4(0.f, 0.f, 0.f, 0.82f) : ImVec4(1.f, 1.f, 1.f, 1.f);
+          G3DIcon::Draw(dl, G3DIconId::Check, ImVec2(sx + sw * 0.5f, sy + sw * 0.5f),
+            sw * 0.7f * (0.5f + 0.5f * ct), U32(tick, ct), 2.2f * s);
         }
         if (swClicked)
         {
-          setRgb01(scol.x, scol.y, scol.z, st.a);
+          // applyHex semantics: a swatch IS an opaque color — picking one clears translucency
+          setRgb01(scol.x, scol.y, scol.z, 1.f);
         }
       }
       if (withAdd)
@@ -3122,18 +3365,23 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
         ImGui::SetCursorScreenPos(ImVec2(addX, y));
         const bool addClick = ImGui::InvisibleButton("##add", ImVec2(sw, sw));
         const bool addHov = ImGui::IsItemHovered();
+        const WidgetAnim& aa2 = Interact(ImGui::GetID("##add"), addHov, ImGui::IsItemActive());
         if (addHov)
         {
           ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         }
+        G3DWidgets::ItemTooltip(Tr("Save to recent").c_str());
         ImGui::PopID();
         AAGuard aa(dl);
-        const ImVec4 ac = addHov ? G3DTheme::Accent() : G3DTheme::TextSubtle();
+        // styleguide .cp-add: surface-1 fill + DASHED hairline border; icon subtle -> accent on
+        // hover, border border-color -> accent on hover (both on the micro transition)
+        const ImVec4 bc = LerpColor(G3DTheme::Border(), G3DTheme::Accent(), aa2.hover.Value());
+        const ImVec4 ic = LerpColor(G3DTheme::TextSubtle(), G3DTheme::Accent(), aa2.hover.Value());
         dl->AddRectFilled(ImVec2(addX, y), ImVec2(addX + sw, y + sw), U32(G3DTheme::Panel()),
           G3DTheme::Radius::Small * s);
-        dl->AddRect(ImVec2(addX, y), ImVec2(addX + sw, y + sw), U32(ac), G3DTheme::Radius::Small * s, 0,
-          G3DTheme::Size::Border * s);
-        G3DIcon::Draw(dl, G3DIconId::Plus, ImVec2(addX + sw * 0.5f, y + sw * 0.5f), 12.f * s, U32(ac));
+        DrawDashedRect(dl, ImVec2(addX, y), ImVec2(addX + sw, y + sw), G3DTheme::Radius::Small * s,
+          U32(bc), G3DTheme::Size::Border * s, 2.5f * s, 2.5f * s);
+        G3DIcon::Draw(dl, G3DIconId::Plus, ImVec2(addX + sw * 0.5f, y + sw * 0.5f), 12.f * s, U32(ic));
         if (addClick)
         {
           auto& rec = st.recents;
@@ -3148,12 +3396,11 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       y = rowMaxY;
     };
 
-    // "预设" == Presets, "最近" == Recent (matching the styleguide swatch-row labels).
-    swatchRow("##pre", "\xE9\xA2\x84\xE8\xAE\xBE", kPresets, static_cast<int>(std::size(kPresets)),
-      false);
+    swatchRow(
+      "##pre", preLbl.c_str(), kPresets, static_cast<int>(std::size(kPresets)), false);
     y += G;
-    swatchRow("##rec", "\xE6\x9C\x80\xE8\xBF\x91", st.recents.data(),
-      static_cast<int>(st.recents.size()), true);
+    swatchRow(
+      "##rec", recLbl.c_str(), st.recents.data(), static_cast<int>(st.recents.size()), true);
   }
 
   // size the popup content region to the panel's exact extent
@@ -3175,8 +3422,177 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     st.lastG = col[1];
     st.lastB = col[2];
     st.lastA = desc.alpha ? st.a : incomingA;
+    st.commitFrame = ImGui::GetFrameCount();
   }
   return dirty;
+}
+
+// Fullscreen sampling overlay while the eyedropper is armed (the popup is closed then, so ColorEdit
+// runs this every frame): an invisible fullscreen window owns the mouse so nothing beneath reacts,
+// the OS cursor is hidden and replaced by a DevTools-style loupe — an 11x11 zoomed texel grid in a
+// ring of the hovered color with a hex readout. Clicking commits the hovered pixel; Esc or clicking
+// outside the samplable viewport cancels. Returns 0 = still sampling, 1 = committed into col[],
+// 2 = cancelled. Pixels come from SubmitEyedropperFrame (the render integration feeds the scene
+// texture — exactly the composited central viewport the user sees).
+int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditDesc& desc)
+{
+  ColorPickerState& st = gColorPickers[stateId];
+  gEyedrop.lastTouchFrame = ImGui::GetFrameCount();
+  ImGuiIO& io = ImGui::GetIO();
+  const float s = Scale();
+
+  // keyboard capture keeps app bindings (console toggle, camera keys) quiet while sampling
+  ImGui::SetNextFrameWantCaptureKeyboard(true);
+
+  ImGui::SetNextWindowPos(ImVec2(0.f, 0.f));
+  ImGui::SetNextWindowSize(io.DisplaySize);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+  ImGui::Begin("##g3d.eyedrop", nullptr,
+    ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground);
+  ImGui::SetCursorScreenPos(ImVec2(0.f, 0.f));
+  const bool clicked = ImGui::InvisibleButton(
+    "##pick", ImVec2(std::max(io.DisplaySize.x, 1.f), std::max(io.DisplaySize.y, 1.f)));
+  ImGui::End();
+  ImGui::PopStyleVar(2);
+
+  // sample the texel under the cursor: ImGui display coords (top-left origin) -> GL window px
+  // (bottom-left origin) -> submitted-rect texel. FramebufferScale is 1 in this app (see PxSnap),
+  // so display units == device px.
+  const ImVec2 m = io.MousePos;
+  const bool mouseValid =
+    m.x >= 0.f && m.y >= 0.f && m.x < io.DisplaySize.x && m.y < io.DisplaySize.y;
+  bool sampled = false;
+  float sr = 0.f, sg = 0.f, sb = 0.f;
+  int texX = 0, texY = 0;
+  if (gEyedrop.frameValid && mouseValid)
+  {
+    const int gx = static_cast<int>(m.x);
+    const int gy = gEyedrop.winH - 1 - static_cast<int>(m.y);
+    texX = gx - gEyedrop.rectX;
+    texY = gy - gEyedrop.rectY;
+    if (texX >= 0 && texX < gEyedrop.w && texY >= 0 && texY < gEyedrop.h)
+    {
+      const unsigned char* px =
+        &gEyedrop.rgba[(static_cast<std::size_t>(texY) * gEyedrop.w + texX) * 4];
+      sr = px[0] / 255.f;
+      sg = px[1] / 255.f;
+      sb = px[2] / 255.f;
+      sampled = true;
+    }
+  }
+
+  // ---- loupe, on the foreground draw list (above every window) ----
+  if (mouseValid)
+  {
+    ImDrawList* fdl = ImGui::GetForegroundDrawList();
+    AAGuard aa(fdl);
+    ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+    const ImVec2 c = PxSnap(m);
+    // shared hex-readout pill under the loupe
+    auto readoutPill = [&](float topY, const char* text, const ImVec4& txtCol)
+    {
+      const ImVec2 ts = ImGui::CalcTextSize(text);
+      const float padX = 8.f * s, padY = 4.f * s;
+      const ImVec2 pmin(c.x - ts.x * 0.5f - padX, topY);
+      const ImVec2 pmax(c.x + ts.x * 0.5f + padX, topY + ts.y + padY * 2.f);
+      fdl->AddRectFilled(pmin, pmax, U32(G3DTheme::Surface()), G3DTheme::Radius::Small * s);
+      fdl->AddRect(pmin, pmax, U32(G3DTheme::Border()), G3DTheme::Radius::Small * s, 0,
+        G3DTheme::Size::Border * s);
+      fdl->AddText(ImVec2(pmin.x + padX, pmin.y + padY), U32(txtCol), text);
+    };
+    if (sampled)
+    {
+      constexpr int kHalf = 5; // 11x11 texel grid
+      const float cell = 9.f * s;
+      const float gridR = (kHalf + 0.5f) * cell;
+      const float ringW = 4.f * s;
+      // soft shadow behind the loupe
+      fdl->AddCircleFilled(
+        ImVec2(c.x, c.y + 2.f * s), gridR + ringW + 3.f * s, IM_COL32(0, 0, 0, 60), 48);
+      // zoomed texel grid, masked to a circle cell-by-cell (hard pixel edges, like a devtools loupe)
+      for (int dy = -kHalf; dy <= kHalf; ++dy)
+      {
+        for (int dx = -kHalf; dx <= kHalf; ++dx)
+        {
+          if (dx * dx + dy * dy > kHalf * kHalf + kHalf)
+          {
+            continue; // outside the circular mask
+          }
+          const int tx = std::clamp(texX + dx, 0, gEyedrop.w - 1);
+          const int ty = std::clamp(texY + dy, 0, gEyedrop.h - 1);
+          const unsigned char* p =
+            &gEyedrop.rgba[(static_cast<std::size_t>(ty) * gEyedrop.w + tx) * 4];
+          // GL texel rows grow upward; screen y grows downward
+          const ImVec2 cmin(c.x + dx * cell - cell * 0.5f, c.y - dy * cell - cell * 0.5f);
+          fdl->AddRectFilled(
+            cmin, ImVec2(cmin.x + cell, cmin.y + cell), IM_COL32(p[0], p[1], p[2], 255));
+        }
+      }
+      // center texel marker (white inner + dark outer, readable on any color)
+      fdl->AddRect(ImVec2(c.x - cell * 0.5f, c.y - cell * 0.5f),
+        ImVec2(c.x + cell * 0.5f, c.y + cell * 0.5f), IM_COL32(255, 255, 255, 255), 0.f, 0, 1.f * s);
+      fdl->AddRect(ImVec2(c.x - cell * 0.5f - 1.f * s, c.y - cell * 0.5f - 1.f * s),
+        ImVec2(c.x + cell * 0.5f + 1.f * s, c.y + cell * 0.5f + 1.f * s), IM_COL32(0, 0, 0, 150),
+        0.f, 0, 1.f * s);
+      // ring: hovered-color band between a white inner and a dark outer hairline
+      fdl->AddCircle(c, gridR, IM_COL32(255, 255, 255, 230), 48, 1.25f * s);
+      fdl->AddCircle(c, gridR + ringW * 0.5f, U32(ImVec4(sr, sg, sb, 1.f)), 48, ringW);
+      fdl->AddCircle(c, gridR + ringW, IM_COL32(0, 0, 0, 140), 48, 1.25f * s);
+      const std::string hex = ToHexStr(sr, sg, sb, 1.f, false);
+      readoutPill(c.y + gridR + ringW + 8.f * s, hex.c_str(), G3DTheme::Text());
+    }
+    else
+    {
+      // not samplable here (over UI chrome / no frame yet): slashed ring + hint
+      const float r0 = 13.f * s;
+      fdl->AddCircle(c, r0 + 1.5f * s, IM_COL32(0, 0, 0, 120), 32, 1.5f * s);
+      fdl->AddCircle(c, r0, IM_COL32(255, 255, 255, 170), 32, 2.f * s);
+      fdl->AddLine(ImVec2(c.x - r0 * 0.7f, c.y + r0 * 0.7f),
+        ImVec2(c.x + r0 * 0.7f, c.y - r0 * 0.7f), IM_COL32(255, 255, 255, 170), 2.f * s);
+      const std::string hint = Tr("Move over the viewport to sample");
+      readoutPill(c.y + r0 + 10.f * s, hint.c_str(), G3DTheme::TextMuted());
+    }
+  }
+
+  // ---- resolve: click commits (or cancels when nothing samplable), Esc cancels ----
+  int action = 0;
+  if (clicked)
+  {
+    action = sampled ? 1 : 2;
+  }
+  if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+  {
+    action = 2;
+  }
+  if (action == 1)
+  {
+    // EyeDropper returns an opaque color (styleguide applyHex -> alpha resets to 100%)
+    const HSVf hsv = RgbToHsv(sr, sg, sb);
+    st.h = hsv.h;
+    st.s = hsv.s;
+    st.v = hsv.v;
+    st.a = 1.f;
+    col[0] = sr;
+    col[1] = sg;
+    col[2] = sb;
+    if (desc.alpha)
+    {
+      col[3] = 1.f;
+    }
+    st.lastR = col[0];
+    st.lastG = col[1];
+    st.lastB = col[2];
+    st.lastA = 1.f;
+    st.commitFrame = ImGui::GetFrameCount();
+  }
+  if (action != 0)
+  {
+    gEyedrop = EyedropState{};
+  }
+  return action;
 }
 } // namespace
 
@@ -3196,9 +3612,47 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
   {
     ImGui::OpenPopup("##cp");
   }
+  // popover anchor: the swatch rect (the swatch's InvisibleButton is the last submitted item)
+  const ImVec2 anchorMin = ImGui::GetItemRectMin();
+  const ImVec2 anchorMax = ImGui::GetItemRectMax();
 
   const ImGuiID stateId = ImGui::GetID("##cpstate");
   bool changed = false;
+
+  // Eyedropper sampling runs while the popup is closed (the whole viewport stays visible);
+  // committing or cancelling reopens the popup at the anchor below.
+  if (gEyedrop.owner == stateId)
+  {
+    const int act = DrawEyedropOverlay(stateId, col, desc);
+    if (act == 1)
+    {
+      changed = true;
+    }
+    if (act != 0)
+    {
+      ImGui::OpenPopup("##cp");
+    }
+  }
+
+  // Anchor the popup under the trigger like a combo / popover (the styleguide panel is a popover;
+  // reopening after an eyedropper pick must also not land at the then-arbitrary mouse position).
+  // Flips above when there is no room below; clamps into the display horizontally.
+  {
+    const ImVec2 disp = ImGui::GetIO().DisplaySize;
+    const float margin = 8.f * s;
+    const float gapY = 4.f * s;
+    const float panelW = (288.f + 2.f * G3DTheme::Spacing::Md) * s; // content + window padding
+    const ImVec2 lastSize = gColorPickers[stateId].panelSize;
+    const float panelH = lastSize.y > 1.f ? lastSize.y : 420.f * s; // first-open estimate
+    ImVec2 pos(anchorMin.x, anchorMax.y + gapY);
+    if (pos.y + panelH > disp.y - margin)
+    {
+      pos.y = std::max(margin, anchorMin.y - gapY - panelH);
+    }
+    pos.x = std::clamp(pos.x, margin, std::max(margin, disp.x - panelW - margin));
+    ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+  }
+
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(G3DTheme::Spacing::Md * s, G3DTheme::Spacing::Md * s));
   ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Card * s);
   ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, G3DTheme::Size::Border * s);
@@ -3206,7 +3660,8 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
   ImGui::PushStyleColor(ImGuiCol_Border, U32(G3DTheme::Border()));
   if (ImGui::BeginPopup("##cp"))
   {
-    changed = DrawPickerPanel(stateId, col, desc);
+    changed |= DrawPickerPanel(stateId, col, desc);
+    gColorPickers[stateId].panelSize = ImGui::GetWindowSize();
     ImGui::EndPopup();
   }
   ImGui::PopStyleColor(2);
@@ -3214,6 +3669,39 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
 
   ImGui::PopID();
   return changed;
+}
+
+//----------------------------------------------------------------------------
+bool EyedropperActive()
+{
+  if (ImGui::GetCurrentContext() == nullptr)
+  {
+    return false;
+  }
+  if (gEyedrop.owner != 0 && ImGui::GetFrameCount() - gEyedrop.lastTouchFrame > 4)
+  {
+    gEyedrop = EyedropState{}; // the owning picker stopped being drawn — expire the mode
+  }
+  return gEyedrop.owner != 0;
+}
+
+//----------------------------------------------------------------------------
+void SubmitEyedropperFrame(
+  std::vector<unsigned char>&& rgba, int w, int h, int rectX, int rectY, int winW, int winH)
+{
+  if (gEyedrop.owner == 0 || w <= 0 || h <= 0 ||
+    rgba.size() < static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4)
+  {
+    return;
+  }
+  gEyedrop.rgba = std::move(rgba);
+  gEyedrop.w = w;
+  gEyedrop.h = h;
+  gEyedrop.rectX = rectX;
+  gEyedrop.rectY = rectY;
+  gEyedrop.winW = winW;
+  gEyedrop.winH = winH;
+  gEyedrop.frameValid = true;
 }
 
 } // namespace G3DWidgets
