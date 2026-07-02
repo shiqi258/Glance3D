@@ -2713,7 +2713,7 @@
             <g3d-proprow k="逐通道编辑"><span class="note" style="margin: 0">HEX / RGB / HSB / HSL 切换，每分量独立字段；方向键 ↑↓ 微调、Shift×10、回车提交</span></g3d-proprow>
             <g3d-proprow k="十六进制"><span class="note" style="margin: 0">支持 3 / 6 位与 8 位 <code>#RRGGBBAA</code>（携带透明度）</span></g3d-proprow>
             <g3d-proprow k="色板 / 复制"><span class="note" style="margin: 0">预设 + 最近：＋ 存当前色、点色块回填；复制钮按当前格式拷贝色值串</span></g3d-proprow>
-            <g3d-proprow k="吸管"><span class="note" style="margin: 0">支持时调用浏览器 <code>EyeDropper</code> 屏幕采样（桌面端对应视口像素拾取）</span></g3d-proprow>
+            <g3d-proprow k="吸管"><span class="note" style="margin: 0">支持时调用浏览器 <code>EyeDropper</code> 屏幕采样（桌面端为全屏取色：视口内取场景像素、视口外/窗口外取桌面像素）</span></g3d-proprow>
           </div>
           <div class="note">
             ≈ImGui：对应 <code>ColorEdit4</code>（行内色块 + 点开弹出）与 <code>ColorPicker4</code>（SV 方块 + 色相 / 透明度条），并加一条 HDR 强度字段。

@@ -18,6 +18,7 @@
 #include <vtkTextureObject.h>
 
 #ifdef F3D_MODULE_UI
+#include "G3DScreenSampler.h"
 #include "G3DWidgets.h"
 
 #include <vtkNew.h>
@@ -95,9 +96,11 @@ void vtkF3DOverlayRenderPass::Render(const vtkRenderState* s)
   overlayState.SetFrameBuffer(s->GetFrameBuffer());
 
 #ifdef F3D_MODULE_UI
-  // color-picker eyedropper: sample source = last frame's scene texture, submitted before the UI
-  // pass below so the sampling overlay reads fresh pixels this frame
+  // color-picker eyedropper sample sources, submitted before the UI pass below so the sampling
+  // overlay reads fresh pixels this frame: last frame's scene texture (central viewport) plus the
+  // desktop feed around the cursor (screen-wide sampling + OS mouse capture, Windows)
   ::SubmitEyedropperFrame(s, this->ColorTexture);
+  G3DScreenSampler::Update(r->GetRenderWindow());
 #endif
 
   // The control-panel "push" shrinks the renderer viewport to the central rect, but the UI (ImGui,

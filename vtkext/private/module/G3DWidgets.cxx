@@ -2214,9 +2214,11 @@ struct ColorPickerState
 };
 std::unordered_map<ImGuiID, ColorPickerState> gColorPickers;
 
-// Eyedropper sampling mode: at most one picker owns it, and the render integration feeds it the
-// viewport pixels (SubmitEyedropperFrame). lastTouchFrame lets the service auto-expire when the
-// owning picker stops being drawn (panel hidden, widget gone) so the integration stops reading back.
+// Eyedropper sampling mode: at most one picker owns it, and the render/platform integration feeds
+// it pixels — the viewport scene texture (SubmitEyedropperFrame) plus a live desktop patch around
+// the cursor (SubmitEyedropperScreenPatch) covering everything else on screen. lastTouchFrame lets
+// the service auto-expire when the owning picker stops being drawn (panel hidden, widget gone) so
+// the integration stops reading back.
 struct EyedropState
 {
   ImGuiID owner = 0;               // stateId of the sampling picker, 0 = inactive
@@ -2226,6 +2228,12 @@ struct EyedropState
   int rectX = 0, rectY = 0;        // viewport rect origin in window device px (GL bottom-left)
   int winW = 0, winH = 0;          // window device size
   bool frameValid = false;         // a frame has been submitted since sampling started
+  // desktop patch source: a small live screen capture around the cursor, in window coordinates —
+  // samples everything the viewport texture does not (UI chrome, outside the window, monitors)
+  std::vector<unsigned char> patch; // RGBA8, top-down rows (window / ImGui orientation)
+  int patchW = 0, patchH = 0;       // patch size
+  int patchX = 0, patchY = 0;       // patch top-left in window device px (may be out of window)
+  int patchFrame = -1000;           // ImGui frame stamp at submit; only fresh patches are sampled
 };
 EyedropState gEyedrop;
 
@@ -3586,11 +3594,19 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
 
 // Fullscreen sampling overlay while the eyedropper is armed (the popup is closed then, so ColorEdit
 // runs this every frame): an invisible fullscreen window owns the mouse so nothing beneath reacts,
-// the OS cursor is hidden and replaced by a DevTools-style loupe — an 11x11 zoomed texel grid in a
-// ring of the hovered color with a hex readout. Clicking commits the hovered pixel; Esc or clicking
-// outside the samplable viewport cancels. Returns 0 = still sampling, 1 = committed into col[],
-// 2 = cancelled. Pixels come from SubmitEyedropperFrame (the render integration feeds the scene
-// texture — exactly the composited central viewport the user sees).
+// and a DevTools-style loupe — an 11x11 zoomed texel grid in a ring of the hovered color with a hex
+// readout — tracks the cursor. Two sample sources cover the whole screen:
+// - inside the central viewport rect, the scene texture (SubmitEyedropperFrame): live and UI-free,
+//   so the loupe sits centered on the cursor without magnifying its own pixels;
+// - anywhere else (app UI chrome, outside the window, other monitors), the live desktop patch
+//   around the cursor (SubmitEyedropperScreenPatch). The desktop feed shows the window as last
+//   presented — including this very loupe — so there the loupe trails at an offset from the cursor
+//   (clamped fully inside the window) to keep the sampled pixels out from under its own drawing;
+//   while the cursor roams beyond the window it hugs the nearest window edge as live feedback.
+// Clicking commits the hovered pixel (the platform integration holds OS mouse capture, so the
+// click arrives from anywhere on screen); Esc cancels, and so does clicking a spot with no
+// samplable source (no desktop feed). Returns 0 = still sampling, 1 = committed into col[],
+// 2 = cancelled.
 int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditDesc& desc)
 {
   ColorPickerState& st = gColorPickers[stateId];
@@ -3598,8 +3614,11 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
   ImGuiIO& io = ImGui::GetIO();
   const float s = Scale();
 
-  // keyboard capture keeps app bindings (console toggle, camera keys) quiet while sampling
+  // keyboard capture keeps app bindings (console toggle, camera keys) quiet while sampling; mouse
+  // capture keeps the camera style blind even where no ImGui window can be hovered (the cursor
+  // roaming outside the window under OS mouse capture)
   ImGui::SetNextFrameWantCaptureKeyboard(true);
+  ImGui::SetNextFrameWantCaptureMouse(true);
 
   ImGui::SetNextWindowPos(ImVec2(0.f, 0.f));
   ImGui::SetNextWindowSize(io.DisplaySize);
@@ -3610,35 +3629,70 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground);
   ImGui::SetCursorScreenPos(ImVec2(0.f, 0.f));
-  const bool clicked = ImGui::InvisibleButton(
+  // in-window input blocker only — the pick resolves through IsMouseClicked below so it also
+  // works outside the window, where this button cannot be hovered
+  ImGui::InvisibleButton(
     "##pick", ImVec2(std::max(io.DisplaySize.x, 1.f), std::max(io.DisplaySize.y, 1.f)));
   ImGui::End();
   ImGui::PopStyleVar(2);
 
-  // sample the texel under the cursor: ImGui display coords (top-left origin) -> GL window px
-  // (bottom-left origin) -> submitted-rect texel. FramebufferScale is 1 in this app (see PxSnap),
-  // so display units == device px.
+  // resolve the sample source under the cursor. ImGui display coords (top-left origin) match
+  // window device px (FramebufferScale is 1 in this app, see PxSnap); under OS mouse capture the
+  // cursor may lie outside [0, DisplaySize).
   const ImVec2 m = io.MousePos;
-  const bool mouseValid =
-    m.x >= 0.f && m.y >= 0.f && m.x < io.DisplaySize.x && m.y < io.DisplaySize.y;
-  bool sampled = false;
-  float sr = 0.f, sg = 0.f, sb = 0.f;
-  int texX = 0, texY = 0;
-  if (gEyedrop.frameValid && mouseValid)
+  const bool mouseValid = ImGui::IsMousePosValid();
+  const int mx = static_cast<int>(m.x);
+  const int my = static_cast<int>(m.y);
+  const bool patchFresh =
+    !gEyedrop.patch.empty() && ImGui::GetFrameCount() - gEyedrop.patchFrame <= 1;
+  enum class Src
   {
-    const int gx = static_cast<int>(m.x);
-    const int gy = gEyedrop.winH - 1 - static_cast<int>(m.y);
-    texX = gx - gEyedrop.rectX;
-    texY = gy - gEyedrop.rectY;
+    None,  // nothing samplable here (no desktop feed)
+    Scene, // viewport rect -> scene texture (GL bottom-up rows)
+    Screen // desktop patch (top-down rows)
+  };
+  Src src = Src::None;
+  int texX = 0, texY = 0; // cursor texel within the resolved source
+  if (mouseValid && gEyedrop.frameValid)
+  {
+    texX = mx - gEyedrop.rectX;
+    texY = (gEyedrop.winH - 1 - my) - gEyedrop.rectY;
     if (texX >= 0 && texX < gEyedrop.w && texY >= 0 && texY < gEyedrop.h)
     {
-      const unsigned char* px =
-        &gEyedrop.rgba[(static_cast<std::size_t>(texY) * gEyedrop.w + texX) * 4];
-      sr = px[0] / 255.f;
-      sg = px[1] / 255.f;
-      sb = px[2] / 255.f;
-      sampled = true;
+      src = Src::Scene;
     }
+  }
+  if (mouseValid && src == Src::None && patchFresh)
+  {
+    texX = mx - gEyedrop.patchX;
+    texY = my - gEyedrop.patchY;
+    if (texX >= 0 && texX < gEyedrop.patchW && texY >= 0 && texY < gEyedrop.patchH)
+    {
+      src = Src::Screen;
+    }
+  }
+  // texel fetch within the resolved source, clamped to its coverage (grid cells past the edge
+  // reuse the border texel). dx / dy are screen-space offsets (y down); scene rows grow upward.
+  auto texel = [&](int dx, int dy) -> const unsigned char*
+  {
+    if (src == Src::Scene)
+    {
+      const int tx = std::clamp(texX + dx, 0, gEyedrop.w - 1);
+      const int ty = std::clamp(texY - dy, 0, gEyedrop.h - 1);
+      return &gEyedrop.rgba[(static_cast<std::size_t>(ty) * gEyedrop.w + tx) * 4];
+    }
+    const int tx = std::clamp(texX + dx, 0, gEyedrop.patchW - 1);
+    const int ty = std::clamp(texY + dy, 0, gEyedrop.patchH - 1);
+    return &gEyedrop.patch[(static_cast<std::size_t>(ty) * gEyedrop.patchW + tx) * 4];
+  };
+  const bool sampled = src != Src::None;
+  float sr = 0.f, sg = 0.f, sb = 0.f;
+  if (sampled)
+  {
+    const unsigned char* px = texel(0, 0);
+    sr = px[0] / 255.f;
+    sg = px[1] / 255.f;
+    sb = px[2] / 255.f;
   }
 
   // ---- loupe, on the foreground draw list (above every window) ----
@@ -3646,15 +3700,47 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
   {
     ImDrawList* fdl = ImGui::GetForegroundDrawList();
     AAGuard aa(fdl);
-    ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     const ImVec2 c = PxSnap(m);
+    constexpr int kHalf = 5; // 11x11 texel grid
+    const float cell = 9.f * s;
+    const float gridR = (kHalf + 0.5f) * cell;
+    const float ringW = 4.f * s;
+    const float pillH = ImGui::GetTextLineHeight() + 8.f * s; // readout pill under the loupe
+
+    // loupe anchor: centered on the cursor over the scene texture (UI-free, cannot magnify
+    // itself); over the desktop feed it trails at a diagonal offset — the feed shows the loupe as
+    // presented last frame, so its drawing must stay clear of the sampled cursor neighborhood —
+    // flipped and clamped to remain fully inside the window (hugging the nearest edge while the
+    // cursor roams beyond the window).
+    const bool centered = src != Src::Screen;
+    ImVec2 anchor = c;
+    if (centered)
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_None); // the centered loupe replaces the cursor
+    }
+    else
+    {
+      const float extentX = gridR + ringW; // the pill is narrower than the ring
+      const float extentUp = gridR + ringW;
+      const float extentDown = gridR + ringW + 8.f * s + pillH;
+      const float margin = 6.f * s;
+      const float d = (gridR + ringW + 24.f * s) * 0.7071f; // diagonal cursor-to-center reach
+      anchor.x = c.x + d + extentX + margin <= io.DisplaySize.x ? c.x + d : c.x - d;
+      anchor.y = c.y + d + extentDown + margin <= io.DisplaySize.y ? c.y + d : c.y - d;
+      anchor.x = std::clamp(anchor.x, extentX + margin,
+        std::max(extentX + margin, io.DisplaySize.x - extentX - margin));
+      anchor.y = std::clamp(anchor.y, extentUp + margin,
+        std::max(extentUp + margin, io.DisplaySize.y - extentDown - margin));
+      anchor = PxSnap(anchor);
+    }
+
     // shared hex-readout pill under the loupe
     auto readoutPill = [&](float topY, const char* text, const ImVec4& txtCol)
     {
       const ImVec2 ts = ImGui::CalcTextSize(text);
       const float padX = 8.f * s, padY = 4.f * s;
-      const ImVec2 pmin(c.x - ts.x * 0.5f - padX, topY);
-      const ImVec2 pmax(c.x + ts.x * 0.5f + padX, topY + ts.y + padY * 2.f);
+      const ImVec2 pmin(anchor.x - ts.x * 0.5f - padX, topY);
+      const ImVec2 pmax(anchor.x + ts.x * 0.5f + padX, topY + ts.y + padY * 2.f);
       fdl->AddRectFilled(pmin, pmax, U32(G3DTheme::Surface()), G3DTheme::Radius::Small * s);
       fdl->AddRect(pmin, pmax, U32(G3DTheme::Border()), G3DTheme::Radius::Small * s, 0,
         G3DTheme::Size::Border * s);
@@ -3662,13 +3748,9 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
     };
     if (sampled)
     {
-      constexpr int kHalf = 5; // 11x11 texel grid
-      const float cell = 9.f * s;
-      const float gridR = (kHalf + 0.5f) * cell;
-      const float ringW = 4.f * s;
       // soft shadow behind the loupe
-      fdl->AddCircleFilled(
-        ImVec2(c.x, c.y + 2.f * s), gridR + ringW + 3.f * s, IM_COL32(0, 0, 0, 60), 48);
+      fdl->AddCircleFilled(ImVec2(anchor.x, anchor.y + 2.f * s), gridR + ringW + 3.f * s,
+        IM_COL32(0, 0, 0, 60), 48);
       // zoomed texel grid, masked to a circle cell-by-cell (hard pixel edges, like a devtools loupe)
       for (int dy = -kHalf; dy <= kHalf; ++dy)
       {
@@ -3678,45 +3760,43 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
           {
             continue; // outside the circular mask
           }
-          const int tx = std::clamp(texX + dx, 0, gEyedrop.w - 1);
-          const int ty = std::clamp(texY + dy, 0, gEyedrop.h - 1);
-          const unsigned char* p =
-            &gEyedrop.rgba[(static_cast<std::size_t>(ty) * gEyedrop.w + tx) * 4];
-          // GL texel rows grow upward; screen y grows downward
-          const ImVec2 cmin(c.x + dx * cell - cell * 0.5f, c.y - dy * cell - cell * 0.5f);
+          const unsigned char* p = texel(dx, dy);
+          const ImVec2 cmin(anchor.x + dx * cell - cell * 0.5f, anchor.y + dy * cell - cell * 0.5f);
           fdl->AddRectFilled(
             cmin, ImVec2(cmin.x + cell, cmin.y + cell), IM_COL32(p[0], p[1], p[2], 255));
         }
       }
       // center texel marker (white inner + dark outer, readable on any color)
-      fdl->AddRect(ImVec2(c.x - cell * 0.5f, c.y - cell * 0.5f),
-        ImVec2(c.x + cell * 0.5f, c.y + cell * 0.5f), IM_COL32(255, 255, 255, 255), 0.f, 0, 1.f * s);
-      fdl->AddRect(ImVec2(c.x - cell * 0.5f - 1.f * s, c.y - cell * 0.5f - 1.f * s),
-        ImVec2(c.x + cell * 0.5f + 1.f * s, c.y + cell * 0.5f + 1.f * s), IM_COL32(0, 0, 0, 150),
-        0.f, 0, 1.f * s);
+      fdl->AddRect(ImVec2(anchor.x - cell * 0.5f, anchor.y - cell * 0.5f),
+        ImVec2(anchor.x + cell * 0.5f, anchor.y + cell * 0.5f), IM_COL32(255, 255, 255, 255), 0.f,
+        0, 1.f * s);
+      fdl->AddRect(ImVec2(anchor.x - cell * 0.5f - 1.f * s, anchor.y - cell * 0.5f - 1.f * s),
+        ImVec2(anchor.x + cell * 0.5f + 1.f * s, anchor.y + cell * 0.5f + 1.f * s),
+        IM_COL32(0, 0, 0, 150), 0.f, 0, 1.f * s);
       // ring: hovered-color band between a white inner and a dark outer hairline
-      fdl->AddCircle(c, gridR, IM_COL32(255, 255, 255, 230), 48, 1.25f * s);
-      fdl->AddCircle(c, gridR + ringW * 0.5f, U32(ImVec4(sr, sg, sb, 1.f)), 48, ringW);
-      fdl->AddCircle(c, gridR + ringW, IM_COL32(0, 0, 0, 140), 48, 1.25f * s);
+      fdl->AddCircle(anchor, gridR, IM_COL32(255, 255, 255, 230), 48, 1.25f * s);
+      fdl->AddCircle(anchor, gridR + ringW * 0.5f, U32(ImVec4(sr, sg, sb, 1.f)), 48, ringW);
+      fdl->AddCircle(anchor, gridR + ringW, IM_COL32(0, 0, 0, 140), 48, 1.25f * s);
       const std::string hex = ToHexStr(sr, sg, sb, 1.f, false);
-      readoutPill(c.y + gridR + ringW + 8.f * s, hex.c_str(), G3DTheme::Text());
+      readoutPill(anchor.y + gridR + ringW + 8.f * s, hex.c_str(), G3DTheme::Text());
     }
     else
     {
-      // not samplable here (over UI chrome / no frame yet): slashed ring + hint
+      // not samplable here (no desktop feed / no frame yet): slashed ring + hint
       const float r0 = 13.f * s;
-      fdl->AddCircle(c, r0 + 1.5f * s, IM_COL32(0, 0, 0, 120), 32, 1.5f * s);
-      fdl->AddCircle(c, r0, IM_COL32(255, 255, 255, 170), 32, 2.f * s);
-      fdl->AddLine(ImVec2(c.x - r0 * 0.7f, c.y + r0 * 0.7f),
-        ImVec2(c.x + r0 * 0.7f, c.y - r0 * 0.7f), IM_COL32(255, 255, 255, 170), 2.f * s);
+      fdl->AddCircle(anchor, r0 + 1.5f * s, IM_COL32(0, 0, 0, 120), 32, 1.5f * s);
+      fdl->AddCircle(anchor, r0, IM_COL32(255, 255, 255, 170), 32, 2.f * s);
+      fdl->AddLine(ImVec2(anchor.x - r0 * 0.7f, anchor.y + r0 * 0.7f),
+        ImVec2(anchor.x + r0 * 0.7f, anchor.y - r0 * 0.7f), IM_COL32(255, 255, 255, 170), 2.f * s);
       const std::string hint = Tr("Move over the viewport to sample");
-      readoutPill(c.y + r0 + 10.f * s, hint.c_str(), G3DTheme::TextMuted());
+      readoutPill(anchor.y + r0 + 10.f * s, hint.c_str(), G3DTheme::TextMuted());
     }
   }
 
-  // ---- resolve: click commits (or cancels when nothing samplable), Esc cancels ----
+  // ---- resolve: click picks the hovered pixel from anywhere on screen (or cancels when nothing
+  // is samplable there), Esc cancels ----
   int action = 0;
-  if (clicked)
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left, false))
   {
     action = sampled ? 1 : 2;
   }
@@ -3859,6 +3939,24 @@ void SubmitEyedropperFrame(
   gEyedrop.winW = winW;
   gEyedrop.winH = winH;
   gEyedrop.frameValid = true;
+}
+
+//----------------------------------------------------------------------------
+void SubmitEyedropperScreenPatch(
+  std::vector<unsigned char>&& rgba, int w, int h, int originX, int originY)
+{
+  if (gEyedrop.owner == 0 || w <= 0 || h <= 0 ||
+    rgba.size() < static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4)
+  {
+    return;
+  }
+  gEyedrop.patch = std::move(rgba);
+  gEyedrop.patchW = w;
+  gEyedrop.patchH = h;
+  gEyedrop.patchX = originX;
+  gEyedrop.patchY = originY;
+  // submitted before this render's NewFrame: the stamp reads one behind the frame that samples it
+  gEyedrop.patchFrame = ImGui::GetFrameCount();
 }
 
 //----------------------------------------------------------------------------

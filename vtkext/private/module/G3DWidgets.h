@@ -387,13 +387,19 @@ struct ColorEditDesc
 bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc = ColorEditDesc());
 
 //----------------------------------------------------------------------------
-// Eyedropper service (desktop == viewport pixel sampling)
+// Eyedropper service (desktop == screen-wide pixel sampling)
 //
 // The styleguide eyedropper is the browser EyeDropper on the web; on desktop it maps to picking a
-// pixel from the rendered viewport. This widget library is pure ImGui and cannot read GL itself, so
-// the render integration feeds it: while EyedropperActive() the overlay render pass submits the
-// scene texture (exactly the composited central viewport the user sees) once per frame through
-// SubmitEyedropperFrame, and the sampling overlay reads that buffer under the cursor.
+// pixel from anywhere on screen. This widget library is pure ImGui and cannot read GL or the OS
+// itself, so the render/platform integration feeds it while EyedropperActive():
+// - SubmitEyedropperFrame: the scene texture (exactly the composited central viewport the user
+//   sees) once per frame — the sample source inside the viewport rect;
+// - SubmitEyedropperScreenPatch: a small live desktop capture around the cursor once per frame —
+//   the sample source everywhere else (app UI chrome, outside the window, other monitors). The
+//   integration also holds OS mouse capture on the window then, so cursor moves and the picking
+//   click keep arriving while the cursor roams outside the client area.
+// Without a screen feed (non-Windows, window not foreground) sampling gracefully falls back to
+// the viewport rect only.
 //----------------------------------------------------------------------------
 
 /// Whether a color picker is in eyedropper sampling mode this frame (poll before reading pixels
@@ -406,6 +412,16 @@ bool EyedropperActive();
 /// size. Ignored when no eyedropper is active.
 void SubmitEyedropperFrame(
   std::vector<unsigned char>&& rgba, int w, int h, int rectX, int rectY, int winW, int winH);
+
+/// Provide a live desktop capture around the cursor for eyedropper sampling beyond the viewport.
+/// @p rgba is tightly packed RGBA8 in top-down rows (ImGui orientation), sized w*h*4;
+/// @p originX / @p originY locate the patch's top-left corner in window device pixels (ImGui
+/// top-left origin; may be negative or beyond the window — the patch follows the OS cursor).
+/// Submit once per frame while EyedropperActive(): a patch is sampled for one UI frame only, a
+/// stale one means the desktop feed stopped and sampling falls back to the viewport rect. Ignored
+/// when no eyedropper is active.
+void SubmitEyedropperScreenPatch(
+  std::vector<unsigned char>&& rgba, int w, int h, int originX, int originY);
 
 /// Observation-log sink (this widget library is integration-agnostic and cannot log itself). The
 /// render integration injects a sink that routes to the session log; nullptr (default) disables.

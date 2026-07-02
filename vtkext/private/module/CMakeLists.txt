@@ -117,7 +117,7 @@ set(classes
   )
 
 if (F3D_MODULE_UI)
-  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DWidgets G3DTextInputContext)
+  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DWidgets G3DTextInputContext G3DScreenSampler)
 endif ()
 
 if(WIN32)
