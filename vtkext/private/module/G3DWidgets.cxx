@@ -116,16 +116,37 @@ struct AAGuard
   ~AAGuard() { this->dl->Flags = this->saved; }
 };
 
-// Snap a draw-list point to whole pixels. An even-diameter anti-aliased circle (slider thumbs, the
-// SV cursor) only rasterizes crisply when its center is on an integer pixel; at a fractional center
-// the feathered fill fringe spreads unevenly left/right and the round handle reads as a horizontal
-// ellipse. That is exactly why thumbs looked oval at mid-track values but stayed round at the ends,
-// which happen to land on whole pixels. f3d runs ImGui at FramebufferScale 1, so an integer in
-// draw-list units is an integer device pixel — snapping the center here keeps thumbs round at every
-// position. Cheap (two std::round) and has no visible effect on placement (<=0.5px).
+// Snap a draw-list point to whole pixels. f3d runs ImGui at FramebufferScale 1, so an integer in
+// draw-list units is an integer device pixel; centering an anti-aliased handle there keeps its fringe
+// symmetric (crisp) instead of feathered across two pixel columns. Cheap (two std::round) and shifts
+// placement by <=0.5px. This is purely about crispness: ImGui builds a disc from a uniformly scaled
+// unit circle (see ImDrawList::AddCircleFilled), so a handle is perfectly round at ANY center —
+// snapped or not; snapping never changes roundness (and thus never causes/cures an "oval" handle).
 inline ImVec2 PxSnap(const ImVec2& p)
 {
   return ImVec2(std::round(p.x), std::round(p.y));
+}
+
+// The one color-picker track handle: a crisp white disc with a 1px dark hairline, centered on
+// @p center with radius @p r. Single source of truth so the hue / alpha / intensity handles cannot
+// drift apart in size or shape — that divergence (one handle clipped, another not) is what made a
+// handle look oval. Draw it UNCLIPPED (see call sites): the handle is taller than its track, so a
+// track-height clip would shave its top/bottom into a flat-sided oval.
+inline void DrawSliderThumb(ImDrawList* dl, const ImVec2& center, float r, float s)
+{
+  const ImVec2 c = PxSnap(center);
+  // Soft drop shadow, mirroring the styleguide .cp-thumb `box-shadow: 0 1px 3px rgba(0,0,0,.4)`
+  // (two feathered layers approximate the blur).
+  dl->AddCircleFilled(ImVec2(c.x, c.y + 1.5f * s), r + 2.5f * s, IM_COL32(0, 0, 0, 26), 24);
+  dl->AddCircleFilled(ImVec2(c.x, c.y + 0.75f * s), r + 1.25f * s, IM_COL32(0, 0, 0, 54), 24);
+  dl->AddCircleFilled(c, r, IM_COL32(255, 255, 255, 255), 24);
+  // Ring at 45% black (the SV cursor's halo strength), NOT the styleguide's bare 25% border: the
+  // boundary must be clearly darker in LUMINANCE than both the white disc and the brightest track
+  // color. A 25% ring over the green/yellow hue segments lands at the same luminance as the track
+  // itself, and human chroma acuity (~1/3 of luma) cannot resolve a 1px gray-vs-green edge — the
+  // disc then bleeds into the bright track sideways and reads as a horizontal oval at 1:1 zoom
+  // (top/bottom stay crisp against the dark panel, which is what created the asymmetry).
+  dl->AddCircle(c, r, IM_COL32(0, 0, 0, 115), 24, 1.25f * s);
 }
 
 using G3DTheme::LerpColor;
@@ -2593,24 +2614,18 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       dl->AddRectFilledMultiColor(al0, al1, clear, opaque, opaque, clear);
     }
 
-    // Round thumbs, drawn last and unclipped. Two things keep them perfectly circular:
-    //  - the 14px thumb is taller than the 12px track, so clipping it to either track would shave its
-    //    top/bottom into a flat-sided oval; PushClipRectFullScreen avoids that (thumbs are tiny and
-    //    always well inside the popup, so nothing bleeds out).
-    //  - PxSnap rounds the center to a whole pixel — without it an even-diameter AA circle reads as a
-    //    horizontal ellipse at fractional mid-track positions (see PxSnap note).
+    // Handles drawn last and UNCLIPPED: the 14px handle is taller than the 12px track, so a
+    // track-height clip would shave its top/bottom into a flat oval. PushClipRectFullScreen avoids
+    // that (handles are tiny and always well inside the popup, so nothing bleeds out). Shape/size are
+    // owned by DrawSliderThumb so the hue and alpha handles stay identical.
     {
       AAGuard aa(dl);
       dl->PushClipRectFullScreen();
       const float thumbR = 7.f * s;
       const float hx = trackX + (st.h / 360.f) * trackW;
       const float ax = trackX + st.a * trackW;
-      for (const ImVec2 c : { ImVec2(hx, hueY + trackH * 0.5f), ImVec2(ax, alphaY + trackH * 0.5f) })
-      {
-        const ImVec2 cc = PxSnap(c);
-        dl->AddCircleFilled(cc, thumbR, IM_COL32(255, 255, 255, 255), 24);
-        dl->AddCircle(cc, thumbR, IM_COL32(0, 0, 0, 64), 24, 1.f * s);
-      }
+      DrawSliderThumb(dl, ImVec2(hx, hueY + trackH * 0.5f), thumbR, s);
+      DrawSliderThumb(dl, ImVec2(ax, alphaY + trackH * 0.5f), thumbR, s);
       dl->PopClipRect();
     }
     y += rowH + G;
@@ -2646,10 +2661,8 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
         U32(G3DTheme::SurfacePress()), U32(G3DTheme::Accent()), U32(G3DTheme::Accent()),
         U32(G3DTheme::SurfacePress()));
       const float ix = trackX + ((st.intensity - 1.f) / (HDR_INT_MAX - 1.f)) * trackW;
-      const ImVec2 ic = PxSnap(ImVec2(ix, trackY + trackH * 0.5f));
-      dl->PushClipRectFullScreen(); // thumb overhangs the track — draw unclipped (see hue/alpha note)
-      dl->AddCircleFilled(ic, 7.f * s, IM_COL32(255, 255, 255, 255), 24);
-      dl->AddCircle(ic, 7.f * s, IM_COL32(0, 0, 0, 64), 24, 1.f * s);
+      dl->PushClipRectFullScreen(); // handle overhangs the track — draw unclipped (see hue/alpha note)
+      DrawSliderThumb(dl, ImVec2(ix, trackY + trackH * 0.5f), 7.f * s, s);
       dl->PopClipRect();
     }
 
@@ -3180,10 +3193,6 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
   sd.grow = desc.grow;
   sd.alpha = desc.alpha;
   if (ColorSwatch("##sw", col, sd))
-  {
-    ImGui::OpenPopup("##cp");
-  }
-  if (std::string(id) == "g3d.bg.color") // TEMP-DEBUG: force-open so the slider-thumb log fires
   {
     ImGui::OpenPopup("##cp");
   }
