@@ -2873,6 +2873,8 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
         gEyedrop.owner = stateId;
         gEyedrop.lastTouchFrame = ImGui::GetFrameCount();
         ImGui::CloseCurrentPopup();
+        CpTrace("[Trace][cp.eyed] fr=%d ARM owner=%u", ImGui::GetFrameCount(),
+          static_cast<unsigned int>(stateId));
       }
     }
 
@@ -3602,11 +3604,12 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
 //   around the cursor (SubmitEyedropperScreenPatch). The desktop feed shows the window as last
 //   presented — including this very loupe — so there the loupe trails at an offset from the cursor
 //   (clamped fully inside the window) to keep the sampled pixels out from under its own drawing;
-//   while the cursor roams beyond the window it hugs the nearest window edge as live feedback.
-// Clicking commits the hovered pixel (the platform integration holds OS mouse capture, so the
-// click arrives from anywhere on screen); Esc cancels, and so does clicking a spot with no
-// samplable source (no desktop feed). Returns 0 = still sampling, 1 = committed into col[],
-// 2 = cancelled.
+//   beyond the window this ImGui loupe hides and the platform's OS loupe window
+//   (G3DScreenSampler) follows the cursor instead.
+// Clicking commits the hovered pixel (beyond the window the platform's input overlay relays the
+// click into this window, so it arrives from anywhere on screen); Esc cancels, and so does
+// clicking a spot with no samplable source (no desktop feed). Returns 0 = still sampling,
+// 1 = committed into col[], 2 = cancelled.
 int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditDesc& desc)
 {
   ColorPickerState& st = gColorPickers[stateId];
@@ -3694,9 +3697,29 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
     sg = px[1] / 255.f;
     sb = px[2] / 255.f;
   }
+  // observation: sampling state (source transitions always, heartbeat throttled). src N=none
+  // V=viewport scene texture S=desktop screen patch.
+  {
+    static int prevSrc = -1;
+    const int fr = ImGui::GetFrameCount();
+    if (static_cast<int>(src) != prevSrc || fr % 15 == 0)
+    {
+      CpTrace("[Trace][cp.eyed] fr=%d m=(%d,%d) valid=%d src=%c frameV=%d patchFresh=%d "
+              "patchO=(%d,%d %dx%d) hex=#%02X%02X%02X",
+        fr, mx, my, mouseValid ? 1 : 0, "NVS"[static_cast<int>(src)],
+        gEyedrop.frameValid ? 1 : 0, patchFresh ? 1 : 0, gEyedrop.patchX, gEyedrop.patchY,
+        gEyedrop.patchW, gEyedrop.patchH, static_cast<int>(sr * 255.f + 0.5f),
+        static_cast<int>(sg * 255.f + 0.5f), static_cast<int>(sb * 255.f + 0.5f));
+      prevSrc = static_cast<int>(src);
+    }
+  }
 
   // ---- loupe, on the foreground draw list (above every window) ----
-  if (mouseValid)
+  // an ImGui loupe cannot leave the render window: beyond the client area the OS loupe window
+  // (G3DScreenSampler) follows the cursor instead, so this one only presents inside
+  const bool inWindow =
+    mouseValid && m.x >= 0.f && m.y >= 0.f && m.x < io.DisplaySize.x && m.y < io.DisplaySize.y;
+  if (inWindow)
   {
     ImDrawList* fdl = ImGui::GetForegroundDrawList();
     AAGuard aa(fdl);
@@ -3799,10 +3822,13 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
   if (ImGui::IsMouseClicked(ImGuiMouseButton_Left, false))
   {
     action = sampled ? 1 : 2;
+    CpTrace("[Trace][cp.eyed] fr=%d click m=(%d,%d) src=%c -> %s", ImGui::GetFrameCount(), mx, my,
+      "NVS"[static_cast<int>(src)], sampled ? "COMMIT" : "CANCEL(no-source)");
   }
   if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
   {
     action = 2;
+    CpTrace("[Trace][cp.eyed] fr=%d Esc -> CANCEL", ImGui::GetFrameCount());
   }
   if (action == 1)
   {
@@ -3824,6 +3850,9 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
     st.lastB = col[2];
     st.lastA = 1.f;
     st.commitFrame = ImGui::GetFrameCount();
+    CpTrace("[Trace][cp.eyed] fr=%d COMMIT col=#%02X%02X%02X", ImGui::GetFrameCount(),
+      static_cast<int>(sr * 255.f + 0.5f), static_cast<int>(sg * 255.f + 0.5f),
+      static_cast<int>(sb * 255.f + 0.5f));
   }
   if (action != 0)
   {
@@ -3917,6 +3946,9 @@ bool EyedropperActive()
   }
   if (gEyedrop.owner != 0 && ImGui::GetFrameCount() - gEyedrop.lastTouchFrame > 4)
   {
+    CpTrace("[Trace][cp.eyed] fr=%d EXPIRE owner=%u untouched=%d", ImGui::GetFrameCount(),
+      static_cast<unsigned int>(gEyedrop.owner),
+      ImGui::GetFrameCount() - gEyedrop.lastTouchFrame);
     gEyedrop = EyedropState{}; // the owning picker stopped being drawn — expire the mode
   }
   return gEyedrop.owner != 0;
@@ -3963,6 +3995,21 @@ void SubmitEyedropperScreenPatch(
 void SetTraceSink(void (*sink)(const char*))
 {
   gTraceSink = sink;
+}
+
+//----------------------------------------------------------------------------
+void Trace(const char* fmt, ...)
+{
+  if (gTraceSink == nullptr)
+  {
+    return;
+  }
+  char buf[320];
+  va_list args;
+  va_start(args, fmt);
+  std::vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  gTraceSink(buf);
 }
 
 } // namespace G3DWidgets

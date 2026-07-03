@@ -98,7 +98,7 @@ void vtkF3DOverlayRenderPass::Render(const vtkRenderState* s)
 #ifdef F3D_MODULE_UI
   // color-picker eyedropper sample sources, submitted before the UI pass below so the sampling
   // overlay reads fresh pixels this frame: last frame's scene texture (central viewport) plus the
-  // desktop feed around the cursor (screen-wide sampling + OS mouse capture, Windows)
+  // desktop feed around the cursor (screen-wide sampling + input overlay & OS loupe, Windows)
   ::SubmitEyedropperFrame(s, this->ColorTexture);
   G3DScreenSampler::Update(r->GetRenderWindow());
 #endif

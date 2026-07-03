@@ -1,6 +1,7 @@
 #include "vtkF3DImguiObserver.h"
 
 #include "G3DTextInputContext.h"
+#include "G3DWidgets.h"
 #include "vtkF3DRenderPass.h"
 #include "vtkF3DRenderer.h"
 #include "vtkF3DUserEvents.h"
@@ -216,16 +217,19 @@ bool vtkF3DImguiObserver::MouseMove(vtkObject* caller, unsigned long, void*)
     int* sz = that->GetRenderWindow()->GetSize();
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(static_cast<float>(p[0]), static_cast<float>(sz[1] - p[1] - 1));
-    if (io.MouseDown[ImGuiMouseButton_Left] && io.WantCaptureMouse)
+    const bool eyed = G3DWidgets::EyedropperActive();
+    if ((io.MouseDown[ImGuiMouseButton_Left] && io.WantCaptureMouse) || eyed)
     {
-      // trace the drag trajectory the UI actually receives (UI drags only — camera orbits are not
-      // captured — and throttled to ~10 lines/s)
+      // trace the move trajectory the UI actually receives — UI drags and armed-eyedropper
+      // roaming (out-of-window coordinates prove the OS capture routing works) — throttled to
+      // ~10 lines/s
       static std::chrono::steady_clock::time_point lastLog;
       const auto now = std::chrono::steady_clock::now();
       if (now - lastLog > std::chrono::milliseconds(100))
       {
         lastLog = now;
-        EvtTrace("[Trace][cp.evt] move m=(%d,%d) drag", p[0], sz[1] - p[1] - 1);
+        EvtTrace(
+          "[Trace][cp.evt] move m=(%d,%d)%s", p[0], sz[1] - p[1] - 1, eyed ? " eyed" : " drag");
       }
     }
     // RenderUI is not called here on purpose to avoid too frequent UI draw

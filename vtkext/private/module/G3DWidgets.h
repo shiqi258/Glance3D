@@ -396,10 +396,10 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc = ColorEd
 //   sees) once per frame — the sample source inside the viewport rect;
 // - SubmitEyedropperScreenPatch: a small live desktop capture around the cursor once per frame —
 //   the sample source everywhere else (app UI chrome, outside the window, other monitors). The
-//   integration also holds OS mouse capture on the window then, so cursor moves and the picking
-//   click keep arriving while the cursor roams outside the client area.
-// Without a screen feed (non-Windows, window not foreground) sampling gracefully falls back to
-// the viewport rect only.
+//   integration also covers the screen with an invisible input overlay then, relaying cursor
+//   moves and the picking click into this window while the cursor roams beyond the client area,
+//   and shows an OS-level loupe following the cursor out there.
+// Without a screen feed (non-Windows) sampling gracefully falls back to the viewport rect only.
 //----------------------------------------------------------------------------
 
 /// Whether a color picker is in eyedropper sampling mode this frame (poll before reading pixels
@@ -427,6 +427,10 @@ void SubmitEyedropperScreenPatch(
 /// render integration injects a sink that routes to the session log; nullptr (default) disables.
 /// Currently feeds the color-picker drag/sync trace ("[Trace][cp.*]" lines).
 void SetTraceSink(void (*sink)(const char*));
+
+/// printf-style write through the injected trace sink (no-op when unset) — lets the platform
+/// integrations (e.g. the desktop screen sampler) share the widget library's observation channel.
+void Trace(const char* fmt, ...);
 
 } // namespace G3DWidgets
 
