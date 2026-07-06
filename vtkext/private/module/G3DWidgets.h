@@ -117,6 +117,44 @@ bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hi
 void ItemTooltip(const char* text);
 
 //----------------------------------------------------------------------------
+// Select / dropdown
+//
+// The styleguide dropdown (doc/dev/ui-styleguide.html: <g3d-select> / .dropdown + .menu) — an
+// input-look trigger showing the current value with a rotating chevron, opening a floating menu of
+// check-marked items. The menu is a real ImGui popup (an overlay window), so like the styleguide's
+// body-portaled .menu it escapes any clipping ancestor (accordion, inspector scroll) and closes on
+// an outside click / Esc. Left-aligned under the trigger, trigger-width, flips above when there is
+// no room below; long lists scroll. Usage mirrors ImGui::BeginCombo/EndCombo so call sites migrate
+// mechanically:
+//
+//   ImGui::SetNextItemWidth(-1.f);                    // trigger width, like any input
+//   if (G3DWidgets::BeginSelect("##id", preview))     // true while the menu is open
+//   {
+//     for (const auto& opt : options)
+//     {
+//       if (G3DWidgets::SelectItem(opt.label, opt.isCurrent))
+//       {
+//         // apply opt (the menu closes itself)
+//       }
+//     }
+//     G3DWidgets::EndSelect();                        // ONLY when BeginSelect() returned true
+//   }
+//----------------------------------------------------------------------------
+
+/// Dropdown trigger + menu begin (mirrors styleguide <g3d-select>). @p preview is the value shown
+/// in the trigger; when it is empty, the optional @p hint shows as a subtle placeholder instead.
+/// Trigger width follows ImGui::CalcItemWidth() (SetNextItemWidth / PushItemWidth). Returns true
+/// while the menu is open — then emit SelectItem()s and close with EndSelect().
+bool BeginSelect(const char* id, const char* preview, const char* hint = nullptr);
+
+/// One menu entry (mirrors styleguide .menu-item): hover-tinted row, accent text + trailing check
+/// when @p selected. A click applies and closes the menu. Returns true on the click frame.
+bool SelectItem(const char* label, bool selected = false);
+
+/// Close the menu opened by a true-returning BeginSelect(). Call exactly then, like EndCombo.
+void EndSelect();
+
+//----------------------------------------------------------------------------
 // Tree / outliner
 //
 // A reusable, data-source-agnostic outliner that mirrors the styleguide tree (doc/dev/

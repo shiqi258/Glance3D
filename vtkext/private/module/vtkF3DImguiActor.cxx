@@ -2142,22 +2142,18 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   // Array selector. Writing the name also enables coloring so a pick takes effect immediately.
   const std::string current = this->QueryOption("model.scivis.array_name").value_or("");
   ImGui::PushItemWidth(-1.f);
-  if (ImGui::BeginCombo("##g3d.scivis.array", current.c_str()))
+  if (G3DWidgets::BeginSelect(
+        "##g3d.scivis.array", current.c_str(), loc.Translate("Select array").c_str()))
   {
     for (const auto& array : arrays)
     {
-      const bool selected = array.Name == current;
-      if (ImGui::Selectable(array.Name.c_str(), selected))
+      if (G3DWidgets::SelectItem(array.Name.c_str(), array.Name == current))
       {
         this->SendCommand(std::string("set model.scivis.array_name \"") + array.Name + "\"");
         this->SendCommand("set model.scivis.enable true");
       }
-      if (selected)
-      {
-        ImGui::SetItemDefaultFocus();
-      }
     }
-    ImGui::EndCombo();
+    G3DWidgets::EndSelect();
   }
   ImGui::PopItemWidth();
 
@@ -2177,20 +2173,20 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     const std::string componentLabel =
       component < 0 ? loc.Translate("Magnitude") : (std::string("#") + std::to_string(component));
     ImGui::PushItemWidth(-1.f);
-    if (ImGui::BeginCombo(loc.Translate("Component").c_str(), componentLabel.c_str()))
+    if (G3DWidgets::BeginSelect("##g3d.scivis.component", componentLabel.c_str()))
     {
-      if (ImGui::Selectable(loc.Translate("Magnitude").c_str(), component < 0))
+      if (G3DWidgets::SelectItem(loc.Translate("Magnitude").c_str(), component < 0))
       {
         this->SendCommand("set model.scivis.component -1");
       }
       for (int i = 0; i < maxComponents; i++)
       {
-        if (ImGui::Selectable((std::string("#") + std::to_string(i)).c_str(), component == i))
+        if (G3DWidgets::SelectItem((std::string("#") + std::to_string(i)).c_str(), component == i))
         {
           this->SendCommand("set model.scivis.component " + std::to_string(i));
         }
       }
-      ImGui::EndCombo();
+      G3DWidgets::EndSelect();
     }
     ImGui::PopItemWidth();
   }
@@ -2222,11 +2218,11 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     }
   }
   ImGui::PushItemWidth(-1.f);
-  if (ImGui::BeginCombo(loc.Translate("Colormap").c_str(), mapPreview.c_str()))
+  if (G3DWidgets::BeginSelect("##g3d.scivis.colormap", mapPreview.c_str()))
   {
     for (const auto& preset : presets)
     {
-      if (ImGui::Selectable(loc.Translate(preset.name).c_str(), currentMap == preset.points))
+      if (G3DWidgets::SelectItem(loc.Translate(preset.name).c_str(), currentMap == preset.points))
       {
         if (preset.points[0] == '\0')
         {
@@ -2238,7 +2234,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
         }
       }
     }
-    ImGui::EndCombo();
+    G3DWidgets::EndSelect();
   }
   ImGui::PopItemWidth();
 

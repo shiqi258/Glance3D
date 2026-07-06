@@ -2355,7 +2355,11 @@ void DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, 
   const char* end = text + std::strlen(text);
   while (end > text && ImGui::CalcTextSize(text, end).x + ellW > maxW)
   {
-    --end; // hex values are ASCII; per-byte stepping is safe
+    --end;
+    while (end > text && (static_cast<unsigned char>(*end) & 0xC0) == 0x80)
+    {
+      --end; // back to the sequence lead byte — never split a multi-byte UTF-8 glyph (CJK labels)
+    }
   }
   std::string clipped(text, end);
   clipped += "...";
@@ -4110,6 +4114,312 @@ void SubmitEyedropperScreenPatch(
   gEyedrop.patchY = originY;
   // submitted before this render's NewFrame: the stamp reads one behind the frame that samples it
   gEyedrop.patchFrame = ImGui::GetFrameCount();
+}
+
+//----------------------------------------------------------------------------
+// Select / dropdown (styleguide <g3d-select>: .dropdown / .select-trigger / .menu / .menu-item)
+//----------------------------------------------------------------------------
+namespace
+{
+// Toggle bookkeeping + last fitted menu size per select. ImGui closes the popup on the mouse-DOWN
+// of a trigger click (click-outside-popup handling in NewFrame), so by the release the popup reads
+// as closed and a plain "clicked -> OpenPopup" would instantly REOPEN it — the trigger could never
+// close its own menu. lastOpenFrame lets the press tell "this press is what closed the menu" apart
+// from "the menu was already closed", giving real toggle semantics. menuSize feeds the flip-above
+// placement before this frame's auto-fit size exists (same pattern as the color picker panelSize).
+struct SelectState
+{
+  int lastOpenFrame = -999; ///< last frame the menu was open
+  bool pressWhileOpen = false; ///< the current trigger press started with the menu open
+  ImVec2 menuSize = ImVec2(0.f, 0.f);
+};
+std::unordered_map<ImGuiID, SelectState> gSelects;
+
+// The open BeginSelect() frame stack — what EndSelect() needs to close what BeginSelect() opened.
+struct SelectMenuFrame
+{
+  ImGuiID stateId = 0;
+};
+std::vector<SelectMenuFrame> gSelectMenuStack;
+
+// Soft drop shadow around a floating menu (styleguide --shadow-md: 0 6px 16px rgba(0,0,0,.45)).
+// ImGui windows have no shadow, so approximate the blur with expanding rounded strokes whose alpha
+// falls off quadratically, biased downward for the 6px offset. Every ring sits OUTSIDE the window
+// rect (full-screen clip), so nothing tints the opaque menu fill: rings render above the panels
+// beneath but below the menu content that follows in the same draw list.
+void DrawMenuShadow(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float rounding, float s,
+  float alphaMul)
+{
+  dl->PushClipRectFullScreen();
+  constexpr int layers = 12;
+  const float spread = 16.f * s;
+  const float shiftY = 3.f * s; // downward bias (the 6px offset, halved: rings grow both ways)
+  const float step = spread / layers;
+  for (int i = 0; i < layers; ++i)
+  {
+    const float t = (i + 1.f) / layers;
+    const float o = t * spread;
+    const float a = 0.24f * (1.f - t) * (1.f - t) * alphaMul;
+    if (a <= 0.002f)
+    {
+      continue;
+    }
+    dl->AddRect(ImVec2(p0.x - o, p0.y - o + shiftY * t), ImVec2(p1.x + o, p1.y + o + shiftY * t),
+      ImGui::ColorConvertFloat4ToU32(ImVec4(0.f, 0.f, 0.f, a)), rounding + o, 0, step + 1.2f * s);
+  }
+  dl->PopClipRect();
+}
+
+// The trigger chevron mid-rotation. The styleguide chevron is a right-pointing glyph rotated 90deg
+// (closed == pointing down) -> 270deg (open == pointing up) over t-std; replicate by rotating
+// G3DIcon's ChevronRight points — (0.40,0.24)(0.64,0.50)(0.40,0.76) in the unit box — around the
+// icon center, so mid-animation sweeps through pointing-left exactly like the CSS transform.
+void DrawSelectChevron(ImDrawList* dl, const ImVec2& center, float size, ImU32 col, float openT)
+{
+  const float ang = (90.f + 180.f * openT) * (3.14159265f / 180.f);
+  const float cs = std::cos(ang);
+  const float sn = std::sin(ang);
+  const ImVec2 base[3] = { ImVec2(-0.10f, -0.26f), ImVec2(0.14f, 0.f), ImVec2(-0.10f, 0.26f) };
+  ImVec2 pts[3];
+  for (int i = 0; i < 3; ++i)
+  {
+    const float x = base[i].x * size;
+    const float y = base[i].y * size;
+    pts[i] = ImVec2(center.x + x * cs - y * sn, center.y + x * sn + y * cs);
+  }
+  dl->AddPolyline(pts, 3, col, ImDrawFlags_None, std::max(1.f, size * 0.085f));
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+bool BeginSelect(const char* id, const char* preview, const char* hint)
+{
+  ImGui::PushID(id);
+  const float s = Scale();
+  const float h = G3DTheme::Size::Control * s;
+  const float width = ImGui::CalcItemWidth();
+  const float padX = 10.f * s;   // styleguide .input padding: 0 10px
+  const float chevSz = 16.f * s; // .select-trigger .chev font-size: 16px
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+
+  const bool clicked = ImGui::InvisibleButton("##sel", ImVec2(std::max(width, 1.f), h));
+  const bool hovered = ImGui::IsItemHovered();
+  const bool held = ImGui::IsItemActive();
+  const bool focused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
+  if (hovered)
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+
+  const ImGuiID stateId = ImGui::GetID("##selstate");
+  SelectState& st = gSelects[stateId];
+  if (ImGui::IsItemActivated())
+  {
+    // popup already closed by this press's mouse-down (see SelectState) — look one frame back
+    st.pressWhileOpen = (ImGui::GetFrameCount() - st.lastOpenFrame) <= 2;
+  }
+  if (clicked && !st.pressWhileOpen)
+  {
+    ImGui::OpenPopup("##menu");
+  }
+  const ImGuiID menuId = ImGui::GetID("##menu");
+  const bool open = ImGui::IsPopupOpen("##menu");
+  if (open)
+  {
+    st.lastOpenFrame = ImGui::GetFrameCount();
+  }
+
+  // Trigger state: hover via the shared clock; the value channel (Standard == t-std, the CSS chevron
+  // transition) drives the rotation and the open styling together.
+  WidgetAnim& w = Interact(ImGui::GetID("##sel"), hovered, held);
+  DriveValue(w, open ? 1.f : 0.f);
+  const float ot = w.value.Value();
+
+  // ---- trigger (styleguide .input reused by .select-trigger) ----
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  {
+    AAGuard aa(dl);
+    const float radius = G3DTheme::Radius::Control * s;
+    const ImVec2 p1(p0.x + width, p0.y + h);
+    // rest = surface-2, open = surface-3 (.dropdown.open); hover only strengthens the border
+    dl->AddRectFilled(
+      p0, p1, U32(LerpColor(G3DTheme::Surface(), G3DTheme::SurfaceHover(), ot)), radius);
+    ImVec4 bc = LerpColor(G3DTheme::Border(), G3DTheme::BorderStrong(), w.hover.Value());
+    bc = LerpColor(bc, G3DTheme::Accent(), std::max(ot, focused ? 1.f : 0.f));
+    dl->AddRect(p0, p1, U32(bc), radius, 0, G3DTheme::Size::Border * s);
+    // open/keyboard-focus ring == box-shadow 0 0 0 2px accent-ring
+    const float ringT = std::max(ot, focused ? 1.f : 0.f);
+    if (ringT > 0.01f)
+    {
+      const float o = 1.5f * s * ringT;
+      dl->AddRect(ImVec2(p0.x - o, p0.y - o), ImVec2(p1.x + o, p1.y + o),
+        U32(G3DTheme::Accent(), 0.45f * ringT), radius + o, 0, 2.f * s);
+    }
+    // value (or a subtle placeholder when empty), ellipsized before the chevron
+    const float cy = p0.y + h * 0.5f;
+    const bool empty = preview == nullptr || preview[0] == '\0';
+    const char* shown = empty ? (hint != nullptr ? hint : "") : preview;
+    if (shown[0] != '\0')
+    {
+      const float tx = p0.x + padX;
+      const float maxW = p1.x - padX - chevSz - G3DTheme::Spacing::Sm * s - tx;
+      DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f), std::max(0.f, maxW),
+        U32(empty ? G3DTheme::TextSubtle() : G3DTheme::Text()), shown);
+    }
+    // chevron pinned right: down -> up while opening, subtle -> accent
+    DrawSelectChevron(dl, ImVec2(p1.x - padX - chevSz * 0.5f, cy), chevSz,
+      U32(LerpColor(G3DTheme::TextSubtle(), G3DTheme::Accent(), ot)), ot);
+  }
+
+  if (!open)
+  {
+    if (ImGui::GetFrameCount() - st.lastOpenFrame <= 2)
+    {
+      Ensure(menuId).hover.Snap(0.f); // just closed — rearm the fade-in for the next open
+    }
+    ImGui::PopID();
+    return false;
+  }
+
+  // ---- menu placement (styleguide place(): left-aligned, 6px below, trigger width; flips above
+  // when the screen bottom would clip it; long lists scroll inside a capped height) ----
+  const ImVec2 disp = ImGui::GetIO().DisplaySize;
+  const float gapY = 6.f * s;
+  const float margin = 8.f * s;
+  const float maxMenuH = std::min(320.f * s, disp.y - 2.f * margin);
+
+  // open transition (.menu: opacity 0->1 + translateY(-6px)->0 over t-micro): ride the shared
+  // animation store; the hover channel is pre-configured to the Micro motion. The first frame is
+  // ~transparent, which also hides the one-frame placement guess before the auto-fit size exists.
+  WidgetAnim& m = Ensure(menuId);
+  m.lastFrame = ImGui::GetFrameCount(); // keep the entry alive while open (the store prunes stale ids)
+  m.hover.AnimateTo(1.f);
+  m.hover.Update(FrameDelta());
+  const float mt = m.hover.Value();
+
+  ImVec2 pos(p0.x, p0.y + h + gapY);
+  const float estH = st.menuSize.y;
+  if (estH > 1.f && pos.y + estH > disp.y - margin)
+  {
+    pos.y = std::max(margin, p0.y - gapY - estH); // flip above
+    pos.y += 6.f * s * (1.f - mt);                // slide into place (mirrored)
+  }
+  else
+  {
+    pos.y -= 6.f * s * (1.f - mt); // translateY(-6px) -> 0
+  }
+  pos.x = std::clamp(pos.x, margin, std::max(margin, disp.x - width - margin));
+
+  ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(width, 0.f), ImGuiCond_Always); // height auto-fits
+  ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.f), ImVec2(width, maxMenuH));
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.f * s, 4.f * s)); // .menu padding: 4px
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Control * s); // r-md
+  // border drawn manually below: ImGui strokes window borders without line AA (disabled globally),
+  // which staircases the rounded corners
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.f);
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.f, 0.f)); // .menu-item rows stack flush
+  ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mt);                     // fade-in
+  ImGui::PushStyleColor(ImGuiCol_PopupBg, U32(G3DTheme::SurfaceHover())); // surface-3
+  ImGui::PushStyleColor(ImGuiCol_Border, U32(G3DTheme::Border()));
+
+  if (!ImGui::BeginPopup("##menu"))
+  {
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(5);
+    Ensure(menuId).hover.Snap(0.f);
+    ImGui::PopID();
+    return false;
+  }
+
+  // shadow + crisp border around the fitted window (the styleguide .menu box-shadow + border)
+  {
+    ImDrawList* pdl = ImGui::GetWindowDrawList();
+    AAGuard aa(pdl);
+    const ImVec2 wp = ImGui::GetWindowPos();
+    const ImVec2 ws = ImGui::GetWindowSize();
+    const ImVec2 w1(wp.x + ws.x, wp.y + ws.y);
+    const float rounding = G3DTheme::Radius::Control * s;
+    DrawMenuShadow(pdl, wp, w1, rounding, s, mt);
+    pdl->PushClipRectFullScreen();
+    pdl->AddRect(wp, w1, U32(G3DTheme::Border(), mt), rounding, 0, G3DTheme::Size::Border * s);
+    pdl->PopClipRect();
+  }
+
+  gSelectMenuStack.push_back(SelectMenuFrame{ stateId });
+  return true;
+}
+
+//----------------------------------------------------------------------------
+bool SelectItem(const char* label, bool selected)
+{
+  ImGui::PushID(label);
+  const float s = Scale();
+  const float padX = 10.f * s; // .menu-item padding: 7px 10px
+  const float padY = 7.f * s;
+  const float checkSz = 14.f * s; // .check-spot font-size: 14px
+  const float gap = G3DTheme::Spacing::Sm * s;
+  const float rowH = ImGui::GetFontSize() + 2.f * padY;
+  const float width = std::max(ImGui::GetContentRegionAvail().x, 1.f);
+  const float alpha = ImGui::GetStyle().Alpha; // menu fade-in (custom draws bypass style.Alpha)
+
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const bool clicked = ImGui::InvisibleButton("##mi", ImVec2(width, rowH));
+  const bool hovered = ImGui::IsItemHovered();
+  const bool held = ImGui::IsItemActive();
+  const WidgetAnim& w = Interact(ImGui::GetID("##mi"), hovered, held);
+  if (hovered)
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+  if (selected && ImGui::IsWindowAppearing())
+  {
+    ImGui::SetScrollHereY(0.35f); // land the opened menu on its current value (native combo feel)
+  }
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  AAGuard aa(dl);
+  const ImVec2 p1(p0.x + width, p0.y + rowH);
+  const float t = std::max(w.hover.Value(), held ? 1.f : 0.f);
+  if (t > 0.01f)
+  {
+    // hover fill = surface-4 on the surface-3 menu, r-sm corners
+    dl->AddRectFilled(p0, p1, U32(G3DTheme::SurfacePress(), t * alpha), G3DTheme::Radius::Small * s);
+  }
+  const float cy = p0.y + rowH * 0.5f;
+  const float tx = p0.x + padX;
+  const float maxW = p1.x - padX - (selected ? checkSz + gap : 0.f) - tx;
+  DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f), std::max(0.f, maxW),
+    U32(selected ? G3DTheme::Accent() : G3DTheme::Text(), alpha), label);
+  if (selected)
+  {
+    // .check-spot: trailing check, shown only on the selected row
+    G3DIcon::Draw(dl, G3DIconId::Check, ImVec2(p1.x - padX - checkSz * 0.5f, cy), checkSz,
+      U32(G3DTheme::Accent(), alpha));
+  }
+
+  if (clicked)
+  {
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::PopID();
+  return clicked;
+}
+
+//----------------------------------------------------------------------------
+void EndSelect()
+{
+  if (!gSelectMenuStack.empty())
+  {
+    // record the fitted size for next frame's flip-above placement
+    gSelects[gSelectMenuStack.back().stateId].menuSize = ImGui::GetWindowSize();
+    gSelectMenuStack.pop_back();
+  }
+  ImGui::EndPopup();
+  ImGui::PopStyleColor(2);
+  ImGui::PopStyleVar(5);
+  ImGui::PopID();
 }
 
 //----------------------------------------------------------------------------
