@@ -3738,7 +3738,7 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
     {
       const ImVec2 ts = ImGui::CalcTextSize(text);
       const float padX = 9.f * s, padY = 5.f * s;
-      const float chipSz = chip ? ImGui::GetTextLineHeight() : 0.f;
+      const float chipSz = chip ? ImGui::GetFontSize() * 0.8f : 0.f; // ~cap height, balances the hex
       const float chipGap = chip ? 6.f * s : 0.f;
       const float w = padX + chipSz + chipGap + ts.x + padX;
       const ImVec2 pmin(anchor.x - w * 0.5f, topY);
@@ -3756,8 +3756,8 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
         fdl->AddRectFilled(k0, k1,
           IM_COL32(static_cast<int>(chip[0] * 255.f + 0.5f),
             static_cast<int>(chip[1] * 255.f + 0.5f), static_cast<int>(chip[2] * 255.f + 0.5f), 255),
-          4.f * s);
-        fdl->AddRect(k0, k1, IM_COL32(255, 255, 255, 46), 4.f * s, 0, 1.f * s);
+          3.f * s);
+        fdl->AddRect(k0, k1, IM_COL32(255, 255, 255, 46), 3.f * s, 0, 1.f * s);
         tx += chipSz + chipGap;
       }
       fdl->AddText(ImVec2(tx, pmin.y + padY), U32(txtCol), text);
@@ -3767,19 +3767,80 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
       // soft shadow behind the loupe
       fdl->AddCircleFilled(
         ImVec2(anchor.x, anchor.y + 2.f * s), outerR + 3.f * s, IM_COL32(0, 0, 0, 55), 64);
-      // magnified texel grid, masked to a circle cell-by-cell (hard pixel edges, like a devtools loupe)
+      // magnified texel grid (hard pixel edges, like a devtools loupe). Each cell is clipped to the
+      // loupe disc so square corners never poke past the circle and diagonal cells never leave a gap
+      // — matching the per-pixel OS loupe. ImGui fills whole rects, so boundary cells are clipped to
+      // the circle with Sutherland–Hodgman (straight chords; the sub-pixel arc sag within one 9px
+      // cell is hidden by the rim drawn on top).
+      const float gridR2 = gridR * gridR;
+      auto addCellClipped = [&](const ImVec2& mn, const ImVec2& mx, ImU32 col)
+      {
+        auto inside = [&](float x, float y)
+        {
+          const float dx = x - anchor.x, dy = y - anchor.y;
+          return dx * dx + dy * dy <= gridR2;
+        };
+        const ImVec2 corner[4] = { { mn.x, mn.y }, { mx.x, mn.y }, { mx.x, mx.y }, { mn.x, mx.y } };
+        int nin = 0;
+        for (const ImVec2& c : corner)
+        {
+          nin += inside(c.x, c.y) ? 1 : 0;
+        }
+        if (nin == 4)
+        {
+          fdl->AddRectFilled(mn, mx, col); // fully inside the disc
+          return;
+        }
+        if (nin == 0)
+        {
+          const float nx = std::clamp(anchor.x, mn.x, mx.x), ny = std::clamp(anchor.y, mn.y, mx.y);
+          if (!inside(nx, ny))
+          {
+            return; // rect entirely outside the disc
+          }
+        }
+        ImVec2 poly[8];
+        int n = 0;
+        for (int i = 0; i < 4; ++i)
+        {
+          const ImVec2 a = corner[i], b = corner[(i + 1) & 3];
+          const bool ai = inside(a.x, a.y), bi = inside(b.x, b.y);
+          if (ai)
+          {
+            poly[n++] = a;
+          }
+          if (ai != bi)
+          {
+            const float ex = b.x - a.x, ey = b.y - a.y, fx = a.x - anchor.x, fy = a.y - anchor.y;
+            const float A = ex * ex + ey * ey, B = 2.f * (fx * ex + fy * ey);
+            const float C = fx * fx + fy * fy - gridR2, d = B * B - 4.f * A * C;
+            if (A > 0.f && d >= 0.f)
+            {
+              const float sq = std::sqrt(d);
+              float t = (-B - sq) / (2.f * A);
+              if (t < 0.f || t > 1.f)
+              {
+                t = (-B + sq) / (2.f * A);
+              }
+              if (t >= 0.f && t <= 1.f)
+              {
+                poly[n++] = ImVec2(a.x + t * ex, a.y + t * ey);
+              }
+            }
+          }
+        }
+        if (n >= 3)
+        {
+          fdl->AddConvexPolyFilled(poly, n, col);
+        }
+      };
       for (int dy = -kHalf; dy <= kHalf; ++dy)
       {
         for (int dx = -kHalf; dx <= kHalf; ++dx)
         {
-          if (dx * dx + dy * dy > kHalf * kHalf + kHalf)
-          {
-            continue; // outside the circular mask
-          }
           const unsigned char* p = texel(dx, dy);
           const ImVec2 cmin(anchor.x + dx * cell - cell * 0.5f, anchor.y + dy * cell - cell * 0.5f);
-          fdl->AddRectFilled(
-            cmin, ImVec2(cmin.x + cell, cmin.y + cell), IM_COL32(p[0], p[1], p[2], 255));
+          addCellClipped(cmin, ImVec2(cmin.x + cell, cmin.y + cell), IM_COL32(p[0], p[1], p[2], 255));
         }
       }
       // graph-paper gridlines, clipped to the circle as chords, tinted for contrast on the content

@@ -298,7 +298,7 @@ void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned c
   const int padX = static_cast<int>(9.0 * s + 0.5);
   const int padY = static_cast<int>(5.0 * s + 0.5);
   const int gap = static_cast<int>(8.0 * s + 0.5);
-  const int chip = fh;                                // sampled-color chip edge in the readout pill
+  const int chip = static_cast<int>(fh * 0.8 + 0.5); // sampled-color chip edge (~cap height) in pill
   const int chipGap = static_cast<int>(6.0 * s + 0.5);
   const int W = outer * 2 + 2;
   const int pillH = fh + padY * 2;
@@ -374,6 +374,9 @@ void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned c
     OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
     L"Segoe UI");
   HGDIOBJ oldFont = SelectObject(mem, font);
+  // cap height (Segoe UI ~0.72em, matches the rendered all-caps hex) for optical vertical centering.
+  // Font-metric APIs proved unreliable here (otmsCapEmHeight under-reports); the ratio matches pixels.
+  const int capH = static_cast<int>(fh * 0.72 + 0.5);
   SIZE ts{};
   GetTextExtentPoint32W(mem, hex, static_cast<int>(wcslen(hex)), &ts);
   const int pillW = std::min(W, padX + chip + chipGap + static_cast<int>(ts.cx) + padX);
@@ -393,7 +396,7 @@ void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned c
   const unsigned char chipBg[4] = { hp[0], hp[1], hp[2], 255 };
   const unsigned char chipBorder[4] = { 255, 255, 255, 46 };
   G3DLoupe::RenderRoundRect(px, W, H, static_cast<float>(pillX + padX), static_cast<float>(chipY),
-    static_cast<float>(pillX + padX + chip), static_cast<float>(chipY + chip), 4.f * sf, chipBg,
+    static_cast<float>(pillX + padX + chip), static_cast<float>(chipY + chip), 3.f * sf, chipBg,
     chipBorder);
 
   // GDI blends the anti-aliased glyphs over the opaque pill (premultiplied == straight there). GDI
@@ -401,7 +404,9 @@ void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned c
   GdiFlush();
   const int textX0 = pillX + padX + chip + chipGap;
   SetTextColor(mem, RGB(235, 235, 235));
-  TextOutW(mem, textX0, pillY + padY, hex, static_cast<int>(wcslen(hex)));
+  // baseline-align so the caps center on the pill center (matches the vertically-centered chip)
+  SetTextAlign(mem, TA_LEFT | TA_BASELINE);
+  TextOutW(mem, textX0, pillY + pillH / 2 + capH / 2, hex, static_cast<int>(wcslen(hex)));
   SelectObject(mem, oldFont);
   DeleteObject(font);
   GdiFlush();
