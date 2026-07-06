@@ -2236,6 +2236,7 @@ struct EyedropState
   int patchFrame = -1000;           // ImGui frame stamp at submit; only fresh patches are sampled
 };
 EyedropState gEyedrop;
+bool gEyedropCancel = false; // right-click cancel request from CancelEyedropper() (platform overlay)
 
 constexpr float HDR_INT_MAX = 8.f;
 
@@ -3895,6 +3896,15 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
     CpTrace("[Trace][cp.eyed] fr=%d click m=(%d,%d) src=%c -> %s", ImGui::GetFrameCount(), mx, my,
       "NVS"[static_cast<int>(src)], sampled ? "COMMIT" : "CANCEL(no-source)");
   }
+  // right-click cancels (matches the browser EyeDropper): via CancelEyedropper() when the platform
+  // input overlay swallows it, or directly through ImGui with no overlay (non-Windows / disabled)
+  const bool rClickCancel = gEyedropCancel || ImGui::IsMouseClicked(ImGuiMouseButton_Right, false);
+  gEyedropCancel = false;
+  if (rClickCancel)
+  {
+    action = 2;
+    CpTrace("[Trace][cp.eyed] fr=%d RClick -> CANCEL", ImGui::GetFrameCount());
+  }
   if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
   {
     action = 2;
@@ -4022,6 +4032,15 @@ bool EyedropperActive()
     gEyedrop = EyedropState{}; // the owning picker stopped being drawn — expire the mode
   }
   return gEyedrop.owner != 0;
+}
+
+//----------------------------------------------------------------------------
+void CancelEyedropper()
+{
+  if (gEyedrop.owner != 0)
+  {
+    gEyedropCancel = true; // consumed next frame in DrawEyedropOverlay -> cancel (reopens the picker)
+  }
 }
 
 //----------------------------------------------------------------------------

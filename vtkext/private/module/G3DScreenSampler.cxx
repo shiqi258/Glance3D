@@ -72,6 +72,20 @@ LRESULT CALLBACK G3DEyedropInputProc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
       }
       return 0;
     case WM_RBUTTONDOWN:
+      // right-click exits sampling (like the browser EyeDropper). The overlay swallows the click, so
+      // signal the widget directly, then nudge a render (a no-op move) so it is consumed at once even
+      // with the cursor held still.
+      G3DWidgets::CancelEyedropper();
+      if (RenderHwnd != nullptr)
+      {
+        const POINTS pts = MAKEPOINTS(lp);
+        POINT p{ pts.x, pts.y };
+        ClientToScreen(wnd, &p);
+        ScreenToClient(RenderHwnd, &p);
+        PostMessageW(
+          RenderHwnd, WM_MOUSEMOVE, 0, MAKELPARAM(static_cast<short>(p.x), static_cast<short>(p.y)));
+      }
+      return 0;
     case WM_RBUTTONUP:
     case WM_MBUTTONDOWN:
     case WM_MBUTTONUP:

@@ -406,6 +406,11 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc = ColorEd
 /// back). Safe to call without an ImGui context (returns false).
 bool EyedropperActive();
 
+/// Cancel eyedropper sampling — exit the mode and reopen the picker. Invoked by the platform input
+/// overlay on a right-click (which it swallows, so the click never reaches ImGui). No-op when not
+/// sampling; consumed on the next frame.
+void CancelEyedropper();
+
 /// Provide the current viewport pixels for eyedropper sampling. @p rgba is tightly packed RGBA8 in
 /// GL layout (row 0 = bottom row), sized w*h*4. @p rectX / @p rectY locate the viewport rect origin
 /// in window device pixels (GL bottom-left origin); @p winW / @p winH are the full window device
