@@ -2749,13 +2749,36 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
   // ===== SV square (saturation x value over a pure-hue base) =====
   {
     const float svH = 150.f * s;
-    ImGui::SetCursorScreenPos(ImVec2(x0, y));
-    ImGui::InvisibleButton("##sv", ImVec2(W, svH));
+    // Hot zone: the interactive rect extends hotPad past the visual square on every side. The
+    // anchor disc (outer radius ~8.5*s) rides the exact edge at s/v extremes, where ImGui's
+    // min-inclusive/max-exclusive rect test even drops the last pixel row/column — without the
+    // pad, clicks on the disc's outer half land on the popup background and are silently
+    // swallowed (the [cp.sv] MISS trace below). Value mapping keeps using the visual rect: the
+    // clamps turn padded-band presses into edge values. Constraints: hotPad <= window padding
+    // (Md, stay inside the popup) and hotPad + trkPadY <= G (stay clear of the mid row below).
+    const float hotPad = 10.f * s;
+    const ImVec2 anchorPrev(x0 + st.s * W, y + (1.f - st.v) * svH); // pre-press anchor (aim point)
+    ImGui::SetCursorScreenPos(ImVec2(x0 - hotPad, y - hotPad));
+    ImGui::InvisibleButton("##sv", ImVec2(W + 2.f * hotPad, svH + 2.f * hotPad));
     if (ImGui::IsItemActivated())
     {
       const ImVec2 m = ImGui::GetIO().MousePos;
-      CpTrace("[Trace][cp.sv] fr=%d press m=(%.1f,%.1f) rect=(%.1f,%.1f,%.1fx%.1f) sv=(%.4f,%.4f)",
-        ImGui::GetFrameCount(), m.x, m.y, x0, y, W, svH, st.s, st.v);
+      CpTrace("[Trace][cp.sv] fr=%d press m=(%.1f,%.1f) rect=(%.1f,%.1f,%.1fx%.1f) sv=(%.4f,%.4f) "
+              "dAnchor=%.1f",
+        ImGui::GetFrameCount(), m.x, m.y, x0, y, W, svH, st.s, st.v,
+        std::hypot(m.x - anchorPrev.x, m.y - anchorPrev.y));
+    }
+    else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    {
+      // A fresh press near the anchor that did NOT land in the hot rect — the silent-swallow
+      // class the hot zone exists to prevent. Logged so a regression is visible in session logs.
+      const ImVec2 m = ImGui::GetIO().MousePos;
+      const float d = std::hypot(m.x - anchorPrev.x, m.y - anchorPrev.y);
+      if (d <= 16.f * s)
+      {
+        CpTrace("[Trace][cp.sv] fr=%d MISS m=(%.1f,%.1f) anchor=(%.1f,%.1f) d=%.1f sv=(%.4f,%.4f)",
+          ImGui::GetFrameCount(), m.x, m.y, anchorPrev.x, anchorPrev.y, d, st.s, st.v);
+      }
     }
     if (ImGui::IsItemActive())
     {
@@ -2901,9 +2924,14 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     const float hueY = withAlpha ? y : y + (rowH - trackH) * 0.5f;
     const float alphaY = y + trackH + gap2;
 
-    // hue track (interactive)
-    ImGui::SetCursorScreenPos(ImVec2(trackX, hueY));
-    ImGui::InvisibleButton("##hue", ImVec2(trackW, trackH));
+    // hue track (interactive) — hot rect padded like the SV square: the 7*s thumb rides the
+    // track ends at h=0/360 and pokes 1*s past the 12*s track height. trkPadY caps at 2*s so
+    // the hue/alpha hot rects stay disjoint across gap2 (8*s) and the SV hot rect above
+    // (hotPad = 10*s of the G = 12*s gap) is not overlapped.
+    const float trkPadX = 8.f * s;
+    const float trkPadY = 2.f * s;
+    ImGui::SetCursorScreenPos(ImVec2(trackX - trkPadX, hueY - trkPadY));
+    ImGui::InvisibleButton("##hue", ImVec2(trackW + 2.f * trkPadX, trackH + 2.f * trkPadY));
     if (ImGui::IsItemActivated())
     {
       CpTrace("[Trace][cp.hue] fr=%d press m=(%.1f,%.1f) h=%.2f", ImGui::GetFrameCount(),
@@ -2951,8 +2979,8 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     // alpha track (checkerboard + transparent -> current color, interactive)
     if (withAlpha)
     {
-      ImGui::SetCursorScreenPos(ImVec2(trackX, alphaY));
-      ImGui::InvisibleButton("##alpha", ImVec2(trackW, trackH));
+      ImGui::SetCursorScreenPos(ImVec2(trackX - trkPadX, alphaY - trkPadY));
+      ImGui::InvisibleButton("##alpha", ImVec2(trackW + 2.f * trkPadX, trackH + 2.f * trkPadY));
       if (ImGui::IsItemActive())
       {
         st.a = std::clamp((ImGui::GetIO().MousePos.x - trackX) / trackW, 0.f, 1.f);
@@ -3997,6 +4025,10 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
     }
     pos.x = std::clamp(pos.x, margin, std::max(margin, disp.x - panelW - margin));
     ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+    // Pin the width: the hot-zone rects (SV square / hue / alpha) extend past the 288*s content
+    // width and would widen the auto-fit window asymmetrically. Height stays auto-fit (0) — no
+    // hot rect reaches past the last row.
+    ImGui::SetNextWindowSize(ImVec2(panelW, 0.f), ImGuiCond_Always);
   }
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(G3DTheme::Spacing::Md * s, G3DTheme::Spacing::Md * s));
