@@ -7,6 +7,8 @@
 #ifdef _WIN32
 #include <vtkWindows.h>
 
+#include "G3DLoupeRaster.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -38,6 +40,12 @@ HWND LoupeWnd = nullptr;     // cursor-following magnifier shown outside the ren
 bool OverlaysShown = false;
 bool ClassesRegistered = false;
 
+// Screen frozen once when the eyedropper opens: the centered loupe reads its desktop patch from here
+// (not a live grab), so it never samples — and magnifies — itself. Virtual-screen RGBA, top-down.
+std::vector<unsigned char> ScreenSnapshot;
+int SnapX = 0, SnapY = 0, SnapW = 0, SnapH = 0;
+bool SnapValid = false;
+
 //----------------------------------------------------------------------------
 LRESULT CALLBACK G3DEyedropInputProc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -46,7 +54,7 @@ LRESULT CALLBACK G3DEyedropInputProc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_MOUSEACTIVATE:
       return MA_NOACTIVATE; // keyboard focus (Esc to cancel) stays on the render window
     case WM_SETCURSOR:
-      SetCursor(LoadCursor(nullptr, IDC_CROSS));
+      SetCursor(nullptr); // hide the OS cursor while sampling — the loupe's center marker is the aim
       return TRUE;
     case WM_MOUSEMOVE:
     case WM_LBUTTONDOWN:
@@ -89,7 +97,7 @@ void EnsureClasses()
   WNDCLASSW ic{};
   ic.lpfnWndProc = G3DEyedropInputProc;
   ic.hInstance = inst;
-  ic.hCursor = LoadCursor(nullptr, IDC_CROSS);
+  ic.hCursor = nullptr; // cursor hidden via WM_SETCURSOR while sampling
   ic.lpszClassName = L"Glance3DEyedropInput";
   RegisterClassW(&ic);
   WNDCLASSW lc{};
@@ -160,30 +168,20 @@ void HideOverlays()
 }
 
 //----------------------------------------------------------------------------
-// BitBlt the desktop around the cursor into a top-down 32bpp DIB and repack BGRA -> RGBA.
-// Virtual-screen coordinates handle multi-monitor setups (negative for monitors left/above the
-// primary); plain SRCCOPY (no CAPTUREBLT — its per-frame cursor flicker outweighs layered-window
-// coverage).
-bool CaptureDesktopPatch(
-  const POINT& cur, std::vector<unsigned char>& rgba, int& w, int& h, int& x0, int& y0)
+// BitBlt the whole virtual screen into ScreenSnapshot (top-down 32bpp -> RGBA). Called once per
+// arming (before the loupe is visible), so the frozen snapshot never contains the loupe. Virtual-
+// screen coordinates handle multi-monitor setups (negative for monitors left/above the primary);
+// plain SRCCOPY (no CAPTUREBLT — its cursor flicker outweighs layered-window coverage).
+bool CaptureVirtualScreen()
 {
   const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
   const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
   const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
   const int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-  const int cx = static_cast<int>(cur.x);
-  const int cy = static_cast<int>(cur.y);
-  x0 = std::max(cx - PATCH_HALF, vx);
-  y0 = std::max(cy - PATCH_HALF, vy);
-  const int x1 = std::min(cx + PATCH_HALF + 1, vx + vw);
-  const int y1 = std::min(cy + PATCH_HALF + 1, vy + vh);
-  w = x1 - x0;
-  h = y1 - y0;
-  if (w <= 0 || h <= 0)
+  if (vw <= 0 || vh <= 0)
   {
     return false;
   }
-
   HDC screen = GetDC(nullptr);
   if (screen == nullptr)
   {
@@ -195,8 +193,8 @@ bool CaptureDesktopPatch(
   {
     BITMAPINFO bmi = {};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = w;
-    bmi.bmiHeader.biHeight = -h; // negative = top-down rows (window / ImGui orientation)
+    bmi.bmiHeader.biWidth = vw;
+    bmi.bmiHeader.biHeight = -vh; // negative = top-down rows (window / ImGui orientation)
     bmi.bmiHeader.biPlanes = 1;
     bmi.bmiHeader.biBitCount = 32;
     bmi.bmiHeader.biCompression = BI_RGB;
@@ -205,18 +203,22 @@ bool CaptureDesktopPatch(
     if (dib != nullptr && bits != nullptr)
     {
       HGDIOBJ old = SelectObject(mem, dib);
-      if (BitBlt(mem, 0, 0, w, h, screen, x0, y0, SRCCOPY))
+      if (BitBlt(mem, 0, 0, vw, vh, screen, vx, vy, SRCCOPY))
       {
         GdiFlush();
         const unsigned char* src = static_cast<const unsigned char*>(bits);
-        rgba.resize(static_cast<std::size_t>(w) * h * 4);
-        for (std::size_t i = 0, n = static_cast<std::size_t>(w) * h; i < n; ++i)
+        ScreenSnapshot.resize(static_cast<std::size_t>(vw) * vh * 4);
+        for (std::size_t i = 0, n = static_cast<std::size_t>(vw) * vh; i < n; ++i)
         {
-          rgba[i * 4 + 0] = src[i * 4 + 2];
-          rgba[i * 4 + 1] = src[i * 4 + 1];
-          rgba[i * 4 + 2] = src[i * 4 + 0];
-          rgba[i * 4 + 3] = 255;
+          ScreenSnapshot[i * 4 + 0] = src[i * 4 + 2];
+          ScreenSnapshot[i * 4 + 1] = src[i * 4 + 1];
+          ScreenSnapshot[i * 4 + 2] = src[i * 4 + 0];
+          ScreenSnapshot[i * 4 + 3] = 255;
         }
+        SnapX = vx;
+        SnapY = vy;
+        SnapW = vw;
+        SnapH = vh;
         ok = true;
       }
       SelectObject(mem, old);
@@ -232,12 +234,43 @@ bool CaptureDesktopPatch(
 }
 
 //----------------------------------------------------------------------------
-// Paint + place the OS loupe near the cursor while it roams beyond the render window: an 11x11
-// zoomed texel grid in a ring of the hovered color with a hex readout, visually mirroring the
-// ImGui loupe (which owns the in-window presentation). Drawn with plain GDI into a 32bpp DIB,
-// alpha resolved geometrically (circle + pill), shown via UpdateLayeredWindow. The loupe trails at
-// a diagonal offset flipped/clamped to the cursor's monitor — the desktop patch shows the loupe as
-// last presented, so its drawing must stay clear of the sampled cursor neighborhood.
+// Copy the cursor +/- PATCH_HALF neighborhood out of the frozen snapshot (clamped to its bounds),
+// with the same (rgba, w, h, x0, y0) contract the widget feed + loupe expect. Virtual-screen coords.
+bool ExtractPatchFromSnapshot(
+  const POINT& cur, std::vector<unsigned char>& rgba, int& w, int& h, int& x0, int& y0)
+{
+  if (!SnapValid || ScreenSnapshot.empty())
+  {
+    return false;
+  }
+  x0 = std::max(static_cast<int>(cur.x) - PATCH_HALF, SnapX);
+  y0 = std::max(static_cast<int>(cur.y) - PATCH_HALF, SnapY);
+  const int x1 = std::min(static_cast<int>(cur.x) + PATCH_HALF + 1, SnapX + SnapW);
+  const int y1 = std::min(static_cast<int>(cur.y) + PATCH_HALF + 1, SnapY + SnapH);
+  w = x1 - x0;
+  h = y1 - y0;
+  if (w <= 0 || h <= 0)
+  {
+    return false;
+  }
+  rgba.resize(static_cast<std::size_t>(w) * h * 4);
+  for (int y = 0; y < h; ++y)
+  {
+    const unsigned char* srow =
+      &ScreenSnapshot[(static_cast<std::size_t>((y0 - SnapY) + y) * SnapW + (x0 - SnapX)) * 4];
+    std::memcpy(&rgba[static_cast<std::size_t>(y) * w * 4], srow, static_cast<std::size_t>(w) * 4);
+  }
+  return true;
+}
+
+//----------------------------------------------------------------------------
+// Paint + place the OS loupe centered on the (hidden) cursor while it roams beyond the render window:
+// a magnified 11x11 texel grid with graph-paper gridlines, a highlighted center texel, a thin rim,
+// and a color-chip + hex readout pill below — matching the browser's native EyeDropper loupe that the
+// styleguide delegates to. Fully software-rasterized with anti-aliasing (G3DLoupeRaster.h) into a
+// premultiplied 32bpp DIB, shown via UpdateLayeredWindow. It can sit centered on the cursor because
+// the desktop patch is read from a screen snapshot frozen when the eyedropper opened (Update) — which
+// never contains the loupe, so sampling never magnifies the loupe itself.
 void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned char>& rgba, int pw,
   int ph, int px0, int py0)
 {
@@ -259,16 +292,17 @@ void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned c
   const double s = dpi > 0 ? dpi / 96.0 : 1.0;
   const int cell = std::max(6, static_cast<int>(9.0 * s + 0.5));
   const int gridR = cell * LOUPE_HALF + cell / 2;
-  const int ringW = std::max(3, static_cast<int>(4.0 * s + 0.5));
   const int hair = std::max(1, static_cast<int>(1.25 * s + 0.5));
-  const int outer = gridR + ringW + hair;
+  const int outer = gridR + 2 * hair + static_cast<int>(4.0 * s + 0.5);
   const int fh = std::max(11, static_cast<int>(14.0 * s + 0.5));
-  const int padX = static_cast<int>(8.0 * s + 0.5);
-  const int padY = static_cast<int>(4.0 * s + 0.5);
+  const int padX = static_cast<int>(9.0 * s + 0.5);
+  const int padY = static_cast<int>(5.0 * s + 0.5);
   const int gap = static_cast<int>(8.0 * s + 0.5);
+  const int chip = fh;                                // sampled-color chip edge in the readout pill
+  const int chipGap = static_cast<int>(6.0 * s + 0.5);
   const int W = outer * 2 + 2;
   const int pillH = fh + padY * 2;
-  const int H = outer * 2 + gap + pillH + 2;
+  const int H = outer * 2 + gap + pillH + static_cast<int>(3.0 * s + 0.5) + 2;
   const int centerX = W / 2;
   const int centerY = outer + 1;
 
@@ -315,134 +349,82 @@ void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned c
   unsigned char* px = static_cast<unsigned char*>(bits);
   std::memset(px, 0, static_cast<std::size_t>(W) * H * 4);
 
-  // zoomed texel grid, masked cell-by-cell to the circle (direct BGRA writes)
-  for (int gy = -LOUPE_HALF; gy <= LOUPE_HALF; ++gy)
-  {
-    for (int gx = -LOUPE_HALF; gx <= LOUPE_HALF; ++gx)
-    {
-      if (gx * gx + gy * gy > LOUPE_HALF * LOUPE_HALF + LOUPE_HALF)
-      {
-        continue;
-      }
-      const unsigned char* t = texel(gx, gy);
-      const int rx0 = centerX + gx * cell - cell / 2;
-      const int ry0 = centerY + gy * cell - cell / 2;
-      for (int y = std::max(0, ry0); y < std::min(H, ry0 + cell); ++y)
-      {
-        for (int x = std::max(0, rx0); x < std::min(W, rx0 + cell); ++x)
-        {
-          unsigned char* d = &px[(static_cast<std::size_t>(y) * W + x) * 4];
-          d[0] = t[2];
-          d[1] = t[1];
-          d[2] = t[0];
-          d[3] = 255;
-        }
-      }
-    }
-  }
+  // Render the loupe disc (soft shadow, circular-clipped magnified grid with graph-paper gridlines,
+  // highlighted center texel, thin two-tone rim) with per-pixel analytic anti-aliasing, into the
+  // premultiplied BGRA DIB. Matches the browser's native EyeDropper loupe and the in-window ImGui
+  // loupe (DrawEyedropOverlay).
+  const float sf = static_cast<float>(s);
+  G3DLoupe::LoupeSpec sp;
+  sp.centerX = static_cast<float>(centerX) + 0.5f;
+  sp.centerY = static_cast<float>(centerY) + 0.5f;
+  sp.s = sf;
+  sp.cell = static_cast<float>(cell);
+  sp.half = LOUPE_HALF;
+  sp.gridR = static_cast<float>(gridR);
+  sp.hair = static_cast<float>(hair);
+  G3DLoupe::RenderDisc(px, W, H, sp, texel);
 
-  // GDI pass: center texel marker, ring (white inner / hovered-color band / dark outer), pill
-  GdiFlush();
-  SetBkMode(mem, TRANSPARENT);
-  HGDIOBJ nullBrush = GetStockObject(NULL_BRUSH);
-  auto circle = [&](int r, COLORREF col, int width)
-  {
-    HPEN pen = CreatePen(PS_SOLID, width, col);
-    HGDIOBJ oldPen = SelectObject(mem, pen);
-    HGDIOBJ oldBr = SelectObject(mem, nullBrush);
-    Ellipse(mem, centerX - r, centerY - r, centerX + r + 1, centerY + r + 1);
-    SelectObject(mem, oldBr);
-    SelectObject(mem, oldPen);
-    DeleteObject(pen);
-  };
-  auto box = [&](int half, COLORREF col)
-  {
-    HPEN pen = CreatePen(PS_SOLID, 1, col);
-    HGDIOBJ oldPen = SelectObject(mem, pen);
-    HGDIOBJ oldBr = SelectObject(mem, nullBrush);
-    Rectangle(mem, centerX - half, centerY - half, centerX + half + 1, centerY + half + 1);
-    SelectObject(mem, oldBr);
-    SelectObject(mem, oldPen);
-    DeleteObject(pen);
-  };
-  box(cell / 2 + 1, RGB(20, 20, 20));
-  box(cell / 2, RGB(255, 255, 255));
-  circle(gridR, RGB(255, 255, 255), hair);
-  circle(gridR + ringW / 2, RGB(hp[0], hp[1], hp[2]), ringW);
-  circle(gridR + ringW, RGB(20, 20, 20), hair);
-
-  // hex readout pill under the loupe (colors mirror G3DTheme Surface/Border/Text)
+  // readout pill below the loupe: a chip of the sampled color + its hex, on a Surface pill with a
+  // soft shadow (colors mirror G3DTheme Surface/Border/Text). The rounded shapes are rasterized with
+  // AA here; GDI only lays the anti-aliased glyphs over the pill.
   wchar_t hex[10];
   swprintf(hex, 10, L"#%02X%02X%02X", hp[0], hp[1], hp[2]);
+  SetBkMode(mem, TRANSPARENT);
   HFONT font = CreateFontW(-fh, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
     L"Segoe UI");
   HGDIOBJ oldFont = SelectObject(mem, font);
   SIZE ts{};
   GetTextExtentPoint32W(mem, hex, static_cast<int>(wcslen(hex)), &ts);
-  const int pillW = std::min(W, static_cast<int>(ts.cx) + padX * 2);
+  const int pillW = std::min(W, padX + chip + chipGap + static_cast<int>(ts.cx) + padX);
   const int pillX = centerX - pillW / 2;
   const int pillY = centerY + outer + gap - 1;
-  {
-    HBRUSH bg = CreateSolidBrush(RGB(24, 27, 33));
-    HPEN border = CreatePen(PS_SOLID, 1, RGB(46, 49, 56));
-    HGDIOBJ oldBr = SelectObject(mem, bg);
-    HGDIOBJ oldPen = SelectObject(mem, border);
-    const int rr = static_cast<int>(4.0 * s + 0.5) * 2;
-    RoundRect(mem, pillX, pillY, pillX + pillW, pillY + pillH, rr, rr);
-    SelectObject(mem, oldPen);
-    SelectObject(mem, oldBr);
-    DeleteObject(border);
-    DeleteObject(bg);
-  }
+  const float pillRR = 7.f * sf;
+  const unsigned char shadowCol[4] = { 0, 0, 0, 70 };
+  const unsigned char noCol[4] = { 0, 0, 0, 0 };
+  const unsigned char pillBg[4] = { 24, 27, 33, 255 };       // G3DTheme::Surface (0x181b21)
+  const unsigned char pillBorder[4] = { 255, 255, 255, 23 }; // G3DTheme::Border (white @ 9%)
+  G3DLoupe::RenderRoundRect(px, W, H, pillX - 1.f, pillY + 2.f * sf,
+    static_cast<float>(pillX + pillW) + 1.f, static_cast<float>(pillY + pillH) + 2.f * sf, pillRR,
+    shadowCol, noCol);
+  G3DLoupe::RenderRoundRect(px, W, H, static_cast<float>(pillX), static_cast<float>(pillY),
+    static_cast<float>(pillX + pillW), static_cast<float>(pillY + pillH), pillRR, pillBg, pillBorder);
+  const int chipY = pillY + (pillH - chip) / 2;
+  const unsigned char chipBg[4] = { hp[0], hp[1], hp[2], 255 };
+  const unsigned char chipBorder[4] = { 255, 255, 255, 46 };
+  G3DLoupe::RenderRoundRect(px, W, H, static_cast<float>(pillX + padX), static_cast<float>(chipY),
+    static_cast<float>(pillX + padX + chip), static_cast<float>(chipY + chip), 4.f * sf, chipBg,
+    chipBorder);
+
+  // GDI blends the anti-aliased glyphs over the opaque pill (premultiplied == straight there). GDI
+  // leaves the alpha byte at 0 on glyph pixels, so the text region's opacity is restored below.
+  GdiFlush();
+  const int textX0 = pillX + padX + chip + chipGap;
   SetTextColor(mem, RGB(235, 235, 235));
-  TextOutW(mem, centerX - ts.cx / 2, pillY + padY, hex, static_cast<int>(wcslen(hex)));
+  TextOutW(mem, textX0, pillY + padY, hex, static_cast<int>(wcslen(hex)));
   SelectObject(mem, oldFont);
   DeleteObject(font);
   GdiFlush();
 
-  // geometric alpha: opaque inside the circle and the pill, fully transparent elsewhere (GDI
-  // leaves the alpha byte at 0, so it is resolved here in one pass)
-  const double outerR2 = static_cast<double>(outer + 1) * (outer + 1);
-  for (int y = 0; y < H; ++y)
+  // restore opaque alpha over the text region only (GDI text zeroed the glyph pixels); the chip and
+  // the pill's rounded AA corners keep the coverage RenderRoundRect wrote
+  for (int y = std::max(0, pillY); y < std::min(H, pillY + pillH); ++y)
   {
-    for (int x = 0; x < W; ++x)
+    for (int x = std::max(0, textX0); x < std::min(W, pillX + pillW); ++x)
     {
-      unsigned char* d = &px[(static_cast<std::size_t>(y) * W + x) * 4];
-      const double ddx = x - centerX + 0.5;
-      const double ddy = y - centerY + 0.5;
-      const bool inCircle = ddx * ddx + ddy * ddy <= outerR2;
-      const bool inPill = x >= pillX && x < pillX + pillW && y >= pillY && y < pillY + pillH;
-      if (inCircle || inPill)
+      if (G3DLoupe::RoundRectSDF(x + 0.5f, y + 0.5f, static_cast<float>(pillX),
+            static_cast<float>(pillY), static_cast<float>(pillX + pillW),
+            static_cast<float>(pillY + pillH), pillRR) < -0.5f)
       {
-        d[3] = 255;
-      }
-      else
-      {
-        d[0] = d[1] = d[2] = d[3] = 0;
+        px[(static_cast<std::size_t>(y) * W + x) * 4 + 3] = 255;
       }
     }
   }
 
-  // trail diagonally, flipped then clamped to the cursor's monitor, clear of the sampled texels
-  HMONITOR mon = MonitorFromPoint(cur, MONITOR_DEFAULTTONEAREST);
-  MONITORINFO mi = {};
-  mi.cbSize = sizeof(mi);
-  GetMonitorInfoW(mon, &mi);
-  const int margin = static_cast<int>(6.0 * s + 0.5);
-  const int diag = static_cast<int>((gridR + ringW + 24.0 * s) * 0.7071 + 0.5);
-  int ax = cur.x + diag + (W - centerX) + margin <= mi.rcMonitor.right ? cur.x + diag
-                                                                        : cur.x - diag;
-  int ay = cur.y + diag + (H - centerY) + margin <= mi.rcMonitor.bottom ? cur.y + diag
-                                                                         : cur.y - diag;
-  ax = std::clamp(ax, static_cast<int>(mi.rcMonitor.left) + centerX + margin,
-    std::max(static_cast<int>(mi.rcMonitor.left) + centerX + margin,
-      static_cast<int>(mi.rcMonitor.right) - (W - centerX) - margin));
-  ay = std::clamp(ay, static_cast<int>(mi.rcMonitor.top) + centerY + margin,
-    std::max(static_cast<int>(mi.rcMonitor.top) + centerY + margin,
-      static_cast<int>(mi.rcMonitor.bottom) - (H - centerY) - margin));
-
-  POINT dst{ ax - centerX, ay - centerY };
+  // center the disc on the cursor (hidden while sampling), pill hanging below. No trailing offset:
+  // the loupe is excluded from capture, so the desktop patch never contains it. Edges clip at the
+  // screen boundary, like the native loupe.
+  POINT dst{ static_cast<LONG>(cur.x) - centerX, static_cast<LONG>(cur.y) - centerY };
   SIZE size{ W, H };
   POINT srcPt{ 0, 0 };
   BLENDFUNCTION blend{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
@@ -491,13 +473,38 @@ void G3DScreenSampler::Update(vtkRenderWindow* renWin)
   {
     HideOverlays();
   }
+  // Freeze the screen once per arming: the centered loupe reads its desktop patch from this snapshot
+  // instead of a live grab, so it never samples (and magnifies) itself. A few ticks of delay let the
+  // color-picker popup finish closing so it is not frozen into the snapshot. The in-viewport scene
+  // source stays live (submitted separately by the render pass). Track the arm edge before the
+  // early-out below so a disarm resets it (else a re-arm would skip the delay).
+  static bool prevArmed = false;
+  static int armTicks = 0;
+  const bool armRising = active && !prevArmed;
+  prevArmed = active;
+
   if (!active)
   {
+    // disarmed: drop the frozen snapshot so the next arming re-captures a fresh screen
+    SnapValid = false;
+    ScreenSnapshot.clear();
+    ScreenSnapshot.shrink_to_fit();
     return;
   }
+  if (armRising)
+  {
+    SnapValid = false;
+    armTicks = 0;
+  }
+  if (foreground && !SnapValid && ++armTicks >= 3)
+  {
+    SnapValid = CaptureVirtualScreen();
+    G3DWidgets::Trace("[Trace][cp.eyed] sampler froze screen snapshot valid=%d %dx%d",
+      SnapValid ? 1 : 0, SnapW, SnapH);
+  }
 
-  // the desktop patch feed runs regardless of focus: it only reads the screen around the real
-  // cursor, so hovering a not-focused window still samples correctly through in-window moves
+  // the desktop patch feed reads the frozen snapshot around the real cursor (empty until the snapshot
+  // is ready, a few ticks after arming — the in-viewport scene source works immediately regardless)
   POINT cur;
   if (!GetCursorPos(&cur))
   {
@@ -509,10 +516,9 @@ void G3DScreenSampler::Update(vtkRenderWindow* renWin)
   int h = 0;
   int x0 = 0;
   int y0 = 0;
-  if (!CaptureDesktopPatch(cur, rgba, w, h, x0, y0))
+  if (!ExtractPatchFromSnapshot(cur, rgba, w, h, x0, y0))
   {
-    G3DWidgets::Trace("[Trace][cp.eyed] sampler patch FAIL cur=(%ld,%ld)", cur.x, cur.y);
-    return;
+    return; // snapshot not ready yet (still within the arm delay), or cursor off the snapshot
   }
 
   // OS loupe first (it reads the patch), then hand the pixels to the widget library

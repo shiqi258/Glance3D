@@ -3716,65 +3716,58 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
 
   // ---- loupe, on the foreground draw list (above every window) ----
   // an ImGui loupe cannot leave the render window: beyond the client area the OS loupe window
-  // (G3DScreenSampler) follows the cursor instead, so this one only presents inside
+  // (G3DScreenSampler) follows the cursor instead, so this one only presents inside. Both sample the
+  // frozen screen snapshot for the desktop source, which never contains the loupe, so this loupe sits
+  // centered on the (hidden) cursor everywhere — matching the browser's native EyeDropper loupe.
   const bool inWindow =
     mouseValid && m.x >= 0.f && m.y >= 0.f && m.x < io.DisplaySize.x && m.y < io.DisplaySize.y;
   if (inWindow)
   {
     ImDrawList* fdl = ImGui::GetForegroundDrawList();
     AAGuard aa(fdl);
-    const ImVec2 c = PxSnap(m);
+    const ImVec2 anchor = PxSnap(m);
+    ImGui::SetMouseCursor(ImGuiMouseCursor_None); // the centered loupe replaces the cursor
     constexpr int kHalf = 5; // 11x11 texel grid
     const float cell = 9.f * s;
     const float gridR = (kHalf + 0.5f) * cell;
-    const float ringW = 4.f * s;
-    const float pillH = ImGui::GetTextLineHeight() + 8.f * s; // readout pill under the loupe
+    const float hair = 1.25f * s;
+    const float outerR = gridR + hair; // dark rim hairline
 
-    // loupe anchor: centered on the cursor over the scene texture (UI-free, cannot magnify
-    // itself); over the desktop feed it trails at a diagonal offset — the feed shows the loupe as
-    // presented last frame, so its drawing must stay clear of the sampled cursor neighborhood —
-    // flipped and clamped to remain fully inside the window (hugging the nearest edge while the
-    // cursor roams beyond the window).
-    const bool centered = src != Src::Screen;
-    ImVec2 anchor = c;
-    if (centered)
-    {
-      ImGui::SetMouseCursor(ImGuiMouseCursor_None); // the centered loupe replaces the cursor
-    }
-    else
-    {
-      const float extentX = gridR + ringW; // the pill is narrower than the ring
-      const float extentUp = gridR + ringW;
-      const float extentDown = gridR + ringW + 8.f * s + pillH;
-      const float margin = 6.f * s;
-      const float d = (gridR + ringW + 24.f * s) * 0.7071f; // diagonal cursor-to-center reach
-      anchor.x = c.x + d + extentX + margin <= io.DisplaySize.x ? c.x + d : c.x - d;
-      anchor.y = c.y + d + extentDown + margin <= io.DisplaySize.y ? c.y + d : c.y - d;
-      anchor.x = std::clamp(anchor.x, extentX + margin,
-        std::max(extentX + margin, io.DisplaySize.x - extentX - margin));
-      anchor.y = std::clamp(anchor.y, extentUp + margin,
-        std::max(extentUp + margin, io.DisplaySize.y - extentDown - margin));
-      anchor = PxSnap(anchor);
-    }
-
-    // shared hex-readout pill under the loupe
-    auto readoutPill = [&](float topY, const char* text, const ImVec4& txtCol)
+    // color-chip + hex readout pill under the loupe (or a hint when nothing is samplable here yet)
+    auto readoutPill = [&](float topY, const char* text, const ImVec4& txtCol, const float* chip)
     {
       const ImVec2 ts = ImGui::CalcTextSize(text);
-      const float padX = 8.f * s, padY = 4.f * s;
-      const ImVec2 pmin(anchor.x - ts.x * 0.5f - padX, topY);
-      const ImVec2 pmax(anchor.x + ts.x * 0.5f + padX, topY + ts.y + padY * 2.f);
-      fdl->AddRectFilled(pmin, pmax, U32(G3DTheme::Surface()), G3DTheme::Radius::Small * s);
-      fdl->AddRect(pmin, pmax, U32(G3DTheme::Border()), G3DTheme::Radius::Small * s, 0,
-        G3DTheme::Size::Border * s);
-      fdl->AddText(ImVec2(pmin.x + padX, pmin.y + padY), U32(txtCol), text);
+      const float padX = 9.f * s, padY = 5.f * s;
+      const float chipSz = chip ? ImGui::GetTextLineHeight() : 0.f;
+      const float chipGap = chip ? 6.f * s : 0.f;
+      const float w = padX + chipSz + chipGap + ts.x + padX;
+      const ImVec2 pmin(anchor.x - w * 0.5f, topY);
+      const ImVec2 pmax(pmin.x + w, topY + ts.y + padY * 2.f);
+      const float rr = 7.f * s;
+      fdl->AddRectFilled(ImVec2(pmin.x - 1.f, pmin.y + 2.f * s),
+        ImVec2(pmax.x + 1.f, pmax.y + 2.f * s), IM_COL32(0, 0, 0, 70), rr); // soft shadow
+      fdl->AddRectFilled(pmin, pmax, U32(G3DTheme::Surface()), rr);
+      fdl->AddRect(pmin, pmax, U32(G3DTheme::Border()), rr, 0, G3DTheme::Size::Border * s);
+      float tx = pmin.x + padX;
+      if (chip)
+      {
+        const ImVec2 k0(tx, (pmin.y + pmax.y) * 0.5f - chipSz * 0.5f);
+        const ImVec2 k1(k0.x + chipSz, k0.y + chipSz);
+        fdl->AddRectFilled(k0, k1,
+          IM_COL32(static_cast<int>(chip[0] * 255.f + 0.5f),
+            static_cast<int>(chip[1] * 255.f + 0.5f), static_cast<int>(chip[2] * 255.f + 0.5f), 255),
+          4.f * s);
+        fdl->AddRect(k0, k1, IM_COL32(255, 255, 255, 46), 4.f * s, 0, 1.f * s);
+        tx += chipSz + chipGap;
+      }
+      fdl->AddText(ImVec2(tx, pmin.y + padY), U32(txtCol), text);
     };
     if (sampled)
     {
       // soft shadow behind the loupe
-      fdl->AddCircleFilled(ImVec2(anchor.x, anchor.y + 2.f * s), gridR + ringW + 3.f * s,
-        IM_COL32(0, 0, 0, 60), 48);
-      // zoomed texel grid, masked to a circle cell-by-cell (hard pixel edges, like a devtools loupe)
+      fdl->AddCircleFilled(
+        ImVec2(anchor.x, anchor.y + 2.f * s), outerR + 3.f * s, IM_COL32(0, 0, 0, 55), 64);
+      // magnified texel grid, masked to a circle cell-by-cell (hard pixel edges, like a devtools loupe)
       for (int dy = -kHalf; dy <= kHalf; ++dy)
       {
         for (int dx = -kHalf; dx <= kHalf; ++dx)
@@ -3789,30 +3782,46 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
             cmin, ImVec2(cmin.x + cell, cmin.y + cell), IM_COL32(p[0], p[1], p[2], 255));
         }
       }
-      // center texel marker (white inner + dark outer, readable on any color)
+      // graph-paper gridlines, clipped to the circle as chords, tinted for contrast on the content
+      const float luma = 0.299f * sr + 0.587f * sg + 0.114f * sb;
+      const ImU32 lineCol = luma > 0.5f ? IM_COL32(0, 0, 0, 38) : IM_COL32(255, 255, 255, 38);
+      for (int b = -kHalf; b < kHalf; ++b)
+      {
+        const float off = (b + 0.5f) * cell;
+        if (std::fabs(off) >= gridR)
+        {
+          continue;
+        }
+        const float hc = std::sqrt(gridR * gridR - off * off);
+        const float lx = std::floor(anchor.x + off) + 0.5f;
+        const float ly = std::floor(anchor.y + off) + 0.5f;
+        fdl->AddLine(ImVec2(lx, anchor.y - hc), ImVec2(lx, anchor.y + hc), lineCol, 1.f * s);
+        fdl->AddLine(ImVec2(anchor.x - hc, ly), ImVec2(anchor.x + hc, ly), lineCol, 1.f * s);
+      }
+      // highlighted center texel (white inner + dark outer, readable on any color)
       fdl->AddRect(ImVec2(anchor.x - cell * 0.5f, anchor.y - cell * 0.5f),
-        ImVec2(anchor.x + cell * 0.5f, anchor.y + cell * 0.5f), IM_COL32(255, 255, 255, 255), 0.f,
-        0, 1.f * s);
+        ImVec2(anchor.x + cell * 0.5f, anchor.y + cell * 0.5f), IM_COL32(255, 255, 255, 255), 0.f, 0,
+        1.25f * s);
       fdl->AddRect(ImVec2(anchor.x - cell * 0.5f - 1.f * s, anchor.y - cell * 0.5f - 1.f * s),
         ImVec2(anchor.x + cell * 0.5f + 1.f * s, anchor.y + cell * 0.5f + 1.f * s),
         IM_COL32(0, 0, 0, 150), 0.f, 0, 1.f * s);
-      // ring: hovered-color band between a white inner and a dark outer hairline
-      fdl->AddCircle(anchor, gridR, IM_COL32(255, 255, 255, 230), 48, 1.25f * s);
-      fdl->AddCircle(anchor, gridR + ringW * 0.5f, U32(ImVec4(sr, sg, sb, 1.f)), 48, ringW);
-      fdl->AddCircle(anchor, gridR + ringW, IM_COL32(0, 0, 0, 140), 48, 1.25f * s);
+      // thin two-tone rim (no thick color band): white inner + dark outer hairline
+      fdl->AddCircle(anchor, gridR, IM_COL32(255, 255, 255, 230), 64, 1.25f * s);
+      fdl->AddCircle(anchor, outerR, IM_COL32(0, 0, 0, 140), 64, 1.25f * s);
       const std::string hex = ToHexStr(sr, sg, sb, 1.f, false);
-      readoutPill(anchor.y + gridR + ringW + 8.f * s, hex.c_str(), G3DTheme::Text());
+      const float chip[3] = { sr, sg, sb };
+      readoutPill(anchor.y + outerR + 8.f * s, hex.c_str(), G3DTheme::Text(), chip);
     }
     else
     {
-      // not samplable here (no desktop feed / no frame yet): slashed ring + hint
+      // not samplable here yet (snapshot still freezing / cursor off it): slashed ring + hint
       const float r0 = 13.f * s;
       fdl->AddCircle(anchor, r0 + 1.5f * s, IM_COL32(0, 0, 0, 120), 32, 1.5f * s);
       fdl->AddCircle(anchor, r0, IM_COL32(255, 255, 255, 170), 32, 2.f * s);
       fdl->AddLine(ImVec2(anchor.x - r0 * 0.7f, anchor.y + r0 * 0.7f),
         ImVec2(anchor.x + r0 * 0.7f, anchor.y - r0 * 0.7f), IM_COL32(255, 255, 255, 170), 2.f * s);
       const std::string hint = Tr("Move over the viewport to sample");
-      readoutPill(anchor.y + r0 + 10.f * s, hint.c_str(), G3DTheme::TextMuted());
+      readoutPill(anchor.y + r0 + 10.f * s, hint.c_str(), G3DTheme::TextMuted(), nullptr);
     }
   }
 
