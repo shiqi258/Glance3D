@@ -2086,6 +2086,98 @@ void vtkF3DImguiActor::DrawOptionColorRow(
   }
 }
 
+namespace
+{
+// model.scivis.colormap is a colormap-typed option: its getAsString CANONICALIZES every stop color
+// whose channels all sit on the 8-bit grid to "#RRGGBB" ("0,0,0,0,1,1,1,1" reads back as
+// "0,#000000,1,#ffffff" — see library/testing/TestSDKOptions.cxx), while off-grid stops stay
+// numeric. Preset matching therefore must compare in NUMERIC space with hex tokens expanded to
+// channels — raw string equality only ever matched the presets with no on-grid stop color
+// (Cool to warm / Viridis) and broke for Grayscale / Jet / the default. Returns empty on any
+// malformed token (which then matches nothing).
+std::vector<double> G3DParseColormapTokens(const std::string& str)
+{
+  std::vector<double> out;
+  std::stringstream ss(str);
+  std::string token;
+  while (std::getline(ss, token, ','))
+  {
+    const std::size_t b = token.find_first_not_of(" \t");
+    if (b == std::string::npos)
+    {
+      return {};
+    }
+    const std::size_t e = token.find_last_not_of(" \t");
+    token = token.substr(b, e - b + 1);
+    if (token.size() == 7 && token[0] == '#')
+    {
+      auto nib = [](char c) -> int
+      {
+        if (c >= '0' && c <= '9')
+        {
+          return c - '0';
+        }
+        if (c >= 'a' && c <= 'f')
+        {
+          return c - 'a' + 10;
+        }
+        if (c >= 'A' && c <= 'F')
+        {
+          return c - 'A' + 10;
+        }
+        return -1;
+      };
+      for (int i = 0; i < 3; i++)
+      {
+        const int hi = nib(token[1 + 2 * i]);
+        const int lo = nib(token[2 + 2 * i]);
+        if (hi < 0 || lo < 0)
+        {
+          return {};
+        }
+        out.push_back((hi * 16 + lo) / 255.0);
+      }
+    }
+    else
+    {
+      try
+      {
+        std::size_t pos = 0;
+        const double v = std::stod(token, &pos);
+        if (pos != token.size())
+        {
+          return {};
+        }
+        out.push_back(v);
+      }
+      catch (...)
+      {
+        return {};
+      }
+    }
+  }
+  return out;
+}
+
+// Element-wise colormap equality with a string-round-trip tolerance (values print with 6
+// significant digits; hex expansion is exact). Empty never matches.
+bool G3DSameColormap(const std::vector<double>& a, const std::vector<double>& b)
+{
+  if (a.empty() || a.size() != b.size())
+  {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); i++)
+  {
+    if (std::fabs(a[i] - b[i]) > 1e-6)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+} // namespace
+
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
 {
@@ -2192,37 +2284,67 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   }
 
   // Colormap presets. "Default" resets to the libf3d default; others set explicit transfer-function
-  // control points (val,r,g,b,...). The current option value is matched back to a preset for preview.
+  // control points (val,r,g,b,...). The current option value is matched back to a preset for the
+  // preview and the checked row — in numeric space via G3DParseColormapTokens (the option's string
+  // form is canonicalized on readback, so raw string equality does not survive the round trip).
   struct ColormapPreset
   {
     const char* name;
     const char* points; // empty => reset to default
+    const char* match;  // readback to recognize; nullptr => `points`. "Default" recognizes the
+                        // options.json default_value its reset lands on.
   };
   static const ColormapPreset presets[] = {
-    { "Default", "" },
-    { "Grayscale", "0,0,0,0,1,1,1,1" },
-    { "Cool to warm", "0,0.231,0.298,0.753,0.5,0.865,0.865,0.865,1,0.706,0.016,0.149" },
+    { "Default", "", "0,0,0,0,0.4,0.9,0,0,0.8,0.9,0.9,0,1,1,1,1" },
+    { "Grayscale", "0,0,0,0,1,1,1,1", nullptr },
+    { "Cool to warm", "0,0.231,0.298,0.753,0.5,0.865,0.865,0.865,1,0.706,0.016,0.149", nullptr },
     { "Viridis",
       "0,0.267,0.005,0.329,0.25,0.231,0.322,0.545,0.5,0.128,0.567,0.551,0.75,0.369,0.788,0.382,1,"
-      "0.993,0.906,0.144" },
-    { "Jet", "0,0,0,0.5,0.35,0,1,1,0.66,0.5,1,0.5,0.89,1,1,0,1,0.5,0,0" },
+      "0.993,0.906,0.144",
+      nullptr },
+    { "Jet", "0,0,0,0.5,0.35,0,1,1,0.66,0.5,1,0.5,0.89,1,1,0,1,0.5,0,0", nullptr },
   };
-  const std::string currentMap = this->QueryOption("model.scivis.colormap").value_or("");
-  std::string mapPreview = currentMap.empty() ? loc.Translate("Default") : loc.Translate("Custom");
-  for (const auto& preset : presets)
+  static const std::vector<std::vector<double>> presetPts = []
   {
-    if (currentMap == preset.points)
+    std::vector<std::vector<double>> pts;
+    for (const auto& preset : presets)
     {
-      mapPreview = loc.Translate(preset.name);
+      pts.push_back(G3DParseColormapTokens(preset.match != nullptr ? preset.match : preset.points));
+    }
+    return pts;
+  }();
+  const std::string currentMap = this->QueryOption("model.scivis.colormap").value_or("");
+  const std::vector<double> currentPts = G3DParseColormapTokens(currentMap);
+  int matched = -1;
+  for (std::size_t i = 0; i < std::size(presets); i++)
+  {
+    if (G3DSameColormap(currentPts, presetPts[i]))
+    {
+      matched = static_cast<int>(i);
       break;
+    }
+  }
+  const std::string mapPreview =
+    matched >= 0 ? loc.Translate(presets[matched].name) : loc.Translate("Custom");
+  // Observation: log each readback change and how it resolved (shared trace sink -> session log),
+  // so a future canonicalization drift is diagnosable from logs alone.
+  {
+    static std::string lastTraced = "\x01"; // never equals a real readback
+    if (currentMap != lastTraced)
+    {
+      G3DWidgets::Trace("[Trace][cp.cmap] readback=\"%s\" resolved=%s", currentMap.c_str(),
+        matched >= 0 ? presets[matched].name : "Custom");
+      lastTraced = currentMap;
     }
   }
   ImGui::PushItemWidth(-1.f);
   if (G3DWidgets::BeginSelect("##g3d.scivis.colormap", mapPreview.c_str()))
   {
-    for (const auto& preset : presets)
+    for (std::size_t i = 0; i < std::size(presets); i++)
     {
-      if (G3DWidgets::SelectItem(loc.Translate(preset.name).c_str(), currentMap == preset.points))
+      const ColormapPreset& preset = presets[i];
+      if (G3DWidgets::SelectItem(
+            loc.Translate(preset.name).c_str(), matched == static_cast<int>(i)))
       {
         if (preset.points[0] == '\0')
         {
