@@ -383,6 +383,9 @@ struct CardFrame
 std::vector<CardFrame> gCardStack;
 }
 
+// LEGACY (no current callers): manual-padding card predating the BeginCollapse child-window content
+// box, with an unguarded ChannelsSplit (no gChannelDepth) -- must NOT be nested inside BeginCollapse
+// or BeginAccordion. Migrate to the child-window mechanism (or delete) before reviving it.
 bool BeginCard(const char* id, bool hoverable, float padding)
 {
   ImGui::PushID(id);
@@ -653,7 +656,7 @@ struct CollapseFrame
   bool ownsChannels; // this panel split the draw list (must merge in EndCollapse)
   bool inAccordion;  // rendered as a flush accordion item
   bool disabledBody; // enable toggle is off -> body wrapped in BeginDisabled
-  float leftPad;
+  float subIndent;   // extra left indent inside the body child (Sub's asymmetric left inset)
   float botPad;
   bool standalone;   // add a trailing gap after the card (not for accordion items / nested)
   // open/close height animation (mirrors styleguide grid-rows 0fr<->1fr over --t-std):
@@ -661,7 +664,10 @@ struct CollapseFrame
   float openT;       // eased open fraction 0..1
   float cachedH;     // last measured full body height (the animation target)
   float bodyStartY;  // screen y where the body begins (== p0.y + headerH)
-  bool clipped;      // body was clipped to the animated height this frame
+  // body child window (the padded content box):
+  float childH;      // explicit child height declared this frame (eased while animating)
+  bool childVisible; // BeginChild returned true -> the body laid out, measuring it is valid
+  bool unmeasured;   // no cached height yet: child sized generously, settled to the measured height
 };
 std::vector<CollapseFrame> gCollapseStack;
 
@@ -1107,7 +1113,10 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   cf.ownsChannels = ownsChannels;
   cf.inAccordion = inAccordion;
   cf.disabledBody = false;
-  cf.leftPad = leftPad;
+  // WindowPadding is symmetric per axis: the body child carries the symmetric horizontal inset
+  // (rightPad == leftPad for Card/Overline) and any extra left inset (Sub's 18/0 asymmetry) is an
+  // Indent inside the child.
+  cf.subIndent = std::max(0.f, leftPad - rightPad);
   cf.botPad = botPad;
   cf.standalone = !inAccordion && desc.variant != CollapseVariant::Sub &&
     desc.variant != CollapseVariant::Ghost;
@@ -1115,29 +1124,39 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   cf.openT = openT;
   cf.cachedH = cachedH;
   cf.bodyStartY = p0.y + headerH;
-  cf.clipped = false;
+  cf.childH = 0.f;
+  cf.childVisible = false;
+  cf.unmeasured = false;
 
   if (showBody)
   {
-    // While animating, clip the body (render AND interaction, via ImGui::PushClipRect) to the eased
-    // height; the content still lays out at full height so EndCollapse can measure it. The card rect
-    // (EndCollapse) follows the cursor, so the whole card grows/shrinks. Settled-open draws naturally.
-    if (animating)
-    {
-      const float animH = std::max(0.f, openT * cachedH);
-      ImGui::PushClipRect(ImVec2(p0.x, cf.bodyStartY), ImVec2(p0.x + width, cf.bodyStartY + animH), true);
-      cf.clipped = true;
-    }
     if (bodyTopBorder)
     {
       dl->AddLine(ImVec2(p0.x, cf.bodyStartY), ImVec2(p0.x + width, cf.bodyStartY),
         U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
     }
-    ImGui::Indent(leftPad);
-    // Negative item width = "extend to the right edge minus N px"; 0 would mean ImGui's default, so
-    // for variants with no right pad use a 1px margin (effectively full width).
-    ImGui::PushItemWidth(rightPad > 0.f ? -rightPad : -1.f);
-    ImGui::Dummy(ImVec2(0.f, topPad));
+    // The body is a real child window so the padding is a structural content box: the WorkRect
+    // narrows on BOTH sides and full-width items, GetContentRegionAvail-based layouts and
+    // right-aligned content all land on the padded edge (no per-widget right-margin conventions).
+    // The height must be declared up front (0 would mean "fill the parent"): the eased fraction of
+    // the cached height while animating (the child clips render AND interaction, replacing the old
+    // PushClipRect), the cached height when settled. With no cached height yet (first frame ever,
+    // incl. single-frame headless --output renders) the child is sized generously so the body lays
+    // out and measures NOW, and EndCollapse settles the card to the measured height.
+    cf.unmeasured = cachedH <= 0.f;
+    cf.childH = cf.unmeasured
+      ? std::max(1.f, ImGui::GetContentRegionAvail().y)
+      : std::max(1.f, animating ? openT * cachedH : cachedH);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(rightPad, topPad));
+    cf.childVisible = ImGui::BeginChild("##body", ImVec2(std::max(1.f, width), cf.childH),
+      ImGuiChildFlags_AlwaysUseWindowPadding,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar(); // WindowPadding is locked at Begin
+    if (cf.subIndent > 0.f)
+    {
+      ImGui::Indent(cf.subIndent);
+    }
+    ImGui::PushItemWidth(-FLT_MIN); // body default: items extend to the padded right edge
     if (desc.enable && !*desc.enable)
     {
       ImGui::BeginDisabled(); // styleguide: enable toggle off -> body dimmed & inert
@@ -1160,7 +1179,6 @@ void EndCollapse()
   const CollapseFrame cf = gCollapseStack.back();
   gCollapseStack.pop_back();
   const float s = cf.scale;
-  ImDrawList* dl = ImGui::GetWindowDrawList();
 
   if (cf.showBody)
   {
@@ -1168,28 +1186,32 @@ void EndCollapse()
     {
       ImGui::EndDisabled();
     }
-    ImGui::Dummy(ImVec2(0.f, cf.botPad)); // bottom padding (matches the variant, set in BeginCollapse)
-    ImGui::PopItemWidth();
-    ImGui::Unindent(cf.leftPad);
-
-    // The body laid out at full height; measure it (drop the trailing ItemSpacing.y) and cache it as
-    // next frame's animation target.
-    const float fullH =
-      std::max(0.f, ImGui::GetCursorScreenPos().y - cf.bodyStartY - ImGui::GetStyle().ItemSpacing.y);
-    gCollapseBodyH[cf.hid] = fullH;
-    if (cf.clipped)
+    ImGui::PopItemWidth(); // the ItemWidth stack is per-window: pop before EndChild
+    if (cf.subIndent > 0.f)
     {
-      ImGui::PopClipRect();
-      // Visible body height = eased value; pin the cursor so the card rect + following content follow.
-      ImGui::SetCursorScreenPos(ImVec2(cf.p0.x, cf.bodyStartY + std::max(0.f, cf.openT * cf.cachedH)));
+      ImGui::Unindent(cf.subIndent);
     }
-    else
+    // Measure the body as next frame's height/animation target: window-local cursor (already
+    // includes the top padding), minus the trailing ItemSpacing.y, closed with the bottom padding.
+    // When the child was culled (BeginChild returned false) the content never laid out and the
+    // measurement would be garbage -- keep the previous cache.
+    float fullH = cf.cachedH;
+    if (cf.childVisible)
     {
-      // Settled open: the card hugs the body's exact height (no trailing ImGui spacing).
-      ImGui::SetCursorScreenPos(ImVec2(cf.p0.x, cf.bodyStartY + fullH));
+      fullH = std::max(0.f, ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + cf.botPad);
+      gCollapseBodyH[cf.hid] = fullH;
     }
+    ImGui::EndChild(); // must be called whatever BeginChild returned
+    // Pin the cursor to the body's settled bottom: the height measured this frame when the child was
+    // sized generously (the oversized unmeasured child only hit-tests, it must not occupy layout),
+    // the declared child height otherwise.
+    const float settleH = cf.unmeasured && cf.childVisible ? fullH : cf.childH;
+    ImGui::SetCursorScreenPos(ImVec2(cf.p0.x, cf.bodyStartY + settleH));
   }
 
+  // Grab the draw list only after EndChild: in between, the "window draw list" was the child's, and
+  // the card background/border below must go to the parent's channel 0, beneath header + body.
+  ImDrawList* dl = ImGui::GetWindowDrawList();
   const float bottomY = ImGui::GetCursorScreenPos().y;
 
   if (cf.hasBorder && cf.ownsChannels)

@@ -127,7 +127,9 @@ void ItemTooltip(const char* text);
 // no room below; long lists scroll. Usage mirrors ImGui::BeginCombo/EndCombo so call sites migrate
 // mechanically:
 //
-//   ImGui::SetNextItemWidth(-1.f);                    // trigger width, like any input
+//   // Trigger width = CalcItemWidth(). Inside a BeginCollapse body it already fills the padded
+//   // row (the container's default) -- NEVER force it back to the window edge with
+//   // SetNextItemWidth(-1)/PushItemWidth(-1); only set a width to deviate (e.g. a fixed 120px).
 //   if (G3DWidgets::BeginSelect("##id", preview))     // true while the menu is open
 //   {
 //     for (const auto& opt : options)
@@ -343,7 +345,10 @@ struct CollapseResult
 };
 
 /// Begin a collapsible panel (mirrors <g3d-collapse>). ALWAYS pair with EndCollapse(), open or not.
-/// Paints the header and, when open, opens the padded body region for the caller's content. Nest
+/// Paints the header and, when open, opens the padded body region for the caller's content. The
+/// body is a real child window content box: its padding structurally narrows the content region,
+/// so full-width items (the body default), GetContentRegionAvail-based layouts and right-aligned
+/// content all stop at the padded edge -- callers never manage the card insets themselves. Nest
 /// only Sub/Ghost panels inside another panel's body (Card/Overline own a wrapping border that is
 /// not re-entrant). Composes inside BeginAccordion() (then renders as a flush list item).
 CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc);

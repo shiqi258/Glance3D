@@ -2233,7 +2233,6 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
 
   // Array selector. Writing the name also enables coloring so a pick takes effect immediately.
   const std::string current = this->QueryOption("model.scivis.array_name").value_or("");
-  ImGui::PushItemWidth(-1.f);
   if (G3DWidgets::BeginSelect(
         "##g3d.scivis.array", current.c_str(), loc.Translate("Select array").c_str()))
   {
@@ -2247,7 +2246,6 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     }
     G3DWidgets::EndSelect();
   }
-  ImGui::PopItemWidth();
 
   // Component: magnitude (-1) or a specific component of the current array.
   int maxComponents = 1;
@@ -2264,7 +2262,6 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     const int component = static_cast<int>(this->ReadOptionFloat("model.scivis.component", -1.f));
     const std::string componentLabel =
       component < 0 ? loc.Translate("Magnitude") : (std::string("#") + std::to_string(component));
-    ImGui::PushItemWidth(-1.f);
     if (G3DWidgets::BeginSelect("##g3d.scivis.component", componentLabel.c_str()))
     {
       if (G3DWidgets::SelectItem(loc.Translate("Magnitude").c_str(), component < 0))
@@ -2280,7 +2277,6 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       }
       G3DWidgets::EndSelect();
     }
-    ImGui::PopItemWidth();
   }
 
   // Colormap presets. "Default" resets to the libf3d default; others set explicit transfer-function
@@ -2337,7 +2333,6 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       lastTraced = currentMap;
     }
   }
-  ImGui::PushItemWidth(-1.f);
   if (G3DWidgets::BeginSelect("##g3d.scivis.colormap", mapPreview.c_str()))
   {
     for (std::size_t i = 0; i < std::size(presets); i++)
@@ -2358,7 +2353,6 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     }
     G3DWidgets::EndSelect();
   }
-  ImGui::PopItemWidth();
 
   // Value-range override [min,max] (unset = auto from data); bounds are the array's magnitude range.
   const F3DColoringInfoHandler::ColoringInfo* currentInfo = nullptr;
@@ -2402,13 +2396,11 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
         }
       }
     }
-    ImGui::PushItemWidth(-1.f);
     bool rangeChanged = false;
     rangeChanged |=
       G3DWidgets::SliderFloat(loc.Translate("Range min").c_str(), &rmin, dataMin, dataMax, "%.4g");
     rangeChanged |=
       G3DWidgets::SliderFloat(loc.Translate("Range max").c_str(), &rmax, dataMin, dataMax, "%.4g");
-    ImGui::PopItemWidth();
     if (rangeChanged)
     {
       if (rmin > rmax)
