@@ -38,3 +38,6 @@ CMakeUserPresets.json
 
 # local machine dependency paths (copy from the committed *.example files)
 webassembly/deps.local.json
+
+# local AI assistant guidance (not tracked)
+CLAUDE.md
