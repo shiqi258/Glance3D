@@ -42,3 +42,6 @@ webassembly/deps.local.json
 # local AI assistant guidance (not tracked)
 CLAUDE.md
 .claude/
+
+# local Ralph agent workspace (not tracked)
+ralph/
