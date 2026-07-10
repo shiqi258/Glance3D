@@ -1321,6 +1321,28 @@ int F3DStarter::Start(int argc, char** argv)
     this->Internals->UpdateBindings({ "" });
   }
 
+  // Isolate the Glance3D cache from the official F3D cache: override the libf3d
+  // default (%LOCALAPPDATA%\f3d) with a branded location (%LOCALAPPDATA%\Glance3D\cache,
+  // or the platform-equivalent user cache root). The libf3d default is left unchanged
+  // so SDK/wasm consumers are unaffected; old caches are not migrated nor removed.
+  // A cache failure is non-fatal: warn and keep the libf3d default for this run.
+  const fs::path cacheRoot = F3DSystemTools::GetUserCacheDirectory();
+  if (!cacheRoot.empty())
+  {
+    const fs::path cachePath = cacheRoot / "cache";
+    try
+    {
+      this->Internals->Engine->setCachePath(cachePath);
+      f3d::log::debug("cache-dir: ", cachePath.string());
+    }
+    catch (const f3d::engine::cache_exception& ex)
+    {
+      f3d::log::warn(g3d::locale::translate(
+        "Could not use Glance3D cache directory {path}: {error}",
+        { { "path", cachePath.string() }, { "error", ex.what() } }));
+    }
+  }
+
   this->Internals->Engine->setOptions(this->Internals->LibOptions);
   f3d::log::debug("Engine configured");
 

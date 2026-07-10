@@ -41,6 +41,23 @@ Started: Fri, Jul 10, 2026  6:13:05 AM
 
 **给源码型 story 的实操建议（US-005/006/007/008/009 必看）**：全绿 dev-local 在本机不可达，故对“改了源码”的 story，验证策略 = 用 `cmake --build build-dev --target f3d --config Debug` 确认**改动目标（app+libf3d）严格编译零新增告警**（对比基线已知的 pre-existing 告警清单，只要不新增即可），而非追求整棵测试树全绿。若要真正解锁 strict 门禁，需先专门治理上面第 1 条的库告警债（独立一轮，别塞进功能 story）。
 
+### ✅ 隔离式 strict 验证：单文件 `/W4 /WX` 编译（US-009 起，改 application 源码的 story 复用）
+`cmake --build build-dev --target f3d` 会先编 libf3d，撞上上面的 pre-existing scene.h C4251 债直接停，**永远到不了 application 源码**，无法证明“我改的 app 文件 strict 干净”。解法 = 用 MSBuild **单文件 ClCompile**，只编改动的 `.cxx`、不建 libf3d：
+1. 找 MSBuild：`vswhere -latest -find MSBuild\**\Bin\MSBuild.exe`（本机 `D:\VS2022\IDE\MSBuild\Current\Bin\MSBuild.exe`）。
+2. 编单文件（用 build-dev 的 app vcxproj，带 /W4 /WX）：
+   `& $msbuild build-dev\application\f3d.vcxproj /t:ClCompile "/p:Configuration=Debug" "/p:SelectedFiles=<abs .cxx>" "/p:BuildProjectReferences=false"`
+   - **一次只传一个文件**（多个用 `;` 分隔会被 MSBuild 当成开关炸掉）。EXITCODE=0 且无 `warning C####` = 该文件 strict 干净。
+3. **缺生成头**：app 源码 include 的 `F3DIcon.h`（图标字节数组）在 build-dev 里没生成（全量 app 从没编过）→ C1083。从 Release 树拷过去救急：`cp build/application/F3DIcon.h build-dev/application/`（验完删）。`F3DConfig.h`/`Glance3DVersion.h` 在 build-dev/application 已有。
+4. **文件若 include libf3d public 头**（如 `F3DStarter.cxx`→scene.h）会连带报 pre-existing scene.h C4251——不是你的告警。要隔离出“纯你的”告警，**临时**去掉 scene.h 4 个 DTO 的 `F3D_EXPORT`（`g3d_scene_tree_node/_snapshot/g3d_data_array_info/g3d_data_info`，见上方库债段），编完 `git checkout -- library/public/scene.h` 还原。只 include F3DSystemTools.h 之类的文件（如 `F3DSystemTools.cxx`）不碰 scene.h，无需这步。
+- 别真去把 libf3d strict 编绿——scene_impl.cxx:931 的 C4702 是 template-lambda 实例化点告警，`#pragma warning(push/disable/pop)` 包不住（告警在实例化点而非定义点报），是独立库债治理，别塞进功能 story。
+
+### 用户配置目录品牌隔离 + 迁移（US-009 起）
+- **单点改名 + 迁移都在** `F3DSystemTools::GetUserConfigFileDirectory()`（application/F3DSystemTools.cxx）：目录名 `f3d`→`Glance3D`，且首调时**一次性**把旧 `…\f3d` 递归拷到新 `…\Glance3D`（从不移动/删除旧目录——它仍是官方 F3D 的活动目录）。用**函数内 `static const` memoize**，迁移+原因码日志**每进程只跑一次**；colormaps 等派生路径（`F3DColorMapTools::Find` 用 `GetUserConfigFileDirectory()/"colormaps"`）自动随之切换。
+- 决策日志原因码（都带 `config-dir:` 前缀，file log 恒抓 DEBUG）：`fresh`(都不存在，不建目录) | `existing`(新目录在，直接用、绝不读旧) | `migrated(<n> files)`(n 只数普通文件) | `migrate-failed-fallback`(WARN，清残缺新目录+本次回退旧目录+下次重试)。用 `fs::is_directory`（非 `exists`）判定，杂散非目录文件不当作已建目录。硬失败 = 建目录失败/`no_space_on_device`（throw→清理+fallback）；单个不可读文件 = skip+逐条 WARN（不中止整体）。
+- **`--no-config` 天然免疫迁移**：`ReadConfigFiles` 被 `!noConfig` 网关，不调该 getter；除非用了 colormap 才会触发（正确行为）。
+- **缓存隔离走应用层覆盖**：`F3DStarter` 引擎创建后（NoRender+render 两支都覆盖）`engine.setCachePath(GetUserCacheDirectory()/"cache")` → `%LOCALAPPDATA%\Glance3D\cache`；**不动** `library/src/engine.cxx:95` 的 libf3d 默认（`%LOCALAPPDATA%\f3d`，SDK/wasm 消费者零影响）。`window_impl::SetCachePath` 会 `create_directories` 且可 throw `cache_exception`——须 try/catch，失败仅 WARN 不致命。
+- **端到端验证只能用真 `%APPDATA%`**：`getKnownFolder(ROAMINGAPPDATA)` 走 `SHGetKnownFolderPath`（utils.cxx:375），**不认 `APPDATA` 环境变量重定向**。测法 = 真目录放唯一标记文件（+colormaps 子目录标记）→启动→断言新目录出现拷贝/旧目录原样/日志原因码，**事后清理**。`migrate-failed-fallback` 可注入：先删新目录、在 `%APPDATA%\Glance3D` 放一个**普通文件**（非目录）→ is_directory=false 触发迁移→`create_directories` 撞文件抛错→走 fallback+清理（`remove_all` 删掉那个文件）。
+
 ---
 
 ## 2026-07-10 06:35 - US-001 构建产物更名为 glance3d
@@ -108,4 +125,24 @@ Started: Fri, Jul 10, 2026  6:13:05 AM
   5. 纯文档改动，增量 `cmake --build --preset native-local` exit=0（无重编、产物 glance3d.exe）✓。US-004 未改源码，构建门槛仅 native-local，无需 dev-strict。
 - **取舍/边界**：`doc/user/06-CONFIGURATION_FILE.md`（`f3d-console.exe --config`）与 `.github/ISSUE_TEMPLATE/bug_report.md`（`f3d-console.exe --version`）含 f3d-console.exe **及相邻裸命令名 `f3d`**，两文件均不在 US-004 criteria#3 列举的三文档内；仅改其中 f3d-console.exe 会与相邻裸 `f3d` 形成半更名不一致句 → 属更大范围的“裸命令名 f3d→glance3d”改造（当前无 story 覆盖），故本 story 不触碰、如实记为残留。doc/user/06 亦在 US-009 文档同步清单（US-009 会因配置目录路径再访该文件）。
 - **Learnings for future iterations：** 见 Codebase Patterns 新增“文档更名 story 的范围与 CLAUDE.md gitignore”段——CLAUDE.md 被 gitignore（不入 diff，靠实测验收）；更名 story 只碰可执行文件名不碰裸命令名 f3d；`rg` 的“命中 0”按功能/用户文档口径理解，process 文档保留旧名是预期。
+---
+
+## 2026-07-10 07:25 - US-009 配置与缓存目录品牌化隔离（迁移式）
+- **实现**：桌面用户配置目录 `f3d`→`Glance3D`（含一次性迁移），缓存目录经应用层覆盖为 `Glance3D\cache`，文档同步。
+  - `application/F3DSystemTools.cxx`：`GetUserConfigFileDirectory()` 改造——抽出平台 base（`GetUserConfigBaseDirectory()`），新增匿名 namespace 的 `MigrateConfigTree()`（递归拷贝，返回普通文件数；单个不可读文件 skip+WARN，建目录失败/`no_space_on_device` throw 供上层清理）+ `ResolveUserConfigFileDirectory()`（`is_directory` 判定：新在→existing / 旧不在→fresh / 旧在新无→迁移，失败清残缺新目录+WARN+回退旧目录）。getter 用 `static const` memoize，迁移与原因码日志每进程一次。目录名 `f3d`→`Glance3D`（Win `%APPDATA%\Glance3D`、Linux `$XDG_CONFIG_HOME/Glance3D`|`~/.config/Glance3D`、macOS `~/Library/Application Support/Glance3D`），colormaps 派生路径随之生效。
+  - `application/F3DStarter.cxx`：引擎创建后（NoRender+render 两支通吃，`setOptions` 前）`setCachePath(GetUserCacheDirectory()/"cache")` → `%LOCALAPPDATA%\Glance3D\cache`，try/catch `cache_exception` 仅 WARN 不致命；`engine.cxx:95` libf3d 默认不动。
+  - 文档：doc/user/03-OPTIONS.md（HDRI 缓存→Glance3D/cache）、06-CONFIGURATION_FILE.md（用户 config 目录 f3d→Glance3D，系统/install `/etc/f3d`、`share/f3d` 不动）、09-COLOR_MAPS.md（用户 colormaps 目录同上）、11-DESKTOP_INTEGRATION.md（thumbnail.json 用户路径）。
+- **文件变更**：`application/F3DSystemTools.cxx`、`application/F3DStarter.cxx`、`doc/user/03-OPTIONS.md`、`doc/user/06-CONFIGURATION_FILE.md`、`doc/user/09-COLOR_MAPS.md`、`doc/user/11-DESKTOP_INTEGRATION.md`（+ `ralph/prd.json`、`ralph/progress.txt`）。
+- **验证证据（逐条对齐 acceptanceCriteria，全部真 %APPDATA% 端到端 + 事后清理）**：
+  1. 目录名改 Glance3D ✓（日志与 FS 均见 `…\Roaming\Glance3D`）。
+  2. 一次性迁移递归含子目录 ✓：旧 f3d 放 root 标记 + colormaps 子目录标记 → 启动 → 日志 `config-dir: migrated(2 files) …\f3d -> …\Glance3D`，新目录 root+colormaps 标记均在，旧目录文件数不变(2=2)、标记仍在。
+  3+4. 四原因码全实测 ✓：`fresh`（都不存在，不建目录，仅返回路径）/ `existing`（新目录在→直接用，往旧目录新加文件**不**再拷）/ `migrated(<n> files)` / `migrate-failed-fallback`（在 `%APPDATA%\Glance3D` 放普通文件强制建目录失败 → WARN 原因码 + 残缺新目录被 `remove_all` 清掉 + 回退旧目录；旧目录完好 3=3；下次启动自动 `migrated(3 files)` 重试成功）。unreadable-file skip 为逐条 WARN 的防御代码，Windows 下 ACL 注入单文件失败较繁琐，按代码走查确认（DoD 诚实边界）。
+  5. 缓存隔离 ✓：日志 `cache-dir: …\Local\Glance3D\cache`，FS 确认该目录被创建；engine.cxx:95 未改。
+  6. 端到端已如上，全部 `%APPDATA%` 真目录 + 唯一标记 + 事后清理（收尾把 `%APPDATA%\f3d`、`%APPDATA%\Glance3D` 删回“都不存在”的初始态）✓。
+  7. 四文档路径更新 ✓（仅改用户目录 f3d→Glance3D，`/etc/f3d`、`/usr/share/f3d`、`[install_dir]/share/f3d` 等系统/安装路径保留 f3d——非本 story 语义）。
+  8. `--no-config` 免疫 ✓：植入旧 f3d 目录后 `--no-config` 启动，日志 0 条 `config-dir:`、`%APPDATA%\Glance3D` 未创建（迁移不触发）。
+  9. `cmake --build --preset native-local` 通过、产物 glance3d.exe ✓；**dev-strict**：用「隔离式单文件 /W4 /WX」验（见 Codebase Patterns 新增段）——`F3DSystemTools.cxx` 直接 EXITCODE=0 零告警；`F3DStarter.cxx` 在临时中和 scene.h C4251 债后 EXITCODE=0 零告警（未中和前唯一告警就是 pre-existing scene.h C4251，非本 story）。两文件 strict 干净、零新增告警。库债 scene.h/scene_impl.cxx 已 `git checkout` 还原、build-dev 临时 F3DIcon.h 已删。
+- **无回归**：静态出图 f3d.glb 400×300 Read 读图（logo+网格+gizmo+UI 全对）；交互回放 `TestInteractionRollCameraRotation`（--no-config）--reference 误差 0.097>阈值 0.04，但**读实际图 vs 基线图肉眼完全一致**（同一相机滚转角/模型/网格/gizmo/UI），属 GPU/VTK 环境性 AA 误差（CLAUDE.md 明示“误差大≠缺陷”），且本 story --no-config 下配置代码根本不跑、缓存覆盖仅 mkdir，逻辑上不可能影响像素。`--no-render`+数据文件 exit=1（"No interactor"）经 git stash 对照证明为 **pre-existing**、非本轮引入。
+- **取舍/边界**：① 迁移与 rename 合并在 getter 内并 memoize，避免每次 colormap 查找重复迁移/重复日志，且让“迁移失败本次回退旧目录”语义自洽。② `is_directory` 而非 `exists` 判定，杂散非目录文件不当作已建配置目录，也顺便让 fallback 路径可注入测试。③ 缓存覆盖对 NoRender 引擎也生效（无害、mkdir 而已），保持品牌一致。④ macOS/Linux 迁移仅代码走查（本机 Windows）。
+- **Learnings for future iterations：** 见 Codebase Patterns 两处新增段——“隔离式 strict 验证：单文件 /W4 /WX 编译”（未来改 application 源码的 story 复用：单文件 ClCompile、缺 F3DIcon.h 从 Release 树拷、include scene.h 的文件临时中和 C4251 债隔离告警）与“用户配置目录品牌隔离 + 迁移”（memoize getter、原因码、SHGetKnownFolderPath 不认 APPDATA 重定向、缓存走应用层覆盖）。
 ---

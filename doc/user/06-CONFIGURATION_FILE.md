@@ -240,9 +240,9 @@ Glance3D looks for configuration files in different locations depending on your 
 Existing configuration files are read in order and combined with later entries, potentially overriding previously read entry with the same names.
 For thumbnails, just replace `config` by `thumbnail`, as the thumbnails configuration is just passed to f3d using the `--config` [CLI option](03-OPTIONS.md).
 
-- Linux: `/etc/f3d/config(.json,.d)`, `/usr/share/f3d/configs/config(.json,.d)`, `[install_dir]/share/f3d/configs/config(.json,.d)`, `${XDG_CONFIG_HOME}/f3d/config(.json,.d)`
-- Windows: `[install_dir]\share\f3d\configs\(config.json,.d)`, `%APPDATA%\f3d\(config.json,.d)`
-- macOS: `/usr/local/etc/f3d/config(.json,.d)`, `Glance3D.app/Contents/Resources/configs/config(.json,.d)`, `${HOME}/Library/Application Support/f3d/config(.json,.d)`
+- Linux: `/etc/f3d/config(.json,.d)`, `/usr/share/f3d/configs/config(.json,.d)`, `[install_dir]/share/f3d/configs/config(.json,.d)`, `${XDG_CONFIG_HOME}/Glance3D/config(.json,.d)`
+- Windows: `[install_dir]\share\f3d\configs\(config.json,.d)`, `%APPDATA%\Glance3D\(config.json,.d)`
+- macOS: `/usr/local/etc/f3d/config(.json,.d)`, `Glance3D.app/Contents/Resources/configs/config(.json,.d)`, `${HOME}/Library/Application Support/Glance3D/config(.json,.d)`
 
 Please note that, on Linux, `XDG_CONFIG_HOME` implementation can fallback on `HOME` environment variables as specified [here](https://specifications.freedesktop.org/basedir/latest/).
 
@@ -265,7 +265,7 @@ Candidate config file not found: "/usr/share/f3d/configs/thumbnail.json"
 Candidate config file not found: "/usr/share/f3d/configs/thumbnail.d"
 Candidate config file not found: "/home/glow/dev/f3d/pack/F3D-3.5.0-Linux-x86_64-raytracing/share/f3d/configs/thumbnail.json"
 Config file found: "/home/glow/dev/f3d/pack/F3D-3.5.0-Linux-x86_64-raytracing/share/f3d/configs/thumbnail.d"
-Candidate config file not found: "/home/glow/.config/f3d/thumbnail.json"
-Candidate config file not found: "/home/glow/.config/f3d/thumbnail.d"
+Candidate config file not found: "/home/glow/.config/Glance3D/thumbnail.json"
+Candidate config file not found: "/home/glow/.config/Glance3D/thumbnail.d"
 Using config directory /home/glow/dev/f3d/pack/F3D-3.5.0-Linux-x86_64-raytracing/share/f3d/configs/thumbnail.d
 ```

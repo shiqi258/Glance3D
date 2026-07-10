@@ -5,9 +5,11 @@
 #include "utils.h"
 
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <optional>
+#include <system_error>
 #include <vector>
 
 #if defined(_WIN32)
@@ -135,10 +137,15 @@ fs::path F3DSystemTools::GetUserScreenshotDirectory()
   return dirPath;
 }
 
-//----------------------------------------------------------------------------
-fs::path F3DSystemTools::GetUserConfigFileDirectory()
+namespace
 {
-  std::string applicationName = "f3d";
+//----------------------------------------------------------------------------
+// Recover the platform user-config *base* directory (without any application
+// name suffix): %APPDATA% on Windows, $XDG_CONFIG_HOME or ~/.config on Linux,
+// ~/Library/Application Support on macOS. Returns an empty path when it cannot
+// be determined.
+fs::path GetUserConfigBaseDirectory()
+{
   fs::path dirPath;
 #if defined(_WIN32)
   std::optional<std::string> appData =
@@ -172,7 +179,132 @@ fs::path F3DSystemTools::GetUserConfigFileDirectory()
 #endif
   }
 #endif
-  dirPath /= applicationName;
+  return dirPath;
+}
+
+//----------------------------------------------------------------------------
+// Recursively copy the contents of `src` into `dst` (creating `dst`).
+// Returns the number of regular files successfully copied.
+// - Individual source files that cannot be read are skipped and logged (WARN),
+//   so a single locked/unreadable file does not abort the whole migration.
+// - A failure that makes the destination unusable (cannot create a directory,
+//   or no space left on device) throws fs::filesystem_error so the caller can
+//   clean up the partial destination and fall back to the old directory.
+std::size_t MigrateConfigTree(const fs::path& src, const fs::path& dst)
+{
+  std::size_t copied = 0;
+
+  // Creating the destination root is a hard requirement; let a failure throw.
+  fs::create_directories(dst);
+
+  for (const auto& entry :
+    fs::recursive_directory_iterator(src, fs::directory_options::skip_permission_denied))
+  {
+    std::error_code statusEc;
+    const fs::path rel = fs::relative(entry.path(), src);
+    if (rel.empty())
+    {
+      continue;
+    }
+    const fs::path target = dst / rel;
+
+    if (entry.is_directory(statusEc))
+    {
+      std::error_code mkEc;
+      fs::create_directories(target, mkEc);
+      if (mkEc)
+      {
+        // Cannot recreate a subdirectory: destination is unusable.
+        throw fs::filesystem_error("Could not create directory during config migration", target,
+          mkEc);
+      }
+    }
+    else if (entry.is_regular_file(statusEc))
+    {
+      std::error_code copyEc;
+      fs::copy_file(entry.path(), target, fs::copy_options::overwrite_existing, copyEc);
+      if (copyEc)
+      {
+        if (copyEc == std::errc::no_space_on_device)
+        {
+          // Out of space: destination is unusable, abort and fall back.
+          throw fs::filesystem_error(
+            "No space left on device during config migration", entry.path(), target, copyEc);
+        }
+        // Skippable: a single unreadable/locked file. Log and keep going.
+        f3d::log::warn(g3d::locale::translate(
+          "Skipping unreadable file during config migration: {path} ({error})",
+          { { "path", entry.path().string() }, { "error", copyEc.message() } }));
+        continue;
+      }
+      copied++;
+    }
+    // symlinks / other special files are intentionally ignored
+  }
+
+  return copied;
+}
+
+//----------------------------------------------------------------------------
+// Resolve the effective Glance3D user-config directory, performing the one-time
+// migration from a legacy `f3d` directory when appropriate. Emits a single
+// decision reason code to the log: fresh | existing | migrated(<n> files) |
+// migrate-failed-fallback. Never moves/deletes/modifies the legacy directory.
+fs::path ResolveUserConfigFileDirectory()
+{
+  const fs::path base = GetUserConfigBaseDirectory();
+  if (base.empty())
+  {
+    return {};
+  }
+
+  const fs::path newDir = base / "Glance3D";
+  const fs::path oldDir = base / "f3d";
+
+  std::error_code ec;
+  if (fs::is_directory(newDir, ec))
+  {
+    // New directory already established: use it, never read the legacy one.
+    f3d::log::debug("config-dir: existing (", newDir.string(), ")");
+    return newDir;
+  }
+
+  if (!fs::is_directory(oldDir, ec))
+  {
+    // No usable legacy directory: first run, no migration needed.
+    f3d::log::debug("config-dir: fresh (", newDir.string(), ")");
+    return newDir;
+  }
+
+  // Legacy directory exists and the new one does not: perform a one-time copy.
+  // The legacy directory is left untouched (it is still official F3D's directory).
+  try
+  {
+    const std::size_t n = MigrateConfigTree(oldDir, newDir);
+    f3d::log::debug("config-dir: migrated(", std::to_string(n), " files) ", oldDir.string(), " -> ",
+      newDir.string());
+    return newDir;
+  }
+  catch (const std::exception& ex)
+  {
+    // Clean up the partial destination so the next launch retries the migration,
+    // and fall back to the legacy directory for this run.
+    std::error_code cleanupEc;
+    fs::remove_all(newDir, cleanupEc);
+    f3d::log::warn(g3d::locale::translate(
+      "config-dir: migrate-failed-fallback ({error}); using legacy directory {path} for this run",
+      { { "error", ex.what() }, { "path", oldDir.string() } }));
+    return oldDir;
+  }
+}
+}
+
+//----------------------------------------------------------------------------
+fs::path F3DSystemTools::GetUserConfigFileDirectory()
+{
+  // Resolve (and migrate, if needed) exactly once per process. Callers such as
+  // config-file search and colormap lookup derive their paths from this result.
+  static const fs::path dirPath = ResolveUserConfigFileDirectory();
   return dirPath;
 }
 

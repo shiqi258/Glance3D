@@ -80,8 +80,8 @@
         "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "application/F3DSystemTools.cxx：GetUserConfigFileDirectory() 目录名 f3d→Glance3D（Win %APPDATA%\\Glance3D、Linux $XDG_CONFIG_HOME/Glance3D|~/.config/Glance3D、macOS ~/Library/Application Support/Glance3D）；抽出 GetUserConfigBaseDirectory()，新增匿名 ns 的 MigrateConfigTree()（递归拷贝返回普通文件数；单文件不可读 skip+WARN，建目录失败/no_space_on_device throw 供上层清理）+ ResolveUserConfigFileDirectory()（is_directory 判定：新在→existing/旧不在→fresh/旧在新无→迁移，失败清残缺新目录+WARN+回退旧目录）；getter 用 static const memoize，迁移与原因码日志每进程一次；colormaps（F3DColorMapTools::Find 用 getter/\"colormaps\"）派生路径自动切换。application/F3DStarter.cxx：引擎创建后（NoRender+render 两支、setOptions 前）setCachePath(GetUserCacheDirectory()/\"cache\")→%LOCALAPPDATA%\\Glance3D\\cache，try/catch cache_exception 仅 WARN 不致命；engine.cxx:95 libf3d 默认不动。文档同步 doc/user/03,06,09,11（仅用户目录 f3d→Glance3D，系统/install /etc/f3d、share/f3d 保留）。端到端真 %APPDATA% 验证（唯一标记+事后清理，机器复原到都不存在）：criteria#2 迁移含 colormaps 子目录日志 migrated(2 files)、新目录出现拷贝、旧目录原样(2=2)；criteria#3+4 四原因码全实测 fresh/existing/migrated(<n> files)/migrate-failed-fallback（在 %APPDATA%\\Glance3D 放普通文件强制建目录失败→WARN+remove_all 清残缺+回退旧目录，旧目录完好 3=3，下次启动 migrated(3 files) 自动重试）；unreadable-file skip 为逐条 WARN 防御代码、Windows ACL 注入繁琐按代码走查（DoD 诚实边界）。criteria#5 日志 cache-dir: …\\Local\\Glance3D\\cache、FS 确认创建。criteria#8 --no-config 免疫：植旧 f3d 目录后 --no-config 启动 0 条 config-dir、Glance3D 未建。构建：native-local 通过、产物 glance3d.exe；dev-strict 用隔离式单文件 /W4 /WX（见 progress.txt Codebase Patterns 新增段）——F3DSystemTools.cxx 直接 EXITCODE=0 零告警、F3DStarter.cxx 临时中和 pre-existing scene.h C4251 债后 EXITCODE=0 零告警，两文件 strict 干净零新增；库债 scene.h/scene_impl.cxx 已 git checkout 还原、临时 F3DIcon.h 已删。无回归：静态出图 Read 读图正常；TestInteractionRollCameraRotation(--no-config) --reference 0.097>阈值但读图与基线肉眼完全一致（GPU/VTK 环境性 AA 误差，--no-config 下配置代码不跑、缓存覆盖仅 mkdir，逻辑上不影响像素）；--no-render+数据文件 exit=1 经 git stash 对照证明为 pre-existing 非本轮引入。边界：macOS/Linux 迁移仅代码走查（本机 Windows）；缓存覆盖对 NoRender 也生效（无害 mkdir，保持品牌一致）。"
     },
     {
       "id": "US-005",

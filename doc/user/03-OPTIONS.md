@@ -683,6 +683,6 @@ These cache files can be safely removed at the cost of recomputing them on next 
 
 The cache directory location is as follows, in order, using the first defined environment variables:
 
-- Windows: `%LOCALAPPDATA%\f3d`
-- Linux: `${XDG_CACHE_HOME}/f3d`,`${HOME}/.cache/f3d`
-- macOS: `${HOME}/Library/Caches/f3d`
+- Windows: `%LOCALAPPDATA%\Glance3D\cache`
+- Linux: `${XDG_CACHE_HOME}/Glance3D/cache`,`${HOME}/.cache/Glance3D/cache`
+- macOS: `${HOME}/Library/Caches/Glance3D/cache`

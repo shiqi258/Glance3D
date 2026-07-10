@@ -6,9 +6,9 @@ It is possible to specify a color map using the `--colormap-file` option.
 The value of the option can be an absolute path to an image file, a relative path, a filename or a filestem.
 If it is not an absolute path, these directories are used to find the file (in this order):
 
-- Linux: `${XDG_CONFIG_HOME}/f3d/colormaps`, `~/.config/f3d/colormaps`, `/etc/f3d/colormaps`, `/usr/share/f3d/colormaps`, `[install_dir]/share/f3d/colormaps`
-- Windows: `%APPDATA%\f3d\colormaps`, `[install_dir]\share\f3d\configs\colormaps`
-- macOS: `${XDG_CONFIG_HOME}/f3d/colormaps`, `~/.config/f3d/colormaps`, `/usr/local/etc/f3d/colormaps`, `Glance3D.app/Contents/Resources/configs/colormaps`
+- Linux: `${XDG_CONFIG_HOME}/Glance3D/colormaps`, `~/.config/Glance3D/colormaps`, `/etc/f3d/colormaps`, `/usr/share/f3d/colormaps`, `[install_dir]/share/f3d/colormaps`
+- Windows: `%APPDATA%\Glance3D\colormaps`, `[install_dir]\share\f3d\configs\colormaps`
+- macOS: `${XDG_CONFIG_HOME}/Glance3D/colormaps`, `~/.config/Glance3D/colormaps`, `/usr/local/etc/f3d/colormaps`, `Glance3D.app/Contents/Resources/configs/colormaps`
   The first existing file found is used.
   If it is a filestem, all [supported image](#supported-formats) extensions are tried.
 
@@ -28,8 +28,8 @@ We provide some ready to use color maps files, listed in the table below:
 
 It is possible to create a custom color map by creating a simple RGB image in any [supported formats](#supported-formats), and any resolution (if the height is more than 1 row, only the first one is taken into account). The image must be copied in the user config directory:
 
-- Linux/macOS: `~/.config/f3d/colormaps`
-- Windows: `%APPDATA%\f3d\colormaps`
+- Linux/macOS: `~/.config/Glance3D/colormaps`
+- Windows: `%APPDATA%\Glance3D\colormaps`
 
 ### Supported formats
 
