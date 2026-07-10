@@ -130,8 +130,8 @@
         "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "考证：两次 ApplyPositionAndResolution 自 Initial Glance3D import 起就有（承自上游 f3d，无解释性注释）；全仓仅 2 个调用点（F3DStarter.cxx:1444 建引擎后、:1498 LoadFileGroup 后），window setSize/setPosition 仅出现在 ApplyPositionAndResolution/ApplyDefaultCenteredGeometry 内（145/172 是相机非窗口），LoadFileGroup/LoadFileGroupInternal/render/相机 reset/EventLoop 均不改窗口几何——故第二次调用对 --output 无时序依赖，是冗余（belt-and-suspenders）。实现（守卫式）：新增 Internals::GeometryEstablished(默认 false)，在 ApplyPositionAndResolution 顶部(NoRender 早退后)置 true；第二调用点改为 if(GeometryEstablished) 打 DEBUG『skip geometry re-apply: already established』else 才 ApplyPositionAndResolution(渲染路径第一调用恒先跑→else 为防御性死码，注释注明)。验证逐条：①考证+无依赖已如上，采守卫式。②skip 日志实证(--output 清退出 flush 到日志、交互 WM_CLOSE 清退出日志各现一次)。③reload 路径审计=仅 2 调用点无一在 reload；实测：交互开 f3d.glb+cow.vtp→P/Invoke MoveWindow 改 700×500@(150,120)→PostMessage Right(load_next_file_group)→flush 日志证 cow.vtp 于 5s 后真加载(reader+importer 2ms+actor setup)、几何日志仅 1 条 default-centered+1 条 skip(reload 后无再 apply)→GetWindowRect 仍 700×500 未被改回(PASS)。④无头回归：默认 --output 1000×600、显式 --resolution 800,600 产物与改前(git stash 重编 HEAD/US-006 二进制)SHA256 **逐字节相同**。⑤3 回放(含 UI)：TestInteraction2DZoom 0.120849、RollCameraRotation 0.097272 与既往验证值**逐位相同**(证 US-008 零渲染改动)、UI TestInteractionConsoleCamera 0.095841 Read 实际vs基线肉眼一致(顶视相机+控制台正确，超阈=基线年代早于当前 UI 汉堡+环境性 AA，非本轮回归)。⑥诚实边界：真正『首个大文件加载中途拖动』经 async 加载的 processEvents() 泵事件(F3DStarter.cxx:2109)使窗口在加载期可响应→该场景**确实可达**且正是本 story 修复点；但本机 testing/data 全部文件毫秒级解析，async 泵事件窗口过短，外部 P/Invoke 注入拖动无法可靠命中该竞态(criterion 6 明示允许)→改以代码路径+日志+reload 实测+全量回归验收，如实记录。⑦native-local 通过、产物 glance3d.exe；dev-strict 隔离式单文件 /W4 /WX：临时中和 scene.h 4 DTO C4251 债后 F3DStarter.cxx EXITCODE=0 零新增告警，编完 git checkout 还原 scene.h+删临时 F3DIcon.h。边界：GeometryEstablished 对 offscreen 也置 true→offscreen 第二调用同样 skip(已证输出逐字节不变，安全)；async 首载拖动竞态未直接复现(见⑥)。"
     },
     {
       "id": "US-007",

@@ -957,6 +957,11 @@ public:
       return;
     }
 
+    // From here on the window geometry is always established (centered, or an explicit
+    // size/position, or the legacy default). Mark it so the post-load call site can skip
+    // re-applying and leave the user's in-flight adjustments untouched (US-008).
+    this->GeometryEstablished = true;
+
     f3d::window& window = this->Engine->getWindow();
 
     // Headless / offscreen runs (--output, --reference, --list-bindings) must keep
@@ -1155,6 +1160,13 @@ public:
   std::set<fs::path> FilesToWatch;
   int CurrentFilesGroupIndex = -1;
   std::vector<std::byte> PipedBuffer;
+
+  // True once the window geometry (size/position/centering) has been established for
+  // this run. Used to guard the post-load re-apply so the program never rewrites the
+  // window geometry after it has been set up once (US-008): if the user drags/resizes
+  // the window while a large file is loading, that adjustment must survive load
+  // completion instead of being reset back to the default/centered geometry.
+  bool GeometryEstablished = false;
 
 #if F3D_MODULE_DMON
   // dmon related
@@ -1470,7 +1482,21 @@ int F3DStarter::Start(int argc, char** argv)
 
   if (!this->Internals->AppOptions.NoRender)
   {
-    this->Internals->ApplyPositionAndResolution();
+    // The window geometry is set up once, before the first file is loaded (the call
+    // above, right after engine creation). Historically it was re-applied here after
+    // LoadFileGroup(), which reset the window back to its default/centered geometry and
+    // discarded any position/size the user adjusted while the file was loading (US-008).
+    // Only re-apply when geometry was not established yet (defensive: should not happen
+    // in the render path, where the first call always runs), and log the skip otherwise
+    // as runtime evidence that the program no longer rewrites the geometry post-load.
+    if (this->Internals->GeometryEstablished)
+    {
+      f3d::log::debug("skip geometry re-apply: already established");
+    }
+    else
+    {
+      this->Internals->ApplyPositionAndResolution();
+    }
     f3d::window& window = this->Internals->Engine->getWindow();
     f3d::interactor& interactor = this->Internals->Engine->getInteractor();
 
