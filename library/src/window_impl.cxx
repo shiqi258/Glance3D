@@ -327,6 +327,48 @@ window& window_impl::setPosition(int x, int y)
 }
 
 //----------------------------------------------------------------------------
+std::array<int, 2> window_impl::getPosition() const
+{
+  const int* pos = this->Internals->RenWin->GetPosition();
+  if (this->Internals->RenWin->IsA("vtkCocoaRenderWindow"))
+  {
+    // Mirror the Y-flip applied in setPosition so the value round-trips in the
+    // same top-left-origin convention setPosition() accepts.
+    // https://gitlab.kitware.com/vtk/vtk/-/issues/18681
+    const int* screenSize = this->Internals->RenWin->GetScreenSize();
+    const int* winSize = this->Internals->RenWin->GetSize();
+    return { pos[0], screenSize[1] - winSize[1] - pos[1] };
+  }
+  return { pos[0], pos[1] };
+}
+
+//----------------------------------------------------------------------------
+bool window_impl::isMaximized() const
+{
+#ifdef _WIN32
+  // Query the native window through its handle. Offscreen/mock windows have no
+  // usable HWND, so this safely reports false.
+  HWND hwnd = static_cast<HWND>(this->Internals->RenWin->GetGenericWindowId());
+  if (hwnd == nullptr)
+  {
+    return false;
+  }
+  WINDOWPLACEMENT placement = {};
+  placement.length = sizeof(WINDOWPLACEMENT);
+  if (GetWindowPlacement(hwnd, &placement) == 0)
+  {
+    return false;
+  }
+  // showCmd is UINT; cast the (signed) macro to avoid a signed/unsigned compare warning.
+  return placement.showCmd == static_cast<UINT>(SW_SHOWMAXIMIZED);
+#else
+  // Not implemented on other platforms: geometry persistence degrades to a
+  // plain rect there (see window.h).
+  return false;
+#endif
+}
+
+//----------------------------------------------------------------------------
 window& window_impl::setIcon(const unsigned char* icon, size_t iconSize)
 {
   // XXX This code requires that the interactor has already been set on the render window

@@ -901,6 +901,15 @@ public:
       if (this->AppOptions.Position.size() == 2)
       {
         window.setPosition(this->AppOptions.Position[0], this->AppOptions.Position[1]);
+
+        // Round-trip evidence for the additive geometry-read API (US-005): read the
+        // position back through the new getter and log both, so setPosition/getPosition
+        // consistency is observable in the file log. isMaximized() is logged too as a
+        // safe-value probe (false unless the window manager maximized us).
+        const std::array<int, 2> reportedPos = window.getPosition();
+        f3d::log::debug("Window geometry: requested position (", this->AppOptions.Position[0],
+          ", ", this->AppOptions.Position[1], "), window reports (", reportedPos[0], ", ",
+          reportedPos[1], "), maximized=", window.isMaximized() ? "true" : "false");
       }
       else
       {

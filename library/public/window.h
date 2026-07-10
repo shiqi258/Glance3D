@@ -6,6 +6,7 @@
 #include "image.h"
 
 /// @cond
+#include <array>
 #include <string>
 /// @endcond
 
@@ -96,6 +97,26 @@ public:
    * Set the position of the window.
    */
   virtual window& setPosition(int x, int y) = 0;
+
+  /**
+   * Get the position of the window as a `{ x, y }` array, in the same
+   * top-left-origin screen coordinate convention accepted by setPosition().
+   *
+   * For on-screen windows this reflects the current placement. For offscreen,
+   * mock (NONE) and WASM windows that have no real on-screen placement, this
+   * returns the last value passed to setPosition() (or `{ 0, 0 }` if it was
+   * never called). Never throws.
+   */
+  [[nodiscard]] virtual std::array<int, 2> getPosition() const = 0;
+
+  /**
+   * Get whether the window is currently maximized.
+   *
+   * Only meaningful on Windows, where it is queried through the native window
+   * handle. Always returns false on other platforms, for offscreen/mock/WASM
+   * windows, and whenever no native window handle is available. Never throws.
+   */
+  [[nodiscard]] virtual bool isMaximized() const = 0;
 
   /**
    * Set the icon to be shown by a window manager.
