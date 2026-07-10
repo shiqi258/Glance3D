@@ -230,6 +230,11 @@ list(APPEND F3D_SOURCE_FILES "${F3D_SOURCE_DIR}/external/tinyfiledialogs/tinyfil
 # Create the f3d application
 f3d_create_exec(f3d)
 
+# Brand the runtime artifact as glance3d while keeping the internal CMake target
+# name `f3d` untouched (so $<TARGET_FILE:f3d> and the exported f3dTargets set are
+# unaffected). Only the produced binary is renamed: glance3d(.exe).
+set_target_properties(f3d PROPERTIES OUTPUT_NAME glance3d)
+
 # Stage runtime resources (i18n catalogs + CJK font) into the build tree so the app
 # finds them when run from the build directory. GetBinaryResourceDirectory() resolves
 # resources at <exe>/../share/f3d; mirror that layout next to the build output.
@@ -247,6 +252,8 @@ if(WIN32 AND F3D_WINDOWS_BUILD_CONSOLE_APPLICATION)
   f3d_create_exec(f3d-console)
   # Overwrite console property
   set_target_properties(f3d-console PROPERTIES WIN32_EXECUTABLE FALSE)
+  # Brand the console artifact as glance3d-console(.exe); target name stays f3d-console.
+  set_target_properties(f3d-console PROPERTIES OUTPUT_NAME glance3d-console)
 endif()
 
 # Create man

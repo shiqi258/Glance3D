@@ -1,0 +1,43 @@
+# Ralph Progress Log
+Started: Fri, Jul 10, 2026  6:13:05 AM
+---
+
+## Codebase Patterns（先读——最重要的可复用经验，随迭代增补）
+
+### 构建预设 / 二进制路径
+- **桌面 Release**：`cmake --build --preset native-local` → 产物 `build/bin_Release/`。
+- **严格 Debug（dev-strict）**：本机用 `dev-local` 预设（在 `CMakeUserPresets.json`，inherits `dev`+`native-local`，binaryDir=`build-dev`）。配置 `cmake --preset dev-local`，构建 `cmake --build --preset dev-local`（或单目标 `cmake --build build-dev --target <t> --config Debug`）。`dev` 预设本身没有 VTK_DIR/binaryDir，别直接用。
+- **US-001 起，桌面二进制名为 `glance3d.exe`**（原 `f3d.exe`）。CMake 目标名仍是 `f3d`/`f3d-console`（`$<TARGET_FILE:f3d>`、`f3dTargets` 导出零波及），只在 `application/CMakeLists.txt` 用 `set_target_properties(... OUTPUT_NAME glance3d)` 改产物名。库 DLL 仍是 `f3d.dll`（US-001 不动库）。
+
+### 运行时路径解析与更名无关（重要）
+- 资源锚点走 `GetApplicationPath()`（Win=`GetModuleFileNameW(nullptr,...)`，Linux=`/proc/self/exe`）→ 与 exe **文件名无关**，只看真实模块路径；`GetBinaryResourceDirectory()` 取 `<exe>/../../share/f3d`。更名 exe 不破坏资源解析（已实证：glance3d.exe 出图、字体/UI/网格全部正常）。
+- 全仓唯一用 `argv[0]` 的地方：`application/F3DOptionsTools.cxx:277`——仅用于 cxxopts 的 **帮助/Usage 显示名**，非路径。故更名后 `--help` 的 Usage 行自动变 `glance3d.exe`，无需改代码。
+
+### ⚠️ dev-strict 严格构建在本机存在“先天”阻断（非某一 story 引入，务必知悉）
+`F3D_STRICT_BUILD` = MSVC `/W4 /WX`（warning 即 error）。本机 `dev-local` 全绿构建当前**不可达**，原因有二，均与 US-001 更名无关：
+1. **库源码告警被当错误**（Glance3D 既有代码，pre-existing）：
+   - `library/public/scene.h` 的 `g3d_scene_tree_node / g3d_scene_tree_snapshot / g3d_data_array_info / g3d_data_info` 都 `F3D_EXPORT` 且含 `std::string/std::vector` 数据成员 → **C4251**（dll-interface）→ C2220。根因：上游惯例是**纯数据 DTO 不加 `F3D_EXPORT`**（见 `mesh_view` 的 `data_array_t/memory_view_t`——外层类导出、内层数据结构体不导出）。**建议修法**：去掉这 4 个 DTO 的 `F3D_EXPORT`（枚举 `g3d_scene_tree_node_kind`、全 POD 的 `g3d_scene_tree_capabilities` 无 C4251，可留）。已验证该改动能消除 scene.h 的 C4251。
+   - `library/src/scene_impl.cxx:~931` 的 `return nullptr;` → **C4702**（不可达代码，`if constexpr` 整型分支已 return）→ C2220。属上游 mesh-view→vtk 转换代码，编译器版本相关。建议按分支加 `if constexpr` 守卫或局部 `#pragma warning(suppress:4702)`。
+   - （上面两个只是当前暴露到的前两层；strict 全绿可能还有后续被掩盖的告警，需逐个消。）
+2. **环境性链接冲突**（依赖问题，本机无法自修）：本机 `VTK_DIR` 是 **Release-only** VTK，`dev` 是 Debug（MDd）。测试可执行 `vtkextTests` 直接链 VTK 静态工具库（vtksys/vtkfmt/vtktoken…）→ **LNK2038**（`RuntimeLibrary` MD_DynamicRelease vs MDd_DynamicDebug、`_ITERATOR_DEBUG_LEVEL` 0 vs 2）→ LNK1218。要修需一份 `VTK_WEBASSEMBLY`… 不，需一份 **Debug 构建的 VTK**。此项非代码问题。
+
+**给源码型 story 的实操建议（US-005/006/007/008/009 必看）**：全绿 dev-local 在本机不可达，故对“改了源码”的 story，验证策略 = 用 `cmake --build build-dev --target f3d --config Debug` 确认**改动目标（app+libf3d）严格编译零新增告警**（对比基线已知的 pre-existing 告警清单，只要不新增即可），而非追求整棵测试树全绿。若要真正解锁 strict 门禁，需先专门治理上面第 1 条的库告警债（独立一轮，别塞进功能 story）。
+
+---
+
+## 2026-07-10 06:35 - US-001 构建产物更名为 glance3d
+- **实现**：`application/CMakeLists.txt` 对 `f3d` 与 `f3d-console` 目标各加一行 `set_target_properties(... PROPERTIES OUTPUT_NAME glance3d / glance3d-console)`，只改产物文件名，保持 CMake 目标名与 `f3dTargets` 导出不变。（本轮开始时该改动已在工作区未提交，本轮补完验证并落定。）
+- **文件变更**：`application/CMakeLists.txt`（+7 行注释与两处 OUTPUT_NAME）。
+- **验证证据（逐条对齐 acceptanceCriteria）**：
+  1. 目标名不变、仅 OUTPUT_NAME=glance3d/glance3d-console ✓（f3d-console 目标本预设未启用，代码路径受 `F3D_WINDOWS_BUILD_CONSOLE_APPLICATION` 守卫，改动正确但未由 native-local 触发）。
+  2. `cmake --build --preset native-local` 通过，产物 `build/bin_Release/glance3d.exe` ✓（构建日志 `f3d.vcxproj -> ...\glance3d.exe`）。
+  3. 无旧 `build/bin_Release/f3d.exe` 残留 ✓（`ls` 确认 No such file；重建即替换）。
+  4. `glance3d.exe testing/data/f3d.glb --output shot.png --resolution 800,600 -x -g` 出图成功，Read 读图：Glance3D logo 模型 + 地面网格 + 坐标轴 gizmo + UI 汉堡按钮全部正常 → 资源按目录锚点解析、不受文件名影响，实证通过 ✓。
+  5. argv[0]/exe 文件名路径推导全局排查 ✓：唯一 argv[0] 用处是 `F3DOptionsTools.cxx:277` 的帮助显示名（非路径）；路径解析全走 `GetModuleFileNameW`/`GetApplicationPath`（文件名无关）。附带实证 `--help` 的 Usage 行已自动显示 `glance3d.exe`。
+  6. native-local 构建通过 ✓。**dev-strict（F3D_STRICT_BUILD）全绿不可达**——US-001 未改任何 C++ 源码，不可能引入新的 strict 告警；dev-local 全绿被 pre-existing 库告警债（scene.h C4251、scene_impl.cxx C4702…）与环境性 Release-VTK/Debug-CRT 测试链接冲突（LNK2038）阻断，二者均与更名无关（详见上方 Codebase Patterns ⚠️ 段）。
+- **取舍**：中途曾试探性修 scene.h 的 C4251（去 F3D_EXPORT），确认能消除该告警；但发现 strict 全绿还需连带修 scene_impl.cxx C4702 等更多 pre-existing 库告警 + 一份 Debug VTK，属独立的库告警债治理，超出“更名”story 范围 → **已回退 scene.h**，保持 US-001 纯更名、聚焦最小。库告警债与建议修法已完整记入 Codebase Patterns，留给源码型 story（US-005+）前置处理。
+- **Learnings for future iterations：**
+  - 本机严格构建预设是 `dev-local`（build-dev/），不是裸 `dev`；`dev` 缺 VTK_DIR/binaryDir。
+  - 更名 exe 对运行时零影响，因资源锚点用真实模块路径而非 argv[0]/文件名。
+  - 别在功能 story 里顺手修 strict 库告警——那是一整轮独立的技术债，且本机还缺 Debug VTK，全绿本就不可达；按 Codebase Patterns 的“源码型 story 实操建议”验证增量即可。
+---

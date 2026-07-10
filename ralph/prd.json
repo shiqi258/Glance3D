@@ -16,8 +16,8 @@
         "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "仅改 application/CMakeLists.txt：f3d/f3d-console 目标各设 OUTPUT_NAME=glance3d/glance3d-console，目标名与 f3dTargets 导出不变。native-local 构建通过，产物 build/bin_Release/glance3d.exe，无旧 f3d.exe 残留。无头出图 glance3d.exe testing/data/f3d.glb --output --resolution 800,600 -x -g Read 读图正常（logo 模型+网格+gizmo+UI 全对），证明资源按 <exe>/../../share/f3d 目录锚点解析、与文件名无关。argv[0] 全局排查：唯一用处是 F3DOptionsTools.cxx:277 帮助显示名（非路径），路径解析全走 GetModuleFileNameW/GetApplicationPath（文件名无关）；--help Usage 行已自动显示 glance3d.exe。f3d-console 目标受 F3D_WINDOWS_BUILD_CONSOLE_APPLICATION 守卫、本预设未启用，改动正确但未由 native-local 触发。dev-strict 说明：US-001 未改 C++ 源码，不引入任何新 strict 告警；dev-local 全绿在本机不可达（pre-existing 库告警债 scene.h C4251 + scene_impl.cxx C4702… 与环境性 Release-VTK/Debug-CRT 测试链接 LNK2038，均与更名无关），详见 ralph/progress.txt 的 Codebase Patterns ⚠️ 段——留给源码型 story（US-005+）前置治理。"
     },
     {
       "id": "US-002",
