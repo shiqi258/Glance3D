@@ -185,6 +185,15 @@ f3d_embed_file(
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/F3DConfig.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/F3DConfig.h")
 
+if(WIN32)
+  # Inject the Glance3D version into the Windows VERSIONINFO resource (resources/f3d.rc)
+  # through a generated header, so FileVersion/ProductVersion stay single-sourced from
+  # F3D_VERSION instead of being hardcoded. Emitted next to F3DConfig.h so the build-tree
+  # include dir added in f3d_create_exec() lets the resource compiler find it.
+  configure_file("${F3D_SOURCE_DIR}/resources/Glance3DVersion.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/Glance3DVersion.h" @ONLY)
+endif()
+
 set(f3d_enabled_conditionals)
 if(F3D_MODULE_RAYTRACING)
   list(APPEND f3d_enabled_conditionals "F3D_MODULE_RAYTRACING")

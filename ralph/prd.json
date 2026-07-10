@@ -30,8 +30,8 @@
         "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "新增 resources/Glance3DVersion.h.in（configure_file 模板，占位 @F3D_MAJOR/MINOR/PATCH_VERSION@ 与 \"@F3D_VERSION@\"，版本单一来源自顶层 CMakeLists 不写死）；resources/f3d.rc 保留首行图标、新增 #include <windows.h> + #include \"Glance3DVersion.h\" 与 VS_VERSION_INFO VERSIONINFO 块（FILEVERSION/PRODUCTVERSION=GLANCE3D_VERSION_MAJOR,MINOR,PATCH,0；StringFileInfo 040904b0：ProductName=Glance3D、FileDescription=Glance3D - A fast and minimalist 3D viewer、OriginalFilename=glance3d.exe、FileVersion/ProductVersion=GLANCE3D_VERSION_STR、附 CompanyName/InternalName/LegalCopyright；VarFileInfo Translation 0x409,1200）；application/CMakeLists.txt 在 F3DConfig.h 之后加 WIN32 守卫的 configure_file(Glance3DVersion.h.in → ${CMAKE_CURRENT_BINARY_DIR}/Glance3DVersion.h @ONLY)。native-local 构建通过、产物 build/bin_Release/glance3d.exe；PowerShell (Get-Item ...).VersionInfo 实测 ProductName=Glance3D / FileDescription=Glance3D - A fast and minimalist 3D viewer / OriginalFilename=glance3d.exe / FileVersion=3.5.0 / ProductVersion=3.5.0 / FileVersionRaw=3.5.0.0 全部正确；加资源后 glance3d.exe 无头出图正常（二进制未损坏）。RC 找生成头靠 f3d_create_exec() 里 target 的 build-tree include 目录（VS 生成器传给 ResourceCompile），native-local/dev-local 两树均已生成头且 Release 树 RC 编译通过。dev-strict：只改资源(.rc)+模板+CMake、不动 C++ 源码，.rc 由 rc.exe 编译不受 /W4 /WX 约束 → 零新增 strict 告警；dev-local 全绿仍被 pre-existing 库告警债（scene.h C4251→C2220，停在 libf3d 未到 app/RC）阻断，与本 story 无关（详见 progress.txt Codebase Patterns ⚠️ 段）。改 configure_file/模板后须重跑 cmake --preset 再 build。"
     },
     {
       "id": "US-003",

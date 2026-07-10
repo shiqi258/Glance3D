@@ -13,6 +13,13 @@ Started: Fri, Jul 10, 2026  6:13:05 AM
 - 资源锚点走 `GetApplicationPath()`（Win=`GetModuleFileNameW(nullptr,...)`，Linux=`/proc/self/exe`）→ 与 exe **文件名无关**，只看真实模块路径；`GetBinaryResourceDirectory()` 取 `<exe>/../../share/f3d`。更名 exe 不破坏资源解析（已实证：glance3d.exe 出图、字体/UI/网格全部正常）。
 - 全仓唯一用 `argv[0]` 的地方：`application/F3DOptionsTools.cxx:277`——仅用于 cxxopts 的 **帮助/Usage 显示名**，非路径。故更名后 `--help` 的 Usage 行自动变 `glance3d.exe`，无需改代码。
 
+### Windows 版本资源（VERSIONINFO）注入范式（US-002 起）
+- 编译进 exe 的资源文件是 `resources/f3d.rc`（在 `application/CMakeLists.txt:220` 通过 `list(APPEND F3D_SOURCE_FILES ...f3d.rc)` 加入，仅 WIN32）。第一行仍是 `IDI_ICON1 ICON DISCARDABLE "logo.ico"`（须保持在最前，Explorer/任务栏取首个图标）。
+- **版本号不写死**：`resources/Glance3DVersion.h.in`（`@F3D_MAJOR_VERSION@` 等占位）经 `configure_file(... @ONLY)` 生成到 `${CMAKE_CURRENT_BINARY_DIR}/Glance3DVersion.h`（即 `build*/application/`，与 `F3DConfig.h` 同目录），`f3d.rc` 用 `#include "Glance3DVersion.h"` 取宏。configure_file 放在 application/CMakeLists.txt 的 `F3DConfig.h` 配置之后、`WIN32` 守卫内。
+- **RC 能找到生成头**：靠 `f3d_create_exec()` 里的 `target_include_directories(${target} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)`——VS 生成器会把 target 的 include 目录传给资源编译器（ResourceCompile），无需给 .rc 单独设 include。已实证 Release/Debug 两树均生成头且 RC 编译通过。
+- 改了 configure_file/模板后**必须重跑 `cmake --preset <preset>` 再 build**（configure_file 在配置期执行）。native-local 与 dev-local 两树各自需重配。
+- 验证：`(Get-Item build/bin_Release/glance3d.exe).VersionInfo` 读 ProductName/FileDescription/OriginalFilename/FileVersion 等字段。`.rc` 由 rc.exe 编译，**不受 C++ `/W4 /WX`（F3D_STRICT_BUILD）约束**，故纯资源改动不会引入新 strict 告警。
+
 ### ⚠️ dev-strict 严格构建在本机存在“先天”阻断（非某一 story 引入，务必知悉）
 `F3D_STRICT_BUILD` = MSVC `/W4 /WX`（warning 即 error）。本机 `dev-local` 全绿构建当前**不可达**，原因有二，均与 US-001 更名无关：
 1. **库源码告警被当错误**（Glance3D 既有代码，pre-existing）：
@@ -40,4 +47,20 @@ Started: Fri, Jul 10, 2026  6:13:05 AM
   - 本机严格构建预设是 `dev-local`（build-dev/），不是裸 `dev`；`dev` 缺 VTK_DIR/binaryDir。
   - 更名 exe 对运行时零影响，因资源锚点用真实模块路径而非 argv[0]/文件名。
   - 别在功能 story 里顺手修 strict 库告警——那是一整轮独立的技术债，且本机还缺 Debug VTK，全绿本就不可达；按 Codebase Patterns 的“源码型 story 实操建议”验证增量即可。
+---
+
+## 2026-07-10 06:48 - US-002 Windows 版本信息资源（VERSIONINFO）
+- **实现**：给 exe 加 Windows 版本信息资源，任务管理器/文件属性里显示 Glance3D 产品名与版本号。
+  - 新增 `resources/Glance3DVersion.h.in`：configure_file 模板，`@F3D_MAJOR_VERSION@ / @F3D_MINOR_VERSION@ / @F3D_PATCH_VERSION@` 及 `"@F3D_VERSION@"` 占位 → 版本单一来源自顶层 CMakeLists 的 F3D_VERSION，不写死。
+  - `resources/f3d.rc`：保留首行图标；新增 `#include <windows.h>` + `#include "Glance3DVersion.h"`，补 `VS_VERSION_INFO VERSIONINFO` 块。FILEVERSION/PRODUCTVERSION 用宏 `GLANCE3D_VERSION_MAJOR,MINOR,PATCH,0`；StringFileInfo 040904b0：ProductName=Glance3D、FileDescription=Glance3D - A fast and minimalist 3D viewer、OriginalFilename=glance3d.exe、FileVersion/ProductVersion=GLANCE3D_VERSION_STR、另附 CompanyName/InternalName/LegalCopyright；VarFileInfo Translation 0x409,1200。
+  - `application/CMakeLists.txt`：在 `F3DConfig.h` 的 configure_file 之后加 `if(WIN32)` 守卫的 `configure_file(resources/Glance3DVersion.h.in → ${CMAKE_CURRENT_BINARY_DIR}/Glance3DVersion.h @ONLY)`。
+- **文件变更**：`resources/Glance3DVersion.h.in`（新增）、`resources/f3d.rc`、`application/CMakeLists.txt`。
+- **验证证据（逐条对齐 acceptanceCriteria）**：
+  1. f3d.rc 补 VERSIONINFO 块，ProductName/FileDescription/OriginalFilename 均按要求 ✓。
+  2. FileVersion/ProductVersion 取自 F3D_VERSION，经 configure_file 生成头注入、无写死 ✓（生成头 build/application/Glance3DVersion.h 内容为 3.5.0）。
+  3. `(Get-Item build/bin_Release/glance3d.exe).VersionInfo` 实测：ProductName=Glance3D、FileDescription=Glance3D - A fast and minimalist 3D viewer、OriginalFilename=glance3d.exe、CompanyName=Glance3D、LegalCopyright=Copyright (C) Glance3D contributors、InternalName=glance3d、FileVersion=3.5.0、ProductVersion=3.5.0、FileVersionRaw=3.5.0.0、ProductVersionRaw=3.5.0.0 ✓ 全部正确。
+  4. `cmake --build --preset native-local` 通过，产物 `build/bin_Release/glance3d.exe`（`f3d.vcxproj -> ...glance3d.exe`）✓；额外冒烟：glance3d.exe 无头出图 f3d.glb 400×300，Read 读图 logo 模型+UI+gizmo 正常，证明加资源后二进制未损坏 ✓。
+  5. **dev-strict（F3D_STRICT_BUILD）**：US-002 只改资源(.rc)+模板+CMake，不动任何 C++ 源码；.rc 由 rc.exe 编译、不受 `/W4 /WX` 约束，**零新增 strict 告警**。dev-local 全绿仍被 pre-existing 库告警债（scene.h C4251→C2220，failure 停在 libf3d 尚未到 app/RC 阶段）阻断——与本 story 无关，详见 Codebase Patterns ⚠️ 段。生成头在 build-dev/application/ 亦已正确生成。
+- **取舍**：版本注入选“生成头 + #include”而非“整份 .rc 走 configure_file”，是为了保持 `logo.ico` 相对路径不动（避免 configure 到 binary dir 后图标相对引用/正斜杠转义的坑），且 acceptanceCriteria 也是“在 resources/f3d.rc 补 VERSIONINFO 块”。RC 找生成头依赖 target 的 build-tree include 目录（VS 生成器自动传给 ResourceCompile），已两树实证。
+- **Learnings for future iterations：** 见 Codebase Patterns 新增“Windows 版本资源（VERSIONINFO）注入范式”段。要点：改 configure_file/模板后必须重跑 cmake --preset 再 build；.rc 归 rc.exe 编、不吃 strict；VS 生成器把 target include 目录传给资源编译器故生成头可被 #include。
 ---
