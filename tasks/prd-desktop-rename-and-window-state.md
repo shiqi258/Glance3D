@@ -1,6 +1,6 @@
 # PRD: 桌面应用可执行文件更名 + 启动窗口几何（默认值/记忆/防重置）
 
-> 状态：待评审（无人值守模式下按推荐默认值编写，所有待拍板项见「9. Open Questions」）
+> 状态：已评审确认（2026-07-09 用户拍板全部 5 项决策，见「9. 已确认决策」；决策 #2 扩充范围，新增 US-009 与 FR-19~FR-23）
 > 范围：仅桌面应用（`application/` + 少量 `library/` 共享核心 API 增补）；网页端不涉及
 > 验证手段说明：本项目为桌面 C++ 应用，无浏览器可验。所有 UI/行为类验收一律使用仓库既定自动化手段：无头渲染出图 + `Read` 读图、`%LOCALAPPDATA%\Glance3D\logs\` 日志断言、`--interaction-test-play` 回放 + `--reference` 基线比对、PowerShell P/Invoke（`GetWindowRect` 等）查询真实窗口几何。
 
@@ -14,11 +14,14 @@ Glance3D 由 F3D 派生。项目身份（`project(Glance3D)`、窗口标题、ma
 2. **无记忆**：窗口尺寸/位置不跨会话保存，每次启动都要手动拖放调整；
 3. **加载完成重置**：`F3DStarter::Start()` 在 `LoadFileGroup()` **之后**第二次调用 `ApplyPositionAndResolution()`（[application/F3DStarter.cxx:1338](application/F3DStarter.cxx:1338)，首次在 :1319），把 CLI/默认分辨率（默认 `1000, 600`，`F3DOptionsTools.h:50`）重新写回窗口——大文件加载期间用户手动调好的尺寸/位置在加载结束瞬间被覆盖。
 
-本 PRD 定义：① 产物更名为 `glance3d`；② 参照业内成熟做法（VS Code / Chrome / Blender 等：首启居中 + 合理默认尺寸、记忆几何 + 显示器有效性校验、显式 CLI 参数优先）重做启动窗口几何策略，并根治加载后重置。
+此外，用户配置目录（`%APPDATA%\f3d`，[F3DSystemTools.cxx:141](application/F3DSystemTools.cxx)）与 libf3d 默认缓存目录（`%LOCALAPPDATA%\f3d`，[library/src/engine.cxx:95](library/src/engine.cxx)）当前与机器上安装的官方 F3D **共用**，两个程序读写同一份配置/缓存，存在互相干扰隐患。
+
+本 PRD 定义：① 产物更名为 `glance3d`；② 参照业内成熟做法（VS Code / Chrome / Blender 等：首启居中 + 合理默认尺寸、记忆几何 + 显示器有效性校验、显式 CLI 参数优先）重做启动窗口几何策略，并根治加载后重置；③ 配置/缓存目录品牌化隔离（一次性拷贝迁移，2026-07-09 评审新增）。
 
 ## 2. Goals
 
 - 本机上按名字定位程序**唯一命中**本项目产物：`glance3d.exe`（Windows 任务管理器/文件属性同时显示品牌化元数据）。
+- 配置/缓存目录与官方 F3D **隔离**：本项目读写 `Glance3D` 命名目录（旧配置一次性拷入），旧 `f3d` 目录原样留给官方 F3D。
 - 首次启动（无记忆、无显式 CLI 几何）：窗口在光标所在显示器**居中**，尺寸自适应工作区、观感合理。
 - 后续启动：**恢复上次会话的尺寸/位置（及最大化状态，Windows 完整支持）**，并对显示器变化做有效性校验。
 - 窗口几何一经建立（恢复/默认/用户手调），程序自身**不再自动改写**——加载完成不重置。
@@ -26,7 +29,7 @@ Glance3D 由 F3D 派生。项目身份（`project(Glance3D)`、窗口标题、ma
 
 ## 3. User Stories
 
-依赖关系：US-001→US-002/003/004 可并行；US-005 是 US-006/007 的前置；US-008 可与 US-006/007 同批实现（同一处代码）。
+依赖关系：US-001→US-002/003/004 可并行；US-009 独立（归更名组，2026-07-09 评审新增，编号顺延）；US-005 是 US-006/007 的前置；US-008 可与 US-006/007 同批实现（同一处代码）。
 
 ### US-001: 构建产物更名为 glance3d
 **Description:** 作为用户，我希望本项目桌面程序的文件名是 `glance3d.exe`，从而在任务管理器、开始菜单、脚本与自动化中不再和其它已安装的 `f3d.exe` 混淆。
@@ -64,6 +67,20 @@ Glance3D 由 F3D 派生。项目身份（`project(Glance3D)`、窗口标题、ma
 - [ ] `CLAUDE.md` 中所有 `build/bin_Release/f3d.exe`（无头出图、回放范式等）更新为 `glance3d.exe`，并实测文档中的出图命令可运行
 - [ ] `doc/user/13-LIMITATIONS_AND_TROUBLESHOOTING.md`、`doc/dev/04-GETTING_STARTED.md`、`doc/dev/15-COMMON_COMMANDS.zh-CN.md` 中的 `f3d.exe` 引用更新
 - [ ] `rg 'bin_Release/f3d\.exe'` 命中 0
+
+### US-009: 配置与缓存目录品牌化隔离（更名组，编号顺延）
+**Description:** 作为用户，我希望本项目的配置目录、缓存目录与机器上官方 F3D 的分开，避免两个程序读写同一份配置/缓存互相干扰。
+
+**Acceptance Criteria:**
+- [ ] `F3DSystemTools::GetUserConfigFileDirectory()`（[application/F3DSystemTools.cxx:139](application/F3DSystemTools.cxx)）目录名 `f3d` → `Glance3D`：Windows `%APPDATA%\Glance3D`、Linux `$XDG_CONFIG_HOME/Glance3D`（无则 `~/.config/Glance3D`）、macOS `~/Library/Application Support/Glance3D`；colormaps 等派生查找路径随之生效
+- [ ] 一次性迁移：新目录不存在且旧 `…\f3d` 存在 → 递归**拷贝**（含 `colormaps/` 等子目录）到新目录；**绝不移动/删除/修改旧目录**（它仍是官方 F3D 的活动目录）
+- [ ] 新目录已存在 → 直接使用、不再读旧目录（此后两程序各自演化互不干扰，即隔离的目标语义）
+- [ ] 拷贝中途失败（权限/磁盘满）→ 清理残缺新目录 + WARN 日志 + 本次回退读旧目录、下次启动自动重试；不可读文件跳过并逐条记录；任何情况不崩溃
+- [ ] 迁移决策原因码写 debug/info 日志：`config-dir: fresh | migrated(<n> files) | existing | migrate-failed-fallback`
+- [ ] 缓存目录隔离 *(SHOULD)*：应用层经 `engine::setCachePath` 覆盖为 `Glance3D` 命名缓存目录（Windows `%LOCALAPPDATA%\Glance3D\cache`）；libf3d 默认值（[library/src/engine.cxx:95](library/src/engine.cxx)）不动；旧缓存不迁移不删除，自然废弃
+- [ ] 端到端自动验证（Windows）：在旧目录放带唯一标记的测试文件 → 启动 → 断言新目录出现拷贝、旧目录原样、日志原因码正确；事后清理测试痕迹。注意 `SHGetKnownFolderPath` **不受 `APPDATA` 环境变量重定向影响**（见 7.5 可测性）
+- [ ] 文档同步：[doc/user/06-CONFIGURATION_FILE.md](doc/user/06-CONFIGURATION_FILE.md)、[doc/user/09-COLOR_MAPS.md](doc/user/09-COLOR_MAPS.md)、[doc/user/11-DESKTOP_INTEGRATION.md](doc/user/11-DESKTOP_INTEGRATION.md)、[doc/user/03-OPTIONS.md](doc/user/03-OPTIONS.md) 中的 `f3d` 用户目录路径全部更新
+- [ ] `--no-config` 路径行为照旧（既有测试免疫）；构建通过（native-local + dev 严格编译）
 
 ### US-005: 共享核心窗口几何读取 API（前置）
 **Description:** 作为应用层开发者，我需要从 `f3d::window` 读到当前窗口位置（及最大化状态），才能实现几何持久化——现有 API 只有 `setSize/getWidth/getHeight/setPosition`（[library/public/window.h:83-98](library/public/window.h)），**无 getPosition**。
@@ -130,17 +147,26 @@ Glance3D 由 F3D 派生。项目身份（`project(Glance3D)`、窗口标题、ma
 - **FR-10**: 交互式运行必须持久化窗口几何：变更防抖（≤1s）保存 + 退出兜底保存；写入必须原子（temp + rename）。
 - **FR-11**: 状态文件为每用户**状态**（非漫游配置）：Windows `%LOCALAPPDATA%\Glance3D\window-state.json`（与日志同根目录）；Linux `$XDG_STATE_HOME/Glance3D/`（无则 `~/.local/state/Glance3D/`）；macOS `~/Library/Application Support/Glance3D/`。不写入 `%APPDATA%\f3d`（该目录另案处理，见 Non-Goals）。
 - **FR-12**: 恢复前必须校验：保存 rect 与任一显示器工作区交集 ≥100×100 且窗口标题栏可达；尺寸超出目标显示器工作区则 clamp；校验失败回退 FR-8。
-- **FR-13** *(SHOULD)*: 最大化状态必须记忆与还原；Windows 用 `GetWindowPlacement/SetWindowPlacement` 语义（记普通 rect + maximized 位，还原时先定位后最大化）；Linux/macOS best-effort，做不到则降级为普通几何，不得报错。
+- **FR-13** *(SHOULD)*: 最大化状态必须记忆与还原；Windows 用 `GetWindowPlacement/SetWindowPlacement` 语义（记普通 rect + maximized 位，还原时先定位后最大化）；Linux/macOS best-effort，做不到则降级为普通几何，不得报错。Wayland 下位置恢复天然不可用：仅尺寸+最大化生效，位置交给合成器并记日志（2026-07-09 决策 #4）。
 - **FR-14**: 显式 `--resolution`/`--position`、`--output`、`--no-render`、`--no-config` 任一出现 → 该次运行禁用恢复与保存（显式意图优先 + 自动化确定性）。
 - **FR-15**: 初始几何建立后，程序自身不得再自动改写窗口几何；`F3DStarter::Start()` 中 `LoadFileGroup()` 之后的二次 `ApplyPositionAndResolution()`（F3DStarter.cxx:1338）与一切再加载路径（watch 重载、文件组切换、拖放）均不得覆盖用户几何。
 - **FR-16**: 恢复/默认/保存/抑制/跳过重应用的每个决策必须写 debug 级日志（含最终 rect 与原因码），作为无人值守验证与后续排查的观测依据。
 - **FR-17**: 跨会话显示器/DPI 变化不做像素换算（v1 存物理像素），一律经 FR-12 校验兜底。
 - **FR-18**: 多实例并发：last-writer-wins；读到损坏 JSON → WARN 日志 + 回退默认，不崩溃。
 
+### 配置与缓存目录（FR-19 ~ FR-23，2026-07-09 评审新增）
+- **FR-19**: 用户配置目录必须为 `Glance3D` 命名（Windows `%APPDATA%\Glance3D`、Linux `$XDG_CONFIG_HOME/Glance3D` 或 `~/.config/Glance3D`、macOS `~/Library/Application Support/Glance3D`）；系统级配置目录与安装布局路径不在本轮范围（见 Non-Goals）。
+- **FR-20**: 目录解析次序：新目录存在 → 直接用；否则旧 `f3d` 目录存在 → 一次性递归拷贝后用新目录；否则按需新建（现行为）。
+- **FR-21**: 迁移必须为**拷贝**而非移动；旧目录及其内容在任何代码路径下不得被修改、移动或删除。
+- **FR-22**: 迁移失败必须安全回退：清理残缺新目录、本次运行回退读旧目录、WARN 日志、下次启动重试；不可读文件跳过并记录。
+- **FR-23** *(SHOULD)*: 桌面应用缓存目录经应用层 `engine::setCachePath` 覆盖为 `Glance3D` 命名；libf3d 共享核心默认缓存路径保持不变。
+
 ## 5. Non-Goals (Out of Scope)
 
 - **不改** CMake 目标名、`f3dTargets` 导出、`f3d::` 命名空间、`libf3d` 库名及上游内部标识符（`F3DStarter` 等类/文件名）——控制与上游 F3D 的合并摩擦（仓库既定策略，见 [CMakeLists.txt:27-28](CMakeLists.txt)）。
-- **不迁移**用户配置目录 `%APPDATA%\f3d`（[F3DSystemTools.cxx:141](application/F3DSystemTools.cxx) `applicationName = "f3d"`）：涉及存量用户配置迁移与回退策略，另立 PRD（见 Open Questions #2）。
+- 配置目录迁移为**单向一次性拷贝**：不做新旧目录双向同步；不移动/不删除旧 `%APPDATA%\f3d`（它仍是官方 F3D 的活动目录）。
+- **不改** libf3d 共享核心默认缓存路径与 SDK/绑定行为：桌面缓存隔离经应用层 `setCachePath` 覆盖实现（见 7.5）。
+- **不动**系统级/安装布局路径（`/etc/f3d`、`[install_dir]\share\f3d`、`<exe>/../share/f3d` 资源锚点）：属安装器/打包层，随未来安装器 PRD 处理。
 - **不提供** `f3d` 兼容别名/软链/shim。
 - **不记忆**全屏（`--fullscreen`）状态；`--fullscreen` 行为不变。
 - **不做**多实例各自独立记忆、按显示器/工作区多套记忆。
@@ -191,17 +217,29 @@ UI 无新增可见控件；唯一用户可感知变化 = 窗口出现的位置/�
 - 无头出图（`--output`）被 FR-9/FR-14 抑制 → CLAUDE.md 出图流程零变化（路径里的 exe 名除外）。
 - 新增自动化：PowerShell P/Invoke 脚本（`GetWindowRect`/`MoveWindow`）+ `G3D_WINDOW_STATE=<临时路径>` 隔离态，端到端验证记忆链路；脚本入 `scripts/` 或测试目录以便复用。
 
+### 7.5 配置/缓存目录迁移设计（US-009）
+- **单点改名**：用户目录名常量仅在 `GetUserConfigFileDirectory()` 一处（F3DSystemTools.cxx:141），colormaps 查找等均由它派生，改一处全生效；实现时仍须全局复查其它硬编码 `f3d` 用户路径。
+- **拷贝不移动**：旧 `%APPDATA%\f3d` 同时是官方 F3D 的活动目录——迁移后两程序各自独立演化、不做同步，这正是"隔离"的定义。
+- **失败原子性**：目录级无法完美原子。策略 = 逐文件拷贝，任一失败即删除整个新目录并回退旧目录（本次运行仍可用），下次启动重试；跳过项逐条记日志。
+- **可测性坑**：Windows 配置目录经 `SHGetKnownFolderPath(ROAMINGAPPDATA)` 获取，**不受 `APPDATA` 环境变量重定向影响**——端到端测试须在真实目录用唯一标记文件 + 事后清理；若实现时评估真实目录操作过险，可为测试新增 `G3D_CONFIG_DIR` 覆盖开关（报告注明取舍）。
+- **缓存走应用层覆盖**（`engine::setCachePath`）而非改 libf3d 默认：共享核心零 diff、wasm/SDK 消费者零影响、上游合并零摩擦；缓存内容可再生，不迁移旧数据。
+
 ## 8. Success Metrics
 
 - **消歧**：`rg -i 'f3d\.exe'` 仓库命中 0（历史 changelog 除外）；本机按 `glance3d` 检索唯一命中本项目产物；任务管理器显示 ProductName=Glance3D。
+- **隔离**：迁移后本项目读写均落在 `Glance3D` 目录（日志原因码 + 新目录内容实测为证）；旧 `f3d` 目录内容与迁移前完全一致（前后快照比对）。
 - **启动体验**：首启窗口中心 = 目标显示器工作区中心（±2px，P/Invoke 实测）；二次启动几何恢复一致（状态文件 ↔ 日志 ↔ GetWindowRect 三方一致）；加载完成后窗口几何与用户最后一次调整一致（日志 `skip-reapply` + 实测）。
 - **零回归**：默认与显式分辨率的无头出图尺寸/内容与改动前基线一致；抽查回放 `--reference` 误差达标；若开 `BUILD_TESTING`，相关 ctest 标签全绿；`npm run build`（wasm）通过。
 - **可观测**：任一几何决策均可从 `g3d_*.log` 单文件还原完整因果链。
 
-## 9. Open Questions
+## 9. 已确认决策（2026-07-09 评审拍板）
 
-1. **产物名大小写**：推荐全小写 `glance3d`（跨平台 CLI 惯例一致，Linux 二进制小写为规范；Windows 展示层品牌感由 VERSIONINFO 承担）。若倾向资源管理器里显示 `Glance3D.exe`，仅改 OUTPUT_NAME 大小写即可，不影响其它验收。
-2. **用户配置目录 `%APPDATA%\f3d` 是否更名迁移**：建议另立 PRD（需「新目录优先、旧目录 fallback 读 + 一次性迁移」策略），本轮不动，避免和窗口状态混在一个变更里。
-3. **Wayland 位置限制**：Wayland 协议不允许客户端自定位窗口 → Linux/Wayland 下位置恢复天然降级（仅尺寸生效）。推荐接受并在日志/文档注明，不做专门 workaround。
-4. **保存粒度**：推荐「防抖 ≤1s + 退出兜底」（崩溃丢失窗口小）；若嫌 IO 频繁可退化为仅退出保存，验收相应放宽——默认按前者执行。
-5. **发行物层（安装器/注册表）**：仓库内未见 NSIS 等安装脚本；本轮范围 = 仓库内全部可见引用。若后续引入安装器，需把 `glance3d.exe`、文件关联、winshellext 注册一并纳入其 PRD。
+| # | 议题 | 决策 | 落点 |
+|---|---|---|---|
+| 1 | 产物名大小写 | 全小写 **`glance3d`**；Windows 品牌展示由 VERSIONINFO 承担 | FR-1/FR-2、US-001/US-002（维持原案） |
+| 2 | `%APPDATA%\f3d` 配置目录 | **本轮一起改，带一次性拷贝迁移**（否决原「另立 PRD」推荐，范围扩充） | 新增 US-009、FR-19~FR-23、7.5 |
+| 3 | 保存粒度 | 防抖 ≤1s + 退出兜底（抗崩溃，业内主流） | FR-10（维持原案） |
+| 4 | Wayland 位置限制 | 接受降级：仅恢复尺寸+最大化，位置交给合成器并记日志 | FR-13（维持原案） |
+| 5 | 安装器/系统注册 | 本轮仅改仓库内引用；文件关联/缩略图注册记入未来安装器 PRD | Non-Goals（维持原案） |
+
+决策 #2 的边界语义（评审沟通中确认）：迁移为**拷贝**而非移动——旧目录同时是官方 F3D 的活动目录，必须原样保留；迁移完成后两目录各自演化、不做同步，这正是「隔离」的目标语义。缓存目录一并隔离，但走应用层 `setCachePath` 覆盖、不动共享核心默认值（见 7.5）。
