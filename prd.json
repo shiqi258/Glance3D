@@ -1,0 +1,156 @@
+{
+  "project": "Glance3D",
+  "branchName": "ralph/desktop-rename-and-window-state",
+  "description": "桌面应用可执行文件更名为 glance3d、启动窗口几何（首启居中默认值/跨会话记忆/根治加载后重置）、配置与缓存目录品牌化隔离。完整需求、FR 编号与设计决策见 tasks/prd-desktop-rename-and-window-state.md（已评审确认）。本项目为 C++ 桌面应用：每个 story 的构建门槛 = cmake --build --preset native-local 通过 + dev 预设严格编译（F3D_STRICT_BUILD）通过；UI/行为验证一律用仓库自动化手段（无头出图+Read 读图、%LOCALAPPDATA%\\Glance3D\\logs 日志断言、testing/recordings 回放 --reference 比对、PowerShell P/Invoke 查询真实窗口 rect），禁止要求人工操作。纪律：只本地提交不 push；改动经验证无效即回退；不得为通过比对而重生成 testing/baselines 基线图。",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "构建产物更名为 glance3d",
+      "description": "作为用户，我希望本项目桌面程序的文件名是 glance3d.exe，从而在任务管理器、开始菜单、脚本与自动化中不再和其它已安装的 f3d.exe 混淆。",
+      "acceptanceCriteria": [
+        "application/CMakeLists.txt：CMake 目标名 f3d / f3d-console 保持不变，仅设 OUTPUT_NAME 为 glance3d / glance3d-console（保证 $<TARGET_FILE:f3d> 与 f3dTargets 导出零波及）",
+        "cmake --build --preset native-local 后产物为 build/bin_Release/glance3d.exe",
+        "删除构建树残留的旧 build/bin_Release/f3d.exe，防止继续误用旧产物",
+        "build/bin_Release/glance3d.exe testing/data/f3d.glb --output shot.png --resolution 800,600 出图成功且 Read 读图内容正常（运行时资源按 <exe>/../share/f3d 目录锚点解析，须实证不受文件名影响），验证后删除临时图",
+        "全局排查 F3DSystemTools 等处按 argv[0]/exe 文件名推导路径的逻辑，确认无被更名破坏之处",
+        "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Windows 版本信息资源（VERSIONINFO）",
+      "description": "作为用户，我希望在任务管理器/文件属性里看到 Glance3D 的产品名与版本号，而不是无元数据的裸 exe。",
+      "acceptanceCriteria": [
+        "resources/f3d.rc（现仅一行图标）补充 VERSIONINFO 块：ProductName=Glance3D、FileDescription=Glance3D - A fast and minimalist 3D viewer、OriginalFilename=glance3d.exe",
+        "FileVersion/ProductVersion 取自 F3D_VERSION（经 configure_file 或等价机制注入，不写死版本号）",
+        "PowerShell 验证：(Get-Item build/bin_Release/glance3d.exe).VersionInfo 显示上述字段与正确版本号",
+        "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "周边引用与帮助文本同步 glance3d",
+      "description": "作为用户/集成方，我希望缩略图扩展、Linux 桌面集成、shell 补全、帮助文本引用的程序名与新产物一致，不留指向失效的 f3d 引用。",
+      "acceptanceCriteria": [
+        "winshellext/F3DThumbnailProvider.cxx 约 103 行：定位可执行文件的字面量 L\"f3d.exe\" 改为 L\"glance3d.exe\"",
+        "resources/glance3d.desktop：TryExec=glance3d、Exec=glance3d %F、Icon=glance3d",
+        "application/CMakeLists.txt：Linux 图标安装 RENAME 由 f3d.png/f3d.svg 改为 glance3d.png/glance3d.svg；shell 补全安装名 f3d/_f3d/f3d.fish 改为 glance3d/_glance3d/glance3d.fish；man 生成 f3d.1 改为 glance3d.1",
+        "build/bin_Release/glance3d.exe --help 的 Usage 行显示 glance3d（若硬编码则修改，若取 argv[0] 则实测确认输出）",
+        "rg -i 'f3d\\.exe' 全仓复查：除 doc/ 使用文档（US-004 处理）与历史性 changelog 外命中 0",
+        "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "仓库文档与 CLAUDE.md 更新为 glance3d.exe",
+      "description": "作为后续维护者（人或 AI），我希望文档里的可执行路径全部指向新产物，无人值守流程照抄可用。",
+      "acceptanceCriteria": [
+        "CLAUDE.md 中所有 build/bin_Release/f3d.exe（无头出图、交互回放范式等）更新为 glance3d.exe",
+        "实测 CLAUDE.md 文档中的无头出图命令可运行出图（用更新后的路径原样执行一次）",
+        "doc/user/13-LIMITATIONS_AND_TROUBLESHOOTING.md、doc/dev/04-GETTING_STARTED.md、doc/dev/15-COMMON_COMMANDS.zh-CN.md 中的 f3d.exe 引用全部更新",
+        "rg 'bin_Release/f3d\\.exe' 全仓命中 0",
+        "纯文档改动：cmake --build --preset native-local 增量构建仍通过（应为无操作）"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "配置与缓存目录品牌化隔离（迁移式）",
+      "description": "作为用户，我希望本项目的配置目录、缓存目录与机器上官方 F3D 的分开，避免两个程序读写同一份配置/缓存互相干扰。",
+      "acceptanceCriteria": [
+        "application/F3DSystemTools.cxx 约 139 行 GetUserConfigFileDirectory()：目录名 f3d 改为 Glance3D（Windows %APPDATA%\\Glance3D、Linux $XDG_CONFIG_HOME/Glance3D 无则 ~/.config/Glance3D、macOS ~/Library/Application Support/Glance3D）；colormaps 等派生查找路径随之生效",
+        "一次性迁移：新目录不存在且旧 …\\f3d 存在时递归拷贝（含 colormaps/ 等子目录）到新目录；绝不移动/删除/修改旧目录（它仍是官方 F3D 的活动目录）",
+        "新目录已存在则直接使用、不再读旧目录；拷贝中途失败（权限/磁盘满）则清理残缺新目录 + WARN 日志 + 本次回退读旧目录、下次启动自动重试；不可读文件跳过并逐条记录；任何情况不崩溃",
+        "迁移决策原因码写日志：config-dir: fresh | migrated(<n> files) | existing | migrate-failed-fallback",
+        "缓存隔离（SHOULD）：应用层经 engine::setCachePath 覆盖为 %LOCALAPPDATA%\\Glance3D\\cache（各平台等价缓存根）；library/src/engine.cxx 约 95 行的 libf3d 默认值不动；旧缓存不迁移不删除",
+        "端到端自动验证（Windows，真实 %APPDATA%，带唯一标记的测试文件+事后清理；注意 SHGetKnownFolderPath 不受 APPDATA 环境变量重定向影响）：旧目录放标记文件 → 启动 → 断言新目录出现拷贝、旧目录原样、日志原因码正确",
+        "文档同步：doc/user/06-CONFIGURATION_FILE.md、doc/user/09-COLOR_MAPS.md、doc/user/11-DESKTOP_INTEGRATION.md、doc/user/03-OPTIONS.md 中的 f3d 用户目录路径全部更新",
+        "--no-config 行为照旧（既有测试免疫）",
+        "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "共享核心窗口几何读取 API（getPosition/最大化）",
+      "description": "作为应用层开发者，我需要从 f3d::window 读到当前窗口位置与最大化状态，才能实现几何持久化——现有 API（library/public/window.h）只有 setSize/getWidth/getHeight/setPosition，无 getPosition。",
+      "acceptanceCriteria": [
+        "library/public/window.h 增补 additive API：getPosition()（返回屏幕坐标）；Windows 提供最大化状态读取（建议 isMaximized()，在 window_impl 层经 vtkRenderWindow::GetGenericWindowId 的 HWND 走 GetWindowPlacement，平台宏守卫；非 Windows 返回 false）",
+        "无窗口/无头/WASM 实现给出安全语义（返回 last-set 或 0,0，不崩溃），头文件注释写明",
+        "桌面端 round-trip 验证：setPosition(x,y) 后 getPosition() 读回一致（debug 日志行为证据）",
+        "两端回归：npm run build（wasm）通过——共享核心改动必须桌面+网页双端回归",
+        "语言绑定（js/python）不强制暴露新 API；如顺手暴露须相应绑定测试通过",
+        "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "首启默认几何：光标屏工作区居中+自适应尺寸",
+      "description": "作为用户，第一次启动（或无记忆可用）时，我希望窗口出现在我正在用的显示器中央、尺寸合理，而不是左上角的固定小窗。",
+      "acceptanceCriteria": [
+        "交互式启动且无显式 --resolution/--position 时：目标显示器 = 光标所在显示器（取不到则主屏）；逻辑尺寸 = 该显示器工作区（扣任务栏）的 70%（宽高各自计算），clamp 到 [1000×600×DPI缩放, 工作区 100%]；位置 = 工作区居中（显示器枚举用 Win32 MonitorFromPoint/GetMonitorInfo，置于应用层平台守卫内；新代码文件按 G3D 品牌命名）",
+        "无头路径（--output / --no-render）行为完全不变：默认仍 1000,600、不居中——glance3d.exe testing/data/f3d.glb --output a.png 产物为 1000×600，与改动前基线图对比一致（改动前先出一张留档）",
+        "macOS 专用 hack（application/F3DStarter.cxx 约 916 行 setPosition(100,800)）由居中逻辑取代（平台宏守卫；本机无法实测 macOS，代码评审验收并在 notes 注明）",
+        "启动 debug 日志输出决策链：目标显示器、工作区 rect、最终窗口 rect、原因码 default-centered",
+        "Windows 加强证据：PowerShell P/Invoke GetWindowRect 读实际窗口 rect，与日志一致且中心点 = 目标显示器工作区中心 ±2px",
+        "抽查 2 个 testing/recordings 回放（固定带 --no-config --resolution=300,300）--reference 误差达标，证明显式分辨率路径不受影响",
+        "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "消除加载完成后的窗口几何重置",
+      "description": "作为用户，打开大文件时我会趁加载中把窗口拖到合适的位置与尺寸，我希望加载完成后窗口保持我调整的样子，而不是被程序改回默认。",
+      "acceptanceCriteria": [
+        "动手前考证：git log -L / 对照上游 f3d，查明 application/F3DStarter.cxx 约 1338 行（LoadFileGroup() 之后）第二次 ApplyPositionAndResolution() 的引入原因，确认 --output 无头路径对它无时序依赖后再删改；若确有依赖则改为『几何尚未成功建立时才生效』的守卫式实现",
+        "初始几何建立后程序不再自动改写窗口几何；原第二次调用位置留 debug 日志（如 skip geometry re-apply: already established）作为运行时证据",
+        "审计其余再加载路径（--watch 重载、load_next_file_group / load_previous_file_group、remove_file_groups、拖放新文件）均不改写几何；实测其一：加载文件 A → PowerShell P/Invoke 改窗口尺寸 → --command-script 执行 load_next_file_group → GetWindowRect 断言尺寸未被改回",
+        "无头回归：默认 --output（1000×600）与显式 --resolution 800,600 的产物尺寸与改动前一致，Read 读图对比无异常",
+        "既有 interaction 回放抽查 ≥3 个（含 UI 类）--reference 误差达标",
+        "诚实性约束：真实『加载中途拖动』涉及被阻塞消息循环的注入时序竞态，若无法无人值守可靠复现，允许以『代码路径日志证据 + 全量回归』验收，并在 notes 如实注明验证边界，不得伪造",
+        "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "窗口几何持久化与恢复（含校验/抑制/开关）",
+      "description": "作为用户，我希望程序记住我上次的窗口尺寸/位置（及最大化状态），下次启动直接还原，不必每次手动拖放。",
+      "acceptanceCriteria": [
+        "交互式运行中几何变更防抖（≤1s）保存 + 正常退出兜底保存；原子写（临时文件+rename）到状态文件；状态文件为带 version 字段的 JSON：{version,x,y,width,height,maximized}（物理像素）",
+        "状态文件位置：Windows %LOCALAPPDATA%\\Glance3D\\window-state.json（与日志同根）、Linux $XDG_STATE_HOME/Glance3D 无则 ~/.local/state/Glance3D、macOS ~/Library/Application Support/Glance3D；实现放应用层、新代码文件按 G3D 品牌命名",
+        "再次交互式启动恢复保存的 rect；maximized=true 时先按普通 rect 定位再最大化（Windows 完整支持；其它平台降级为普通几何；Wayland 位置天然不可恢复，仅尺寸+最大化生效并记日志）",
+        "有效性校验：保存 rect 与当前任一显示器工作区交集 ≥100×100 且标题栏可达，尺寸超出目标工作区则 clamp；不满足回退 US-006 默认居中——伪造离屏坐标（如 x=-99999）写入状态文件后启动，日志显示 restore-invalid → default-centered",
+        "抑制规则：显式 --resolution 或 --position、--output、--no-render、--no-config 任一存在 → 该次运行既不恢复也不保存（状态文件 mtime 不变为证据；判定依据是『用户是否显式提供』而非值比较，复用 CLI/config 解析层的来源信息）",
+        "开关：G3D_WINDOW_STATE=0 禁用、G3D_WINDOW_STATE=<path> 重定向状态文件；损坏 JSON → WARN 日志 + 回退默认，不崩溃",
+        "端到端自动验证（Windows PowerShell）：启动（G3D_WINDOW_STATE 重定向到临时路径）→ P/Invoke MoveWindow 改几何 → 正常关闭 → 断言状态文件内容 → 再启动 → 日志 restored rect 与 GetWindowRect 实测一致",
+        "每个决策写 debug 日志：restored / restore-invalid / default-centered / suppressed(<flag>) / saved（含最终 rect）",
+        "npm run build（wasm）不受影响；构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
