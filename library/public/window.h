@@ -119,6 +119,18 @@ public:
   [[nodiscard]] virtual bool isMaximized() const = 0;
 
   /**
+   * Request the window to be maximized (true) or restored to its normal rect
+   * (false). To restore a maximized window onto the correct monitor, first set
+   * the normal size/position with setSize()/setPosition(), then call
+   * setMaximized(true).
+   *
+   * Only effective on Windows, where it is applied through the native window
+   * handle. A no-op on other platforms, for offscreen/mock/WASM windows, and
+   * whenever no native window handle is available. Never throws.
+   */
+  virtual window& setMaximized(bool maximized) = 0;
+
+  /**
    * Set the icon to be shown by a window manager.
    * icon should be an unsigned char array.
    * iconSize should be the sizeof(icon).

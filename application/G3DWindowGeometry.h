@@ -14,6 +14,7 @@
 
 #include <optional>
 #include <utility>
+#include <vector>
 
 namespace g3d::window_geometry
 {
@@ -45,6 +46,20 @@ struct Rect
  * Never throws; any query failure yields std::nullopt.
  */
 [[nodiscard]] std::optional<Rect> cursorMonitorWorkArea();
+
+/**
+ * Return the work area of every connected monitor, in physical pixels with a
+ * top-left origin. Used to validate a restored window rect against the current
+ * display layout (US-007): a saved rect is only usable if it still intersects
+ * some monitor's work area.
+ *
+ * - Windows: Win32 EnumDisplayMonitors / GetMonitorInfo (real, tested).
+ * - Other platforms: an empty vector (no enumeration; caller then falls back to
+ *   the default centered geometry instead of restoring).
+ *
+ * Never throws.
+ */
+[[nodiscard]] std::vector<Rect> allMonitorWorkAreas();
 
 /**
  * Center a window of the given size inside a work area, returning the top-left

@@ -369,6 +369,25 @@ bool window_impl::isMaximized() const
 }
 
 //----------------------------------------------------------------------------
+window& window_impl::setMaximized(bool maximized)
+{
+#ifdef _WIN32
+  // Drive the native window through its handle, mirroring isMaximized(). Offscreen/
+  // mock windows have no usable HWND, so this is a safe no-op there.
+  HWND hwnd = static_cast<HWND>(this->Internals->RenWin->GetGenericWindowId());
+  if (hwnd != nullptr)
+  {
+    ::ShowWindow(hwnd, maximized ? SW_MAXIMIZE : SW_RESTORE);
+  }
+#else
+  // Not implemented on other platforms: geometry persistence degrades to a
+  // plain rect there (see window.h).
+  (void)maximized;
+#endif
+  return *this;
+}
+
+//----------------------------------------------------------------------------
 window& window_impl::setIcon(const unsigned char* icon, size_t iconSize)
 {
   // XXX This code requires that the interactor has already been set on the render window

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #ifdef _WIN32
 // Avoid the windows.h min/max macros clobbering std::min/std::max/std::clamp.
@@ -105,4 +106,35 @@ std::optional<Rect> cursorMonitorWorkArea()
 #endif
 }
 #endif // !__APPLE__
+
+//----------------------------------------------------------------------------
+// Defined for every platform (unlike cursorMonitorWorkArea, which macOS overrides
+// in the .mm): only Windows enumerates monitors here. Elsewhere the empty vector
+// makes restore validation fail closed, so the caller keeps the default geometry.
+std::vector<Rect> allMonitorWorkAreas()
+{
+#ifdef _WIN32
+  std::vector<Rect> workAreas;
+  // A non-capturing lambda so it converts to the MONITORENUMPROC function pointer;
+  // the output vector is passed through the LPARAM user data.
+  ::EnumDisplayMonitors(nullptr, nullptr,
+    [](HMONITOR monitor, HDC, LPRECT, LPARAM data) -> BOOL
+    {
+      MONITORINFO info{};
+      info.cbSize = sizeof(MONITORINFO);
+      if (::GetMonitorInfoW(monitor, &info) != 0)
+      {
+        const RECT& work = info.rcWork;
+        reinterpret_cast<std::vector<Rect>*>(data)->push_back(
+          Rect{ static_cast<int>(work.left), static_cast<int>(work.top),
+            static_cast<int>(work.right - work.left), static_cast<int>(work.bottom - work.top) });
+      }
+      return TRUE;
+    },
+    reinterpret_cast<LPARAM>(&workAreas));
+  return workAreas;
+#else
+  return {};
+#endif
+}
 }

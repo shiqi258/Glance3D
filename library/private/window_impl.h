@@ -57,6 +57,7 @@ public:
   window& setPosition(int x, int y) override;
   std::array<int, 2> getPosition() const override;
   bool isMaximized() const override;
+  window& setMaximized(bool maximized) override;
   window& setIcon(const unsigned char* icon, size_t iconSize) override;
   window& setWindowName(std::string_view windowName) override;
   window& setLoadingState(bool visible, double progress, const std::string& message) override;

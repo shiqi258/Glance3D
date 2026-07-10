@@ -10,6 +10,7 @@
 #include "F3DPluginsTools.h"
 #include "F3DSystemTools.h"
 #include "G3DWindowGeometry.h"
+#include "G3DWindowState.h"
 
 #if F3D_MODULE_DMON
 #define DMON_IMPL
@@ -939,6 +940,11 @@ public:
     window.setSize(geom.width, geom.height);
     window.setPosition(geom.x, geom.y);
 
+    // Seed the normal-rect tracker so window-state saving (US-007) starts from the
+    // centered rect rather than {0,0} on the first poll.
+    this->LastNormalGeometry =
+      g3d::window_state::WindowState{ 1, geom.x, geom.y, geom.width, geom.height, false };
+
     const std::array<int, 2> reportedPos = window.getPosition();
     f3d::log::debug("Window geometry: reason=default-centered, target monitor work area (x=",
       workArea->x, ", y=", workArea->y, ", ", workArea->width, "x", workArea->height,
@@ -974,11 +980,53 @@ public:
     const bool resolutionExplicit = this->OptionExplicitlyProvided("resolution");
     const bool positionExplicit = this->OptionExplicitlyProvided("position");
 
-    // Interactive first launch (no explicit --resolution nor --position): center on
-    // the cursor monitor at an adaptive size instead of VTK's fixed small top-left
-    // window. If the monitor work area cannot be resolved, fall through to legacy.
+    // Window geometry persistence (US-007) is active only for a plain interactive run.
+    // Any explicit geometry (--resolution/--position), headless/offscreen output
+    // (--output/--reference/--list-bindings), --no-render (early-returned above) or
+    // --no-config suppresses both restore and save so all recordings / CI / headless
+    // automation are untouched (FR-14). G3D_WINDOW_STATE=0 disables it entirely; the
+    // decision is source-based (OptionExplicitlyProvided), not value-based.
+    this->WindowStateActive = false;
+    this->WindowStatePath.reset();
+    if (offscreen)
+    {
+      f3d::log::debug("Window geometry: reason=suppressed(offscreen)");
+    }
+    else if (resolutionExplicit)
+    {
+      f3d::log::debug("Window geometry: reason=suppressed(resolution)");
+    }
+    else if (positionExplicit)
+    {
+      f3d::log::debug("Window geometry: reason=suppressed(position)");
+    }
+    else if (this->NoConfig)
+    {
+      f3d::log::debug("Window geometry: reason=suppressed(no-config)");
+    }
+    else
+    {
+      this->WindowStatePath = g3d::window_state::resolveStateFilePath();
+      if (this->WindowStatePath.has_value())
+      {
+        this->WindowStateActive = true;
+      }
+      else
+      {
+        f3d::log::debug("Window geometry: reason=suppressed(disabled)");
+      }
+    }
+
+    // Interactive first launch (no explicit --resolution nor --position): restore the
+    // saved geometry if there is a valid one (US-007), otherwise center on the cursor
+    // monitor at an adaptive size instead of VTK's fixed small top-left window (US-006).
+    // If neither is possible, fall through to the legacy default handling.
     if (!offscreen && !resolutionExplicit && !positionExplicit)
     {
+      if (this->WindowStateActive && this->RestoreWindowGeometry(window))
+      {
+        return;
+      }
       if (this->ApplyDefaultCenteredGeometry(window))
       {
         return;
@@ -1168,6 +1216,156 @@ public:
   // completion instead of being reset back to the default/centered geometry.
   bool GeometryEstablished = false;
 
+  // Window geometry persistence across sessions (US-007). Set to false when the run
+  // parses --no-config so restore/save is suppressed (matches recordings/CI immunity).
+  bool NoConfig = false;
+
+  // Persistence is active only for a plain interactive run (no explicit geometry, no
+  // headless/offscreen output, no --no-config, and G3D_WINDOW_STATE != 0). When active,
+  // WindowStatePath is the resolved window-state.json path.
+  bool WindowStateActive = false;
+  std::optional<fs::path> WindowStatePath;
+
+  // The last observed *normal* (non-maximized) window rect, so that while the window
+  // is maximized we persist the restore rect (not the maximized bounds) plus the
+  // maximized flag, matching the GetWindowPlacement "normal position + maximized bit"
+  // semantics without needing the native handle in the app layer.
+  g3d::window_state::WindowState LastNormalGeometry;
+
+  // Debounced-save bookkeeping: the pending (latest polled) state, the last state
+  // actually written to disk, whether a change is pending, and when it last changed.
+  std::optional<g3d::window_state::WindowState> PendingState;
+  std::optional<g3d::window_state::WindowState> LastSavedState;
+  bool GeometryDirty = false;
+  std::chrono::steady_clock::time_point LastGeometryChangeTime;
+
+  // Read the current persistable window state. While maximized, x/y/width/height come
+  // from LastNormalGeometry (the last non-maximized rect) so the restore rect is kept.
+  g3d::window_state::WindowState ReadCurrentWindowState(f3d::window& window)
+  {
+    const bool maximized = window.isMaximized();
+    if (!maximized)
+    {
+      const std::array<int, 2> pos = window.getPosition();
+      this->LastNormalGeometry = g3d::window_state::WindowState{ 1, pos[0], pos[1],
+        window.getWidth(), window.getHeight(), false };
+    }
+    g3d::window_state::WindowState state = this->LastNormalGeometry;
+    state.maximized = maximized;
+    return state;
+  }
+
+  // Try to restore a previously saved window geometry (US-007). Returns true when a
+  // valid saved rect was applied (logs `restored`); returns false when there is no
+  // usable state (fresh / corrupt / invalid), after logging the reason, so the caller
+  // falls back to the default centered geometry.
+  bool RestoreWindowGeometry(f3d::window& window)
+  {
+    if (!this->WindowStatePath.has_value())
+    {
+      return false;
+    }
+    const g3d::window_state::LoadResult loaded =
+      g3d::window_state::load(this->WindowStatePath.value());
+    if (loaded.status == g3d::window_state::LoadStatus::Missing)
+    {
+      return false; // fresh user: no log, fall through to default-centered
+    }
+    if (loaded.status == g3d::window_state::LoadStatus::Corrupt)
+    {
+      f3d::log::warn(g3d::locale::translate(
+        "Ignoring corrupted window state file {path}",
+        { { "path", this->WindowStatePath.value().string() } }));
+      f3d::log::debug("Window geometry: reason=restore-invalid (corrupt) -> default-centered");
+      return false;
+    }
+
+    const std::optional<g3d::window_state::WindowState> valid =
+      g3d::window_state::validate(loaded.state, g3d::window_geometry::allMonitorWorkAreas());
+    if (!valid.has_value())
+    {
+      f3d::log::debug("Window geometry: reason=restore-invalid -> default-centered");
+      return false;
+    }
+
+    window.setSize(valid->width, valid->height);
+    window.setPosition(valid->x, valid->y);
+    if (valid->maximized)
+    {
+      // Position first (above) so the maximize lands on the correct monitor.
+      window.setMaximized(true);
+    }
+
+    // Seed the normal-rect tracker with the restored rect so a later maximize keeps
+    // persisting this rect, and prime LastSavedState so we do not immediately rewrite
+    // an identical file.
+    this->LastNormalGeometry = valid.value();
+    this->LastSavedState = this->ReadCurrentWindowState(window);
+
+    const std::array<int, 2> reportedPos = window.getPosition();
+    f3d::log::debug("Window geometry: reason=restored, rect (x=", valid->x, ", y=", valid->y, ", ",
+      valid->width, "x", valid->height, "), maximized=", valid->maximized ? "true" : "false",
+      ", window reports position (", reportedPos[0], ", ", reportedPos[1],
+      "), maximized=", window.isMaximized() ? "true" : "false");
+    return true;
+  }
+
+  // Poll and, when due, persist the window geometry (US-007). Called every event-loop
+  // tick with force=false (poll the live window, then save ~1s after the last change)
+  // and once at exit with force=true (flush the last polled state). The exit flush does
+  // NOT re-read the window: it relies on the state captured by the last live tick, so it
+  // stays safe even if the native window is already being torn down. No-op unless
+  // persistence is active.
+  void MaybeSaveWindowState(bool force)
+  {
+    if (!this->WindowStateActive || !this->WindowStatePath.has_value() || this->AppOptions.NoRender)
+    {
+      return;
+    }
+
+    if (!force)
+    {
+      f3d::window& window = this->Engine->getWindow();
+      const g3d::window_state::WindowState current = this->ReadCurrentWindowState(window);
+      if (!this->PendingState.has_value() || current != this->PendingState.value())
+      {
+        this->PendingState = current;
+        this->LastGeometryChangeTime = std::chrono::steady_clock::now();
+        this->GeometryDirty = true;
+      }
+    }
+
+    if (!this->GeometryDirty || !this->PendingState.has_value())
+    {
+      return;
+    }
+
+    const auto elapsed = std::chrono::steady_clock::now() - this->LastGeometryChangeTime;
+    if (!force && elapsed < std::chrono::seconds(1))
+    {
+      return; // debounce: wait for the geometry to settle
+    }
+
+    this->GeometryDirty = false;
+    if (this->LastSavedState.has_value() && this->PendingState.value() == this->LastSavedState.value())
+    {
+      return; // nothing new to write
+    }
+
+    if (g3d::window_state::save(this->WindowStatePath.value(), this->PendingState.value()))
+    {
+      this->LastSavedState = this->PendingState;
+      f3d::log::debug("Window geometry: reason=saved, rect (x=", this->PendingState->x, ", y=",
+        this->PendingState->y, ", ", this->PendingState->width, "x", this->PendingState->height,
+        "), maximized=", this->PendingState->maximized ? "true" : "false");
+    }
+    else
+    {
+      f3d::log::warn(g3d::locale::translate("Could not write window state file {path}",
+        { { "path", this->WindowStatePath.value().string() } }));
+    }
+  }
+
 #if F3D_MODULE_DMON
   // dmon related
   std::mutex FilesToWatchMutex;
@@ -1269,6 +1467,9 @@ int F3DStarter::Start(int argc, char** argv)
         { { "value", iter->second } }));
     }
   }
+  // Remember for the window-state suppression rule (US-007): --no-config disables
+  // both geometry restore and save so config-less recordings/CI stay untouched.
+  this->Internals->NoConfig = noConfig;
 
   std::string config;
   if (!noConfig)
@@ -1767,6 +1968,10 @@ int F3DStarter::Start(int argc, char** argv)
 
         interactor.setEventLoopUserCallback([this](f3d::interactor_state_t) { this->EventLoop(); });
         interactor.start(deltaTime);
+
+        // Exit fallback save (US-007): flush the final window geometry on a normal
+        // exit, covering the debounce window's tail. No-op unless persistence is active.
+        this->Internals->MaybeSaveWindowState(true);
       }
 #endif
     }
@@ -2418,6 +2623,10 @@ void F3DStarter::EventLoop()
     this->Internals->ReloadFileRequested = false;
     this->Internals->Engine->getInteractor().triggerNotification("File Group Reloaded");
   }
+
+  // Debounced window geometry persistence (US-007): poll the geometry each tick and
+  // save ~1s after the user stops moving/resizing. No-op unless persistence is active.
+  this->Internals->MaybeSaveWindowState(false);
 }
 
 //----------------------------------------------------------------------------
