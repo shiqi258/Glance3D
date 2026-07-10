@@ -46,8 +46,8 @@
         "构建通过：cmake --build --preset native-local；dev 预设严格编译（F3D_STRICT_BUILD）通过"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "三处改动全部落定：(1) winshellext/F3DThumbnailProvider.cxx:103 定位字面量 L\"f3d.exe\"→L\"glance3d.exe\"（含上方注释同步 Glance3D），缩略图 DLL 按 glance3d.exe 定位渲染进程；native-local 已编译该 TU→F3DShellExtension.dll，无错。(2) resources/glance3d.desktop：TryExec=glance3d / Exec=glance3d %F / Icon=glance3d。(3) application/CMakeLists.txt：man 输出 f3d.1→glance3d.1（MAN_OUTPUT_FILE 与 .gz install 两处）；Linux 图标 RENAME f3d.png×6→glance3d.png、f3d.svg×2→glance3d.svg；shell 补全 RENAME f3d→glance3d / _f3d→_glance3d / f3d.fish→glance3d.fish。自洽性：desktop Icon=glance3d ↔ 图标 RENAME glance3d.png/svg；Exec=glance3d ↔ US-001 OUTPUT_NAME glance3d；bash 补全 RENAME glance3d ↔ 命令名 glance3d，均一致。--help Usage 行实测显示 glance3d.exe（取 argv[0]，无需改代码）。cmake --build --preset native-local 通过（glance3d.exe + F3DShellExtension.dll 均出），加改动后无头出图 f3d.glb 800×600 Read 读图正常（logo+网格+gizmo+UI 全对，无回归）。rg -i 'f3d.exe' 全仓复查：功能性代码/配置命中 0；剩余仅 doc/ 使用文档（US-004 处理）与 ralph/*、tasks/*（描述本次更名的过程/需求文档，性质等同历史 changelog，须引用旧名）。dev-strict：US-003 唯一 C++ 改动在 winshellext（F3DShellExtension 目标），该目标不接受 /W4 /WX——f3d_compile_options_private(=/W4 /WX) 仅施加于 vtkext/libf3d/application/plugins（见 CMakeLists 及各子 CMakeLists），winshellext 的 CMakeLists 未引用它，故本 story C++ 改动天然不受 strict 约束且 Release 已编译零错；dev-local 全绿仍被 pre-existing libf3d scene.h C4251 债阻断，与本 story 无关（详见 progress.txt Codebase Patterns ⚠️ 段）。"
     },
     {
       "id": "US-004",

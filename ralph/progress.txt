@@ -20,6 +20,12 @@ Started: Fri, Jul 10, 2026  6:13:05 AM
 - 改了 configure_file/模板后**必须重跑 `cmake --preset <preset>` 再 build**（configure_file 在配置期执行）。native-local 与 dev-local 两树各自需重配。
 - 验证：`(Get-Item build/bin_Release/glance3d.exe).VersionInfo` 读 ProductName/FileDescription/OriginalFilename/FileVersion 等字段。`.rc` 由 rc.exe 编译，**不受 C++ `/W4 /WX`（F3D_STRICT_BUILD）约束**，故纯资源改动不会引入新 strict 告警。
 
+### 哪些目标吃 `F3D_STRICT_BUILD`（/W4 /WX）——决定源码型 story 的验证范围
+`f3d_compile_options_private`（= MSVC `/W4 /WX`，见顶层 `CMakeLists.txt:150,200`）**只施加于**这些目标：`vtkext`（public/private，`vtk_module_compile_options`）、`libf3d`（`library/CMakeLists.txt:181`）、`library` 测试、`application`（`f3d_create_exec` 内 `application/CMakeLists.txt:163`）、各插件（`cmake/f3dPlugin.cmake:272`）。**不施加于** `winshellext`（F3DShellExtension，其 CMakeLists 未引用该变量）。所以：改 `winshellext/*` 天然不受 strict 约束（Release 编过即可）；改 `library/`、`application/`、`vtkext/` 才需按“源码型 story 实操建议”核对无新增 strict 告警。
+
+### 更名后的 Linux 桌面集成命名自洽（US-003 起）
+更名波及一组**必须彼此一致**的名字：`resources/glance3d.desktop` 的 `Exec/TryExec=glance3d` ↔ 安装的二进制名（US-001 `OUTPUT_NAME glance3d`）；`Icon=glance3d` ↔ `application/CMakeLists.txt` 图标 `install(... RENAME "glance3d.png"/"glance3d.svg")`；bash 补全 `RENAME "glance3d"` 必须等于命令名 `glance3d`（zsh `_glance3d`、fish `glance3d.fish`）；man `MAN_OUTPUT_FILE=…/glance3d.1` 与其 `.gz` install 两处同改。改任一处务必同步其余，否则装机后图标/补全/桌面项失效。winshellext 缩略图 DLL 按**同目录字面量** `L"glance3d.exe"` 定位渲染进程（`F3DThumbnailProvider.cxx:103`），也须与产物名一致。
+
 ### ⚠️ dev-strict 严格构建在本机存在“先天”阻断（非某一 story 引入，务必知悉）
 `F3D_STRICT_BUILD` = MSVC `/W4 /WX`（warning 即 error）。本机 `dev-local` 全绿构建当前**不可达**，原因有二，均与 US-001 更名无关：
 1. **库源码告警被当错误**（Glance3D 既有代码，pre-existing）：
@@ -63,4 +69,21 @@ Started: Fri, Jul 10, 2026  6:13:05 AM
   5. **dev-strict（F3D_STRICT_BUILD）**：US-002 只改资源(.rc)+模板+CMake，不动任何 C++ 源码；.rc 由 rc.exe 编译、不受 `/W4 /WX` 约束，**零新增 strict 告警**。dev-local 全绿仍被 pre-existing 库告警债（scene.h C4251→C2220，failure 停在 libf3d 尚未到 app/RC 阶段）阻断——与本 story 无关，详见 Codebase Patterns ⚠️ 段。生成头在 build-dev/application/ 亦已正确生成。
 - **取舍**：版本注入选“生成头 + #include”而非“整份 .rc 走 configure_file”，是为了保持 `logo.ico` 相对路径不动（避免 configure 到 binary dir 后图标相对引用/正斜杠转义的坑），且 acceptanceCriteria 也是“在 resources/f3d.rc 补 VERSIONINFO 块”。RC 找生成头依赖 target 的 build-tree include 目录（VS 生成器自动传给 ResourceCompile），已两树实证。
 - **Learnings for future iterations：** 见 Codebase Patterns 新增“Windows 版本资源（VERSIONINFO）注入范式”段。要点：改 configure_file/模板后必须重跑 cmake --preset 再 build；.rc 归 rc.exe 编、不吃 strict；VS 生成器把 target include 目录传给资源编译器故生成头可被 #include。
+---
+
+## 2026-07-10 07:00 - US-003 周边引用与帮助文本同步 glance3d
+- **实现**：把缩略图扩展、Linux 桌面集成、shell 补全、man 引用的程序名从 f3d 同步到 glance3d（帮助文本走 argv[0] 已自动生效，无需改）。
+  - `winshellext/F3DThumbnailProvider.cxx:103`：定位渲染进程的同目录字面量 `L"f3d.exe"`→`L"glance3d.exe"`（上方注释同步为 Glance3D）。
+  - `resources/glance3d.desktop`：`TryExec=glance3d`、`Exec=glance3d %F`、`Icon=glance3d`。
+  - `application/CMakeLists.txt`：man 输出 `f3d.1`→`glance3d.1`（`MAN_OUTPUT_FILE` 与 `.gz` install 两处）；Linux 图标 `RENAME "f3d.png"`×6→`glance3d.png`、`RENAME "f3d.svg"`×2→`glance3d.svg`；shell 补全 `RENAME "f3d"`→`glance3d`、`"_f3d"`→`_glance3d`、`"f3d.fish"`→`glance3d.fish`。
+- **文件变更**：`winshellext/F3DThumbnailProvider.cxx`、`resources/glance3d.desktop`、`application/CMakeLists.txt`（+ `ralph/prd.json`、`ralph/progress.txt`）。
+- **验证证据（逐条对齐 acceptanceCriteria）**：
+  1. winshellext 字面量已改 glance3d.exe ✓（native-local 重新编译该 TU → `build/bin_Release/F3DShellExtension.dll`，无错；`F3D_WINDOWS_BUILD_SHELL_THUMBNAILS_EXTENSION` 在 WIN32 默认 ON，故本机真编到，非仅评审）。
+  2. glance3d.desktop 三字段改 glance3d ✓。
+  3. CMakeLists 图标/补全/man 全部改名 ✓；自洽性核对：Icon=glance3d ↔ 图标 RENAME glance3d.png/svg、Exec=glance3d ↔ US-001 OUTPUT_NAME glance3d、bash 补全 RENAME glance3d ↔ 命令名 glance3d，均一致。
+  4. `glance3d.exe --help` 实测 Usage 行显示 `glance3d.exe [OPTIONS...]`（取 argv[0]，无硬编码，无需改代码）✓。
+  5. `rg -i 'f3d.exe'` 全仓复查：功能性代码/配置命中 0 ✓；剩余 7 文件皆为 doc/ 使用文档（US-004 处理）+ `ralph/*`、`tasks/*`（描述本次更名的过程/需求文档，须引用旧名，性质等同历史 changelog）。
+  6. `cmake --build --preset native-local` 通过（glance3d.exe + F3DShellExtension.dll 均产出）✓；额外无回归冒烟：改动后无头出图 f3d.glb 800×600，Read 读图 logo 模型+地面网格+gizmo+UI 正常。**dev-strict**：US-003 唯一 C++ 改动在 winshellext（F3DShellExtension 目标），该目标**不接受** /W4 /WX（`f3d_compile_options_private` 仅施加于 vtkext/libf3d/application/plugins，winshellext 的 CMakeLists 未引用它）→ 本 story C++ 改动天然不受 strict 约束且 Release 已零错编过；dev-local 全绿仍被 pre-existing libf3d C4251 债阻断，与本 story 无关。
+- **取舍/边界**：Linux 桌面集成（.desktop/图标/补全/man）与 winshellext 注册在本机不装机、不注册 shell 扩展，按“编译期 + 命名自洽性”验收（与 tasks PRD 的验收口径一致）；winshellext .cxx 已真编到，非仅评审。
+- **Learnings for future iterations：** 见 Codebase Patterns 新增两段——“哪些目标吃 F3D_STRICT_BUILD”（winshellext 不吃 /W4 /WX，改它只需 Release 编过）与“更名后的 Linux 桌面集成命名自洽”（.desktop Exec/Icon ↔ 二进制名/图标 RENAME ↔ 补全名 ↔ man 名 ↔ winshellext 字面量，改一处须同步全组）。
 ---

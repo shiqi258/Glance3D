@@ -273,7 +273,7 @@ if(UNIX AND NOT APPLE)
     find_program(HELP2MAN help2man)
     find_program(GZIP gzip)
     if(HELP2MAN AND GZIP)
-      set(MAN_OUTPUT_FILE ${CMAKE_BINARY_DIR}/f3d.1)
+      set(MAN_OUTPUT_FILE ${CMAKE_BINARY_DIR}/glance3d.1)
       add_custom_command(
         OUTPUT ${MAN_OUTPUT_FILE}
         COMMAND ${HELP2MAN} $<TARGET_FILE:f3d> -N -n "fast and minimalist 3D viewer" > ${MAN_OUTPUT_FILE}
@@ -281,7 +281,7 @@ if(UNIX AND NOT APPLE)
         DEPENDS f3d)
       add_custom_target(man ALL DEPENDS ${MAN_OUTPUT_FILE})
 
-      install(FILES "${CMAKE_BINARY_DIR}/f3d.1.gz"
+      install(FILES "${CMAKE_BINARY_DIR}/glance3d.1.gz"
         DESTINATION "share/man/man1/" COMPONENT documentation)
     else()
       message(FATAL_ERROR "help2man or gzip not found, cannot create man entry, please disable F3D_LINUX_GENERATE_MAN or install them")
@@ -356,37 +356,37 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     DESTINATION "share/applications" COMPONENT assets)
   install(FILES "${F3D_SOURCE_DIR}/resources/logo16.png"
     DESTINATION "share/icons/hicolor/16x16/apps" COMPONENT assets
-    RENAME "f3d.png")
+    RENAME "glance3d.png")
   install(FILES "${F3D_SOURCE_DIR}/resources/logo24.png"
     DESTINATION "share/icons/hicolor/24x24/apps" COMPONENT assets
-    RENAME "f3d.png")
+    RENAME "glance3d.png")
   install(FILES "${F3D_SOURCE_DIR}/resources/logo32.png"
     DESTINATION "share/icons/hicolor/32x32/apps" COMPONENT assets
-    RENAME "f3d.png")
+    RENAME "glance3d.png")
   install(FILES "${F3D_SOURCE_DIR}/resources/logo48.png"
     DESTINATION "share/icons/hicolor/48x48/apps" COMPONENT assets
-    RENAME "f3d.png")
+    RENAME "glance3d.png")
   install(FILES "${F3D_SOURCE_DIR}/resources/logo64.png"
     DESTINATION "share/icons/hicolor/64x64/apps" COMPONENT assets
-    RENAME "f3d.png")
+    RENAME "glance3d.png")
   install(FILES "${F3D_SOURCE_DIR}/resources/logo256.png"
     DESTINATION "share/icons/hicolor/256x256/apps" COMPONENT assets
-    RENAME "f3d.png")
+    RENAME "glance3d.png")
   install(FILES "${F3D_SOURCE_DIR}/resources/logo.svg"
     DESTINATION "share/icons/hicolor/scalable/apps" COMPONENT assets
-    RENAME "f3d.svg")
+    RENAME "glance3d.svg")
   install(FILES "${F3D_SOURCE_DIR}/resources/logo-mono.svg"
     DESTINATION "share/icons/HighContrast/scalable/apps" COMPONENT assets
-    RENAME "f3d.svg")
+    RENAME "glance3d.svg")
   install(FILES "${F3D_BINARY_DIR}/completion.bash"
     DESTINATION "share/bash-completion/completions" COMPONENT shellext
-    RENAME "f3d")
+    RENAME "glance3d")
   install(FILES "${F3D_BINARY_DIR}/completion.zsh"
     DESTINATION "share/zsh/site-functions" COMPONENT shellext
-    RENAME "_f3d")
+    RENAME "_glance3d")
   install(FILES "${F3D_BINARY_DIR}/completion.fish"
     DESTINATION "share/fish/vendor_completions.d" COMPONENT shellext
-    RENAME "f3d.fish")
+    RENAME "glance3d.fish")
   install(FILES "${F3D_SOURCE_DIR}/resources/app.glance3d.Glance3D.metainfo.xml"
     DESTINATION "share/metainfo" COMPONENT assets)
 endif()

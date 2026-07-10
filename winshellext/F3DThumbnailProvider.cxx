@@ -95,12 +95,12 @@ F3DThumbnailProvider::F3DThumbnailProvider()
 {
   ::InterlockedIncrement(&g_cDllRef);
 
-  // Get the f3d executable path based on the location of this dll
+  // Get the Glance3D executable path based on the location of this dll
   wchar_t dll_path[MAX_PATH];
   if (GetModuleFileName(g_hInst, dll_path, ARRAYSIZE(dll_path)) != 0)
   {
     ::PathCchRemoveFileSpec(dll_path, MAX_PATH);
-    PathCchCombine(m_f3dPath, MAX_PATH, dll_path, L"f3d.exe");
+    PathCchCombine(m_f3dPath, MAX_PATH, dll_path, L"glance3d.exe");
   }
 }
 
