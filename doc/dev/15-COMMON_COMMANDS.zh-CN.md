@@ -22,7 +22,7 @@ Copy-Item webassembly\deps.local.example.json webassembly\deps.local.json
 ```powershell
 cmake --preset native-local
 cmake --build build --config Release
-# 产物：build\bin\Release\f3d.exe（或 build\bin\f3d.exe）
+# 产物：build\bin\Release\glance3d.exe（或 build\bin\glance3d.exe）
 ```
 
 ## 构建 WebAssembly

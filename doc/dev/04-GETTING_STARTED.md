@@ -101,7 +101,7 @@ and the internal VCPKG to automatically build the dependencies.
 #### Build and the project
 
 - When the configuration is finished, press `F7` to compile F3D
-- Select `f3d.exe (bin\f3d.exe)` in the list of the target and to run F3D
+- Select `glance3d.exe (bin\glance3d.exe)` in the list of the target and to run Glance3D
 
 ### Command line only
 
@@ -174,7 +174,7 @@ cmake --build . --config Debug
 #### Run
 
 - Open a new file manager window
-- Double click on the `C:\dev\f3d\build\bin_Debug\f3d.exe` executable
+- Double click on the `C:\dev\f3d\build\bin_Debug\glance3d.exe` executable
 
 ### Running the test suite (optional)
 

@@ -26,6 +26,11 @@ Started: Fri, Jul 10, 2026  6:13:05 AM
 ### 更名后的 Linux 桌面集成命名自洽（US-003 起）
 更名波及一组**必须彼此一致**的名字：`resources/glance3d.desktop` 的 `Exec/TryExec=glance3d` ↔ 安装的二进制名（US-001 `OUTPUT_NAME glance3d`）；`Icon=glance3d` ↔ `application/CMakeLists.txt` 图标 `install(... RENAME "glance3d.png"/"glance3d.svg")`；bash 补全 `RENAME "glance3d"` 必须等于命令名 `glance3d`（zsh `_glance3d`、fish `glance3d.fish`）；man `MAN_OUTPUT_FILE=…/glance3d.1` 与其 `.gz` install 两处同改。改任一处务必同步其余，否则装机后图标/补全/桌面项失效。winshellext 缩略图 DLL 按**同目录字面量** `L"glance3d.exe"` 定位渲染进程（`F3DThumbnailProvider.cxx:103`），也须与产物名一致。
 
+### 文档更名 story 的范围与 CLAUDE.md gitignore（US-004 起）
+- **CLAUDE.md 被 `.gitignore:43` 忽略**（本机工作文件，非 tracked）。对它的编辑在磁盘上生效、但**不进 commit**，也不出现在 `git diff`/`git status`。故涉及 CLAUDE.md 的验收靠“内容更新 + 实测命令可跑”而非 diff；`git diff --stat` 看不到它是正常的。
+- **`f3d.exe` vs 裸命令名 `f3d`**：更名 story（US-001/003/004）只处理**可执行文件名** `f3d.exe`/`f3d-console.exe`→`glance3d.exe`/`glance3d-console.exe`。文档里大量**裸命令名 `f3d`**（如 `f3d --version`、`f3d --config`）指“安装后键入的命令”，虽然 US-001 `OUTPUT_NAME=glance3d` 后该命令实际是 `glance3d`，但把裸 `f3d`→`glance3d` 全量替换是**另一个更大范围的改造，当前无 story 覆盖**，且易误伤上游项目名 `F3D`/`f3d` 语境。别在更名 story 里顺手做——只在同一句同时出现二者时（如 `f3d --version` or `f3d-console.exe --version`）注意别造半更名的不一致句，宁可整句留待专门 story。
+- **过程/需求文档保留旧名是预期的**：`ralph/*`（prd.json/progress.txt/ralph-prompt.md）、`tasks/*`（需求 PRD）在描述“本次更名任务”时**必须引用旧名** `f3d.exe`，性质等同历史 changelog。故 `rg 'f3d\.exe'`/`rg 'bin_Release/f3d\.exe'` 的“全仓命中 0”应理解为**功能性代码/用户文档命中 0**，process 文档命中不算违规（US-003/US-004 均按此口径验收）。
+
 ### ⚠️ dev-strict 严格构建在本机存在“先天”阻断（非某一 story 引入，务必知悉）
 `F3D_STRICT_BUILD` = MSVC `/W4 /WX`（warning 即 error）。本机 `dev-local` 全绿构建当前**不可达**，原因有二，均与 US-001 更名无关：
 1. **库源码告警被当错误**（Glance3D 既有代码，pre-existing）：
@@ -86,4 +91,21 @@ Started: Fri, Jul 10, 2026  6:13:05 AM
   6. `cmake --build --preset native-local` 通过（glance3d.exe + F3DShellExtension.dll 均产出）✓；额外无回归冒烟：改动后无头出图 f3d.glb 800×600，Read 读图 logo 模型+地面网格+gizmo+UI 正常。**dev-strict**：US-003 唯一 C++ 改动在 winshellext（F3DShellExtension 目标），该目标**不接受** /W4 /WX（`f3d_compile_options_private` 仅施加于 vtkext/libf3d/application/plugins，winshellext 的 CMakeLists 未引用它）→ 本 story C++ 改动天然不受 strict 约束且 Release 已零错编过；dev-local 全绿仍被 pre-existing libf3d C4251 债阻断，与本 story 无关。
 - **取舍/边界**：Linux 桌面集成（.desktop/图标/补全/man）与 winshellext 注册在本机不装机、不注册 shell 扩展，按“编译期 + 命名自洽性”验收（与 tasks PRD 的验收口径一致）；winshellext .cxx 已真编到，非仅评审。
 - **Learnings for future iterations：** 见 Codebase Patterns 新增两段——“哪些目标吃 F3D_STRICT_BUILD”（winshellext 不吃 /W4 /WX，改它只需 Release 编过）与“更名后的 Linux 桌面集成命名自洽”（.desktop Exec/Icon ↔ 二进制名/图标 RENAME ↔ 补全名 ↔ man 名 ↔ winshellext 字面量，改一处须同步全组）。
+---
+
+## 2026-07-10 07:15 - US-004 仓库文档与 CLAUDE.md 更新为 glance3d.exe
+- **实现**：把仓库文档中的可执行文件路径 `f3d.exe`/`f3d-console.exe` 更新为 `glance3d.exe`/`glance3d-console.exe`（纯文档 story，无源码改动）。
+  - `CLAUDE.md`（**被 .gitignore:43 忽略，改动在磁盘生效但不入 commit**）三处 `build/bin_Release/f3d.exe`→`glance3d.exe`：前提段、无头出图范式（`glance3d.exe testing/data/f3d.glb --output ...`）、交互回放范式（`glance3d.exe testing/data/<data> --no-config ...`），并删去已过时的括注“注意文件名仍是 f3d.exe”。
+  - `doc/user/13-LIMITATIONS_AND_TROUBLESHOOTING.md`：Mesa 同目录 `f3d.exe`→`glance3d.exe`、`run f3d.exe`→`glance3d.exe`、subsystem 段 `f3d.exe --version`→`glance3d.exe`、`Use f3d-console.exe`→`glance3d-console.exe`（US-001 已把 console 目标 OUTPUT_NAME 改 glance3d-console，同步）。
+  - `doc/dev/04-GETTING_STARTED.md`：VS 目标 `f3d.exe (bin\f3d.exe)`→`glance3d.exe (bin\glance3d.exe)`、file-manager 双击 `bin_Debug\f3d.exe`→`glance3d.exe`（Debug 产物同名 glance3d.exe；路径里 `C:\dev\f3d\` 检出目录名保留，非二进制）。
+  - `doc/dev/15-COMMON_COMMANDS.zh-CN.md`：产物注释 `bin\Release\f3d.exe（或 bin\f3d.exe）`→`glance3d.exe`。
+- **文件变更**：`CLAUDE.md`(gitignored)、`doc/user/13-LIMITATIONS_AND_TROUBLESHOOTING.md`、`doc/dev/04-GETTING_STARTED.md`、`doc/dev/15-COMMON_COMMANDS.zh-CN.md`（+ `ralph/prd.json`、`ralph/progress.txt`）。
+- **验证证据（逐条对齐 acceptanceCriteria）**：
+  1. CLAUDE.md 三处 `build/bin_Release/f3d.exe`→`glance3d.exe` ✓（在磁盘更新；因 gitignore 不入 diff，靠内容+实测命令验收）。
+  2. 用更新后的 CLAUDE.md 无头出图命令 `build/bin_Release/glance3d.exe testing/data/f3d.glb --output shot.png --resolution 800,600 -x -g` 原样执行 → exit=0、生成 shot.png，Read 读图：Glance3D logo 模型（蓝+金）+ 地面网格 + 坐标轴 gizmo + UI 汉堡按钮全部正常 ✓；验证后删临时图。
+  3. doc/user/13、doc/dev/04、doc/dev/15 中 f3d.exe 引用全部更新 ✓（含 doc/13 的 f3d-console.exe 同步）。
+  4. `rg 'bin_Release/f3d\.exe'` 全仓：功能性代码/用户文档命中 0 ✓；剩余 5 命中全在 `ralph/prd.json`、`ralph/progress.txt`、`tasks/prd-desktop-rename-and-window-state.md`——描述本更名任务的 PRD/进度/需求文档，须引用旧名（性质等同历史 changelog，与 US-003 已确立的过程文档例外一致）。
+  5. 纯文档改动，增量 `cmake --build --preset native-local` exit=0（无重编、产物 glance3d.exe）✓。US-004 未改源码，构建门槛仅 native-local，无需 dev-strict。
+- **取舍/边界**：`doc/user/06-CONFIGURATION_FILE.md`（`f3d-console.exe --config`）与 `.github/ISSUE_TEMPLATE/bug_report.md`（`f3d-console.exe --version`）含 f3d-console.exe **及相邻裸命令名 `f3d`**，两文件均不在 US-004 criteria#3 列举的三文档内；仅改其中 f3d-console.exe 会与相邻裸 `f3d` 形成半更名不一致句 → 属更大范围的“裸命令名 f3d→glance3d”改造（当前无 story 覆盖），故本 story 不触碰、如实记为残留。doc/user/06 亦在 US-009 文档同步清单（US-009 会因配置目录路径再访该文件）。
+- **Learnings for future iterations：** 见 Codebase Patterns 新增“文档更名 story 的范围与 CLAUDE.md gitignore”段——CLAUDE.md 被 gitignore（不入 diff，靠实测验收）；更名 story 只碰可执行文件名不碰裸命令名 f3d；`rg` 的“命中 0”按功能/用户文档口径理解，process 文档保留旧名是预期。
 ---

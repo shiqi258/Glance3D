@@ -61,8 +61,8 @@
         "纯文档改动：cmake --build --preset native-local 增量构建仍通过（应为无操作）"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "四文档路径更新落定：(1) CLAUDE.md（.gitignore:43 忽略，为本机工作文件，改动在磁盘上、不入 commit）三处 build/bin_Release/f3d.exe→glance3d.exe（前提段、无头出图范式 118 行、交互回放范式 150 行），并删去已过时的『注意文件名仍是 f3d.exe』括注。(2) doc/user/13-LIMITATIONS_AND_TROUBLESHOOTING.md：Mesa 同目录 f3d.exe→glance3d.exe、run f3d.exe→glance3d.exe、subsystem 段 f3d.exe --version→glance3d.exe、Use f3d-console.exe→glance3d-console.exe（US-001 已把 console 目标 OUTPUT_NAME 改 glance3d-console，同步）。(3) doc/dev/04-GETTING_STARTED.md：VS 目标 f3d.exe (bin\\f3d.exe)→glance3d.exe (bin\\glance3d.exe)、file-manager 双击 bin_Debug\\f3d.exe→glance3d.exe（Debug 配置产物同名 glance3d.exe；路径中的 C:\\dev\\f3d\\ 检出目录名保留，非二进制）。(4) doc/dev/15-COMMON_COMMANDS.zh-CN.md：产物注释 bin\\Release\\f3d.exe（或 bin\\f3d.exe）→glance3d.exe。验证：criteria#2 用更新后的 CLAUDE.md 命令 `glance3d.exe testing/data/f3d.glb --output shot.png --resolution 800,600 -x -g` 原样执行 exit=0、出图 Read 读图正常（logo 模型+网格+gizmo+UI 全对）后删临时图；criteria#4 `rg 'bin_Release/f3d\\.exe'` 剩余命中仅 ralph/*、tasks/*（描述本更名任务的 PRD/进度/需求文档，性质等同历史 changelog 须引用旧名，与 US-003 已确立的过程文档例外一致），功能/用户文档命中 0；criteria#5 增量 `cmake --build --preset native-local` exit=0（纯文档改动、无重编，产物 glance3d.exe）。US-004 未改任何源码，构建门槛仅 native-local（无需 dev-strict）。边界/残留：doc/user/06-CONFIGURATION_FILE.md 与 .github/ISSUE_TEMPLATE/bug_report.md 内含 `f3d-console.exe` 及裸命令名 `f3d`（如 `f3d --version`），不在 US-004 criteria#3 列举的三文档内；仅改其中 f3d-console.exe 会与相邻裸 `f3d` 形成半更名的不一致句，属更大范围的『裸命令名 f3d→glance3d』改造，当前无 story 覆盖，故不在本 story 触碰、如实记为残留（doc/user/06 亦在 US-009 文档同步清单，US-009 会因配置目录路径再访该文件）。"
     },
     {
       "id": "US-009",

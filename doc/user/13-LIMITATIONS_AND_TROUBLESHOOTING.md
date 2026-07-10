@@ -114,9 +114,9 @@ OpenGL applications like Glance3D can have issues when launched from Windows Ser
 You can try to use a software implementation of OpenGL, called [Mesa](https://github.com/pal1000/mesa-dist-win/releases).
 
 - Download the latest `release-msvc`.
-- copy `x64/opengl32.dll`, `libgallium_wgl.dll` and `x64/libglapi.dll` in the same directory as `f3d.exe`.
+- copy `x64/opengl32.dll`, `libgallium_wgl.dll` and `x64/libglapi.dll` in the same directory as `glance3d.exe`.
 - set the environment variable `MESA_GL_VERSION_OVERRIDE` to 4.5.
-- run `f3d.exe`.
+- run `glance3d.exe`.
 
 > I run f3d from the command prompt and my Unicode characters are not displayed properly.
 
@@ -130,9 +130,9 @@ There are too many entry in your PATH environment variable, remove the ones you 
 
 Your previous Glance3D installation is current being used to generate thumbnails, wait for a bit or reboot your computer before updating again.
 
-> When running Glance3D without interactivity (e.g. `f3d.exe --version`) from CLI, nothing is displayed.
+> When running Glance3D without interactivity (e.g. `glance3d.exe --version`) from CLI, nothing is displayed.
 
-It's a limitation from the Windows "subsystem". Use `f3d-console.exe` instead.
+It's a limitation from the Windows "subsystem". Use `glance3d-console.exe` instead.
 
 > When playing an animation, the animation appear to move too slowly
 
