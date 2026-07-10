@@ -222,6 +222,7 @@ set(F3D_SOURCE_FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/F3DPluginsTools.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/F3DStarter.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/F3DSystemTools.cxx
+  ${CMAKE_CURRENT_SOURCE_DIR}/G3DWindowGeometry.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/main.cxx
 )
 
@@ -231,6 +232,8 @@ endif()
 
 if(APPLE)
   list(APPEND F3D_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/F3DNSDelegate.mm")
+  # macOS monitor enumeration for the default centered startup geometry (US-006).
+  list(APPEND F3D_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/G3DWindowGeometryCocoa.mm")
 endif()
 
 # Add source for dialogs

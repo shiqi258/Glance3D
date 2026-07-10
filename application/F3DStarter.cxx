@@ -9,6 +9,7 @@
 #include "F3DOptionsTools.h"
 #include "F3DPluginsTools.h"
 #include "F3DSystemTools.h"
+#include "G3DWindowGeometry.h"
 
 #if F3D_MODULE_DMON
 #define DMON_IMPL
@@ -881,50 +882,153 @@ public:
     }
   }
 
+  // Whether the given CLI/config option was explicitly provided by the user (via
+  // the command line or a config file), as opposed to falling back to the built-in
+  // default in F3DOptionsTools::DefaultAppOptions. This reuses the parse-layer
+  // source information (the CLI/config option entries only ever hold keys the user
+  // actually set), so the decision is source-based rather than value-based.
+  bool OptionExplicitlyProvided(const std::string& key) const
+  {
+    for (const F3DOptionsTools::OptionsEntries* entries : { &this->CLIOptionsEntries,
+           &this->ConfigOptionsEntries, &this->ImperativeConfigOptionsEntries })
+    {
+      for (const auto& [conf, source, matchType, match] : *entries)
+      {
+        if (conf.find(key) != conf.end())
+        {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  double GetDPIScale() const
+  {
+    return this->LibOptions.ui.dpi_aware ? f3d::utils::getDPIScale() : 1.0;
+  }
+
+  // Apply the interactive first-launch default geometry: center the window on the
+  // cursor monitor's work area at 70% size (see US-006). Returns false when no
+  // monitor work area is available (e.g. non-Windows without Cocoa support), so
+  // the caller can fall back to the legacy default handling. Logs the full
+  // decision chain (target monitor work area, final window rect, reason code).
+  bool ApplyDefaultCenteredGeometry(f3d::window& window)
+  {
+    const std::optional<g3d::window_geometry::Rect> workArea =
+      g3d::window_geometry::cursorMonitorWorkArea();
+    if (!workArea.has_value())
+    {
+      return false;
+    }
+
+    const double dpiScale = this->GetDPIScale();
+    const int minWidth = static_cast<int>(1000 * dpiScale);
+    const int minHeight = static_cast<int>(600 * dpiScale);
+
+    // Account for the non-client frame (title bar + borders) so the *outer* window
+    // (what GetWindowRect reports) is centered, not just the render client area.
+    const std::optional<std::pair<int, int>> frame =
+      g3d::window_geometry::nonClientFrameSize(dpiScale);
+    const int frameWidth = frame.has_value() ? frame->first : 0;
+    const int frameHeight = frame.has_value() ? frame->second : 0;
+
+    const g3d::window_geometry::Rect geom = g3d::window_geometry::defaultCenteredGeometry(
+      *workArea, minWidth, minHeight, frameWidth, frameHeight);
+
+    window.setSize(geom.width, geom.height);
+    window.setPosition(geom.x, geom.y);
+
+    const std::array<int, 2> reportedPos = window.getPosition();
+    f3d::log::debug("Window geometry: reason=default-centered, target monitor work area (x=",
+      workArea->x, ", y=", workArea->y, ", ", workArea->width, "x", workArea->height,
+      "), dpiScale=", dpiScale, ", frame ", frameWidth, "x", frameHeight, ", client size ",
+      geom.width, "x", geom.height, ", outer window rect (x=", geom.x, ", y=", geom.y, ", ",
+      geom.width + frameWidth, "x", geom.height + frameHeight, "), window reports position (",
+      reportedPos[0], ", ", reportedPos[1], "), maximized=",
+      window.isMaximized() ? "true" : "false");
+    return true;
+  }
+
   void ApplyPositionAndResolution()
   {
-    if (!this->AppOptions.NoRender)
+    if (this->AppOptions.NoRender)
     {
-      f3d::window& window = this->Engine->getWindow();
-      if (this->AppOptions.Resolution.size() == 2)
-      {
-        double dpiScale = this->LibOptions.ui.dpi_aware ? f3d::utils::getDPIScale() : 1.0;
+      return;
+    }
 
-        window.setSize(static_cast<int>(this->AppOptions.Resolution[0] * dpiScale),
-          static_cast<int>(this->AppOptions.Resolution[1] * dpiScale));
-      }
-      else if (!this->AppOptions.Resolution.empty())
-      {
-        f3d::log::warn(g3d::locale::translate("Provided resolution could not be applied"));
-      }
+    f3d::window& window = this->Engine->getWindow();
 
-      if (this->AppOptions.Position.size() == 2)
-      {
-        window.setPosition(this->AppOptions.Position[0], this->AppOptions.Position[1]);
+    // Headless / offscreen runs (--output, --reference, --list-bindings) must keep
+    // the legacy fixed default geometry (1000x600, top-left) so batch rendering and
+    // baseline image comparisons stay bit-for-bit unchanged. Mirror the offscreen
+    // flag used at engine creation time.
+    const bool offscreen = !this->AppOptions.Reference.empty() ||
+      !this->AppOptions.Output.empty() || this->AppOptions.BindingsList;
 
-        // Round-trip evidence for the additive geometry-read API (US-005): read the
-        // position back through the new getter and log both, so setPosition/getPosition
-        // consistency is observable in the file log. isMaximized() is logged too as a
-        // safe-value probe (false unless the window manager maximized us).
-        const std::array<int, 2> reportedPos = window.getPosition();
-        f3d::log::debug("Window geometry: requested position (", this->AppOptions.Position[0],
-          ", ", this->AppOptions.Position[1], "), window reports (", reportedPos[0], ", ",
-          reportedPos[1], "), maximized=", window.isMaximized() ? "true" : "false");
-      }
-      else
+    const bool resolutionExplicit = this->OptionExplicitlyProvided("resolution");
+    const bool positionExplicit = this->OptionExplicitlyProvided("position");
+
+    // Interactive first launch (no explicit --resolution nor --position): center on
+    // the cursor monitor at an adaptive size instead of VTK's fixed small top-left
+    // window. If the monitor work area cannot be resolved, fall through to legacy.
+    if (!offscreen && !resolutionExplicit && !positionExplicit)
+    {
+      if (this->ApplyDefaultCenteredGeometry(window))
       {
-        if (!this->AppOptions.Position.empty())
-        {
-          f3d::log::warn(g3d::locale::translate("Provided position could not be applied"));
-        }
+        return;
+      }
+    }
+
+    if (this->AppOptions.Resolution.size() == 2)
+    {
+      const double dpiScale = this->GetDPIScale();
+      window.setSize(static_cast<int>(this->AppOptions.Resolution[0] * dpiScale),
+        static_cast<int>(this->AppOptions.Resolution[1] * dpiScale));
+    }
+    else if (!this->AppOptions.Resolution.empty())
+    {
+      f3d::log::warn(g3d::locale::translate("Provided resolution could not be applied"));
+    }
+
+    if (this->AppOptions.Position.size() == 2)
+    {
+      window.setPosition(this->AppOptions.Position[0], this->AppOptions.Position[1]);
+
+      // Round-trip evidence for the additive geometry-read API (US-005): read the
+      // position back through the new getter and log both, so setPosition/getPosition
+      // consistency is observable in the file log. isMaximized() is logged too as a
+      // safe-value probe (false unless the window manager maximized us).
+      const std::array<int, 2> reportedPos = window.getPosition();
+      f3d::log::debug("Window geometry: requested position (", this->AppOptions.Position[0], ", ",
+        this->AppOptions.Position[1], "), window reports (", reportedPos[0], ", ", reportedPos[1],
+        "), maximized=", window.isMaximized() ? "true" : "false");
+    }
+    else
+    {
+      if (!this->AppOptions.Position.empty())
+      {
+        f3d::log::warn(g3d::locale::translate("Provided position could not be applied"));
+      }
 
 #ifdef __APPLE__
-        // The default position (50, 50) in VTK on MacOS is not a great fit for F3D as it can be
-        // partially hidden because the position correspond to the upper left corner and the Y
-        // position is defined from the bottom of the screen. Position it somewhere it makes sense.
-        window.setPosition(100, 800);
-#endif
+      // The default position (50, 50) in VTK on macOS is a poor fit as the window can
+      // be partially hidden (the position is the upper-left corner while the Y axis is
+      // measured from the bottom of the screen). The former hardcoded setPosition(100,
+      // 800) hack is replaced by centering on the cursor monitor's work area, matching
+      // the interactive default above. This path only runs on macOS when a resolution
+      // was set explicitly but no position was (the both-unset case is handled by
+      // ApplyDefaultCenteredGeometry). Review-only on this Windows host (see US-006
+      // notes); no-op if the work area cannot be resolved.
+      const std::optional<g3d::window_geometry::Rect> workArea =
+        g3d::window_geometry::cursorMonitorWorkArea();
+      if (workArea.has_value())
+      {
+        const g3d::window_geometry::Rect centered =
+          g3d::window_geometry::centerInWorkArea(*workArea, window.getWidth(), window.getHeight());
+        window.setPosition(centered.x, centered.y);
       }
+#endif
     }
   }
 
