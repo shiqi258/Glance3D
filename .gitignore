@@ -41,3 +41,4 @@ webassembly/deps.local.json
 
 # local AI assistant guidance (not tracked)
 CLAUDE.md
+.claude/
