@@ -316,7 +316,7 @@ bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant)
 }
 
 //----------------------------------------------------------------------------
-bool IconButton(const char* id, G3DIconId icon, float size, bool round, const char* tooltip)
+bool IconButton(const char* id, G3DIconId icon, float size, bool round, const char* tooltip, bool on)
 {
   ImGui::PushID(id);
   const float s = Scale();
@@ -333,11 +333,22 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
   }
 
-  // Ghost rest (transparent) -> surface on hover, like a toolbar button.
-  ImVec4 rest = G3DTheme::Surface();
-  rest.w = 0.f;
-  ImVec4 bg = LerpColor(rest, G3DTheme::SurfaceHover(), a.hover.Value());
-  bg = LerpColor(bg, G3DTheme::SurfacePress(), a.press.Value());
+  // Ghost rest (transparent) -> surface on hover, like a toolbar button. The persistent "on"
+  // state keeps an accent-soft wash (deepening on hover/press) so toggle buttons read as engaged.
+  ImVec4 rest = on ? G3DTheme::AccentSoft() : G3DTheme::Surface();
+  if (!on)
+  {
+    rest.w = 0.f;
+  }
+  ImVec4 hoverBg = on ? G3DTheme::AccentSoft() : G3DTheme::SurfaceHover();
+  ImVec4 pressBg = on ? G3DTheme::AccentSoft() : G3DTheme::SurfacePress();
+  if (on)
+  {
+    hoverBg.w = std::min(1.f, hoverBg.w * 1.7f);
+    pressBg.w = std::min(1.f, pressBg.w * 2.2f);
+  }
+  ImVec4 bg = LerpColor(rest, hoverBg, a.hover.Value());
+  bg = LerpColor(bg, pressBg, a.press.Value());
 
   const float pressScale = G3DLerp(1.f, 0.93f, a.press.Value());
   const ImVec2 ctr(p0.x + sz * 0.5f, p0.y + sz * 0.5f);
@@ -359,7 +370,7 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
     dl->AddRect(ImVec2(r0.x - o, r0.y - o), ImVec2(r1.x + o, r1.y + o),
       U32(G3DTheme::Accent(), 0.45f), radius + o, 0, 2.f * s);
   }
-  G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(G3DTheme::Text()));
+  G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(on ? G3DTheme::Accent() : G3DTheme::Text()));
 
   if (tooltip && tooltip[0])
   {
@@ -1322,19 +1333,21 @@ bool Toggle(const char* label, bool* v)
 
   ImDrawList* dl = ImGui::GetWindowDrawList();
   AAGuard aa(dl);
+  const float alpha = ImGui::GetStyle().Alpha; // respect BeginDisabled dimming (custom draws bypass it)
   const float cy = p0.y + size.y * 0.5f;
   const ImVec2 t0(p0.x, cy - h * 0.5f);
   const ImVec2 t1(p0.x + trackW, cy + h * 0.5f);
   const ImVec4 track = LerpColor(G3DTheme::SurfacePress(), G3DTheme::Accent(), w.value.Value());
-  dl->AddRectFilled(t0, t1, U32(track), h * 0.5f);
+  dl->AddRectFilled(t0, t1, U32(track, alpha), h * 0.5f);
 
   const float knobR = h * 0.5f - 2.f * s + w.hover.Value() * 1.f * s;
   const float kx = G3DLerp(t0.x + h * 0.5f, t1.x - h * 0.5f, w.value.Value());
-  dl->AddCircleFilled(ImVec2(kx, cy), knobR, U32(ImVec4(1.f, 1.f, 1.f, 1.f)), 24);
+  dl->AddCircleFilled(ImVec2(kx, cy), knobR, U32(ImVec4(1.f, 1.f, 1.f, 1.f), alpha), 24);
 
   if (hasText)
   {
-    dl->AddText(ImVec2(p0.x + trackW + gap, cy - textSize.y * 0.5f), U32(G3DTheme::Text()), label);
+    dl->AddText(
+      ImVec2(p0.x + trackW + gap, cy - textSize.y * 0.5f), U32(G3DTheme::Text(), alpha), label);
   }
   ImGui::PopID();
   return clicked;

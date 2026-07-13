@@ -52,9 +52,10 @@ bool Button(const char* label, ButtonVariant variant = ButtonVariant::Default);
 bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant = ButtonVariant::Default);
 
 /// Square icon-only button (toolbar / FAB style). @p size <= 0 uses the icon-button token; @p round
-/// makes it a pill/circle. Returns true on click.
-bool IconButton(
-  const char* id, G3DIconId icon, float size = -1.f, bool round = false, const char* tooltip = nullptr);
+/// makes it a pill/circle. @p on renders the persistent active state (accent-soft fill + accent
+/// icon) for toggle-style toolbar buttons — mirrors styleguide .iconbtn.on. Returns true on click.
+bool IconButton(const char* id, G3DIconId icon, float size = -1.f, bool round = false,
+  const char* tooltip = nullptr, bool on = false);
 
 /// Styled card container. Call EndCard() exactly once for each BeginCard(). @p hoverable adds a hover
 /// tint and makes EndCard() return whether the card was clicked. Always returns true (draw content).

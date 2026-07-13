@@ -81,6 +81,7 @@
 
   "Coloring": "着色",
   "Enable": "启用",
+  "Volume rendering forces coloring": "体渲染强制着色",
   "Cell data": "单元数据",
   "Array": "数组",
   "Select array": "选择数组",

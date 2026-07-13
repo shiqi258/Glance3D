@@ -1607,7 +1607,8 @@ void vtkF3DImguiActor::GetControlPanelViewport(const int windowSize[2], double v
   const G3DLayout::Result r = G3DLayout::Compute(work,
     ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW,
       this->ReadOptionBool("ui.control_left", true), this->ReadOptionBool("ui.control_right", true),
-      this->ReadOptionBool("ui.control_bottom", true)),
+      // The timeline bar only exists when the scene has animations; must match RenderControlPanel.
+      this->ReadOptionBool("ui.control_bottom", true) && this->AnimState.count > 0),
     eased);
   G3DLayout::CenterToVTKViewport(r.center, W, H, vp);
 }
@@ -2213,14 +2214,38 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     return;
   }
 
-  bool enable = this->ReadOptionBool("model.scivis.enable", false);
+  // Effective coloring state: the renderer can be coloring while the options still read as unset —
+  // the empty-array_name path picks the first array without writing the option back, and enabling
+  // volume forces coloring on regardless of scivis.enable. Mirror the authoritative state so the
+  // UI shows what is actually rendered; writes still go through option commands.
+  const std::optional<F3DColoringInfoHandler::ColoringInfo> effectiveInfo =
+    coloring.GetCurrentColoringInfo();
+  const bool volumeForced = this->ReadOptionBool("model.volume.enable", false) &&
+    !this->ReadOptionBool("render.raytracing.enable", false);
+
+  const bool enableOption = this->ReadOptionBool("model.scivis.enable", false);
+  bool enable = enableOption || volumeForced;
+  const bool enableLocked = volumeForced && !enableOption;
+  if (enableLocked)
+  {
+    ImGui::BeginDisabled();
+  }
   if (G3DWidgets::Toggle(loc.Translate("Enable").c_str(), &enable))
   {
     this->SendCommand(std::string("set model.scivis.enable ") + (enable ? "true" : "false"));
   }
+  if (enableLocked)
+  {
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+      ImGui::SetTooltip("%s", loc.Translate("Volume rendering forces coloring").c_str());
+    }
+  }
 
-  // Point vs cell data (only offer the switch when both are present).
-  bool cells = this->ReadOptionBool("model.scivis.cells", false);
+  // Point vs cell data (only offer the switch when both are present). Display mirrors the
+  // renderer's applied value (the option may lag the effective state).
+  bool cells = ren->GetUseCellColoring();
   if (!pointArrays.empty() && !cellArrays.empty())
   {
     if (G3DWidgets::Toggle(loc.Translate("Cell data").c_str(), &cells))
@@ -2232,7 +2257,12 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     (cells && !cellArrays.empty()) ? cellArrays : pointArrays;
 
   // Array selector. Writing the name also enables coloring so a pick takes effect immediately.
-  const std::string current = this->QueryOption("model.scivis.array_name").value_or("");
+  // An unset option falls back to the effective array (default-first-array path).
+  std::string current = this->QueryOption("model.scivis.array_name").value_or("");
+  if (current.empty() && effectiveInfo.has_value())
+  {
+    current = effectiveInfo->Name;
+  }
   if (G3DWidgets::BeginSelect(
         "##g3d.scivis.array", current.c_str(), loc.Translate("Select array").c_str()))
   {
@@ -2508,7 +2538,9 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   const G3DLayout::Result r = G3DLayout::Compute(work,
     ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW,
       this->ReadOptionBool("ui.control_left", true), this->ReadOptionBool("ui.control_right", true),
-      this->ReadOptionBool("ui.control_bottom", true)),
+      // The timeline bar only exists when the scene has animations; must match
+      // GetControlPanelViewport or the pushed 3D viewport and the bars would disagree.
+      this->ReadOptionBool("ui.control_bottom", true) && this->AnimState.count > 0),
     eased);
 
   // Docked bars are opaque chrome that frame the 3D viewport. The scene is physically pushed into
@@ -2561,12 +2593,12 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::SetCursorScreenPos(
       ImVec2(wp.x + ImGui::GetStyle().WindowPadding.x, wp.y + (r.top.h - btn) * 0.5f));
 
-    auto toolButton = [&](const char* id, G3DIconId icon, const char* cmd, const char* tip)
+    auto toolButton = [&](const char* id, G3DIconId icon, const char* cmd, const char* tip,
+                        bool on = false)
     {
-      if (G3DWidgets::IconButton(id, icon, -1.f, false, tip))
+      if (G3DWidgets::IconButton(id, icon, -1.f, false, tip, on))
       {
-        vtkOutputWindow::GetInstance()->InvokeEvent(
-          vtkF3DUserEvents::TriggerEvent, const_cast<char*>(cmd));
+        this->SendCommand(cmd);
       }
       ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
     };
@@ -2584,19 +2616,21 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     toolButton(
       "##tb.iso", G3DIconId::Cube, "set_camera isometric", loc.Translate("Isometric view").c_str());
     toolSeparator();
-    toolButton(
-      "##tb.grid", G3DIconId::Grid, "toggle render.grid.enable", loc.Translate("Grid").c_str());
-    toolButton("##tb.axis", G3DIconId::Axis, "toggle ui.axis", loc.Translate("Axes").c_str());
-    toolButton(
-      "##tb.edges", G3DIconId::Edges, "toggle render.show_edges", loc.Translate("Edges").c_str());
+    // Display toggles reflect the live option value as a persistent "on" state.
+    toolButton("##tb.grid", G3DIconId::Grid, "toggle render.grid.enable",
+      loc.Translate("Grid").c_str(), this->ReadOptionBool("render.grid.enable", false));
+    toolButton("##tb.axis", G3DIconId::Axis, "toggle ui.axis", loc.Translate("Axes").c_str(),
+      this->ReadOptionBool("ui.axis", false));
+    toolButton("##tb.edges", G3DIconId::Edges, "toggle render.show_edges",
+      loc.Translate("Edges").c_str(), this->ReadOptionBool("render.show_edges", false));
     toolSeparator();
     // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits).
-    toolButton(
-      "##tb.tree", G3DIconId::Layers, "toggle ui.control_left", loc.Translate("Scene").c_str());
+    toolButton("##tb.tree", G3DIconId::Layers, "toggle ui.control_left",
+      loc.Translate("Scene").c_str(), this->ReadOptionBool("ui.control_left", true));
     toolButton("##tb.inspector", G3DIconId::Sliders, "toggle ui.control_right",
-      loc.Translate("Inspector").c_str());
-    toolButton(
-      "##tb.timeline", G3DIconId::Play, "toggle ui.control_bottom", loc.Translate("Timeline").c_str());
+      loc.Translate("Inspector").c_str(), this->ReadOptionBool("ui.control_right", true));
+    toolButton("##tb.timeline", G3DIconId::Play, "toggle ui.control_bottom",
+      loc.Translate("Timeline").c_str(), this->ReadOptionBool("ui.control_bottom", true));
     ImGui::End();
   }
 
