@@ -72,10 +72,12 @@
         --danger: #f56a57;
         --danger-soft: rgba(245, 106, 87, 0.14);
 
-        /* Radii */
-        --r-sm: 6px;
-        --r-md: 8px;
-        --r-lg: 12px;
+        /* Radii — docked-tool scale (kept small; pro desktop chrome, not web dashboard).
+           Generous rounding is reserved for floating layers (--r-popup). */
+        --r-sm: 3px;
+        --r-md: 4px;
+        --r-lg: 6px;
+        --r-popup: 8px;
         --r-xl: 16px;
         --r-pill: 999px;
 
@@ -110,7 +112,7 @@
         --t-micro: 120ms;
         --t-std: 180ms;
 
-        --ctrl-h: 32px; /* control height */
+        --ctrl-h: 27px; /* control height (desktop mirror: G3DTheme Size::Control 25 + 2) */
         --font: "Inter", "Segoe UI", system-ui, -apple-system, "PingFang SC",
           "Microsoft YaHei", sans-serif;
         --mono: "MonaspaceNeon", ui-monospace, "Cascadia Code", Consolas, monospace;
@@ -798,7 +800,7 @@
         z-index: 1000;
         background: var(--surface-3);
         border: 1px solid var(--border);
-        border-radius: var(--r-md);
+        border-radius: var(--r-popup);
         box-shadow: var(--shadow-md);
         padding: 4px;
         opacity: 0;
@@ -1807,6 +1809,28 @@
         padding-right: 0;
       }
 
+      /* 变体 · flat 停靠满宽分区（Blender/UE5 分类头：无卡片壳，淡色满宽表头带 +
+         分区间 1px 分隔线；用于停靠面板栏，非浮动窗口） */
+      .collapse.flat {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .collapse.flat > .collapse-head {
+        height: 30px;
+        padding-left: 10px;
+        background: var(--surface-2);
+      }
+      .collapse.flat > .collapse-head:hover,
+      .collapse.flat.is-hover > .collapse-head {
+        background: var(--surface-3);
+      }
+      .collapse.flat > .collapse-body > .collapse-clip > .collapse-body-inner {
+        border-top: none;
+        padding: var(--s-2) var(--s-3) 10px;
+      }
+
       /* 变体 · sub 嵌套子面板（Blender 子面板，缩进 + 弱化） */
       .collapse.sub {
         background: transparent;
@@ -1970,7 +1994,7 @@
         /* subtle hairline (matches the dropdown .menu); elevation comes from shadow-lg, so a
            strong white border isn't needed and would read as a light edge on the rounded corners */
         border: 1px solid var(--border);
-        border-radius: var(--r-lg);
+        border-radius: var(--r-popup);
         box-shadow: var(--shadow-lg);
         padding: var(--s-3);
         display: flex;
@@ -2657,6 +2681,12 @@
             <div class="divider"></div>
             <div class="state-label">分段选择 (Segmented)</div>
             <g3d-segmented val="表面" opts="表面|带边线|线框|点"></g3d-segmented>
+            <div class="note">
+              桌面 ImGui 端另有图标版 <code>G3DWidgets::SegmentedIcon</code>（顶栏布局开关：场景树 /
+              检视器 / 时间线三个面板显隐合为一组）：同一 .segmented 语汇 —— 共享 surface 外壳 +
+              hairline + 段间 1px 分隔，激活段 accent-soft 填充 + accent 图标，禁用段变暗但保留
+              tooltip 说明原因。
+            </div>
           </div>
         </section>
 
@@ -2956,9 +2986,10 @@
               <div style="width: 260px"><div class="state-label">禁用</div><g3d-collapse ic="cube" title="区段" state="disabled"><g3d-proprow k="属性"><g3d-toggle></g3d-toggle></g3d-proprow></g3d-collapse></div>
               <div style="width: 260px"><div class="state-label">幽灵（无边框 · 内联）</div><g3d-collapse v="ghost" title="高级选项" open><g3d-proprow k="属性"><g3d-toggle></g3d-toggle></g3d-proprow></g3d-collapse></div>
               <div style="width: 260px"><div class="state-label">超紧凑 dense</div><g3d-collapse ic="cube" title="区段" den="dense" open><g3d-proprow k="属性"><g3d-segmented val="A" opts="A|B|C"></g3d-segmented></g3d-proprow></g3d-collapse></div>
+              <div style="width: 260px; background: var(--surface-1)"><div class="state-label">flat（停靠满宽分区）</div><g3d-collapse v="flat" ic="cube" title="几何" open><g3d-proprow k="属性"><g3d-toggle on></g3d-toggle></g3d-proprow></g3d-collapse><g3d-collapse v="flat" ic="layers" title="数组" count="2"></g3d-collapse></div>
             </div>
             <div class="note">
-              密度：<code>den="compact|dense"</code> 压低表头与正文内边距；变体：<code>v="sub"</code> 嵌套子面板缩进弱化、<code>v="ghost"</code> 去边框内联、<code>v="overline"</code> 大写微标题（VS Code 侧栏式）。
+              密度：<code>den="compact|dense"</code> 压低表头与正文内边距；变体：<code>v="sub"</code> 嵌套子面板缩进弱化、<code>v="ghost"</code> 去边框内联、<code>v="overline"</code> 大写微标题（VS Code 侧栏式）、<code>v="flat"</code> 停靠满宽分区（Blender/UE5 分类头：淡色表头带 + 分区间 1px 分隔，检视器停靠栏用）。
               展开过渡用 <code>grid-rows 0fr↔1fr</code> 近似，桌面 ImGui 端对应 <code>CollapsingHeader</code> 即时展开。
             </div>
           </div>

@@ -58,16 +58,36 @@ struct Result
 /// drag clamp in the ImGui actor so the stored drag override can never exceed what is drawn.
 inline constexpr float MAX_SIDE_FRAC = 0.22f;
 
+/// Minimum usable side-panel content width in NOMINAL px (UI scale 1.0): label column + a control
+/// that still reads (not "..."), plus paddings. The proportional cap yields to this so a small
+/// window or a large font scale squeezes the VIEWPORT before it degrades the panel content.
+inline constexpr float MIN_SIDE_CONTENT_W = 240.f;
+
+/// Hard per-side ceiling: even honoring MIN_SIDE_CONTENT_W, one panel never takes more than this
+/// fraction of the window (two panels then leave >= 30% for the live viewport).
+inline constexpr float MAX_SIDE_FRAC_HARD = 0.35f;
+
+/// The effective per-side width cap in DEVICE px. Proportional by default; floored by the scaled
+/// minimum content width; hard-capped so the viewport survives. Shared by Compute() and the
+/// panel-edge drag clamp in the ImGui actor (which mirrors it in nominal space) — the two MUST
+/// agree or reverse-dragging a pinned bar gets a dead zone.
+inline float MaxSideWidth(float workW, float scale)
+{
+  return std::min(std::max(workW * MAX_SIDE_FRAC, MIN_SIDE_CONTENT_W * scale),
+    workW * MAX_SIDE_FRAC_HARD);
+}
+
 /**
  * Compute the layout rectangles inside @p work for a common open @p frac in [0,1].
  *
  * Bar thicknesses scale linearly with @p frac. Left/right widths are individually capped at
- * MAX_SIDE_FRAC of the work width (narrow-window adaptivity), then the four bars are jointly
+ * MaxSideWidth() (narrow-window / large-font adaptivity), then the four bars are jointly
  * clamped so they can never consume more than 80% of the work area in either axis, keeping
  * @p center strictly positive even in tiny windows (a degenerate center would make the VTK
- * viewport invalid).
+ * viewport invalid). @p scale is the UI scale the Sizes were built with (MaxSideWidth needs it
+ * to floor the cap at a usable scaled content width).
  */
-inline Result Compute(const Rect& work, const Sizes& s, float frac)
+inline Result Compute(const Rect& work, const Sizes& s, float frac, float scale = 1.f)
 {
   frac = std::clamp(frac, 0.f, 1.f);
 
@@ -76,7 +96,7 @@ inline Result Compute(const Rect& work, const Sizes& s, float frac)
   float l = s.leftW * frac;
   float r = s.rightW * frac;
 
-  const float maxSide = work.w * MAX_SIDE_FRAC;
+  const float maxSide = MaxSideWidth(work.w, scale);
   l = std::min(l, maxSide);
   r = std::min(r, maxSide);
 

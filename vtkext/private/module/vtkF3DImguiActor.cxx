@@ -732,7 +732,7 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   style->AntiAliasedLines = false;
   style->FrameBorderSize = 0.f;
   style->FramePadding = ImVec2(4, 2);
-  style->FrameRounding = 2.f;
+  style->FrameRounding = 4.f; // == G3DTheme::Radius::Control, so native frames match G3D widgets
   style->GrabRounding = 4.0f;
   // Slim, quiet scrollbar: ImGui's 14px default reads as a bright slab pinned to the panel edge on
   // the dark theme. 8px + fully-rounded grab + low-alpha white keeps it discoverable but recessive;
@@ -1705,7 +1705,7 @@ void vtkF3DImguiActor::GetControlPanelViewport(const int windowSize[2], double v
       this->ReadOptionBool("ui.control_left", true), this->ReadOptionBool("ui.control_right", true),
       // The timeline bar only exists when the scene has animations; must match RenderControlPanel.
       this->ReadOptionBool("ui.control_bottom", true) && this->AnimState.count > 0),
-    eased);
+    eased, scale);
   G3DLayout::CenterToVTKViewport(r.center, W, H, vp);
 }
 
@@ -1868,6 +1868,7 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     d.title = title.c_str();
     d.hasIcon = true;
     d.icon = G3DIconId::Info;
+    d.variant = G3DWidgets::CollapseVariant::Flat;
     d.open = &geomOpen;
     if (G3DWidgets::BeginCollapse("g3d.sec.geom", d).open)
     {
@@ -1904,6 +1905,7 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     d.hasIcon = true;
     d.icon = G3DIconId::Layers;
     d.count = countStr.c_str();
+    d.variant = G3DWidgets::CollapseVariant::Flat;
     d.open = &arraysOpen;
     if (G3DWidgets::BeginCollapse("g3d.sec.arrays", d).open)
     {
@@ -2126,6 +2128,7 @@ void vtkF3DImguiActor::DrawAppearanceContent()
   d.title = title.c_str();
   d.hasIcon = true;
   d.icon = G3DIconId::Grid;
+  d.variant = G3DWidgets::CollapseVariant::Flat;
   d.open = &appearanceOpen;
   if (G3DWidgets::BeginCollapse("g3d.sec.appearance", d).open)
   {
@@ -2168,6 +2171,7 @@ void vtkF3DImguiActor::DrawMaterialContent()
   d.title = title.c_str();
   d.hasIcon = true;
   d.icon = G3DIconId::Sliders;
+  d.variant = G3DWidgets::CollapseVariant::Flat;
   d.open = &materialOpen;
   if (G3DWidgets::BeginCollapse("g3d.sec.material", d).open)
   {
@@ -2338,6 +2342,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   d.title = title.c_str();
   d.hasIcon = true;
   d.icon = G3DIconId::Image;
+  d.variant = G3DWidgets::CollapseVariant::Flat;
   d.open = &coloringOpen;
   if (!G3DWidgets::BeginCollapse("g3d.sec.coloring", d).open)
   {
@@ -2625,8 +2630,16 @@ void vtkF3DImguiActor::DrawTimelineContent()
     return;
   }
 
+  // The transport row mixes items of different heights (27 icon buttons, 25 scrubber/dropdown,
+  // bare text) — center each on the BAR's midline so nothing rides its own baseline (the classic
+  // "time readout floats above the slider" misalignment).
+  const float barMidY = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y * 0.5f;
+  auto centerNextY = [&](float itemH)
+  { ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, barMidY - itemH * 0.5f)); };
+
   // Jump back to the first frame — the transport's fixed anchor.
   const float tmin0 = static_cast<float>(this->AnimState.timeRange[0]);
+  centerNextY(G3DTheme::Size::IconButton * scale);
   if (G3DWidgets::IconButton("##g3d.anim.skipback", G3DIconId::SkipBack, -1.f, false,
         loc.Translate("Jump to start").c_str()))
   {
@@ -2638,6 +2651,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
 
   // Play / pause.
   const bool playing = this->AnimState.playing;
+  centerNextY(G3DTheme::Size::IconButton * scale);
   if (G3DWidgets::IconButton("##g3d.anim.playpause", playing ? G3DIconId::Pause : G3DIconId::Play,
         -1.f, false, loc.Translate(playing ? "Pause" : "Play").c_str()))
   {
@@ -2649,6 +2663,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
   // feedback (the name alone tells which of the N clips is scrubbed).
   if (this->AnimState.count > 1)
   {
+    centerNextY(G3DTheme::Size::IconButton * scale);
     if (G3DWidgets::IconButton("##g3d.anim.cycle", G3DIconId::StepForward, -1.f, false,
           loc.Translate("Next animation").c_str()))
     {
@@ -2657,7 +2672,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
     ImGui::SameLine();
     if (!this->AnimState.name.empty())
     {
-      ImGui::AlignTextToFramePadding();
+      centerNextY(ImGui::GetTextLineHeight());
       ImGui::TextColored(G3DTheme::TextMuted(), "%s",
         ::EllipsizeMiddle(this->AnimState.name, 140.f * scale).c_str());
       ImGui::SameLine();
@@ -2671,12 +2686,14 @@ void vtkF3DImguiActor::DrawTimelineContent()
   float t = static_cast<float>(this->AnimState.currentTime);
   char timeLabel[32];
   std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
-  const float speedW = 84.f * scale;
+  const float speedW = 64.f * scale;
   const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW +
     2.f * ImGui::GetStyle().ItemSpacing.x + 8.f * scale;
   const float scrubW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - rightW);
   ImGui::SetNextItemWidth(scrubW);
-  if (tmax > tmin && G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs"))
+  centerNextY(G3DTheme::Size::Control * scale);
+  // The current time is the timeline's primary readout — full-strength text (emphasizeValue).
+  if (tmax > tmin && G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs", true))
   {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%.6g", t);
@@ -2684,9 +2701,9 @@ void vtkF3DImguiActor::DrawTimelineContent()
   }
   ImGui::SameLine();
 
-  // Total duration label (the scrubber itself shows the current time).
-  ImGui::AlignTextToFramePadding();
-  ImGui::TextUnformatted(timeLabel);
+  // Total duration label — secondary to the current time, hence muted, on the shared midline.
+  centerNextY(ImGui::GetTextLineHeight());
+  ImGui::TextColored(G3DTheme::TextMuted(), "%s", timeLabel);
   ImGui::SameLine();
 
   // Playback speed: stepped dropdown instead of a tiny free slider — the presets cover animation
@@ -2696,6 +2713,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
   char speedLabel[16];
   std::snprintf(speedLabel, sizeof(speedLabel), "%.3g\xc3\x97", speed); // e.g. "1×"
   ImGui::SetNextItemWidth(speedW);
+  centerNextY(G3DTheme::Size::Control * scale);
   if (G3DWidgets::BeginSelect("##g3d.anim.speed", speedLabel))
   {
     static constexpr float speedPresets[] = { 0.1f, 0.25f, 0.5f, 1.f, 2.f, 4.f };
@@ -3058,7 +3076,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       // The timeline bar only exists when the scene has animations; must match
       // GetControlPanelViewport or the pushed 3D viewport and the bars would disagree.
       this->ReadOptionBool("ui.control_bottom", true) && this->AnimState.count > 0),
-    eased);
+    eased, scale);
 
   // Docked bars are opaque chrome that frame the 3D viewport. The scene is physically pushed into
   // the central gap: the renderer derives its VTK viewport from this same G3DLayout `center` rect
@@ -3083,7 +3101,11 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       return false; // bar collapsed to nothing mid-animation
     }
     ::SetupNextWindow(ImVec2(rc.x, rc.y), ImVec2(rc.w, rc.h));
+    // Docked chrome is square: the global WindowRounding (kept for floating windows) would round
+    // every bar corner and open a notch where two bars meet (e.g. bottom strip vs side panel).
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
     ImGui::Begin(id, nullptr, flags);
+    ImGui::PopStyleVar();
     return true;
   };
 
@@ -3147,22 +3169,37 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       G3DWidgets::IconOnStyle::Dot);
     toolSeparator();
     // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits).
-    toolButton("##tb.tree", G3DIconId::PanelLeft, "toggle ui.control_left",
-      loc.Translate("Scene").c_str(), this->ReadOptionBool("ui.control_left", true));
-    toolButton("##tb.inspector", G3DIconId::PanelRight, "toggle ui.control_right",
-      loc.Translate("Inspector").c_str(), this->ReadOptionBool("ui.control_right", true));
-    // The timeline bar only exists when the scene has animations — with none, its toggle is a dead
-    // switch, so gray it (the tooltip says why) instead of letting it silently do nothing.
+    // One segmented group instead of three chips: the related layout switches read as a single
+    // quiet control (Figma top bar / UE viewport toolbar), not the loudest thing in the chrome.
+    // The timeline segment is a dead switch without animations — disabled, tooltip says why.
     const bool hasAnim = this->AnimState.count > 0;
-    ImGui::BeginDisabled(!hasAnim);
-    toolButton("##tb.timeline", G3DIconId::PanelBottom, "toggle ui.control_bottom",
-      hasAnim ? loc.Translate("Timeline").c_str() : loc.Translate("No animation").c_str(),
-      hasAnim && this->ReadOptionBool("ui.control_bottom", true));
-    ImGui::EndDisabled();
-    if (!hasAnim && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    const std::string sceneTip = loc.Translate("Scene");
+    const std::string inspectorTip = loc.Translate("Inspector");
+    const std::string timelineTip =
+      hasAnim ? loc.Translate("Timeline") : loc.Translate("No animation");
+    const G3DWidgets::SegmentedIconItem layoutSegs[3] = {
+      { G3DIconId::PanelLeft, sceneTip.c_str(), this->ReadOptionBool("ui.control_left", true),
+        false },
+      { G3DIconId::PanelRight, inspectorTip.c_str(), this->ReadOptionBool("ui.control_right", true),
+        false },
+      { G3DIconId::PanelBottom, timelineTip.c_str(),
+        hasAnim && this->ReadOptionBool("ui.control_bottom", true), !hasAnim },
+    };
+    switch (G3DWidgets::SegmentedIcon("##tb.layout", layoutSegs, 3))
     {
-      ImGui::SetTooltip("%s", loc.Translate("No animation").c_str());
+      case 0:
+        this->SendCommand("toggle ui.control_left");
+        break;
+      case 1:
+        this->SendCommand("toggle ui.control_right");
+        break;
+      case 2:
+        this->SendCommand("toggle ui.control_bottom");
+        break;
+      default:
+        break;
     }
+    ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
 
     // Collapse the whole panel chrome — pinned to the bar's right edge (the VS Code layout-toggle
     // spot). The FAB then becomes the reopen handle once the panel is fully closed.
@@ -3182,7 +3219,11 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   }
 
   // Right bar — property inspector: data info (read-only) + appearance + material groups, all in a
-  // shared scroll region under the fixed header.
+  // shared scroll region under the fixed header. Zero horizontal padding: the inspector is a stack
+  // of full-bleed Flat sections whose header bands and hairlines must reach the panel edges; each
+  // section's body carries its own content inset (PanelHeader keeps its own minimum edge inset).
+  ImGui::PushStyleVar(
+    ImGuiStyleVar_WindowPadding, ImVec2(0.f, ImGui::GetStyle().WindowPadding.y));
   if (beginBar("##g3d.bar.right", r.right))
   {
     G3DWidgets::PanelHeader(loc.Translate("Inspector").c_str(), G3DIconId::Sliders);
@@ -3194,6 +3235,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::EndChild();
     ImGui::End();
   }
+  ImGui::PopStyleVar();
 
   // Bottom bar — animation timeline (play/pause, scrubber, speed); a hint when there is no animation.
   if (beginBar("##g3d.bar.bottom", r.bottom))
@@ -3210,8 +3252,9 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   const float minBarW = 180.f;
   // Mirror Compute()'s per-side cap so the STORED drag override can never exceed what is drawn —
   // otherwise the bar pins at the cap while the override keeps growing and reverse-dragging gets a
-  // dead zone. max() guards tiny windows where the cap would fall below the minimum width.
-  const float maxBarW = std::max(minBarW, (work.w / scale) * G3DLayout::MAX_SIDE_FRAC);
+  // dead zone. MaxSideWidth is in device px; the override is stored nominal, hence the /scale.
+  // max() guards tiny windows where the cap would fall below the minimum width.
+  const float maxBarW = std::max(minBarW, G3DLayout::MaxSideWidth(work.w, scale) / scale);
   auto drawSplitter = [&](const char* id, float boundaryX, const G3DLayout::Rect& bar, bool isLeft)
   {
     if (bar.w < 1.f || bar.h < 1.f)

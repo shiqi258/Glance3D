@@ -65,6 +65,21 @@ enum class IconOnStyle
 bool IconButton(const char* id, G3DIconId icon, float size = -1.f, bool round = false,
   const char* tooltip = nullptr, bool on = false, IconOnStyle onStyle = IconOnStyle::Fill);
 
+/// One segment of a SegmentedIcon group.
+struct SegmentedIconItem
+{
+  G3DIconId icon = G3DIconId::Cube;
+  const char* tooltip = nullptr;
+  bool on = false;       ///< persistent active state (accent-soft fill + accent icon)
+  bool disabled = false; ///< not clickable, dimmed (tooltip still shows on hover)
+};
+
+/// A group of related icon toggles in one shared container (styleguide .segmented): one surface +
+/// hairline shell, 1px separators between segments, per-segment accent-soft active fill. The quiet
+/// grouping for panel-visibility style toggles — reads as one control instead of a row of chips.
+/// Returns the index of the segment clicked this frame, else -1.
+int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count);
+
 /// Styled card container. Call EndCard() exactly once for each BeginCard(). @p hoverable adds a hover
 /// tint and makes EndCard() return whether the card was clicked. Always returns true (draw content).
 bool BeginCard(const char* id, bool hoverable = false, float padding = -1.f);
@@ -128,8 +143,10 @@ bool Toggle(const char* label, bool* v);
 bool Checkbox(const char* label, bool* v);
 
 /// Styled slider (pill track + fill + grab, hover glow). Returns true when the value changed.
-bool SliderFloat(
-  const char* label, float* v, float vMin, float vMax, const char* format = "%.2f");
+/// @p emphasizeValue draws the readout in full-strength text instead of muted — for sliders whose
+/// value IS the primary information (e.g. the timeline's current time), not a secondary detail.
+bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char* format = "%.2f",
+  bool emphasizeValue = false);
 
 /// Styled dual-handle interval slider: one track, two grabs, the span between them filled with the
 /// accent (the standard "range" control — e.g. scalar coloring min/max). Dragging a handle moves the
@@ -358,6 +375,8 @@ enum class CollapseVariant
   Sub,      ///< nested sub-panel (Blender sub-panels): transparent, indented body, lighter title
   Ghost,    ///< borderless, transparent — inline grouping inside another container
   Overline, ///< card chrome but an uppercase-feeling tiny subtle title (VS Code sidebar section)
+  Flat,     ///< docked full-bleed section (Blender/UE5 category): no shell, subtle full-width
+            ///< header band, hairline between sections — for panel bars, not floating windows
 };
 
 /// Header / body density — mirrors styleguide den="compact|dense" (header 36 / 30 / 26 px).

@@ -394,6 +394,126 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
 }
 
 //----------------------------------------------------------------------------
+int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count)
+{
+  int clicked = -1;
+  if (items == nullptr || count <= 0)
+  {
+    return clicked;
+  }
+  ImGui::PushID(id);
+  const float s = Scale();
+  const float h = G3DTheme::Size::IconButton * s;
+  const float segW = (G3DTheme::Size::IconButton + 4.f) * s; // a touch wider than tall
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const ImVec2 g1(p0.x + segW * count, p0.y + h);
+  const float radius = G3DTheme::Radius::Control * s;
+  const float alpha = ImGui::GetStyle().Alpha;
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  AAGuard aa(dl);
+  // Shared shell beneath the segments: one quiet surface, one hairline — the group reads as a
+  // single control (drawn first; per-segment fills and separators layer on top).
+  dl->AddRectFilled(p0, g1, U32(G3DTheme::Surface(), alpha), radius);
+
+  for (int i = 0; i < count; ++i)
+  {
+    const SegmentedIconItem& it = items[i];
+    ImGui::PushID(i);
+    const ImVec2 c0(p0.x + segW * i, p0.y);
+    const ImVec2 c1(c0.x + segW, p0.y + h);
+    ImGui::SetCursorScreenPos(c0);
+    if (it.disabled)
+    {
+      ImGui::BeginDisabled();
+    }
+    const bool pressed = ImGui::InvisibleButton("##seg", ImVec2(segW, h));
+    const bool hovered = ImGui::IsItemHovered();
+    const bool held = ImGui::IsItemActive();
+    const bool focused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
+    const WidgetAnim& a = Interact(ImGui::GetID("##seg"), hovered, held);
+    if (hovered)
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+    // BeginDisabled dims style.Alpha — read it inside the scope so the paint follows.
+    const float segAlpha = ImGui::GetStyle().Alpha;
+
+    // Same emphasis semantics as IconButton's Fill style: accent-soft wash when on, deepening on
+    // hover/press; ghost -> surface hover otherwise.
+    ImVec4 rest = it.on ? G3DTheme::AccentSoft() : G3DTheme::Surface();
+    if (!it.on)
+    {
+      rest.w = 0.f;
+    }
+    ImVec4 hoverBg = it.on ? G3DTheme::AccentSoft() : G3DTheme::SurfaceHover();
+    ImVec4 pressBg = it.on ? G3DTheme::AccentSoft() : G3DTheme::SurfacePress();
+    if (it.on)
+    {
+      hoverBg.w = std::min(1.f, hoverBg.w * 1.7f);
+      pressBg.w = std::min(1.f, pressBg.w * 2.2f);
+    }
+    ImVec4 bg = LerpColor(rest, hoverBg, a.hover.Value());
+    bg = LerpColor(bg, pressBg, a.press.Value());
+    // Outer segments follow the shell's rounded corners so fills never poke past the shell.
+    ImDrawFlags rf = ImDrawFlags_RoundCornersNone;
+    if (count == 1)
+    {
+      rf = ImDrawFlags_RoundCornersAll;
+    }
+    else if (i == 0)
+    {
+      rf = ImDrawFlags_RoundCornersLeft;
+    }
+    else if (i == count - 1)
+    {
+      rf = ImDrawFlags_RoundCornersRight;
+    }
+    if (bg.w > 0.001f)
+    {
+      dl->AddRectFilled(c0, c1, U32(bg, segAlpha), radius, rf);
+    }
+    if (focused)
+    {
+      const float o = 1.5f * s;
+      dl->AddRect(ImVec2(c0.x - o, c0.y - o), ImVec2(c1.x + o, c1.y + o),
+        U32(G3DTheme::Accent(), 0.45f * segAlpha), radius + o, 0, 2.f * s);
+    }
+    G3DIcon::Draw(dl, it.icon, ImVec2((c0.x + c1.x) * 0.5f, (c0.y + c1.y) * 0.5f), h * 0.52f,
+      U32(it.on ? G3DTheme::Accent() : G3DTheme::Text(), segAlpha));
+    if (it.disabled)
+    {
+      ImGui::EndDisabled();
+    }
+    if (pressed && !it.disabled)
+    {
+      clicked = i;
+    }
+    // Tooltip also for disabled segments (explains WHY it is inert, e.g. "No animation") — same
+    // delay convention as ItemTooltip.
+    if (it.tooltip && it.tooltip[0] &&
+      ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay |
+        ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+      ImGui::SetTooltip("%s", it.tooltip);
+    }
+    ImGui::PopID();
+  }
+
+  // Separators + shell hairline above the fills.
+  for (int i = 1; i < count; ++i)
+  {
+    const float x = p0.x + segW * i;
+    dl->AddLine(ImVec2(x, p0.y + h * 0.22f), ImVec2(x, p0.y + h * 0.78f), U32(G3DTheme::Border()),
+      G3DTheme::Size::Border * s);
+  }
+  dl->AddRect(p0, g1, U32(G3DTheme::Border(), alpha), radius, 0, G3DTheme::Size::Border * s);
+
+  ImGui::PopID();
+  return clicked;
+}
+
+//----------------------------------------------------------------------------
 namespace
 {
 struct CardFrame
@@ -548,7 +668,10 @@ void PanelHeaderImpl(const char* title, const G3DIconId* icon)
   ImDrawList* dl = ImGui::GetWindowDrawList();
 
   ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * s));
-  const ImVec2 p = ImGui::GetCursorScreenPos();
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  // Guarantee a horizontal inset from the panel edge even when the host window runs zero horizontal
+  // padding (full-bleed section bars): the title must never hug the chrome edge.
+  p.x = std::max(p.x, ImGui::GetWindowPos().x + 10.f * s);
   const ImVec2 ts = CalcTextSized(title, fs);
   float rowH = ts.y;
   float tx = p.x;
@@ -683,6 +806,7 @@ struct CollapseFrame
   float subIndent;   // extra left indent inside the body child (Sub's asymmetric left inset)
   float botPad;
   bool standalone;   // add a trailing gap after the card (not for accordion items / nested)
+  bool flatSection;  // Flat variant: close with a full-width hairline instead of a gap
   // open/close height animation (mirrors styleguide grid-rows 0fr<->1fr over --t-std):
   ImGuiID hid;       // header id, keys the open-value anim + the body-height cache
   float openT;       // eased open fraction 0..1
@@ -727,8 +851,11 @@ float CollapseHeaderHeight(G3DWidgets::CollapseDensity d, G3DWidgets::CollapseVa
       return 26.f * s;
     case G3DWidgets::CollapseDensity::Default:
     default:
-      // overline header is 30px even at default density (styleguide .collapse.overline)
-      return v == G3DWidgets::CollapseVariant::Overline ? 30.f * s : 36.f * s;
+      // overline / flat headers are 30px even at default density (styleguide .collapse.overline /
+      // .collapse.flat — docked sections keep editor density)
+      return (v == G3DWidgets::CollapseVariant::Overline || v == G3DWidgets::CollapseVariant::Flat)
+        ? 30.f * s
+        : 36.f * s;
   }
 }
 
@@ -921,12 +1048,21 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   const bool animating = showBody && openT < 0.999f;
   res.open = showBody;
 
-  const float headPadL =
-    (desc.variant == CollapseVariant::Ghost ? 2.f : desc.variant == CollapseVariant::Sub ? 6.f : 8.f) *
+  const float headPadL = (desc.variant == CollapseVariant::Ghost ? 2.f
+      : desc.variant == CollapseVariant::Sub                     ? 6.f
+      : desc.variant == CollapseVariant::Flat                    ? 10.f
+                                                                 : 8.f) *
     s;
   const float headPadR = 10.f * s;
 
   AAGuard aa(dl);
+
+  // Flat sections have a persistent subtle header band (UE5 category header): one surface step
+  // above the panel, square and full-bleed — the only rest-state chrome a docked section carries.
+  if (desc.variant == CollapseVariant::Flat)
+  {
+    dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + headerH), U32(G3DTheme::Surface()));
+  }
 
   // Header hover background (rest = none; the card/accordion surface shows through). For a flush
   // accordion item it is surface-2, otherwise surface-3 (one step above the card). The fill must
@@ -1114,6 +1250,12 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
       leftPad = 0.f;
       rightPad = 0.f;
       break;
+    case CollapseVariant::Flat:
+      // docked section body: tighter than a floating card (the panel edge does the framing)
+      leftPad = rightPad = 12.f * s;
+      topPad = 8.f * s;
+      botPad = 10.f * s;
+      break;
     case CollapseVariant::Card:
     case CollapseVariant::Overline:
     default:
@@ -1143,7 +1285,8 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   cf.subIndent = std::max(0.f, leftPad - rightPad);
   cf.botPad = botPad;
   cf.standalone = !inAccordion && desc.variant != CollapseVariant::Sub &&
-    desc.variant != CollapseVariant::Ghost;
+    desc.variant != CollapseVariant::Ghost && desc.variant != CollapseVariant::Flat;
+  cf.flatSection = desc.variant == CollapseVariant::Flat;
   cf.hid = hid;
   cf.openT = openT;
   cf.cachedH = cachedH;
@@ -1259,6 +1402,14 @@ void EndCollapse()
   if (cf.standalone)
   {
     ImGui::Dummy(ImVec2(cf.width, G3DTheme::Spacing::Sm * s));
+  }
+  else if (cf.flatSection)
+  {
+    // Flat sections stack flush, separated by a single full-width hairline (Blender/UE5). Reserve
+    // the line's pixel so the next section's header band starts below it instead of covering it.
+    dl->AddLine(ImVec2(cf.p0.x, bottomY), ImVec2(cf.p0.x + cf.width, bottomY),
+      U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
+    ImGui::Dummy(ImVec2(cf.width, G3DTheme::Size::Border * s));
   }
   ImGui::PopID();
 }
@@ -1422,7 +1573,8 @@ bool Checkbox(const char* label, bool* v)
 }
 
 //----------------------------------------------------------------------------
-bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char* format)
+bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char* format,
+  bool emphasizeValue)
 {
   ImGui::PushID(label);
   const float s = Scale();
@@ -1478,9 +1630,9 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
   const float gx = G3DLerp(x0, x1, tt);
   dl->AddRectFilled(ImVec2(x0, cy - trackH * 0.5f), ImVec2(gx, cy + trackH * 0.5f),
     U32(G3DTheme::Accent(), alpha), trackH * 0.5f);
-  // round thumb with hover/active glow ring
+  // round thumb with hover/active glow ring — small (pro-tool scale), the glow adds reach on hover
   const float glow = std::max(w.hover.Value(), held ? 1.f : 0.f);
-  const float thumbR = 8.f * s;
+  const float thumbR = 5.f * s;
   if (glow > 0.01f)
   {
     dl->AddCircleFilled(
@@ -1493,8 +1645,8 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
   if (buf[0])
   {
     const ImVec2 ts = ImGui::CalcTextSize(buf);
-    dl->AddText(
-      ImVec2(p0.x + width - ts.x, cy - ts.y * 0.5f), U32(G3DTheme::TextMuted(), alpha), buf);
+    dl->AddText(ImVec2(p0.x + width - ts.x, cy - ts.y * 0.5f),
+      U32(emphasizeValue ? G3DTheme::Text() : G3DTheme::TextMuted(), alpha), buf);
   }
   ImGui::PopID();
   return changed;
@@ -1613,7 +1765,7 @@ bool RangeSliderFloat(
   dl->AddRectFilled(ImVec2(gxLo, cy - trackH * 0.5f), ImVec2(gxHi, cy + trackH * 0.5f),
     U32(G3DTheme::Accent(), alpha), trackH * 0.5f);
   const float glow = std::max(w.hover.Value(), held ? 1.f : 0.f);
-  const float thumbR = 7.f * s; // slightly smaller than SliderFloat's: two grabs share the track
+  const float thumbR = 4.5f * s; // slightly smaller than SliderFloat's: two grabs share the track
   auto drawThumb = [&](float gx)
   {
     if (glow > 0.01f)
@@ -2697,6 +2849,17 @@ void BeginPropRow(const char* label, float labelW, float ctrlH)
   PropRowFrame f;
   f.p0 = ImGui::GetCursorScreenPos();
   f.labelW = (labelW > 0.f ? labelW : 88.f) * s; // styleguide .collapse-body-inner .proprow > .k
+  // Narrow-panel breakpoint: the CONTROL is the row's working part — when the row is too tight for
+  // label column + a usable control, shrink the label column (its text ellipsizes) before letting
+  // the control degrade to "...". Floor keeps at least a hint of the label.
+  {
+    const float rowW = ImGui::GetContentRegionAvail().x;
+    const float minCtrlW = 110.f * s;
+    if (rowW - f.labelW < minCtrlW)
+    {
+      f.labelW = std::max(40.f * s, rowW - minCtrlW);
+    }
+  }
   f.label = label;
 
   // Value column: controls shorter than the control row (Toggle) are nudged down to sit centered.
@@ -4342,7 +4505,7 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
   }
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(G3DTheme::Spacing::Md * s, G3DTheme::Spacing::Md * s));
-  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Card * s);
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Popup * s);
   ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, G3DTheme::Size::Border * s);
   ImGui::PushStyleColor(ImGuiCol_PopupBg, U32(G3DTheme::Surface()));
   ImGui::PushStyleColor(ImGuiCol_Border, U32(G3DTheme::Border()));
@@ -4586,7 +4749,11 @@ static bool BeginSelectImpl(
     float tx = p0.x + padX;
     if (strip != nullptr)
     {
-      const float stripW = 44.f * s;
+      // The swatch yields to the trigger's width: shrink below its design width rather than crowd
+      // the label/chevron in a narrow value column (it stays a recognizable gradient down to 20px).
+      const float stripAvail =
+        p1.x - padX - chevSz - G3DTheme::Spacing::Sm * s - G3DTheme::Spacing::Sm * s - tx;
+      const float stripW = std::clamp(stripAvail, 20.f * s, 44.f * s);
       const float stripH = 14.f * s;
       DrawGradientStrip(dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f),
         *strip, alpha);
@@ -4647,7 +4814,7 @@ static bool BeginSelectImpl(
   ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.f), ImVec2(width, maxMenuH));
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.f * s, 4.f * s)); // .menu padding: 4px
-  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Control * s); // r-md
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Popup * s); // floating layer
   // border drawn manually below: ImGui strokes window borders without line AA (disabled globally),
   // which staircases the rounded corners
   ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.f);
@@ -4672,7 +4839,7 @@ static bool BeginSelectImpl(
     const ImVec2 wp = ImGui::GetWindowPos();
     const ImVec2 ws = ImGui::GetWindowSize();
     const ImVec2 w1(wp.x + ws.x, wp.y + ws.y);
-    const float rounding = G3DTheme::Radius::Control * s;
+    const float rounding = G3DTheme::Radius::Popup * s;
     DrawMenuShadow(pdl, wp, w1, rounding, s, mt);
     pdl->PushClipRectFullScreen();
     pdl->AddRect(wp, w1, U32(G3DTheme::Border(), mt), rounding, 0, G3DTheme::Size::Border * s);
@@ -4736,7 +4903,10 @@ static bool SelectItemImpl(const char* label, bool selected, const GradientStops
   float tx = p0.x + padX;
   if (strip != nullptr)
   {
-    const float stripW = 44.f * s;
+    // Same yield-to-width rule as the trigger's swatch (narrow menus shrink the gradient, not the
+    // label / check).
+    const float stripAvail = p1.x - padX - (selected ? checkSz + gap : 0.f) - gap - tx;
+    const float stripW = std::clamp(stripAvail, 20.f * s, 44.f * s);
     const float stripH = 14.f * s;
     DrawGradientStrip(dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f),
       *strip, alpha);

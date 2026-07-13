@@ -35,20 +35,23 @@ constexpr float Lg = 16.f;
 constexpr float Xl = 24.f;
 }
 
-/// Corner radii (px). Mirrors the styleguide (sm/md/lg).
+/// Corner radii (px). Mirrors the styleguide (sm/md/lg/popup). Docked-tool scale: keep small —
+/// large radii read as web dashboard, not pro desktop chrome; generous rounding is reserved for
+/// floating layers (Popup).
 namespace Radius
 {
-constexpr float Small = 6.f;   ///< small controls (checkbox)
-constexpr float Control = 8.f; ///< buttons, inputs, icon buttons, sliders
-constexpr float Card = 12.f;   ///< cards
+constexpr float Small = 3.f;   ///< small controls (checkbox)
+constexpr float Control = 4.f; ///< buttons, inputs, icon buttons, sliders
+constexpr float Card = 6.f;    ///< cards
+constexpr float Popup = 8.f;   ///< floating layers: menus, popovers, tooltips
 constexpr float Pill = 999.f;  ///< fully rounded (toggles, round icon buttons)
 }
 
 /// Nominal control sizes (px at FontScale 1.0).
 namespace Size
 {
-constexpr float Control = 30.f;    ///< standard control height (inputs, sliders)
-constexpr float IconButton = 30.f; ///< square icon button
+constexpr float Control = 25.f;    ///< standard control height (inputs, sliders)
+constexpr float IconButton = 27.f; ///< square icon button
 constexpr float Fab = 40.f;        ///< floating action button
 constexpr float Icon = 18.f;       ///< default icon edge (== base font size)
 constexpr float IconSm = 14.f;     ///< small icon edge
