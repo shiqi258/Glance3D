@@ -79,10 +79,8 @@ constexpr float LOADING_SPIN_PERIOD_SEC = 4.4f; // seconds per revolution (slow,
 
 // Control panel (FAB + sliding panel) geometry and animation tuning. Grouped so the feel is easy
 // to retune in one place. The fully-open bar thicknesses themselves live in G3DLayout.h
-// (G3DLayout::DefaultBarSizes) so the renderer derives the central viewport from the same numbers;
-// CONTROL_PANEL_WIDTH below mirrors G3DLayout::BAR_RIGHT_W and is reused only to place the FAB.
-constexpr float CONTROL_PANEL_WIDTH = G3DLayout::BAR_RIGHT_W; // right (inspector) bar width, open
-constexpr float CONTROL_FAB_SIZE = 40.f;        // toggle button (FAB) size
+// (G3DLayout::DefaultBarSizes) so the renderer derives the central viewport from the same numbers.
+constexpr float CONTROL_FAB_SIZE = 32.f;        // reopen handle size (was a 40px FAB)
 constexpr double CONTROL_PANEL_ANIM_SEC = 0.22; // panel slide in/out duration
 constexpr double CONTROL_FAB_FADE_SEC = 0.18;   // FAB fade in/out duration
 constexpr double CONTROL_FAB_IDLE_SEC = 2.5;    // idle before the FAB starts fading out
@@ -1188,6 +1186,37 @@ void vtkF3DImguiActor::RenderLoadingOverlay()
 }
 
 //----------------------------------------------------------------------------
+namespace
+{
+// Middle-ellipsis for long file names (keeps the extension tail readable, VS Code style). Returns
+// the input unchanged when it already fits @p maxW. UTF-8 safe (never splits a multi-byte glyph).
+std::string EllipsizeMiddle(const std::string& text, float maxW)
+{
+  if (ImGui::CalcTextSize(text.c_str()).x <= maxW)
+  {
+    return text;
+  }
+  auto utf8Rewind = [&text](std::size_t pos)
+  {
+    while (pos > 0 && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80)
+    {
+      --pos;
+    }
+    return pos;
+  };
+  const float ellW = ImGui::CalcTextSize("...").x;
+  const std::size_t tailStart = utf8Rewind(text.size() - std::min<std::size_t>(12, text.size() / 2));
+  const float tailW = ImGui::CalcTextSize(text.c_str() + tailStart).x;
+  std::size_t headEnd = tailStart;
+  while (headEnd > 0 &&
+    ImGui::CalcTextSize(text.c_str(), text.c_str() + headEnd).x + ellW + tailW > maxW)
+  {
+    headEnd = utf8Rewind(headEnd - 1);
+  }
+  return text.substr(0, headEnd) + "..." + text.substr(tailStart);
+}
+} // namespace
+
 void vtkF3DImguiActor::RenderFileName()
 {
   if (!this->FileName.empty())
@@ -1195,7 +1224,17 @@ void vtkF3DImguiActor::RenderFileName()
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
     constexpr float margin = F3DStyle::GetDefaultMargin();
-    ImVec2 winSize = ImGui::CalcTextSize(this->FileName.c_str());
+    const float scale = static_cast<float>(this->FontScale);
+    const float eased = this->PanelAnim.Value();
+
+    // Keep clear of the toolbar's button clusters while the panel chrome is open (symmetric
+    // reservation so the text stays centered); a long name middle-ellipsizes with the full string
+    // on hover.
+    const float reserved = eased > 0.001f ? 320.f * scale : 2.f * margin;
+    const float maxTextW = std::max(80.f * scale, viewport->WorkSize.x - 2.f * reserved);
+    const std::string shown = ::EllipsizeMiddle(this->FileName, maxTextW);
+
+    ImVec2 winSize = ImGui::CalcTextSize(shown.c_str());
     winSize.x += 2.f * ImGui::GetStyle().WindowPadding.x;
     winSize.y += 2.f * ImGui::GetStyle().WindowPadding.y;
 
@@ -1208,16 +1247,24 @@ void vtkF3DImguiActor::RenderFileName()
       totalWidth += hdriWinSize.x + ImGui::GetStyle().WindowPadding.x;
     }
 
-    ::SetupNextWindow(ImVec2(viewport->GetWorkCenter().x - 0.5f * totalWidth, margin), winSize);
+    // With the panel open the name sits centered on the top toolbar line, backgroundless (the
+    // opaque bar carries it); closed, it is the familiar floating pill. eased interpolates both.
+    const float topH = G3DLayout::DefaultBarSizes(scale).topH;
+    const float y = margin + ((topH - winSize.y) * 0.5f - margin) * eased;
+    ::SetupNextWindow(ImVec2(viewport->GetWorkCenter().x - 0.5f * totalWidth, y), winSize);
     ImGuiStyle& style = ImGui::GetStyle();
     style.Colors[ImGuiCol_WindowBg] = ImVec4(this->BackdropColor[0], this->BackdropColor[1],
-      this->BackdropColor[2], this->BackdropOpacity);
+      this->BackdropColor[2], this->BackdropOpacity * (1.f - eased));
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
     ImGui::Begin("FileName", nullptr, flags);
-    ImGui::TextUnformatted(this->FileName.c_str());
+    ImGui::TextColored(G3DTheme::TextMuted(), "%s", shown.c_str());
+    if (shown.size() != this->FileName.size() && ImGui::IsWindowHovered())
+    {
+      ImGui::SetTooltip("%s", this->FileName.c_str()); // ellipsized — reveal the full name
+    }
     ImGui::End();
   }
 }
@@ -1271,17 +1318,22 @@ void vtkF3DImguiActor::RenderHDRIFileName()
       winOffsetX = fileWinSize.x + ImGui::GetStyle().WindowPadding.x;
     }
 
+    // Same chrome treatment as the file name: toolbar-line alignment + backgroundless when the
+    // panel is open, muted text always.
+    const float eased = this->PanelAnim.Value();
+    const float topH = G3DLayout::DefaultBarSizes(static_cast<float>(this->FontScale)).topH;
+    const float y = margin + ((topH - winSize.y) * 0.5f - margin) * eased;
     ::SetupNextWindow(
-      ImVec2(viewport->GetWorkCenter().x - 0.5f * totalWidth + winOffsetX, margin), winSize);
+      ImVec2(viewport->GetWorkCenter().x - 0.5f * totalWidth + winOffsetX, y), winSize);
     ImGuiStyle& style = ImGui::GetStyle();
     style.Colors[ImGuiCol_WindowBg] = ImVec4(this->BackdropColor[0], this->BackdropColor[1],
-      this->BackdropColor[2], this->BackdropOpacity);
+      this->BackdropColor[2], this->BackdropOpacity * (1.f - eased));
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
     ImGui::Begin("HDRIFileName", nullptr, flags);
-    ImGui::TextUnformatted(this->HDRIFileName.c_str());
+    ImGui::TextColored(G3DTheme::TextMuted(), "%s", this->HDRIFileName.c_str());
     ImGui::End();
   }
 }
@@ -1627,9 +1679,10 @@ void vtkF3DImguiActor::AdvanceControlAnim()
     io.MouseDown[1] || io.MouseDown[2];
   this->ControlIdleSec = mouseActive ? 0.0 : this->ControlIdleSec + dt;
 
-  // The FAB stays visible while the panel is open/animating (it is the panel's handle); otherwise it
-  // shows only while the viewport was recently active.
-  const bool fabWanted = this->ControlPanelVisible || this->PanelAnim.Value() > 0.001f ||
+  // The FAB is only the REOPEN handle: hidden whenever the panel is open or sliding (the toolbar's
+  // collapse button owns closing), and once fully closed it shows only while the viewport was
+  // recently active — so the working 3D view carries no floating chrome.
+  const bool fabWanted = !this->ControlPanelVisible && this->PanelAnim.Value() < 0.001f &&
     this->ControlIdleSec <= ::CONTROL_FAB_IDLE_SEC;
   const float fabTarget = fabWanted ? 1.f : 0.f;
 
@@ -1658,16 +1711,14 @@ void vtkF3DImguiActor::RenderControlToggle()
 
   const float alpha = this->FabAlpha.Value();
   constexpr float margin = F3DStyle::GetDefaultMargin();
-  constexpr float fabSize = ::CONTROL_FAB_SIZE;
-  const float panelWidth = std::min(::CONTROL_PANEL_WIDTH, viewport->WorkSize.x * 0.5f);
+  const float fabSize = ::CONTROL_FAB_SIZE * static_cast<float>(this->FontScale);
 
-  // The FAB rides the panel's left edge like a drawer handle: when closed the panel edge sits at the
-  // right border (FAB in the corner), and as the panel slides in the FAB slides left with it, so it
-  // is never covered. One row below the top to clear the fps counter / console badge.
-  const float eased = this->PanelAnim.Value(); // already eased by G3DAnimatedFloat
-  const float panelLeftX = viewport->WorkPos.x + viewport->WorkSize.x - panelWidth * eased;
+  // Fixed top-right reopen handle (it only exists while the panel is fully closed, so it never
+  // tracks the panel edge — the old drawer-handle formula also missed the DPI scale and overlapped
+  // the inspector header at high scales). One row below the top to clear the fps/console badge.
   const float rowH = ImGui::GetTextLineHeight() + 2.f * ImGui::GetStyle().WindowPadding.y;
-  const ImVec2 pos(panelLeftX - fabSize - margin, viewport->WorkPos.y + margin + rowH + margin);
+  const ImVec2 pos(viewport->WorkPos.x + viewport->WorkSize.x - fabSize - margin,
+    viewport->WorkPos.y + margin + rowH + margin);
 
   ::SetupNextWindow(pos, ImVec2(fabSize, fabSize));
   ImGui::SetNextWindowBgAlpha(0.f); // we draw our own rounded glass background
@@ -1685,8 +1736,7 @@ void vtkF3DImguiActor::RenderControlToggle()
   const bool clicked = ImGui::InvisibleButton("##ControlToggleBtn", ImVec2(fabSize, fabSize));
   if (clicked)
   {
-    vtkOutputWindow::GetInstance()->InvokeEvent(
-      vtkF3DUserEvents::TriggerEvent, const_cast<char*>("toggle ui.control_panel"));
+    this->SendCommand("toggle ui.control_panel");
   }
   const bool hovered = ImGui::IsItemHovered();
   const bool held = ImGui::IsItemActive();
@@ -1715,30 +1765,27 @@ void vtkF3DImguiActor::RenderControlToggle()
   const float half = fabSize * 0.5f * pressScale;
   const ImVec2 r0(ctr.x - half, ctr.y - half);
   const ImVec2 r1(ctr.x + half, ctr.y + half);
-  const float radius = G3DTheme::Radius::Control;
+  const float radius = G3DTheme::Radius::Control * static_cast<float>(this->FontScale);
 
-  // Rounded "glass" face: neutral backdrop at rest, morphs to the accent as the panel opens (eased
-  // by PanelAnim); hover lifts the fill, press deepens it slightly.
-  const ImVec4 hl = F3DStyle::imgui::GetHighlightColor();
-  auto mix = [eased](double off, double on) { return off + (on - off) * eased; };
-  const float fillA =
-    std::clamp(G3DLerp(0.55f, 0.92f, eased) + 0.16f * hoverT - 0.06f * pressT, 0.f, 1.f) * alpha;
-  const ImU32 bg = IM_COL32(static_cast<int>(mix(this->BackdropColor[0], hl.x) * 255),
-    static_cast<int>(mix(this->BackdropColor[1], hl.y) * 255),
-    static_cast<int>(mix(this->BackdropColor[2], hl.z) * 255), static_cast<int>(fillA * 255.f));
+  // Neutral dark glass (styleguide .fab): backdrop fill lifting on hover, deepening on press —
+  // never an accent slab floating over the 3D view.
+  const float fillA = std::clamp(0.55f + 0.20f * hoverT - 0.06f * pressT, 0.f, 1.f) * alpha;
+  const ImU32 bg = IM_COL32(static_cast<int>(this->BackdropColor[0] * 255),
+    static_cast<int>(this->BackdropColor[1] * 255),
+    static_cast<int>(this->BackdropColor[2] * 255), static_cast<int>(fillA * 255.f));
   drawList->AddRectFilled(r0, r1, bg, radius);
 
-  // Hairline border at rest (styleguide .fab border); fades out as it turns accent (.fab.active has
-  // a transparent border).
-  const ImU32 border =
-    IM_COL32(255, 255, 255, static_cast<int>(0.10f * (1.f - eased) * alpha * 255.f));
-  drawList->AddRect(r0, r1, border, radius, 0, G3DTheme::Size::Border);
+  // Hairline border (styleguide .fab border), slightly stronger on hover.
+  const ImU32 border = IM_COL32(
+    255, 255, 255, static_cast<int>((0.10f + 0.06f * hoverT) * alpha * 255.f));
+  drawList->AddRect(
+    r0, r1, border, radius, 0, G3DTheme::Size::Border * static_cast<float>(this->FontScale));
 
-  // Sliders glyph through the unified icon path: font color at rest, white on the accent fill when
-  // active for contrast. Scales with the press so the whole button reads as one pressed surface.
-  const ImU32 fg = IM_COL32(static_cast<int>(mix(this->FontColor[0], 1.0) * 255),
-    static_cast<int>(mix(this->FontColor[1], 1.0) * 255),
-    static_cast<int>(mix(this->FontColor[2], 1.0) * 255), static_cast<int>(alpha * 255.f));
+  // Sliders glyph (the inspector identity) in the muted font color; scales with the press so the
+  // whole button reads as one pressed surface.
+  const ImU32 fg = IM_COL32(static_cast<int>(this->FontColor[0] * 255),
+    static_cast<int>(this->FontColor[1] * 255), static_cast<int>(this->FontColor[2] * 255),
+    static_cast<int>(0.92f * alpha * 255.f));
   G3DIcon::Draw(drawList, G3DIconId::Sliders, ctr, fabSize * 0.55f * pressScale, fg);
 
   drawList->Flags = savedFlags;
@@ -2680,12 +2727,19 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       loc.Translate("Edges").c_str(), this->ReadOptionBool("render.show_edges", false));
     toolSeparator();
     // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits).
-    toolButton("##tb.tree", G3DIconId::Layers, "toggle ui.control_left",
+    toolButton("##tb.tree", G3DIconId::PanelLeft, "toggle ui.control_left",
       loc.Translate("Scene").c_str(), this->ReadOptionBool("ui.control_left", true));
-    toolButton("##tb.inspector", G3DIconId::Sliders, "toggle ui.control_right",
+    toolButton("##tb.inspector", G3DIconId::PanelRight, "toggle ui.control_right",
       loc.Translate("Inspector").c_str(), this->ReadOptionBool("ui.control_right", true));
-    toolButton("##tb.timeline", G3DIconId::Play, "toggle ui.control_bottom",
+    toolButton("##tb.timeline", G3DIconId::PanelBottom, "toggle ui.control_bottom",
       loc.Translate("Timeline").c_str(), this->ReadOptionBool("ui.control_bottom", true));
+
+    // Collapse the whole panel chrome — pinned to the bar's right edge (the VS Code layout-toggle
+    // spot). The FAB then becomes the reopen handle once the panel is fully closed.
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + r.top.w - ImGui::GetStyle().WindowPadding.x - btn,
+      wp.y + (r.top.h - btn) * 0.5f));
+    toolButton("##tb.collapse", G3DIconId::PanelClose, "toggle ui.control_panel",
+      loc.Translate("Collapse panel").c_str());
     ImGui::End();
   }
 

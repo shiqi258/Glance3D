@@ -91,6 +91,36 @@ void DrawEye(const IconCanvas& c, bool off)
   }
 }
 
+// Lucide panel-left / panel-right / panel-bottom (24-viewBox: rect 3,3 18x18 rx2 + one divider):
+// a rounded frame with a single inner divider marking the docked bar being toggled.
+void DrawPanel(const IconCanvas& c, G3DIconId id)
+{
+  c.dl->AddRect(
+    c.P(0.125f, 0.125f), c.P(0.875f, 0.875f), c.color, c.R(0.083f), ImDrawFlags_None, c.th);
+  if (id == G3DIconId::PanelLeft)
+  {
+    c.Line(0.375f, 0.125f, 0.375f, 0.875f); // M9 3v18
+  }
+  else if (id == G3DIconId::PanelRight)
+  {
+    c.Line(0.625f, 0.125f, 0.625f, 0.875f); // M15 3v18
+  }
+  else
+  {
+    c.Line(0.125f, 0.625f, 0.875f, 0.625f); // M3 15h18
+  }
+}
+
+// Lucide panel-right-close: the panel-right frame + a chevron pointing into the panel side.
+void DrawPanelClose(const IconCanvas& c)
+{
+  c.dl->AddRect(
+    c.P(0.125f, 0.125f), c.P(0.875f, 0.875f), c.color, c.R(0.083f), ImDrawFlags_None, c.th);
+  c.Line(0.625f, 0.125f, 0.625f, 0.875f);
+  const ImVec2 pts[3] = { c.P(0.333f, 0.375f), c.P(0.458f, 0.5f), c.P(0.333f, 0.625f) }; // m8 9 3 3-3 3
+  c.Poly(pts, 3);
+}
+
 void DrawGrid(const IconCanvas& c)
 {
   c.dl->AddRect(c.P(0.20f, 0.20f), c.P(0.80f, 0.80f), c.color, 0.f, ImDrawFlags_None, c.th);
@@ -414,6 +444,14 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Eyedropper:
       DrawEyedropper(c);
+      break;
+    case G3DIconId::PanelLeft:
+    case G3DIconId::PanelRight:
+    case G3DIconId::PanelBottom:
+      DrawPanel(c, id);
+      break;
+    case G3DIconId::PanelClose:
+      DrawPanelClose(c);
       break;
   }
 

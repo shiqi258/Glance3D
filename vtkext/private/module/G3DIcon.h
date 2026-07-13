@@ -50,6 +50,10 @@ enum class G3DIconId
   Copy,        ///< two overlapping rounded rects (copy to clipboard)
   UpDown,      ///< stacked up/down chevrons (cycle / spinner affordance)
   Eyedropper,  ///< pipette (screen / viewport color sampling)
+  PanelLeft,   ///< frame + left divider (toggle the left dock bar) — Lucide panel-left
+  PanelRight,  ///< frame + right divider (toggle the right dock bar) — Lucide panel-right
+  PanelBottom, ///< frame + bottom divider (toggle the bottom dock bar) — Lucide panel-bottom
+  PanelClose, ///< panel-right frame + inward chevron (collapse the panel chrome) — Lucide panel-right-close
 };
 
 namespace G3DIcon
