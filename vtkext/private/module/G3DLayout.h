@@ -52,12 +52,20 @@ struct Result
   Rect center;
 };
 
+/// Per-side width budget: neither the left nor the right bar may exceed this fraction of the work
+/// width, so the central 3D viewport keeps at least ~56% of the window on narrow windows instead of
+/// being squeezed into a sliver by the fixed design widths. Shared by Compute() and the panel-edge
+/// drag clamp in the ImGui actor so the stored drag override can never exceed what is drawn.
+inline constexpr float MAX_SIDE_FRAC = 0.22f;
+
 /**
  * Compute the layout rectangles inside @p work for a common open @p frac in [0,1].
  *
- * Bar thicknesses scale linearly with @p frac. They are clamped so the four bars can never consume
- * more than 80% of the work area in either axis, keeping @p center strictly positive even in tiny
- * windows (a degenerate center would make the VTK viewport invalid).
+ * Bar thicknesses scale linearly with @p frac. Left/right widths are individually capped at
+ * MAX_SIDE_FRAC of the work width (narrow-window adaptivity), then the four bars are jointly
+ * clamped so they can never consume more than 80% of the work area in either axis, keeping
+ * @p center strictly positive even in tiny windows (a degenerate center would make the VTK
+ * viewport invalid).
  */
 inline Result Compute(const Rect& work, const Sizes& s, float frac)
 {
@@ -67,6 +75,10 @@ inline Result Compute(const Rect& work, const Sizes& s, float frac)
   float b = s.bottomH * frac;
   float l = s.leftW * frac;
   float r = s.rightW * frac;
+
+  const float maxSide = work.w * MAX_SIDE_FRAC;
+  l = std::min(l, maxSide);
+  r = std::min(r, maxSide);
 
   const float maxLR = work.w * 0.8f;
   if (l + r > maxLR && l + r > 0.f)

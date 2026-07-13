@@ -252,6 +252,8 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
   ImVec4 bg = LerpColor(rest, hov, a.hover.Value());
   bg = LerpColor(bg, prs, a.press.Value());
 
+  // Respect BeginDisabled dimming — custom ImDrawList paint bypasses ImGui's alpha (Toggle pattern).
+  const float alpha = ImGui::GetStyle().Alpha;
   const float pressScale = G3DLerp(1.f, 0.97f, a.press.Value());
   const ImVec2 ctr(p0.x + size.x * 0.5f, p0.y + size.y * 0.5f);
   const ImVec2 hsz(size.x * 0.5f * pressScale, size.y * 0.5f * pressScale);
@@ -263,7 +265,7 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
   AAGuard aa(dl);
   if (bg.w > 0.001f)
   {
-    dl->AddRectFilled(r0, r1, U32(bg), radius);
+    dl->AddRectFilled(r0, r1, U32(bg, alpha), radius);
   }
   if (!borderless)
   {
@@ -273,17 +275,17 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
     {
       bc = G3DTheme::Accent();
     }
-    dl->AddRect(r0, r1, U32(bc), radius, 0, G3DTheme::Size::Border * s);
+    dl->AddRect(r0, r1, U32(bc, alpha), radius, 0, G3DTheme::Size::Border * s);
   }
   if (focused)
   {
     // Keyboard focus ring == styleguide box-shadow 0 0 0 2px accent-ring (accent @ 0.45).
     const float o = 1.5f * s;
     dl->AddRect(ImVec2(r0.x - o, r0.y - o), ImVec2(r1.x + o, r1.y + o),
-      U32(G3DTheme::Accent(), 0.45f), radius + o, 0, 2.f * s);
+      U32(G3DTheme::Accent(), 0.45f * alpha), radius + o, 0, 2.f * s);
   }
 
-  const ImU32 fgU = U32(fg);
+  const ImU32 fgU = U32(fg, alpha);
   float cx = ctr.x - contentW * 0.5f;
   if (icon)
   {
@@ -316,7 +318,8 @@ bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant)
 }
 
 //----------------------------------------------------------------------------
-bool IconButton(const char* id, G3DIconId icon, float size, bool round, const char* tooltip, bool on)
+bool IconButton(const char* id, G3DIconId icon, float size, bool round, const char* tooltip, bool on,
+  IconOnStyle onStyle)
 {
   ImGui::PushID(id);
   const float s = Scale();
@@ -335,14 +338,17 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
 
   // Ghost rest (transparent) -> surface on hover, like a toolbar button. The persistent "on"
   // state keeps an accent-soft wash (deepening on hover/press) so toggle buttons read as engaged.
-  ImVec4 rest = on ? G3DTheme::AccentSoft() : G3DTheme::Surface();
-  if (!on)
+  // Dot style keeps the rest bg ghost even when on (only the icon tint + underline dot signal the
+  // state) so rows of lightweight display toggles don't stack into a wall of filled chips.
+  const bool fillWhenOn = on && onStyle == IconOnStyle::Fill;
+  ImVec4 rest = fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::Surface();
+  if (!fillWhenOn)
   {
     rest.w = 0.f;
   }
-  ImVec4 hoverBg = on ? G3DTheme::AccentSoft() : G3DTheme::SurfaceHover();
-  ImVec4 pressBg = on ? G3DTheme::AccentSoft() : G3DTheme::SurfacePress();
-  if (on)
+  ImVec4 hoverBg = fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::SurfaceHover();
+  ImVec4 pressBg = fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::SurfacePress();
+  if (fillWhenOn)
   {
     hoverBg.w = std::min(1.f, hoverBg.w * 1.7f);
     pressBg.w = std::min(1.f, pressBg.w * 2.2f);
@@ -350,6 +356,8 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   ImVec4 bg = LerpColor(rest, hoverBg, a.hover.Value());
   bg = LerpColor(bg, pressBg, a.press.Value());
 
+  // Respect BeginDisabled dimming — custom ImDrawList paint bypasses ImGui's alpha (Toggle pattern).
+  const float alpha = ImGui::GetStyle().Alpha;
   const float pressScale = G3DLerp(1.f, 0.93f, a.press.Value());
   const ImVec2 ctr(p0.x + sz * 0.5f, p0.y + sz * 0.5f);
   const float half = sz * 0.5f * pressScale;
@@ -361,16 +369,21 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   AAGuard aa(dl);
   if (bg.w > 0.001f)
   {
-    dl->AddRectFilled(r0, r1, U32(bg), radius);
+    dl->AddRectFilled(r0, r1, U32(bg, alpha), radius);
   }
   if (focused)
   {
     // Keyboard focus ring == styleguide .iconbtn box-shadow 0 0 0 2px accent-ring.
     const float o = 1.5f * s;
     dl->AddRect(ImVec2(r0.x - o, r0.y - o), ImVec2(r1.x + o, r1.y + o),
-      U32(G3DTheme::Accent(), 0.45f), radius + o, 0, 2.f * s);
+      U32(G3DTheme::Accent(), 0.45f * alpha), radius + o, 0, 2.f * s);
   }
-  G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(on ? G3DTheme::Accent() : G3DTheme::Text()));
+  G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(on ? G3DTheme::Accent() : G3DTheme::Text(), alpha));
+  if (on && onStyle == IconOnStyle::Dot)
+  {
+    // Small accent underline dot hugging the button's bottom edge (scales with the press shrink).
+    dl->AddCircleFilled(ImVec2(ctr.x, r1.y - 3.f * s), 1.75f * s, U32(G3DTheme::Accent(), alpha), 12);
+  }
 
   if (tooltip && tooltip[0])
   {
@@ -1452,33 +1465,173 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
 
   ImDrawList* dl = ImGui::GetWindowDrawList();
   AAGuard aa(dl);
+  // Respect BeginDisabled dimming — custom ImDrawList paint bypasses ImGui's alpha (Toggle pattern).
+  const float alpha = ImGui::GetStyle().Alpha;
   const float cy = p0.y + h * 0.5f;
   const float trackH = 5.f * s;
   const float x0 = p0.x;
   const float x1 = p0.x + trackW;
   // track + accent fill
   dl->AddRectFilled(ImVec2(x0, cy - trackH * 0.5f), ImVec2(x1, cy + trackH * 0.5f),
-    U32(G3DTheme::SurfacePress()), trackH * 0.5f);
+    U32(G3DTheme::SurfacePress(), alpha), trackH * 0.5f);
   const float tt = (vMax > vMin && v) ? std::clamp((*v - vMin) / (vMax - vMin), 0.f, 1.f) : 0.f;
   const float gx = G3DLerp(x0, x1, tt);
   dl->AddRectFilled(ImVec2(x0, cy - trackH * 0.5f), ImVec2(gx, cy + trackH * 0.5f),
-    U32(G3DTheme::Accent()), trackH * 0.5f);
+    U32(G3DTheme::Accent(), alpha), trackH * 0.5f);
   // round thumb with hover/active glow ring
   const float glow = std::max(w.hover.Value(), held ? 1.f : 0.f);
   const float thumbR = 8.f * s;
   if (glow > 0.01f)
   {
     dl->AddCircleFilled(
-      ImVec2(gx, cy), thumbR + 4.f * s * glow, U32(G3DTheme::Accent(), 0.25f * glow), 24);
+      ImVec2(gx, cy), thumbR + 4.f * s * glow, U32(G3DTheme::Accent(), 0.25f * glow * alpha), 24);
   }
-  dl->AddCircleFilled(ImVec2(gx, cy), thumbR, U32(ImVec4(1.f, 1.f, 1.f, 1.f)), 24);
-  dl->AddCircle(ImVec2(gx, cy), thumbR, U32(G3DTheme::BorderStrong()), 24, G3DTheme::Size::Border * s);
+  dl->AddCircleFilled(ImVec2(gx, cy), thumbR, U32(ImVec4(1.f, 1.f, 1.f, 1.f), alpha), 24);
+  dl->AddCircle(
+    ImVec2(gx, cy), thumbR, U32(G3DTheme::BorderStrong(), alpha), 24, G3DTheme::Size::Border * s);
   // value readout, right-aligned
   if (buf[0])
   {
     const ImVec2 ts = ImGui::CalcTextSize(buf);
     dl->AddText(
-      ImVec2(p0.x + width - ts.x, cy - ts.y * 0.5f), U32(G3DTheme::TextMuted()), buf);
+      ImVec2(p0.x + width - ts.x, cy - ts.y * 0.5f), U32(G3DTheme::TextMuted(), alpha), buf);
+  }
+  ImGui::PopID();
+  return changed;
+}
+
+//----------------------------------------------------------------------------
+bool RangeSliderFloat(
+  const char* label, float* lo, float* hi, float vMin, float vMax, const char* format)
+{
+  ImGui::PushID(label);
+  const float s = Scale();
+  const float h = G3DTheme::Size::Control * s;
+  const float width = ImGui::CalcItemWidth();
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+
+  // Compact "lo–hi" readout on the right, mirroring SliderFloat's thin-track + number layout.
+  char bufLo[32] = "";
+  char bufHi[32] = "";
+  char buf[72] = "";
+  if (lo != nullptr && hi != nullptr)
+  {
+    std::snprintf(bufLo, sizeof(bufLo), format, *lo);
+    std::snprintf(bufHi, sizeof(bufHi), format, *hi);
+    // ASCII separator on purpose — en dash U+2013 is not guaranteed in the font atlas.
+    std::snprintf(buf, sizeof(buf), "%s~%s", bufLo, bufHi);
+  }
+  const float valW = buf[0] ? ImGui::CalcTextSize(buf).x + G3DTheme::Spacing::Md * s : 0.f;
+  float trackW = std::max(20.f, width - valW); // frozen below while a drag is active
+
+  const bool pressed = ImGui::InvisibleButton("##rs", ImVec2(width, h));
+  (void)pressed;
+  const bool hovered = ImGui::IsItemHovered();
+  const bool held = ImGui::IsItemActive();
+  const ImGuiID itemId = ImGui::GetID("##rs");
+
+  // Per-drag state, latched on the press frame: which handle the drag owns (nearest wins; ties
+  // resolve through the live re-ordering below), and the track width FROZEN at press time — the
+  // readout text changes width with the values mid-drag, and remapping pixels against a moving
+  // track end makes the grab rubbery (worst case a standing oscillation around digit-count
+  // boundaries). Keyed per widget; entries are only meaningful while their item is active.
+  struct RangeDrag
+  {
+    int handle = 0;
+    float trackW = 0.f;
+  };
+  static std::unordered_map<ImGuiID, RangeDrag> gRangeDrag;
+  if (held)
+  {
+    RangeDrag& st = gRangeDrag[itemId];
+    if (ImGui::IsItemActivated() || st.trackW <= 0.f)
+    {
+      st.trackW = trackW;
+    }
+    trackW = st.trackW; // freeze mapping AND drawing for the whole drag
+  }
+
+  const float x0 = p0.x;
+  const float x1 = p0.x + trackW;
+  auto valueToX = [&](float v)
+  {
+    const float t = vMax > vMin ? std::clamp((v - vMin) / (vMax - vMin), 0.f, 1.f) : 0.f;
+    return G3DLerp(x0, x1, t);
+  };
+
+  bool changed = false;
+  if (held && lo != nullptr && hi != nullptr && vMax > vMin)
+  {
+    const float mx = ImGui::GetIO().MousePos.x;
+    if (ImGui::IsItemActivated())
+    {
+      const float dLo = std::abs(mx - valueToX(*lo));
+      const float dHi = std::abs(mx - valueToX(*hi));
+      // Prefer the high handle on an exact tie (both handles stacked): dragging right then feels
+      // natural, and dragging left immediately re-orders the pair anyway.
+      gRangeDrag[itemId].handle = dLo < dHi ? 0 : 1;
+    }
+    const float t = std::clamp((mx - x0) / std::max(1.f, trackW), 0.f, 1.f);
+    const float nv = vMin + (vMax - vMin) * t;
+    float* target = gRangeDrag[itemId].handle == 0 ? lo : hi;
+    if (nv != *target)
+    {
+      *target = nv;
+      changed = true;
+    }
+    // Handles may meet but never cross: swap ownership instead of clamping so the grab follows
+    // the pointer through the other handle (the standard range-slider feel).
+    if (*lo > *hi)
+    {
+      std::swap(*lo, *hi);
+      gRangeDrag[itemId].handle = 1 - gRangeDrag[itemId].handle;
+    }
+    if (changed)
+    {
+      std::snprintf(bufLo, sizeof(bufLo), format, *lo);
+      std::snprintf(bufHi, sizeof(bufHi), format, *hi);
+      std::snprintf(buf, sizeof(buf), "%s~%s", bufLo, bufHi);
+    }
+  }
+  const WidgetAnim& w = Interact(itemId, hovered, held);
+  if (hovered || held)
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+  }
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  AAGuard aa(dl);
+  // Respect BeginDisabled dimming — custom ImDrawList paint bypasses ImGui's alpha (Toggle pattern).
+  const float alpha = ImGui::GetStyle().Alpha;
+  const float cy = p0.y + h * 0.5f;
+  const float trackH = 5.f * s;
+  dl->AddRectFilled(ImVec2(x0, cy - trackH * 0.5f), ImVec2(x1, cy + trackH * 0.5f),
+    U32(G3DTheme::SurfacePress(), alpha), trackH * 0.5f);
+  const float gxLo = lo != nullptr ? valueToX(*lo) : x0;
+  const float gxHi = hi != nullptr ? valueToX(*hi) : x1;
+  // The selected interval fill lives BETWEEN the handles — the control's whole point.
+  dl->AddRectFilled(ImVec2(gxLo, cy - trackH * 0.5f), ImVec2(gxHi, cy + trackH * 0.5f),
+    U32(G3DTheme::Accent(), alpha), trackH * 0.5f);
+  const float glow = std::max(w.hover.Value(), held ? 1.f : 0.f);
+  const float thumbR = 7.f * s; // slightly smaller than SliderFloat's: two grabs share the track
+  auto drawThumb = [&](float gx)
+  {
+    if (glow > 0.01f)
+    {
+      dl->AddCircleFilled(
+        ImVec2(gx, cy), thumbR + 3.f * s * glow, U32(G3DTheme::Accent(), 0.25f * glow * alpha), 24);
+    }
+    dl->AddCircleFilled(ImVec2(gx, cy), thumbR, U32(ImVec4(1.f, 1.f, 1.f, 1.f), alpha), 24);
+    dl->AddCircle(
+      ImVec2(gx, cy), thumbR, U32(G3DTheme::BorderStrong(), alpha), 24, G3DTheme::Size::Border * s);
+  };
+  drawThumb(gxLo);
+  drawThumb(gxHi);
+  if (buf[0])
+  {
+    const ImVec2 ts = ImGui::CalcTextSize(buf);
+    dl->AddText(
+      ImVec2(p0.x + width - ts.x, cy - ts.y * 0.5f), U32(G3DTheme::TextMuted(), alpha), buf);
   }
   ImGui::PopID();
   return changed;
@@ -2519,6 +2672,13 @@ void DrawDashedRect(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float r,
 } // namespace
 
 //----------------------------------------------------------------------------
+void TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text)
+{
+  // Public face of the internal helper (kept file-local so its "..." policy has one home).
+  DrawTextEllipsis(dl, pos, maxW, col, text);
+}
+
+//----------------------------------------------------------------------------
 namespace
 {
 struct PropRowFrame
@@ -2561,12 +2721,13 @@ void EndPropRow()
   const float ctrlBottom = ImGui::GetCursorScreenPos().y - spacingY;
   const float rowBottom = std::max(ctrlBottom, f.p0.y + G3DTheme::Size::Control * s);
 
-  // Label drawn last so it centers on the actual row band, ellipsized to its column.
+  // Label drawn last so it centers on the actual row band, ellipsized to its column. TextMuted is
+  // multiplied by style.Alpha so the label dims with its control inside BeginDisabled groups.
   const float lineH = ImGui::GetTextLineHeight();
   DrawTextEllipsis(ImGui::GetWindowDrawList(),
     ImVec2(f.p0.x, f.p0.y + (rowBottom - f.p0.y - lineH) * 0.5f),
-    std::max(0.f, f.labelW - G3DTheme::Spacing::Sm * s), U32(G3DTheme::TextMuted()),
-    f.label.c_str());
+    std::max(0.f, f.labelW - G3DTheme::Spacing::Sm * s),
+    U32(G3DTheme::TextMuted(), ImGui::GetStyle().Alpha), f.label.c_str());
 
   // Normalize the row rhythm: pad up to the control-row height (Dummy keeps content-size honest).
   const float pad = rowBottom - ctrlBottom - spacingY;
@@ -4369,7 +4530,21 @@ static bool BeginSelectImpl(
     ImGui::OpenPopup("##menu");
   }
   const ImGuiID menuId = ImGui::GetID("##menu");
-  const bool open = ImGui::IsPopupOpen("##menu");
+  // Inside a BeginDisabled group (style.Alpha carries the dim; nothing else pushes a global alpha
+  // at trigger level in this codebase) an ALREADY-open menu must be force-closed: its rows inherit
+  // the disabled item flag so the click that would CloseCurrentPopup can never fire, and the menu's
+  // own fade-in alpha push would override the dim — an opaque, dead menu. Closing is also the right
+  // semantics: a menu whose owner just got disabled has no valid interaction left.
+  const bool uiDisabled = ImGui::GetStyle().Alpha < 0.999f;
+  if (uiDisabled && ImGui::IsPopupOpen("##menu"))
+  {
+    if (ImGui::BeginPopup("##menu"))
+    {
+      ImGui::CloseCurrentPopup();
+      ImGui::EndPopup();
+    }
+  }
+  const bool open = ImGui::IsPopupOpen("##menu") && !uiDisabled;
   if (open)
   {
     st.lastOpenFrame = ImGui::GetFrameCount();
@@ -4385,21 +4560,23 @@ static bool BeginSelectImpl(
   ImDrawList* dl = ImGui::GetWindowDrawList();
   {
     AAGuard aa(dl);
+    // Respect BeginDisabled dimming — custom ImDrawList paint bypasses ImGui's alpha.
+    const float alpha = ImGui::GetStyle().Alpha;
     const float radius = G3DTheme::Radius::Control * s;
     const ImVec2 p1(p0.x + width, p0.y + h);
     // rest = surface-2, open = surface-3 (.dropdown.open); hover only strengthens the border
     dl->AddRectFilled(
-      p0, p1, U32(LerpColor(G3DTheme::Surface(), G3DTheme::SurfaceHover(), ot)), radius);
+      p0, p1, U32(LerpColor(G3DTheme::Surface(), G3DTheme::SurfaceHover(), ot), alpha), radius);
     ImVec4 bc = LerpColor(G3DTheme::Border(), G3DTheme::BorderStrong(), w.hover.Value());
     bc = LerpColor(bc, G3DTheme::Accent(), std::max(ot, focused ? 1.f : 0.f));
-    dl->AddRect(p0, p1, U32(bc), radius, 0, G3DTheme::Size::Border * s);
+    dl->AddRect(p0, p1, U32(bc, alpha), radius, 0, G3DTheme::Size::Border * s);
     // open/keyboard-focus ring == box-shadow 0 0 0 2px accent-ring
     const float ringT = std::max(ot, focused ? 1.f : 0.f);
     if (ringT > 0.01f)
     {
       const float o = 1.5f * s * ringT;
       dl->AddRect(ImVec2(p0.x - o, p0.y - o), ImVec2(p1.x + o, p1.y + o),
-        U32(G3DTheme::Accent(), 0.45f * ringT), radius + o, 0, 2.f * s);
+        U32(G3DTheme::Accent(), 0.45f * ringT * alpha), radius + o, 0, 2.f * s);
     }
     // value (or a subtle placeholder when empty), ellipsized before the chevron; the colormap
     // variant leads with a small gradient swatch of the current map
@@ -4411,19 +4588,19 @@ static bool BeginSelectImpl(
     {
       const float stripW = 44.f * s;
       const float stripH = 14.f * s;
-      DrawGradientStrip(
-        dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f), *strip);
+      DrawGradientStrip(dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f),
+        *strip, alpha);
       tx += stripW + G3DTheme::Spacing::Sm * s;
     }
     if (shown[0] != '\0')
     {
       const float maxW = p1.x - padX - chevSz - G3DTheme::Spacing::Sm * s - tx;
       DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f), std::max(0.f, maxW),
-        U32(empty ? G3DTheme::TextSubtle() : G3DTheme::Text()), shown);
+        U32(empty ? G3DTheme::TextSubtle() : G3DTheme::Text(), alpha), shown);
     }
     // chevron pinned right: down -> up while opening, subtle -> accent
     DrawSelectChevron(dl, ImVec2(p1.x - padX - chevSz * 0.5f, cy), chevSz,
-      U32(LerpColor(G3DTheme::TextSubtle(), G3DTheme::Accent(), ot)), ot);
+      U32(LerpColor(G3DTheme::TextSubtle(), G3DTheme::Accent(), ot), alpha), ot);
   }
 
   if (!open)

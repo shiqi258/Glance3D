@@ -78,6 +78,7 @@
   "Play": "播放",
   "Pause": "暂停",
   "Next animation": "下一个动画",
+  "Jump to start": "回到开头",
 
   "Collapse panel": "收起面板",
   "Coloring": "着色",
@@ -96,7 +97,11 @@
   "Cool to warm": "冷到暖",
   "Range min": "下限",
   "Range max": "上限",
+  "Range": "范围",
   "Auto range": "自动范围",
+  "Click to color by this array": "点击按此数组着色",
+  "Object": "对象",
+  "Group": "组",
 
   "Search...": "搜索…",
   "Description": "描述",

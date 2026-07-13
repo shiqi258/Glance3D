@@ -290,7 +290,10 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   }
   else
   {
-    if (this->FileNameVisible)
+    // Also dispatched when the control panel chrome is open: the presenter then renders the name
+    // as the top bar's centered title (see vtkF3DImguiActor::RenderFileName), so the editor chrome
+    // always identifies the open file even with ui.filename off.
+    if (this->FileNameVisible || this->ControlPanelVisible)
     {
       this->RenderFileName();
     }

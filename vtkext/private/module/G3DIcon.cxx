@@ -433,6 +433,10 @@ void G3DIcon::Draw(
       c.dl->AddTriangleFilled(c.P(0.26f, 0.26f), c.P(0.26f, 0.74f), c.P(0.60f, 0.50f), c.color);
       c.dl->AddRectFilled(c.P(0.62f, 0.26f), c.P(0.72f, 0.74f), c.color);
       break;
+    case G3DIconId::SkipBack:
+      c.dl->AddRectFilled(c.P(0.28f, 0.26f), c.P(0.38f, 0.74f), c.color);
+      c.dl->AddTriangleFilled(c.P(0.74f, 0.26f), c.P(0.74f, 0.74f), c.P(0.40f, 0.50f), c.color);
+      break;
     case G3DIconId::Check:
       DrawCheck(c);
       break;

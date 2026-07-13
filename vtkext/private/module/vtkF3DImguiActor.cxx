@@ -88,6 +88,23 @@ constexpr double CONTROL_PANEL_ANIM_SEC = 0.22; // panel slide in/out duration
 constexpr double CONTROL_FAB_FADE_SEC = 0.18;   // FAB fade in/out duration
 constexpr double CONTROL_FAB_IDLE_SEC = 2.5;    // idle before the FAB starts fading out
 
+// Orientation-gizmo footprint at the central viewport's upper-right corner. One source of truth
+// shared by RenderViewGizmo (anchor) and RenderScalarBar (the legend starts below the gizmo so the
+// two right-edge overlays never overlap). zoneH() is the vertical span consumed from the top edge.
+struct GizmoMetrics
+{
+  float radius; // gizmo circle radius (heads included, ~R each way from the center)
+  float pad;    // margin between the viewport corner and the gizmo circle
+  float zoneH() const
+  {
+    return this->pad + 2.f * this->radius;
+  }
+};
+GizmoMetrics ViewGizmoMetrics(float W, float H, float scale)
+{
+  return { std::min(W, H) * 0.15f * 0.5f, 18.f * scale };
+}
+
 const inline ImVec4 ColorToImVec4(const std::array<double, 3>& color)
 {
   return ImVec4{ static_cast<float>(color[0]), static_cast<float>(color[1]),
@@ -188,6 +205,16 @@ protected:
     row.visible = asm_->GetAttributeOrDefault(nodeid, "g3d_visible", 1) != 0;
     const char* defaultLabel = hasChildren ? "<group>" : "<object>";
     row.label = asm_->GetAttributeOrDefault(nodeid, "label", defaultLabel);
+    // The importer's unnamed-node markers are display-localized here (UI layer) — the raw
+    // "<object>"/"<group>" strings stay untouched in the shared core for web/API consumers.
+    if (row.label == "<object>")
+    {
+      row.label = G3DLocaleCore::GetInstance().Translate("Object");
+    }
+    else if (row.label == "<group>")
+    {
+      row.label = G3DLocaleCore::GetInstance().Translate("Group");
+    }
     if (hasChildren)
     {
       row.meta = std::to_string(childCount);
@@ -707,6 +734,11 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   style->FramePadding = ImVec2(4, 2);
   style->FrameRounding = 2.f;
   style->GrabRounding = 4.0f;
+  // Slim, quiet scrollbar: ImGui's 14px default reads as a bright slab pinned to the panel edge on
+  // the dark theme. 8px + fully-rounded grab + low-alpha white keeps it discoverable but recessive;
+  // hover/drag brighten it (no accent — it is chrome, not a control).
+  style->ScrollbarSize = 8.f;
+  style->ScrollbarRounding = 4.f;
   style->ScrollbarPadding = 2.f;
   style->WindowBorderSize = 0.f;
   style->WindowPadding = ImVec2(10, 10);
@@ -717,9 +749,9 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   style->Colors[ImGuiCol_FrameBg] = colTransparent;
   style->Colors[ImGuiCol_FrameBgActive] = colTransparent;
   style->Colors[ImGuiCol_ScrollbarBg] = colTransparent;
-  style->Colors[ImGuiCol_ScrollbarGrab] = F3DStyle::imgui::GetMidColor();
-  style->Colors[ImGuiCol_ScrollbarGrabHovered] = F3DStyle::imgui::GetHighlightColor();
-  style->Colors[ImGuiCol_ScrollbarGrabActive] = F3DStyle::imgui::GetHighlightColor();
+  style->Colors[ImGuiCol_ScrollbarGrab] = ImVec4(1.f, 1.f, 1.f, 0.12f);
+  style->Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1.f, 1.f, 1.f, 0.25f);
+  style->Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(1.f, 1.f, 1.f, 0.32f);
   style->Colors[ImGuiCol_TextSelectedBg] = F3DStyle::imgui::GetHighlightColor();
   style->Colors[ImGuiCol_CheckMark] = F3DStyle::imgui::GetHighlightColor();
   style->Colors[ImGuiCol_ResizeGrip] = F3DStyle::imgui::GetMidColor();
@@ -1230,6 +1262,14 @@ void vtkF3DImguiActor::RenderFileName()
     const float scale = static_cast<float>(this->FontScale);
     const float eased = this->PanelAnim.Value();
 
+    // When ui.filename is off, the name is shown only as the top bar's title (the editor chrome
+    // should always identify the open file). Wait for the slide to finish so the legacy floating
+    // pill never flashes at the interpolated position; the opt-in HUD behavior is unchanged.
+    if (!this->FileNameVisible && eased < 0.999f)
+    {
+      return;
+    }
+
     // Keep clear of the toolbar's button clusters while the panel chrome is open (symmetric
     // reservation so the text stays centered); a long name middle-ellipsizes with the full string
     // on hover.
@@ -1310,10 +1350,11 @@ void vtkF3DImguiActor::RenderHDRIFileName()
     winSize.x += 2.f * ImGui::GetStyle().WindowPadding.x;
     winSize.y += 2.f * ImGui::GetStyle().WindowPadding.y;
 
-    // Adjust position if FileName is also visible
+    // Adjust position if FileName is also visible (including the bar-title mode the open panel
+    // chrome forces on, so the two names never overlap at center).
     float totalWidth = winSize.x;
     float winOffsetX = 0.f;
-    if (this->FileNameVisible && !this->FileName.empty())
+    if ((this->FileNameVisible || this->PanelAnim.Value() >= 0.999f) && !this->FileName.empty())
     {
       ImVec2 fileWinSize = ImGui::CalcTextSize(this->FileName.c_str());
       fileWinSize.x += 2.f * ImGui::GetStyle().WindowPadding.x;
@@ -1919,18 +1960,24 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
         ImGui::Dummy(ImVec2(0.f, padY));
         const ImVec2 top = ImGui::GetCursorScreenPos();
 
-        // Line 1: array name (primary, clipped) on the left + trailing component badge on the right.
+        // Line 1: array name (primary, ellipsized) on the left + trailing component badge on the
+        // right. The trailing "..." makes the truncation read as intentional (a hard clip against
+        // the badge looks like a layout bug).
         char tag[48];
         std::snprintf(tag, sizeof(tag), "%s \xc2\xb7 %dc", assoc.c_str(), a.MaximumNumberOfComponents);
         const float bw = G3DWidgets::BadgeWidth(tag);
         const float nameW = std::max(0.f, w - bw - G3DTheme::Spacing::Sm * scale);
-        dl->PushClipRect(top, ImVec2(top.x + nameW, top.y + lineH), true);
-        dl->AddText(
-          top, G3DTheme::U32(selected ? G3DTheme::Accent() : G3DTheme::Text()), a.Name.c_str());
-        dl->PopClipRect();
-        if (hovered && ImGui::CalcTextSize(a.Name.c_str()).x > nameW)
+        G3DWidgets::TextEllipsis(dl, top,
+          nameW, G3DTheme::U32(selected ? G3DTheme::Accent() : G3DTheme::Text()), a.Name.c_str());
+        if (hovered)
         {
-          ImGui::SetTooltip("%s", a.Name.c_str()); // clipped name — reveal it in full on hover
+          // Full name (it may be ellipsized) + the row's click affordance, which nothing else
+          // advertises — the whole row is a "color by this array" shortcut.
+          ImGui::BeginTooltip();
+          ImGui::TextUnformatted(a.Name.c_str());
+          ImGui::TextColored(
+            G3DTheme::TextMuted(), "%s", loc.Translate("Click to color by this array").c_str());
+          ImGui::EndTooltip();
         }
         // Badge right-aligned on the same line (it advances the layout cursor to the next line).
         ImGui::SetCursorScreenPos(ImVec2(top.x + w - bw, top.y));
@@ -2329,6 +2376,11 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   }
   G3DWidgets::EndPropRow();
 
+  // Everything below depends on coloring being on: gray the whole group while it is off so the
+  // dependency is visible (the widgets multiply style.Alpha into their custom paint). The array
+  // card rows remain the one-click "pick an array AND enable" shortcut.
+  ImGui::BeginDisabled(!enable);
+
   // Point vs cell data (only offer the switch when both are present). Display mirrors the
   // renderer's applied value (the option may lag the effective state).
   bool cells = ren->GetUseCellColoring();
@@ -2527,27 +2579,24 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
         }
       }
     }
-    bool rangeChanged = false;
-    G3DWidgets::BeginPropRow(loc.Translate("Range min").c_str());
-    rangeChanged |= G3DWidgets::SliderFloat("##v", &rmin, dataMin, dataMax, "%.4g");
-    G3DWidgets::EndPropRow();
-    G3DWidgets::BeginPropRow(loc.Translate("Range max").c_str());
-    rangeChanged |= G3DWidgets::SliderFloat("##v", &rmax, dataMin, dataMax, "%.4g");
-    G3DWidgets::EndPropRow();
-    if (rangeChanged)
+    // One dual-handle interval row: the filled span IS the active range (the widget keeps
+    // lo <= hi, so no post-hoc swap is needed before committing).
+    G3DWidgets::BeginPropRow(loc.Translate("Range").c_str());
+    if (G3DWidgets::RangeSliderFloat("##v", &rmin, &rmax, dataMin, dataMax, "%.4g"))
     {
-      if (rmin > rmax)
-      {
-        std::swap(rmin, rmax);
-      }
       char buf[64];
       std::snprintf(buf, sizeof(buf), "%.6g,%.6g", rmin, rmax);
       this->SendCommand(std::string("set model.scivis.range ") + buf);
     }
-    if (G3DWidgets::Button(loc.Translate("Auto range").c_str(), G3DWidgets::ButtonVariant::Ghost))
+    G3DWidgets::EndPropRow();
+    // Soft (not Ghost) so the action reads as a button, aligned to the value column like the
+    // controls above it.
+    G3DWidgets::BeginPropRow("");
+    if (G3DWidgets::Button(loc.Translate("Auto range").c_str(), G3DWidgets::ButtonVariant::Soft))
     {
       this->SendCommand("reset model.scivis.range");
     }
+    G3DWidgets::EndPropRow();
   }
 
   bool scalarBar = this->ReadOptionBool("ui.scalar_bar", false);
@@ -2557,6 +2606,8 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     this->SendCommand(std::string("set ui.scalar_bar ") + (scalarBar ? "true" : "false"));
   }
   G3DWidgets::EndPropRow();
+
+  ImGui::EndDisabled(); // coloring-dependent group
 
   G3DWidgets::EndCollapse();
 }
@@ -2574,6 +2625,17 @@ void vtkF3DImguiActor::DrawTimelineContent()
     return;
   }
 
+  // Jump back to the first frame — the transport's fixed anchor.
+  const float tmin0 = static_cast<float>(this->AnimState.timeRange[0]);
+  if (G3DWidgets::IconButton("##g3d.anim.skipback", G3DIconId::SkipBack, -1.f, false,
+        loc.Translate("Jump to start").c_str()))
+  {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.6g", tmin0);
+    this->SendCommand(std::string("load_animation_time ") + buf);
+  }
+  ImGui::SameLine();
+
   // Play / pause.
   const bool playing = this->AnimState.playing;
   if (G3DWidgets::IconButton("##g3d.anim.playpause", playing ? G3DIconId::Pause : G3DIconId::Play,
@@ -2583,7 +2645,8 @@ void vtkF3DImguiActor::DrawTimelineContent()
   }
   ImGui::SameLine();
 
-  // Cycle to the next animation (only when there is more than one).
+  // With several animations: cycle button + the CURRENT animation's name, so switching has visible
+  // feedback (the name alone tells which of the N clips is scrubbed).
   if (this->AnimState.count > 1)
   {
     if (G3DWidgets::IconButton("##g3d.anim.cycle", G3DIconId::StepForward, -1.f, false,
@@ -2592,13 +2655,25 @@ void vtkF3DImguiActor::DrawTimelineContent()
       this->SendCommand("cycle_animation");
     }
     ImGui::SameLine();
+    if (!this->AnimState.name.empty())
+    {
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextColored(G3DTheme::TextMuted(), "%s",
+        ::EllipsizeMiddle(this->AnimState.name, 140.f * scale).c_str());
+      ImGui::SameLine();
+    }
   }
 
-  // Scrubber: seek by dragging (load_animation_time). Reserve room on the right for time + speed.
+  // Scrubber: seek by dragging (load_animation_time). Reserve room on the right for the duration
+  // label and the speed dropdown (computed, not guessed, so long durations don't squeeze them).
   const float tmin = static_cast<float>(this->AnimState.timeRange[0]);
   const float tmax = static_cast<float>(this->AnimState.timeRange[1]);
   float t = static_cast<float>(this->AnimState.currentTime);
-  const float rightW = 168.f * scale;
+  char timeLabel[32];
+  std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
+  const float speedW = 84.f * scale;
+  const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW +
+    2.f * ImGui::GetStyle().ItemSpacing.x + 8.f * scale;
   const float scrubW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - rightW);
   ImGui::SetNextItemWidth(scrubW);
   if (tmax > tmin && G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs"))
@@ -2609,19 +2684,33 @@ void vtkF3DImguiActor::DrawTimelineContent()
   }
   ImGui::SameLine();
 
-  // Total duration label (the scrubber itself shows the current time), then a compact speed slider.
-  char timeLabel[32];
-  std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
+  // Total duration label (the scrubber itself shows the current time).
   ImGui::AlignTextToFramePadding();
   ImGui::TextUnformatted(timeLabel);
   ImGui::SameLine();
-  float speed = this->ReadOptionFloat("scene.animation.speed_factor", 1.f);
-  ImGui::SetNextItemWidth(72.f * scale);
-  if (G3DWidgets::SliderFloat("##g3d.anim.speed", &speed, 0.1f, 5.f, "x%.1f"))
+
+  // Playback speed: stepped dropdown instead of a tiny free slider — the presets cover animation
+  // preview needs, every step is an exact value (no hunting for 1.0), and the closed trigger reads
+  // as a labeled control rather than a floating dot. The menu auto-flips above the bottom bar.
+  const float speed = this->ReadOptionFloat("scene.animation.speed_factor", 1.f);
+  char speedLabel[16];
+  std::snprintf(speedLabel, sizeof(speedLabel), "%.3g\xc3\x97", speed); // e.g. "1×"
+  ImGui::SetNextItemWidth(speedW);
+  if (G3DWidgets::BeginSelect("##g3d.anim.speed", speedLabel))
   {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.4g", speed);
-    this->SendCommand(std::string("set scene.animation.speed_factor ") + buf);
+    static constexpr float speedPresets[] = { 0.1f, 0.25f, 0.5f, 1.f, 2.f, 4.f };
+    for (const float sp : speedPresets)
+    {
+      char item[16];
+      std::snprintf(item, sizeof(item), "%.3g\xc3\x97", sp);
+      if (G3DWidgets::SelectItem(item, std::abs(speed - sp) < 1e-4f))
+      {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.4g", sp);
+        this->SendCommand(std::string("set scene.animation.speed_factor ") + buf);
+      }
+    }
+    G3DWidgets::EndSelect();
   }
 }
 
@@ -2675,10 +2764,23 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
   double vp[4];
   this->GetControlPanelViewport(winSize, vp);
   const float xRight = static_cast<float>(vp[2]) * W;
-  const float yTop = (1.f - static_cast<float>(vp[3])) * H;
+  float yTop = (1.f - static_cast<float>(vp[3])) * H;
   const float yBot = (1.f - static_cast<float>(vp[1])) * H;
 
   const float scale = static_cast<float>(this->FontScale);
+  const float lineH = ImGui::GetTextLineHeight();
+  const float pad = 4.f * scale;
+
+  // The orientation gizmo owns the viewport's upper-right corner — start the legend's span below
+  // it (same metrics the gizmo anchors with) so title/labels never collide with the axis heads.
+  if (this->ReadOptionBool("ui.axis", false))
+  {
+    yTop += ::ViewGizmoMetrics(W, H, scale).zoneH() + 8.f * scale;
+  }
+  // The title + max label are drawn ABOVE the strip: fold their height into the top reservation so
+  // on short spans they cannot climb back over the boundary the code above just established.
+  yTop += 2.f * lineH + 3.f * pad;
+
   const float margin = 16.f * scale;
   const float barW = 14.f * scale;
   const float barH = std::max(80.f * scale, (yBot - yTop) * 0.55f);
@@ -2696,15 +2798,39 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
   ImDrawList* dl = ImGui::GetBackgroundDrawList();
   G3DWidgets::DrawGradientStrip(dl, p0, p1, gs, 1.f, true);
 
-  const float lineH = ImGui::GetTextLineHeight();
-  const float pad = 4.f * scale;
   auto rightAligned = [&](const char* text, float y, ImU32 col)
   { dl->AddText(ImVec2(p1.x - ImGui::CalcTextSize(text).x, y), col, text); };
   char valBuf[32];
-  std::snprintf(valBuf, sizeof(valBuf), "%.4g", range[1]);
-  rightAligned(valBuf, p0.y - lineH - pad, G3DTheme::U32(G3DTheme::Text()));
-  std::snprintf(valBuf, sizeof(valBuf), "%.4g", range[0]);
-  rightAligned(valBuf, p1.y + pad, G3DTheme::U32(G3DTheme::Text()));
+  const bool degenerate = !(range[1] > range[0]);
+  if (degenerate)
+  {
+    // Constant field: repeating the same number at both ends looks like a bug — one "= v" label
+    // above the strip carries all the information.
+    std::snprintf(valBuf, sizeof(valBuf), "= %.4g", range[1]);
+    rightAligned(valBuf, p0.y - lineH - pad, G3DTheme::U32(G3DTheme::Text()));
+  }
+  else
+  {
+    std::snprintf(valBuf, sizeof(valBuf), "%.4g", range[1]);
+    rightAligned(valBuf, p0.y - lineH - pad, G3DTheme::U32(G3DTheme::Text()));
+    std::snprintf(valBuf, sizeof(valBuf), "%.4g", range[0]);
+    rightAligned(valBuf, p1.y + pad, G3DTheme::U32(G3DTheme::Text()));
+
+    // Quarter notches + a labeled midpoint on the strip's left flank: a tall two-endpoint bar is
+    // hard to read values off; the mid value anchors the scale at a glance.
+    const ImU32 tickCol = G3DTheme::U32(G3DTheme::TextMuted());
+    for (const float q : { 0.25f, 0.5f, 0.75f })
+    {
+      const float ty = p1.y + (p0.y - p1.y) * q; // q=fraction of the range, bottom(min) -> top(max)
+      const float tickW = (q == 0.5f ? 4.f : 2.5f) * scale;
+      dl->AddLine(ImVec2(p0.x - tickW - 1.f * scale, ty), ImVec2(p0.x - 1.f * scale, ty), tickCol,
+        1.f * scale);
+    }
+    std::snprintf(valBuf, sizeof(valBuf), "%.4g", 0.5 * (range[0] + range[1]));
+    const float midY = (p0.y + p1.y) * 0.5f;
+    dl->AddText(ImVec2(p0.x - 7.f * scale - ImGui::CalcTextSize(valBuf).x, midY - lineH * 0.5f),
+      tickCol, valBuf);
+  }
   const std::string shownTitle = ::EllipsizeMiddle(title, 220.f * scale);
   rightAligned(
     shownTitle.c_str(), p0.y - 2.f * lineH - 2.f * pad, G3DTheme::U32(G3DTheme::TextMuted()));
@@ -2734,14 +2860,16 @@ void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
   double vp[4];
   this->GetControlPanelViewport(winSize, vp);
   const float xRight = static_cast<float>(vp[2]) * W;
-  const float yBot = (1.f - static_cast<float>(vp[1])) * H;
+  const float yTop = (1.f - static_cast<float>(vp[3])) * H;
 
-  // Same footprint the VTK widget used (15% of the shortest window dimension), tucked into the
-  // central viewport's lower-right corner.
+  // Same footprint the VTK widget used (15% of the shortest window dimension), anchored to the
+  // central viewport's UPPER-right corner — the industry spot (Blender & co.), clear of the
+  // timeline bar and of the scalar bar's numeric endpoints (the legend shifts below the gizmo,
+  // see ::ViewGizmoMetrics shared with RenderScalarBar).
   const float scale = static_cast<float>(this->FontScale);
-  const float R = std::min(W, H) * 0.15f * 0.5f;
-  const float basePad = 10.f;
-  const ImVec2 ctr(xRight - basePad - R, yBot - basePad - R);
+  const ::GizmoMetrics gm = ::ViewGizmoMetrics(W, H, scale);
+  const float R = gm.radius;
+  const ImVec2 ctr(xRight - gm.pad - R, yTop + gm.pad + R);
 
   // World axes -> view space: for a direction, the view transform is its rotation part, and the
   // image of world axis i is COLUMN i. Screen y flips (VTK y-up -> ImGui y-down); view z orders
@@ -2983,9 +3111,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       ImVec2(wp.x + ImGui::GetStyle().WindowPadding.x, wp.y + (r.top.h - btn) * 0.5f));
 
     auto toolButton = [&](const char* id, G3DIconId icon, const char* cmd, const char* tip,
-                        bool on = false)
+                        bool on = false,
+                        G3DWidgets::IconOnStyle onStyle = G3DWidgets::IconOnStyle::Fill)
     {
-      if (G3DWidgets::IconButton(id, icon, -1.f, false, tip, on))
+      if (G3DWidgets::IconButton(id, icon, -1.f, false, tip, on, onStyle))
       {
         this->SendCommand(cmd);
       }
@@ -3005,21 +3134,35 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     toolButton(
       "##tb.iso", G3DIconId::Cube, "set_camera isometric", loc.Translate("Isometric view").c_str());
     toolSeparator();
-    // Display toggles reflect the live option value as a persistent "on" state.
+    // Display toggles reflect the live option value as a persistent "on" state — the lightweight
+    // Dot style (accent icon + underline dot), so several active toggles don't stack into a row of
+    // filled chips; the filled style stays reserved for the structural panel toggles below.
     toolButton("##tb.grid", G3DIconId::Grid, "toggle render.grid.enable",
-      loc.Translate("Grid").c_str(), this->ReadOptionBool("render.grid.enable", false));
+      loc.Translate("Grid").c_str(), this->ReadOptionBool("render.grid.enable", false),
+      G3DWidgets::IconOnStyle::Dot);
     toolButton("##tb.axis", G3DIconId::Axis, "toggle ui.axis", loc.Translate("Axes").c_str(),
-      this->ReadOptionBool("ui.axis", false));
+      this->ReadOptionBool("ui.axis", false), G3DWidgets::IconOnStyle::Dot);
     toolButton("##tb.edges", G3DIconId::Edges, "toggle render.show_edges",
-      loc.Translate("Edges").c_str(), this->ReadOptionBool("render.show_edges", false));
+      loc.Translate("Edges").c_str(), this->ReadOptionBool("render.show_edges", false),
+      G3DWidgets::IconOnStyle::Dot);
     toolSeparator();
     // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits).
     toolButton("##tb.tree", G3DIconId::PanelLeft, "toggle ui.control_left",
       loc.Translate("Scene").c_str(), this->ReadOptionBool("ui.control_left", true));
     toolButton("##tb.inspector", G3DIconId::PanelRight, "toggle ui.control_right",
       loc.Translate("Inspector").c_str(), this->ReadOptionBool("ui.control_right", true));
+    // The timeline bar only exists when the scene has animations — with none, its toggle is a dead
+    // switch, so gray it (the tooltip says why) instead of letting it silently do nothing.
+    const bool hasAnim = this->AnimState.count > 0;
+    ImGui::BeginDisabled(!hasAnim);
     toolButton("##tb.timeline", G3DIconId::PanelBottom, "toggle ui.control_bottom",
-      loc.Translate("Timeline").c_str(), this->ReadOptionBool("ui.control_bottom", true));
+      hasAnim ? loc.Translate("Timeline").c_str() : loc.Translate("No animation").c_str(),
+      hasAnim && this->ReadOptionBool("ui.control_bottom", true));
+    ImGui::EndDisabled();
+    if (!hasAnim && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+      ImGui::SetTooltip("%s", loc.Translate("No animation").c_str());
+    }
 
     // Collapse the whole panel chrome — pinned to the bar's right edge (the VS Code layout-toggle
     // spot). The FAB then becomes the reopen handle once the panel is fully closed.
@@ -3065,7 +3208,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   this->ControlBarDragging = false;
   const float splitterW = 8.f * scale;
   const float minBarW = 180.f;
-  const float maxBarW = (work.w / scale) * 0.4f;
+  // Mirror Compute()'s per-side cap so the STORED drag override can never exceed what is drawn —
+  // otherwise the bar pins at the cap while the override keeps growing and reverse-dragging gets a
+  // dead zone. max() guards tiny windows where the cap would fall below the minimum width.
+  const float maxBarW = std::max(minBarW, (work.w / scale) * G3DLayout::MAX_SIDE_FRAC);
   auto drawSplitter = [&](const char* id, float boundaryX, const G3DLayout::Rect& bar, bool isLeft)
   {
     if (bar.w < 1.f || bar.h < 1.f)

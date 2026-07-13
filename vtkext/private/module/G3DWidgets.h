@@ -51,11 +51,19 @@ bool Button(const char* label, ButtonVariant variant = ButtonVariant::Default);
 /// Text button with a leading icon. Returns true on click.
 bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant = ButtonVariant::Default);
 
+/// How an IconButton renders its persistent "on" state.
+enum class IconOnStyle
+{
+  Fill, ///< accent-soft filled chip + accent icon (structural toggles, e.g. panel visibility)
+  Dot,  ///< ghost background, accent icon + small underline dot (lightweight display toggles)
+};
+
 /// Square icon-only button (toolbar / FAB style). @p size <= 0 uses the icon-button token; @p round
-/// makes it a pill/circle. @p on renders the persistent active state (accent-soft fill + accent
-/// icon) for toggle-style toolbar buttons — mirrors styleguide .iconbtn.on. Returns true on click.
+/// makes it a pill/circle. @p on renders the persistent active state for toggle-style toolbar
+/// buttons — mirrors styleguide .iconbtn.on; @p onStyle picks the emphasis (filled chip vs accent
+/// icon + underline dot). Returns true on click.
 bool IconButton(const char* id, G3DIconId icon, float size = -1.f, bool round = false,
-  const char* tooltip = nullptr, bool on = false);
+  const char* tooltip = nullptr, bool on = false, IconOnStyle onStyle = IconOnStyle::Fill);
 
 /// Styled card container. Call EndCard() exactly once for each BeginCard(). @p hoverable adds a hover
 /// tint and makes EndCard() return whether the card was clicked. Always returns true (draw content).
@@ -123,11 +131,23 @@ bool Checkbox(const char* label, bool* v);
 bool SliderFloat(
   const char* label, float* v, float vMin, float vMax, const char* format = "%.2f");
 
+/// Styled dual-handle interval slider: one track, two grabs, the span between them filled with the
+/// accent (the standard "range" control — e.g. scalar coloring min/max). Dragging a handle moves the
+/// nearer bound; handles may meet but never cross (the pair is re-ordered live). The readout on the
+/// right shows "lo~hi" (ASCII separator — the atlas has no en dash) with @p format applied to each
+/// bound. Returns true when either value changed.
+bool RangeSliderFloat(const char* label, float* lo, float* hi, float vMin, float vMax,
+  const char* format = "%.2f");
+
 /// Styled single-line text input (focus underline + border highlight). Returns true when edited.
 bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hint = nullptr);
 
 /// Tooltip for the last item, with a unified hover delay.
 void ItemTooltip(const char* text);
+
+/// Draw @p text at @p pos, truncated with a trailing "..." when wider than @p maxW (UTF-8 safe —
+/// never splits a multi-byte glyph). Pure draw helper: does not advance the layout cursor.
+void TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text);
 
 //----------------------------------------------------------------------------
 // Select / dropdown
