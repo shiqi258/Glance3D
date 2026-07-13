@@ -324,6 +324,11 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
     this->RenderFpsCounter();
   }
 
+  // Viewport overlays owned by the presenter (each reads its own option and no-ops when off):
+  // the scalar bar legend and the clickable orientation gizmo, drawn under the panel chrome.
+  this->RenderScalarBar(renWin);
+  this->RenderViewGizmo(renWin);
+
   // The control panel mode toggle (FAB) and its panel. Both are called unconditionally so the
   // presenter can animate the open AND close transitions (it no-ops once fully closed); the panel is
   // submitted first so the FAB draws on top of it.

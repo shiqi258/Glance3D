@@ -398,6 +398,24 @@ protected:
   }
 
   /**
+   * Render the scalar bar overlay (vertical gradient legend at the viewport's right edge). The
+   * implementation reads ui.scalar_bar and the effective coloring state itself, so this is called
+   * unconditionally; the base is a no-op (non-UI builds keep the VTK scalar bar actor instead).
+   */
+  virtual void RenderScalarBar(vtkOpenGLRenderWindow*)
+  {
+  }
+
+  /**
+   * Render the orientation view gizmo (clickable axis heads snapping to the named views). The
+   * implementation reads ui.axis itself, so this is called unconditionally; the base is a no-op
+   * (non-UI builds keep the VTK camera orientation widget instead).
+   */
+  virtual void RenderViewGizmo(vtkOpenGLRenderWindow*)
+  {
+  }
+
+  /**
    * Render the console widget
    */
   virtual void RenderConsole(bool)

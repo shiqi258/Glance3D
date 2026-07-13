@@ -109,6 +109,20 @@ private:
   void RenderControlPanel(vtkOpenGLRenderWindow* renWin) override;
 
   /**
+   * Vertical gradient scalar-bar legend at the central viewport's right edge (title = effective
+   * coloring array + component, max/min value labels). Reads ui.scalar_bar and the renderer's
+   * effective coloring state each frame; no-op when hidden.
+   */
+  void RenderScalarBar(vtkOpenGLRenderWindow* renWin) override;
+
+  /**
+   * Clickable orientation gizmo at the central viewport's lower-right (thin axis lines + heads,
+   * no backdrop disc). Hovering the nearest head highlights it; clicking snaps the camera to the
+   * matching named view through set_camera. Reads ui.axis each frame; no-op when hidden.
+   */
+  void RenderViewGizmo(vtkOpenGLRenderWindow* renWin) override;
+
+  /**
    * Advance the panel slide once per frame, pre-pass and self-timed (steady_clock). See base class.
    */
   void UpdateControlPanelSlide() override;

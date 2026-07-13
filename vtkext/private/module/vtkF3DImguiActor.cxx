@@ -18,7 +18,10 @@
 
 #include <vtkBoundingBox.h>
 #include <vtkCallbackCommand.h>
+#include <vtkCamera.h>
 #include <vtkCommand.h>
+#include <vtkMath.h>
+#include <vtkMatrix4x4.h>
 #include <vtkDataAssembly.h>
 #include <vtkDataAssemblyVisitor.h>
 #include <vtkImageData.h>
@@ -2619,6 +2622,290 @@ void vtkF3DImguiActor::DrawTimelineContent()
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%.4g", speed);
     this->SendCommand(std::string("set scene.animation.speed_factor ") + buf);
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
+{
+  if (!this->ReadOptionBool("ui.scalar_bar", false))
+  {
+    return;
+  }
+  vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+  if (ren == nullptr)
+  {
+    return;
+  }
+  double range[2];
+  if (!ren->GetColoringRange(range) || ren->GetComponentForColoring() < -1)
+  {
+    return; // mirrors the legacy barVisible gate: active coloring, no direct-scalars mode
+  }
+
+  // Title = effective coloring source (or the depth-pass legend).
+  std::string title;
+  if (ren->GetUseDepthColoring())
+  {
+    title = "Depth";
+  }
+  else
+  {
+    vtkF3DMetaImporter* importer = ren->GetMetaImporter();
+    const std::optional<F3DColoringInfoHandler::ColoringInfo> info = importer != nullptr
+      ? importer->GetColoringInfoHandler().GetCurrentColoringInfo()
+      : std::nullopt;
+    if (!info.has_value())
+    {
+      return;
+    }
+    title = info->Name + " (" + ren->ComponentToString(ren->GetComponentForColoring()) + ")";
+  }
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float W = viewport->WorkSize.x;
+  const float H = viewport->WorkSize.y;
+  if (W < 80.f || H < 80.f)
+  {
+    return;
+  }
+  // Hug the CENTRAL (visible 3D) viewport's right edge so the legend rides along when the docked
+  // panel pushes the scene.
+  const int winSize[2] = { static_cast<int>(W), static_cast<int>(H) };
+  double vp[4];
+  this->GetControlPanelViewport(winSize, vp);
+  const float xRight = static_cast<float>(vp[2]) * W;
+  const float yTop = (1.f - static_cast<float>(vp[3])) * H;
+  const float yBot = (1.f - static_cast<float>(vp[1])) * H;
+
+  const float scale = static_cast<float>(this->FontScale);
+  const float margin = 16.f * scale;
+  const float barW = 14.f * scale;
+  const float barH = std::max(80.f * scale, (yBot - yTop) * 0.55f);
+  const float cy = (yTop + yBot) * 0.5f;
+  const ImVec2 p0(xRight - margin - barW, cy - barH * 0.5f);
+  const ImVec2 p1(xRight - margin, cy + barH * 0.5f);
+
+  // Colormap stops straight from the option (the same parse the coloring group uses); an
+  // unparsable value degrades to the neutral placeholder strip.
+  const std::vector<double> stops =
+    G3DParseColormapTokens(this->QueryOption("model.scivis.colormap").value_or(""));
+  const G3DWidgets::GradientStops gs{ stops.data(), static_cast<int>(stops.size()) };
+
+  // Pure display: draw on the background list (over the 3D, under every panel window).
+  ImDrawList* dl = ImGui::GetBackgroundDrawList();
+  G3DWidgets::DrawGradientStrip(dl, p0, p1, gs, 1.f, true);
+
+  const float lineH = ImGui::GetTextLineHeight();
+  const float pad = 4.f * scale;
+  auto rightAligned = [&](const char* text, float y, ImU32 col)
+  { dl->AddText(ImVec2(p1.x - ImGui::CalcTextSize(text).x, y), col, text); };
+  char valBuf[32];
+  std::snprintf(valBuf, sizeof(valBuf), "%.4g", range[1]);
+  rightAligned(valBuf, p0.y - lineH - pad, G3DTheme::U32(G3DTheme::Text()));
+  std::snprintf(valBuf, sizeof(valBuf), "%.4g", range[0]);
+  rightAligned(valBuf, p1.y + pad, G3DTheme::U32(G3DTheme::Text()));
+  const std::string shownTitle = ::EllipsizeMiddle(title, 220.f * scale);
+  rightAligned(
+    shownTitle.c_str(), p0.y - 2.f * lineH - 2.f * pad, G3DTheme::U32(G3DTheme::TextMuted()));
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
+{
+  if (!this->ReadOptionBool("ui.axis", false))
+  {
+    return;
+  }
+  vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+  if (ren == nullptr || ren->GetActiveCamera() == nullptr)
+  {
+    return;
+  }
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float W = viewport->WorkSize.x;
+  const float H = viewport->WorkSize.y;
+  if (W < 80.f || H < 80.f)
+  {
+    return;
+  }
+  const int winSize[2] = { static_cast<int>(W), static_cast<int>(H) };
+  double vp[4];
+  this->GetControlPanelViewport(winSize, vp);
+  const float xRight = static_cast<float>(vp[2]) * W;
+  const float yBot = (1.f - static_cast<float>(vp[1])) * H;
+
+  // Same footprint the VTK widget used (15% of the shortest window dimension), tucked into the
+  // central viewport's lower-right corner.
+  const float scale = static_cast<float>(this->FontScale);
+  const float R = std::min(W, H) * 0.15f * 0.5f;
+  const float basePad = 10.f;
+  const ImVec2 ctr(xRight - basePad - R, yBot - basePad - R);
+
+  // World axes -> view space: for a direction, the view transform is its rotation part, and the
+  // image of world axis i is COLUMN i. Screen y flips (VTK y-up -> ImGui y-down); view z orders
+  // painter-style (camera looks down -z, so smaller z = farther).
+  vtkMatrix4x4* view = ren->GetActiveCamera()->GetViewTransformMatrix();
+  float axColor[3][4] = { { 1.f, 0.f, 0.f, 1.f }, { 0.f, 1.f, 0.f, 1.f }, { 0.f, 0.f, 1.f, 1.f } };
+  const float defX[3] = { 0.90f, 0.30f, 0.28f };
+  const float defY[3] = { 0.42f, 0.78f, 0.32f };
+  const float defZ[3] = { 0.33f, 0.55f, 0.95f };
+  this->ReadOptionColor("ui.x_color", axColor[0], defX);
+  this->ReadOptionColor("ui.y_color", axColor[1], defY);
+  this->ReadOptionColor("ui.z_color", axColor[2], defZ);
+
+  struct GizmoHead
+  {
+    int axis = 0;      // 0=X 1=Y 2=Z
+    float sign = 1.f;  // +1 / -1
+    ImVec2 pos;        // head center (screen)
+    float depth = 0.f; // view-space z
+  };
+  GizmoHead heads[6];
+  const float headR = std::clamp(R * 0.24f, 6.f * scale, 12.f * scale);
+  const float arm = R - headR - 1.f;
+  float zMin = 1.f;
+  float zMax = -1.f;
+  for (int axis = 0; axis < 3; axis++)
+  {
+    const float vx = static_cast<float>(view->GetElement(0, axis));
+    const float vy = static_cast<float>(view->GetElement(1, axis));
+    const float vz = static_cast<float>(view->GetElement(2, axis));
+    for (int s = 0; s < 2; s++)
+    {
+      const float sign = (s == 0) ? 1.f : -1.f;
+      GizmoHead& h = heads[axis * 2 + s];
+      h.axis = axis;
+      h.sign = sign;
+      h.pos = ImVec2(ctr.x + sign * vx * arm, ctr.y - sign * vy * arm);
+      h.depth = sign * vz;
+      zMin = std::min(zMin, h.depth);
+      zMax = std::max(zMax, h.depth);
+    }
+  }
+
+  // Hover = nearest head within its grab radius. Only then does an input overlay exist, so the
+  // rest of the gizmo area stays drag-through for camera rotation.
+  const ImVec2 mouse = ImGui::GetIO().MousePos;
+  int hoverIdx = -1;
+  float bestD = headR * 1.5f;
+  for (int i = 0; i < 6; i++)
+  {
+    const float dx = mouse.x - heads[i].pos.x;
+    const float dy = mouse.y - heads[i].pos.y;
+    const float d = std::sqrt(dx * dx + dy * dy);
+    if (d < bestD)
+    {
+      bestD = d;
+      hoverIdx = i;
+    }
+  }
+
+  bool clicked = false;
+  if (hoverIdx >= 0)
+  {
+    const GizmoHead& hot = heads[hoverIdx];
+    const float grab = headR * 1.5f;
+    ::SetupNextWindow(ImVec2(hot.pos.x - grab, hot.pos.y - grab), ImVec2(2.f * grab, 2.f * grab));
+    ImGui::SetNextWindowBgAlpha(0.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+      ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+    ImGui::Begin("ViewGizmoHot", nullptr, flags);
+    clicked = ImGui::InvisibleButton("##gzhot", ImVec2(2.f * grab, 2.f * grab));
+    if (ImGui::IsItemHovered())
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+  }
+
+  // Painter order: farthest first. Positive heads = arm line + filled disc + axis letter;
+  // negative heads = hollow ring. Depth also drives a subtle alpha falloff, like the VTK widget.
+  ImDrawList* dl = ImGui::GetBackgroundDrawList();
+  int order[6] = { 0, 1, 2, 3, 4, 5 };
+  std::sort(order, order + 6,
+    [&heads](int a, int b) { return heads[a].depth < heads[b].depth; });
+  const float zSpan = std::max(1e-3f, zMax - zMin);
+  for (int k = 0; k < 6; k++)
+  {
+    const GizmoHead& h = heads[order[k]];
+    const bool hot = (order[k] == hoverIdx);
+    const float depthT = (h.depth - zMin) / zSpan;                    // 0 = far, 1 = near
+    const float alpha = (0.55f + 0.45f * depthT) * (hot ? 1.f : 0.92f);
+    ImVec4 col(axColor[h.axis][0], axColor[h.axis][1], axColor[h.axis][2], alpha);
+    if (hot)
+    {
+      col = G3DTheme::Lighten(col, 0.20f);
+    }
+    const float r = headR * (hot ? 1.18f : 1.f);
+    if (h.sign > 0.f)
+    {
+      // arm stops at the disc edge so the line never pokes through the head
+      const float ax = h.pos.x - ctr.x;
+      const float ay = h.pos.y - ctr.y;
+      const float len = std::max(1.f, std::sqrt(ax * ax + ay * ay));
+      const ImVec2 tip(h.pos.x - ax / len * r, h.pos.y - ay / len * r);
+      dl->AddLine(ctr, tip, G3DTheme::U32(col), 2.f * scale);
+      dl->AddCircleFilled(h.pos, r, G3DTheme::U32(col), 24);
+      const char letter[2] = { static_cast<char>('X' + h.axis), '\0' };
+      const ImVec2 ts = ImGui::CalcTextSize(letter);
+      dl->AddText(ImVec2(h.pos.x - ts.x * 0.5f, h.pos.y - ts.y * 0.5f),
+        IM_COL32(18, 20, 25, static_cast<int>(235 * alpha)), letter);
+    }
+    else
+    {
+      dl->AddCircleFilled(h.pos, r, G3DTheme::U32(col, 0.22f), 24);
+      dl->AddCircle(h.pos, r, G3DTheme::U32(col), 24, 1.5f * scale);
+    }
+  }
+
+  if (clicked && hoverIdx >= 0)
+  {
+    // Clicked world axis -> the named view whose (environment-transformed) camera axis aligns
+    // best. Forward-enumerates the exact SetViewOrbit math (rows {right, right×up, up}) — never
+    // inverted, so scene.up_direction keeps working.
+    const double* up = ren->GetEnvironmentUp();
+    const double* right = ren->GetEnvironmentRight();
+    double fwd[3];
+    vtkMath::Cross(right, up, fwd);
+    struct NamedView
+    {
+      const char* name;
+      double c[3];
+    };
+    static constexpr NamedView views[6] = {
+      { "front", { 0, 1, 0 } },
+      { "back", { 0, -1, 0 } },
+      { "right", { 1, 0, 0 } },
+      { "left", { -1, 0, 0 } },
+      { "top", { 0, 0, 1 } },
+      { "bottom", { 0, 0, -1 } },
+    };
+    double a[3] = { 0.0, 0.0, 0.0 };
+    a[heads[hoverIdx].axis] = heads[hoverIdx].sign;
+    const char* bestName = nullptr;
+    double bestDot = -2.0;
+    for (const NamedView& v : views)
+    {
+      const double w[3] = { right[0] * v.c[0] + right[1] * v.c[1] + right[2] * v.c[2],
+        fwd[0] * v.c[0] + fwd[1] * v.c[1] + fwd[2] * v.c[2],
+        up[0] * v.c[0] + up[1] * v.c[1] + up[2] * v.c[2] };
+      const double dot = w[0] * a[0] + w[1] * a[1] + w[2] * a[2];
+      if (dot > bestDot)
+      {
+        bestDot = dot;
+        bestName = v.name;
+      }
+    }
+    if (bestName != nullptr)
+    {
+      this->SendCommand(std::string("set_camera ") + bestName);
+    }
   }
 }
 

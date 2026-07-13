@@ -688,20 +688,17 @@ void vtkF3DRenderer::ShowAxis(bool show)
 #endif
     if (show)
     {
+#if F3D_MODULE_UI
+      // The UI presenter draws a clickable orientation gizmo instead
+      // (vtkF3DImguiActor::RenderViewGizmo, driven by the same ui.axis option read every frame) —
+      // UI builds create no VTK widget. AxisVisible bookkeeping below still runs (cheatsheet).
+#elif VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 5, 20251001)
       // Needs https://gitlab.kitware.com/vtk/vtk/-/merge_requests/12489
-#if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 5, 20251001)
       this->ModernAxisWidget = vtkSmartPointer<vtkCameraOrientationWidget>::New();
       this->ModernAxisRepresentation = vtkSmartPointer<vtkCameraOrientationRepresentation>::New();
       this->ModernAxisRepresentation->SetRenderer(this);
       this->ModernAxisRepresentation->AnchorToLowerRight();
       this->ModernAxisRepresentation->ContainerVisibilityOn();
-
-#if F3D_MODULE_UI
-      auto containerProperty = this->ModernAxisRepresentation->GetContainerProperty();
-      containerProperty->SetOpacity(this->ModernAxisBackdropOpacity);
-      const auto [r, g, b] = F3DStyle::GetF3DBlack();
-      containerProperty->SetColor(r, g, b);
-#endif
 
       this->ModernAxisWidget->SetRepresentation(this->ModernAxisRepresentation);
 
@@ -734,9 +731,13 @@ void vtkF3DRenderer::ShowAxis(bool show)
 void vtkF3DRenderer::ConfigureAxesActor()
 {
 #if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 5, 20251001)
-  this->ModernAxisRepresentation->SetXAxisColor(this->ColorAxisX);
-  this->ModernAxisRepresentation->SetYAxisColor(this->ColorAxisY);
-  this->ModernAxisRepresentation->SetZAxisColor(this->ColorAxisZ);
+  // UI builds never create the VTK widget (the ImGui gizmo reads the axis colors itself).
+  if (this->ModernAxisRepresentation)
+  {
+    this->ModernAxisRepresentation->SetXAxisColor(this->ColorAxisX);
+    this->ModernAxisRepresentation->SetYAxisColor(this->ColorAxisY);
+    this->ModernAxisRepresentation->SetZAxisColor(this->ColorAxisZ);
+  }
   this->AxesActorConfigured = true;
 #endif
 }
@@ -1643,8 +1644,6 @@ void vtkF3DRenderer::SetBackdropColor(const std::array<double, 3>& color)
 void vtkF3DRenderer::SetBackdropOpacity(const double backdropOpacity)
 {
   this->UIActor->SetBackdropOpacity(backdropOpacity);
-  // Adjust axis opacity to visually match ImGui background (VTK appears darker)
-  this->ModernAxisBackdropOpacity = backdropOpacity - 0.3;
 }
 
 //----------------------------------------------------------------------------
@@ -3288,6 +3287,11 @@ void vtkF3DRenderer::ConfigureColoringAndVisibilities()
   }
 
   // Handle scalar bar
+#if F3D_MODULE_UI
+  // The UI presenter draws the scalar bar (vtkF3DImguiActor::RenderScalarBar reads the same
+  // effective coloring state); the VTK actor stays hidden so the two never double-render.
+  this->ScalarBarActor->SetVisibility(false);
+#else
   bool barVisible = this->ScalarBarVisible && hasColoring && this->ComponentForColoring >= -1;
   this->ScalarBarActor->SetVisibility(barVisible);
   if (barVisible && !this->ScalarBarActorConfigured)
@@ -3296,6 +3300,7 @@ void vtkF3DRenderer::ConfigureColoringAndVisibilities()
       this->ComponentForColoring, this->ColorTransferFunction);
     this->ScalarBarActorConfigured = true;
   }
+#endif
 
   this->RenderPassesConfigured = false;
   this->ColoringConfigured = true;
@@ -3322,6 +3327,28 @@ std::string vtkF3DRenderer::GetColoringDescription()
     stream << G3DLocaleCore::GetInstance().Translate("Not coloring");
   }
   return stream.str();
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DRenderer::GetColoringRange(double range[2])
+{
+  // ColorRange is only meaningful while something is actually colored (it already folds in the
+  // user range override and the display-depth [0,1] special case, see
+  // ConfigureRangeAndCTFForColoring).
+  if (this->Importer == nullptr ||
+    !this->Importer->GetColoringInfoHandler().GetCurrentColoringInfo().has_value())
+  {
+    return false;
+  }
+  range[0] = this->ColorRange[0];
+  range[1] = this->ColorRange[1];
+  return true;
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DRenderer::GetUseDepthColoring()
+{
+  return this->DisplayDepth;
 }
 
 //----------------------------------------------------------------------------

@@ -482,6 +482,19 @@ public:
   virtual std::string GetColoringDescription();
 
   /**
+   * Get the effective coloring range the color transfer function uses (after the user range
+   * override and the depth special case). Returns false and leaves @p range untouched when no
+   * coloring is currently active. Lets the UI scalar bar mirror the exact mapping.
+   */
+  bool GetColoringRange(double range[2]);
+
+  /**
+   * Return true when the display-depth final shader drives the coloring (the scalar bar then
+   * legends "Depth" over [0, 1] instead of a data array).
+   */
+  bool GetUseDepthColoring();
+
+  /**
    * Switch between point data and cell data coloring, actually setting UseCellColoring member.
    * This can trigger CycleArrayForColoring if current array is not valid.
    */
@@ -724,7 +737,6 @@ private:
   vtkSmartPointer<vtkCameraOrientationWidget> ModernAxisWidget;
   vtkSmartPointer<vtkCameraOrientationRepresentation> ModernAxisRepresentation;
   vtkSmartPointer<vtkCallbackCommand> ModernAxisWidgetResizeCallback;
-  double ModernAxisBackdropOpacity = 0.0;
   double TotalTime = 0.0;
 
   // Does vtk version support GridAxesActor
