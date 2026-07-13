@@ -79,6 +79,18 @@ void PanelHeader(const char* title, G3DIconId icon);
 /// right-aligned on the same line (mirrors styleguide .proprow used read-only).
 void StatRow(const char* key, const char* value);
 
+/// Editable property row (mirrors styleguide .proprow inside collapse bodies): a fixed-width muted
+/// label column on the left, then the value column where the caller draws exactly one control
+/// (Toggle with an empty label, SliderFloat/BeginSelect with a "##v" label, ColorEdit with grow).
+/// BeginPropRow positions the cursor at the value column and pre-sets the next item width to fill
+/// it; EndPropRow draws the label vertically centered on the resulting row, normalizes the row to
+/// at least the control-height rhythm, and returns the cursor to the row's left edge.
+/// @p labelW <= 0 uses the styleguide collapse-body label column (88). Pass the control's height as
+/// @p ctrlH (e.g. G3DTheme::Size::Icon for Toggle) to vertically center controls shorter than the
+/// standard control row; <= 0 assumes standard control height (no centering offset).
+void BeginPropRow(const char* label, float labelW = -1.f, float ctrlH = -1.f);
+void EndPropRow();
+
 /// Collapsible property-panel header (the signature DCC inspector panel, e.g. Blender's Transform /
 /// Relations): a full-width clickable header with a disclosure triangle + title on a subtle raised
 /// surface; clicking toggles @p open. Returns whether the section is open, so the caller guards its
@@ -156,6 +168,30 @@ bool SelectItem(const char* label, bool selected = false);
 
 /// Close the menu opened by a true-returning BeginSelect(). Call exactly then, like EndCombo.
 void EndSelect();
+
+/// Flat colormap control points: (t, r, g, b) quadruples, t ascending (the layout
+/// G3DParseColormapTokens-style parsers produce). count is the number of doubles; anything that is
+/// not a non-empty multiple of 4 renders as a neutral placeholder strip.
+struct GradientStops
+{
+  const double* data = nullptr;
+  int count = 0;
+};
+
+/// Multi-stop gradient bar between @p p0 / @p p1: piecewise AddRectFilledMultiColor segments with
+/// the dark inset ring color chips use (square corners, like the picker's SV/hue bars). @p alpha
+/// multiplies every color (menu fade-in bypasses style.Alpha for custom draws). @p vertical maps
+/// t = max to the top edge (scalar-bar orientation) instead of left-to-right.
+void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
+  const GradientStops& stops, float alpha = 1.f, bool vertical = false);
+
+/// BeginSelect variant whose trigger shows a small gradient strip of the current colormap before
+/// the value text. Same open/close contract as BeginSelect (close with EndSelect()).
+bool BeginSelectColormap(
+  const char* id, const char* preview, const GradientStops& stops, const char* hint = nullptr);
+
+/// SelectItem variant with a leading gradient strip (colormap preset rows).
+bool SelectItemColormap(const char* label, const GradientStops& stops, bool selected = false);
 
 //----------------------------------------------------------------------------
 // Tree / outliner

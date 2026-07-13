@@ -772,6 +772,22 @@
         transform: rotate(270deg);
         color: var(--accent);
       }
+      /* colormap select: small gradient swatch leading the value (trigger + menu items).
+         Square corners + DARK inset ring, the color-chip convention (a light outer border
+         would halo at the corners on dark UI). */
+      .cmap-chip {
+        width: 44px;
+        height: 14px;
+        flex: none;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+      }
+      .select-trigger .val {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       /* Popup menu is portaled to <body> and positioned (left/top/width) by JS, so it
          ESCAPES any overflow:hidden / scroll ancestor (accordion clip, inspector). This is
          the standard "floating UI / popper" pattern and mirrors ImGui's overlay combo popup.
@@ -2617,8 +2633,8 @@
               </div>
               <div class="field" style="width: 220px">
                 <label>下拉选择 / 色谱</label>
-                <g3d-select val="Viridis" opts="Viridis|Plasma|Inferno|Cool to Warm|Grayscale"></g3d-select>
-                <div class="hint">点击展开 · chevron 旋转</div>
+                <g3d-select val="Viridis" opts="默认|灰度|冷到暖|Viridis|Jet" cmaps="linear-gradient(90deg,#000000 0%,#e60000 40%,#e6e600 80%,#ffffff 100%)|linear-gradient(90deg,#000000,#ffffff)|linear-gradient(90deg,#3b4cc0,#dddddd 50%,#b40426)|linear-gradient(90deg,#440154,#3b528b 25%,#21908c 50%,#5ec962 75%,#fde725)|linear-gradient(90deg,#000080,#00ffff 35%,#80ff80 66%,#ffff00 89%,#800000)"></g3d-select>
+                <div class="hint">cmaps= 每项渐变条 · 触发器随选中回填</div>
               </div>
             </div>
           </div>
@@ -3066,16 +3082,20 @@
           },
           "g3d-select": (el) => {
             const val = a(el, "val");
-            const items = a(el, "opts")
-              .split("|")
-              .filter(Boolean)
+            const opts = a(el, "opts").split("|").filter(Boolean);
+            // colormap variant: `cmaps` carries one CSS gradient per option (| separated; the
+            // gradients' own commas are safe) — a .cmap-chip leads the value in trigger + items
+            const maps = has(el, "cmaps") ? a(el, "cmaps").split("|") : null;
+            const chip = (g) => (g ? `<span class="cmap-chip" style="background:${g}"></span>` : "");
+            const items = opts
               .map(
-                (o) =>
-                  `<button class="menu-item${o === val ? " is-selected" : ""}">${o}<svg class="icon check-spot"><use href="#i-check" /></svg></button>`,
+                (o, i) =>
+                  `<button class="menu-item${o === val ? " is-selected" : ""}">${maps ? chip(maps[i]) : ""}${o}<svg class="icon check-spot"><use href="#i-check" /></svg></button>`,
               )
               .join("");
             const grow = has(el, "grow") ? ` style="flex:1"` : "";
-            return `<div class="dropdown" data-dropdown${grow}><button class="input select-trigger"><span class="val">${val}</span><svg class="icon chev"><use href="#i-chevron" /></svg></button><div class="menu">${items}</div></div>`;
+            const cur = maps ? chip(maps[Math.max(0, opts.indexOf(val))]) : "";
+            return `<div class="dropdown" data-dropdown${grow}><button class="input select-trigger">${cur}<span class="val">${val}</span><svg class="icon chev"><use href="#i-chevron" /></svg></button><div class="menu">${items}</div></div>`;
           },
 
           // — toggles / selection —
@@ -3419,7 +3439,15 @@
             item.addEventListener("click", () => {
               menu.querySelectorAll(".menu-item").forEach((m) => m.classList.remove("is-selected"));
               item.classList.add("is-selected");
-              if (val) val.textContent = item.firstChild.textContent.trim();
+              if (val) {
+                // label = the item's text node (a leading .cmap-chip would hijack firstChild)
+                const t = Array.from(item.childNodes).find((n) => n.nodeType === 3);
+                val.textContent = (t ? t.textContent : item.textContent).trim();
+              }
+              // colormap select: mirror the picked gradient onto the trigger chip
+              const pickedChip = item.querySelector(".cmap-chip");
+              const triggerChip = trigger.querySelector(".cmap-chip");
+              if (pickedChip && triggerChip) triggerChip.style.background = pickedChip.style.background;
               close();
             });
           });

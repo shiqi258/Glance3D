@@ -1823,29 +1823,49 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
       }
 
       // One array entry: name on the left, an accent component-count badge right-aligned, and the
-      // value range on a muted, indented second line. The whole entry lifts on hover (a subtle row
-      // surface) so it reads as an addressable item — ready for click-to-color later.
-      auto arrayRow = [&](const F3DColoringInfoHandler::ColoringInfo& a, const std::string& assoc)
+      // value range on a muted, indented second line. The row is a real item — clicking it colors
+      // by that array (same commands as the coloring group), and the effective coloring source is
+      // marked with an accent side bar (the tree-selection convention).
+      const std::optional<F3DColoringInfoHandler::ColoringInfo> effective =
+        coloring.GetCurrentColoringInfo();
+      const bool effectiveCells = ren->GetUseCellColoring();
+      auto arrayRow = [&](const F3DColoringInfoHandler::ColoringInfo& a, const std::string& assoc,
+                        bool isCell)
       {
+        ImGui::PushID(a.Name.c_str());
+        ImGui::PushID(isCell ? 1 : 0);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const float w = ImGui::GetContentRegionAvail().x;
         const float lineH = ImGui::GetTextLineHeight();
         const float padY = G3DTheme::Spacing::Xs * scale;
         const float bleed = G3DTheme::Spacing::Xs * scale; // hover surface padding around content
 
-        // The entry's height is deterministic (two lines + paddings), so the hover surface is drawn
-        // FIRST (behind the content) instead of via ChannelsSplit — the splitter is not re-entrant
+        // The entry's height is deterministic (two lines + paddings): one InvisibleButton is the
+        // hit target, then the content is laid back over it. The hover surface is drawn FIRST
+        // (behind the content) instead of via ChannelsSplit — the splitter is not re-entrant
         // inside the enclosing collapse card, which already owns the channels.
         const ImVec2 base = ImGui::GetCursorScreenPos();
         const float rowH = padY + lineH + 2.f * scale + lineH + padY;
         const ImVec2 hr0(base.x - bleed, base.y);
         const ImVec2 hr1(base.x + w + bleed, base.y + rowH);
-        if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(hr0, hr1))
+        const bool clicked = ImGui::InvisibleButton("##row", ImVec2(std::max(1.f, w), rowH));
+        const bool hovered = ImGui::IsItemHovered();
+        const bool selected =
+          effective.has_value() && effective->Name == a.Name && isCell == effectiveCells;
+        if (hovered)
         {
+          ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
           dl->AddRectFilled(hr0, hr1, G3DTheme::U32(G3DTheme::SurfaceHover(), 0.5f),
             G3DTheme::Radius::Small * scale);
         }
+        if (selected)
+        {
+          dl->AddRectFilled(ImVec2(hr0.x, hr0.y + padY), ImVec2(hr0.x + 3.f * scale, hr1.y - padY),
+            G3DTheme::U32(G3DTheme::Accent()), 1.5f * scale);
+        }
 
+        // Content laid back over the hit item with the original flow (same total height).
+        ImGui::SetCursorScreenPos(base);
         ImGui::Dummy(ImVec2(0.f, padY));
         const ImVec2 top = ImGui::GetCursorScreenPos();
 
@@ -1855,8 +1875,13 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
         const float bw = G3DWidgets::BadgeWidth(tag);
         const float nameW = std::max(0.f, w - bw - G3DTheme::Spacing::Sm * scale);
         dl->PushClipRect(top, ImVec2(top.x + nameW, top.y + lineH), true);
-        dl->AddText(top, G3DTheme::U32(G3DTheme::Text()), a.Name.c_str());
+        dl->AddText(
+          top, G3DTheme::U32(selected ? G3DTheme::Accent() : G3DTheme::Text()), a.Name.c_str());
         dl->PopClipRect();
+        if (hovered && ImGui::CalcTextSize(a.Name.c_str()).x > nameW)
+        {
+          ImGui::SetTooltip("%s", a.Name.c_str()); // clipped name — reveal it in full on hover
+        }
         // Badge right-aligned on the same line (it advances the layout cursor to the next line).
         ImGui::SetCursorScreenPos(ImVec2(top.x + w - bw, top.y));
         G3DWidgets::Badge(tag, G3DWidgets::BadgeVariant::Accent);
@@ -1869,15 +1894,25 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
         dl->AddText(ImVec2(p2.x + G3DTheme::Spacing::Md * scale, p2.y),
           G3DTheme::U32(G3DTheme::TextMuted()), rng);
         ImGui::Dummy(ImVec2(w, lineH + padY));
+
+        if (clicked)
+        {
+          this->SendCommand(
+            std::string("set model.scivis.cells ") + (isCell ? "true" : "false"));
+          this->SendCommand(std::string("set model.scivis.array_name \"") + a.Name + "\"");
+          this->SendCommand("set model.scivis.enable true");
+        }
+        ImGui::PopID();
+        ImGui::PopID();
       };
 
       for (const auto& a : pointArrays)
       {
-        arrayRow(a, loc.Translate("point"));
+        arrayRow(a, loc.Translate("point"), false);
       }
       for (const auto& a : cellArrays)
       {
-        arrayRow(a, loc.Translate("cell"));
+        arrayRow(a, loc.Translate("cell"), true);
       }
     }
     G3DWidgets::EndCollapse();
@@ -1998,13 +2033,16 @@ void vtkF3DImguiActor::DrawAppearanceContent()
   if (G3DWidgets::BeginCollapse("g3d.sec.appearance", d).open)
   {
     // Boolean toggles, each reads the option's current value and writes back through a command.
+    // Uniform proprow anatomy: muted label column left, the switch in the value column.
     auto optionToggle = [this](const char* label, const char* option, bool fallback)
     {
       bool on = this->ReadOptionBool(option, fallback);
-      if (G3DWidgets::Toggle(label, &on))
+      G3DWidgets::BeginPropRow(label, -1.f, G3DTheme::Size::Icon);
+      if (G3DWidgets::Toggle("", &on))
       {
         this->SendCommand(std::string("set ") + option + (on ? " true" : " false"));
       }
+      G3DWidgets::EndPropRow();
     };
     optionToggle(loc.Translate("Show edges").c_str(), "render.show_edges", false);
     optionToggle(loc.Translate("Grid").c_str(), "render.grid.enable", false);
@@ -2038,16 +2076,19 @@ void vtkF3DImguiActor::DrawMaterialContent()
   {
     // PBR override sliders. When an option is unset the model's own material is used; touching a
     // slider sets the override for all actors (libf3d semantics). The slider then reflects the
-    // override on subsequent frames.
+    // override on subsequent frames. Proprow anatomy: the label lives in the label column
+    // (SliderFloat itself never draws its label).
     auto optionSlider = [this](const char* label, const char* option, float fallback)
     {
       float value = this->ReadOptionFloat(option, fallback);
-      if (G3DWidgets::SliderFloat(label, &value, 0.f, 1.f))
+      G3DWidgets::BeginPropRow(label);
+      if (G3DWidgets::SliderFloat("##v", &value, 0.f, 1.f))
       {
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%.4g", value);
         this->SendCommand(std::string("set ") + option + " " + buf);
       }
+      G3DWidgets::EndPropRow();
     };
     optionSlider(loc.Translate("Metallic").c_str(), "model.material.metallic", 0.f);
     optionSlider(loc.Translate("Roughness").c_str(), "model.material.roughness", 0.3f);
@@ -2067,16 +2108,8 @@ void vtkF3DImguiActor::DrawOptionColorRow(
   float col[4] = { fallback[0], fallback[1], fallback[2], 1.f };
   this->ReadOptionColor(option, col, fallback);
 
-  // proprow: muted label on the left, the swatch grows to fill the value column (styleguide layout).
-  const float ctrlH = G3DTheme::Size::Control * (ImGui::GetFontSize() / 14.f);
-  const ImVec2 lp = ImGui::GetCursorScreenPos();
-  const float lineH = ImGui::GetTextLineHeight();
-  ImGui::GetWindowDrawList()->AddText(ImVec2(lp.x, lp.y + (ctrlH - lineH) * 0.5f),
-    ImGui::ColorConvertFloat4ToU32(::ColorToImVec4(this->FontColor)), label);
-  const float labelCol = std::max(
-    ImGui::CalcTextSize(label).x + G3DTheme::Spacing::Md, ImGui::GetContentRegionAvail().x * 0.40f);
-  ImGui::SetCursorScreenPos(ImVec2(lp.x + labelCol, lp.y));
-
+  // proprow: muted label column left, the swatch grows to fill the value column.
+  G3DWidgets::BeginPropRow(label);
   G3DWidgets::ColorEditDesc cpd;
   cpd.grow = true;
   if (G3DWidgets::ColorEdit(widgetId, col, cpd))
@@ -2085,6 +2118,7 @@ void vtkF3DImguiActor::DrawOptionColorRow(
     std::snprintf(buf, sizeof(buf), "%.4g,%.4g,%.4g", col[0], col[1], col[2]);
     this->SendCommand(std::string("set ") + option + " " + buf);
   }
+  G3DWidgets::EndPropRow();
 }
 
 namespace
@@ -2226,11 +2260,12 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   const bool enableOption = this->ReadOptionBool("model.scivis.enable", false);
   bool enable = enableOption || volumeForced;
   const bool enableLocked = volumeForced && !enableOption;
+  G3DWidgets::BeginPropRow(loc.Translate("Enable").c_str(), -1.f, G3DTheme::Size::Icon);
   if (enableLocked)
   {
     ImGui::BeginDisabled();
   }
-  if (G3DWidgets::Toggle(loc.Translate("Enable").c_str(), &enable))
+  if (G3DWidgets::Toggle("", &enable))
   {
     this->SendCommand(std::string("set model.scivis.enable ") + (enable ? "true" : "false"));
   }
@@ -2242,16 +2277,19 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       ImGui::SetTooltip("%s", loc.Translate("Volume rendering forces coloring").c_str());
     }
   }
+  G3DWidgets::EndPropRow();
 
   // Point vs cell data (only offer the switch when both are present). Display mirrors the
   // renderer's applied value (the option may lag the effective state).
   bool cells = ren->GetUseCellColoring();
   if (!pointArrays.empty() && !cellArrays.empty())
   {
-    if (G3DWidgets::Toggle(loc.Translate("Cell data").c_str(), &cells))
+    G3DWidgets::BeginPropRow(loc.Translate("Cell data").c_str(), -1.f, G3DTheme::Size::Icon);
+    if (G3DWidgets::Toggle("", &cells))
     {
       this->SendCommand(std::string("set model.scivis.cells ") + (cells ? "true" : "false"));
     }
+    G3DWidgets::EndPropRow();
   }
   const std::vector<F3DColoringInfoHandler::ColoringInfo>& arrays =
     (cells && !cellArrays.empty()) ? cellArrays : pointArrays;
@@ -2263,6 +2301,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   {
     current = effectiveInfo->Name;
   }
+  G3DWidgets::BeginPropRow(loc.Translate("Array").c_str());
   if (G3DWidgets::BeginSelect(
         "##g3d.scivis.array", current.c_str(), loc.Translate("Select array").c_str()))
   {
@@ -2276,6 +2315,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     }
     G3DWidgets::EndSelect();
   }
+  G3DWidgets::EndPropRow();
 
   // Component: magnitude (-1) or a specific component of the current array.
   int maxComponents = 1;
@@ -2292,6 +2332,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     const int component = static_cast<int>(this->ReadOptionFloat("model.scivis.component", -1.f));
     const std::string componentLabel =
       component < 0 ? loc.Translate("Magnitude") : (std::string("#") + std::to_string(component));
+    G3DWidgets::BeginPropRow(loc.Translate("Component").c_str());
     if (G3DWidgets::BeginSelect("##g3d.scivis.component", componentLabel.c_str()))
     {
       if (G3DWidgets::SelectItem(loc.Translate("Magnitude").c_str(), component < 0))
@@ -2307,6 +2348,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       }
       G3DWidgets::EndSelect();
     }
+    G3DWidgets::EndPropRow();
   }
 
   // Colormap presets. "Default" resets to the libf3d default; others set explicit transfer-function
@@ -2363,13 +2405,21 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       lastTraced = currentMap;
     }
   }
-  if (G3DWidgets::BeginSelect("##g3d.scivis.colormap", mapPreview.c_str()))
+  // The trigger and each preset row lead with a live gradient swatch. "Custom" previews whatever
+  // the option currently parses to (placeholder strip when it does not parse).
+  const std::vector<double>& previewPts = matched >= 0 ? presetPts[matched] : currentPts;
+  const G3DWidgets::GradientStops previewStops{ previewPts.data(),
+    static_cast<int>(previewPts.size()) };
+  G3DWidgets::BeginPropRow(loc.Translate("Colormap").c_str());
+  if (G3DWidgets::BeginSelectColormap("##g3d.scivis.colormap", mapPreview.c_str(), previewStops))
   {
     for (std::size_t i = 0; i < std::size(presets); i++)
     {
       const ColormapPreset& preset = presets[i];
-      if (G3DWidgets::SelectItem(
-            loc.Translate(preset.name).c_str(), matched == static_cast<int>(i)))
+      const G3DWidgets::GradientStops presetStops{ presetPts[i].data(),
+        static_cast<int>(presetPts[i].size()) };
+      if (G3DWidgets::SelectItemColormap(
+            loc.Translate(preset.name).c_str(), presetStops, matched == static_cast<int>(i)))
       {
         if (preset.points[0] == '\0')
         {
@@ -2383,6 +2433,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     }
     G3DWidgets::EndSelect();
   }
+  G3DWidgets::EndPropRow();
 
   // Value-range override [min,max] (unset = auto from data); bounds are the array's magnitude range.
   const F3DColoringInfoHandler::ColoringInfo* currentInfo = nullptr;
@@ -2427,10 +2478,12 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       }
     }
     bool rangeChanged = false;
-    rangeChanged |=
-      G3DWidgets::SliderFloat(loc.Translate("Range min").c_str(), &rmin, dataMin, dataMax, "%.4g");
-    rangeChanged |=
-      G3DWidgets::SliderFloat(loc.Translate("Range max").c_str(), &rmax, dataMin, dataMax, "%.4g");
+    G3DWidgets::BeginPropRow(loc.Translate("Range min").c_str());
+    rangeChanged |= G3DWidgets::SliderFloat("##v", &rmin, dataMin, dataMax, "%.4g");
+    G3DWidgets::EndPropRow();
+    G3DWidgets::BeginPropRow(loc.Translate("Range max").c_str());
+    rangeChanged |= G3DWidgets::SliderFloat("##v", &rmax, dataMin, dataMax, "%.4g");
+    G3DWidgets::EndPropRow();
     if (rangeChanged)
     {
       if (rmin > rmax)
@@ -2448,10 +2501,12 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   }
 
   bool scalarBar = this->ReadOptionBool("ui.scalar_bar", false);
-  if (G3DWidgets::Toggle(loc.Translate("Scalar bar").c_str(), &scalarBar))
+  G3DWidgets::BeginPropRow(loc.Translate("Scalar bar").c_str(), -1.f, G3DTheme::Size::Icon);
+  if (G3DWidgets::Toggle("", &scalarBar))
   {
     this->SendCommand(std::string("set ui.scalar_bar ") + (scalarBar ? "true" : "false"));
   }
+  G3DWidgets::EndPropRow();
 
   G3DWidgets::EndCollapse();
 }

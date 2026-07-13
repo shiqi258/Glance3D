@@ -2519,6 +2519,116 @@ void DrawDashedRect(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float r,
 } // namespace
 
 //----------------------------------------------------------------------------
+namespace
+{
+struct PropRowFrame
+{
+  ImVec2 p0;          // row top-left (label column origin)
+  float labelW = 0.f; // scaled label column width
+  std::string label;  // copied — callers pass translated temporaries
+};
+std::vector<PropRowFrame> gPropRows;
+} // namespace
+
+void BeginPropRow(const char* label, float labelW, float ctrlH)
+{
+  ImGui::PushID(label);
+  const float s = Scale();
+  PropRowFrame f;
+  f.p0 = ImGui::GetCursorScreenPos();
+  f.labelW = (labelW > 0.f ? labelW : 88.f) * s; // styleguide .collapse-body-inner .proprow > .k
+  f.label = label;
+
+  // Value column: controls shorter than the control row (Toggle) are nudged down to sit centered.
+  const float nudge = (ctrlH > 0.f && ctrlH < G3DTheme::Size::Control)
+    ? (G3DTheme::Size::Control - ctrlH) * 0.5f * s
+    : 0.f;
+  ImGui::SetCursorScreenPos(ImVec2(f.p0.x + f.labelW, f.p0.y + nudge));
+  ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x));
+  gPropRows.push_back(std::move(f));
+}
+
+void EndPropRow()
+{
+  if (gPropRows.empty())
+  {
+    return;
+  }
+  const PropRowFrame f = std::move(gPropRows.back());
+  gPropRows.pop_back();
+  const float s = Scale();
+  const float spacingY = ImGui::GetStyle().ItemSpacing.y;
+  const float ctrlBottom = ImGui::GetCursorScreenPos().y - spacingY;
+  const float rowBottom = std::max(ctrlBottom, f.p0.y + G3DTheme::Size::Control * s);
+
+  // Label drawn last so it centers on the actual row band, ellipsized to its column.
+  const float lineH = ImGui::GetTextLineHeight();
+  DrawTextEllipsis(ImGui::GetWindowDrawList(),
+    ImVec2(f.p0.x, f.p0.y + (rowBottom - f.p0.y - lineH) * 0.5f),
+    std::max(0.f, f.labelW - G3DTheme::Spacing::Sm * s), U32(G3DTheme::TextMuted()),
+    f.label.c_str());
+
+  // Normalize the row rhythm: pad up to the control-row height (Dummy keeps content-size honest).
+  const float pad = rowBottom - ctrlBottom - spacingY;
+  if (pad > 0.5f)
+  {
+    ImGui::Dummy(ImVec2(1.f, pad));
+  }
+  ImGui::PopID();
+}
+
+//----------------------------------------------------------------------------
+void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
+  const GradientStops& stops, float alpha, bool vertical)
+{
+  // Dark inset ring, same convention as the color chips (never a light outer border on dark UI).
+  const ImU32 ring = U32(ImVec4(0.f, 0.f, 0.f, 0.28f), alpha);
+  const float ringW = G3DTheme::Size::Border * Scale();
+  const int n =
+    (stops.data != nullptr && stops.count >= 8 && stops.count % 4 == 0) ? stops.count / 4 : 0;
+  if (n < 2)
+  {
+    dl->AddRectFilled(p0, p1, U32(G3DTheme::SurfacePress(), alpha)); // neutral placeholder
+    dl->AddRect(p0, p1, ring, 0.f, 0, ringW);
+    return;
+  }
+  const double t0 = stops.data[0];
+  const double t1 = stops.data[(n - 1) * 4];
+  const double span = (t1 > t0) ? (t1 - t0) : 1.0;
+  auto color = [&](int i)
+  {
+    return ImGui::ColorConvertFloat4ToU32(
+      ImVec4(static_cast<float>(stops.data[i * 4 + 1]), static_cast<float>(stops.data[i * 4 + 2]),
+        static_cast<float>(stops.data[i * 4 + 3]), alpha));
+  };
+  for (int i = 0; i + 1 < n; i++)
+  {
+    const float ta = static_cast<float>((stops.data[i * 4] - t0) / span);
+    const float tb = static_cast<float>((stops.data[(i + 1) * 4] - t0) / span);
+    if (tb - ta <= 0.f)
+    {
+      continue;
+    }
+    const ImU32 ca = color(i);
+    const ImU32 cb = color(i + 1);
+    if (vertical)
+    {
+      // t grows toward the top edge (scalar-bar orientation)
+      const float ya = p1.y - ta * (p1.y - p0.y);
+      const float yb = p1.y - tb * (p1.y - p0.y);
+      dl->AddRectFilledMultiColor(ImVec2(p0.x, yb), ImVec2(p1.x, ya), cb, cb, ca, ca);
+    }
+    else
+    {
+      const float xa = p0.x + ta * (p1.x - p0.x);
+      const float xb = p0.x + tb * (p1.x - p0.x);
+      dl->AddRectFilledMultiColor(ImVec2(xa, p0.y), ImVec2(xb, p1.y), ca, cb, cb, ca);
+    }
+  }
+  dl->AddRect(p0, p1, ring, 0.f, 0, ringW);
+}
+
+//----------------------------------------------------------------------------
 bool ColorSwatch(const char* id, const float col[4], const ColorSwatchDesc& desc)
 {
   ImGui::PushID(id);
@@ -4227,7 +4337,8 @@ void DrawSelectChevron(ImDrawList* dl, const ImVec2& center, float size, ImU32 c
 } // namespace
 
 //----------------------------------------------------------------------------
-bool BeginSelect(const char* id, const char* preview, const char* hint)
+static bool BeginSelectImpl(
+  const char* id, const char* preview, const char* hint, const GradientStops* strip)
 {
   ImGui::PushID(id);
   const float s = Scale();
@@ -4290,13 +4401,22 @@ bool BeginSelect(const char* id, const char* preview, const char* hint)
       dl->AddRect(ImVec2(p0.x - o, p0.y - o), ImVec2(p1.x + o, p1.y + o),
         U32(G3DTheme::Accent(), 0.45f * ringT), radius + o, 0, 2.f * s);
     }
-    // value (or a subtle placeholder when empty), ellipsized before the chevron
+    // value (or a subtle placeholder when empty), ellipsized before the chevron; the colormap
+    // variant leads with a small gradient swatch of the current map
     const float cy = p0.y + h * 0.5f;
     const bool empty = preview == nullptr || preview[0] == '\0';
     const char* shown = empty ? (hint != nullptr ? hint : "") : preview;
+    float tx = p0.x + padX;
+    if (strip != nullptr)
+    {
+      const float stripW = 44.f * s;
+      const float stripH = 14.f * s;
+      DrawGradientStrip(
+        dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f), *strip);
+      tx += stripW + G3DTheme::Spacing::Sm * s;
+    }
     if (shown[0] != '\0')
     {
-      const float tx = p0.x + padX;
       const float maxW = p1.x - padX - chevSz - G3DTheme::Spacing::Sm * s - tx;
       DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f), std::max(0.f, maxW),
         U32(empty ? G3DTheme::TextSubtle() : G3DTheme::Text()), shown);
@@ -4387,7 +4507,20 @@ bool BeginSelect(const char* id, const char* preview, const char* hint)
 }
 
 //----------------------------------------------------------------------------
-bool SelectItem(const char* label, bool selected)
+bool BeginSelect(const char* id, const char* preview, const char* hint)
+{
+  return BeginSelectImpl(id, preview, hint, nullptr);
+}
+
+//----------------------------------------------------------------------------
+bool BeginSelectColormap(
+  const char* id, const char* preview, const GradientStops& stops, const char* hint)
+{
+  return BeginSelectImpl(id, preview, hint, &stops);
+}
+
+//----------------------------------------------------------------------------
+static bool SelectItemImpl(const char* label, bool selected, const GradientStops* strip)
 {
   ImGui::PushID(label);
   const float s = Scale();
@@ -4423,7 +4556,15 @@ bool SelectItem(const char* label, bool selected)
     dl->AddRectFilled(p0, p1, U32(G3DTheme::SurfacePress(), t * alpha), G3DTheme::Radius::Small * s);
   }
   const float cy = p0.y + rowH * 0.5f;
-  const float tx = p0.x + padX;
+  float tx = p0.x + padX;
+  if (strip != nullptr)
+  {
+    const float stripW = 44.f * s;
+    const float stripH = 14.f * s;
+    DrawGradientStrip(dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f),
+      *strip, alpha);
+    tx += stripW + gap;
+  }
   const float maxW = p1.x - padX - (selected ? checkSz + gap : 0.f) - tx;
   DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f), std::max(0.f, maxW),
     U32(selected ? G3DTheme::Accent() : G3DTheme::Text(), alpha), label);
@@ -4440,6 +4581,18 @@ bool SelectItem(const char* label, bool selected)
   }
   ImGui::PopID();
   return clicked;
+}
+
+//----------------------------------------------------------------------------
+bool SelectItem(const char* label, bool selected)
+{
+  return SelectItemImpl(label, selected, nullptr);
+}
+
+//----------------------------------------------------------------------------
+bool SelectItemColormap(const char* label, const GradientStops& stops, bool selected)
+{
+  return SelectItemImpl(label, selected, &stops);
 }
 
 //----------------------------------------------------------------------------
