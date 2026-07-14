@@ -659,19 +659,9 @@ public:
     ren->SetUIDeltaTime(deltaTime);
     ren->SetTotalTime(ren->GetTotalTime() + deltaTime);
 
-    // Push the current animation state for the timeline bottom bar (only the count when idle so we
-    // skip the range/name queries when there is no animation).
-    vtkF3DUIActor::UIAnimationState animState;
-    animState.count = this->AnimationManager->GetNumberOfAvailableAnimations();
-    if (animState.count > 0)
-    {
-      animState.currentTime = this->AnimationManager->GetCurrentTime();
-      const std::pair<double, double> range = this->AnimationManager->GetTimeRange();
-      animState.timeRange = { range.first, range.second };
-      animState.playing = this->AnimationManager->IsPlaying();
-      animState.name = this->AnimationManager->GetAnimationName();
-    }
-    ren->SetUIAnimationState(animState);
+    // Push the current animation state for the timeline bottom bar (single fill implementation
+    // lives in the manager, shared with the scene's post-load push and command execution).
+    this->AnimationManager->PushUIAnimationState();
 
     // Determine if we need a full render or just a UI render.
     // TAA needs a full render each frame; the control-panel "push" needs one for the duration of its
@@ -1019,6 +1009,26 @@ interactor& interactor_impl::initCommands()
     [&](const std::vector<std::string>&) { this->Internals->AnimationManager->CycleAnimation(); },
     command_documentation_t{
       "cycle_animation", "cycle scene.animation.index option using model information" });
+
+  this->addCommand(
+    "set_animation_index",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 1, "set_animation_index");
+      this->Internals->AnimationManager->SetAnimationIndex(options::parse<int>(args[0]));
+    },
+    command_documentation_t{ "set_animation_index index",
+      "select the animation with the provided index, -1 selects all animations" });
+
+  this->addCommand(
+    "load_animation_time",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 1, "load_animation_time");
+      this->Internals->AnimationManager->LoadAtTime(options::parse<double>(args[0]));
+    },
+    command_documentation_t{
+      "load_animation_time time", "load the animation at the provided time (clamped to its range)" });
 
   this->addCommand(
     "cycle_anti_aliasing",

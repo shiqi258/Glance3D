@@ -2676,16 +2676,33 @@ void vtkF3DImguiActor::DrawTimelineContent()
   auto centerNextY = [&](float itemH)
   { ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, barMidY - itemH * 0.5f)); };
 
+  const double tminD = this->AnimState.timeRange[0];
+  const double tmaxD = this->AnimState.timeRange[1];
+  const double tcur = this->AnimState.currentTime;
+  const double stepEps = (tmaxD - tminD) * 1e-6;
+
   // Jump back to the first frame — the transport's fixed anchor.
-  const float tmin0 = static_cast<float>(this->AnimState.timeRange[0]);
   centerNextY(G3DTheme::Size::IconButton * scale);
-  if (G3DWidgets::IconButton("##g3d.anim.skipback", G3DIconId::SkipBack, -1.f, false,
+  if (G3DWidgets::IconButton("##g3d.anim.skipstart", G3DIconId::SkipToStart, -1.f, false,
         loc.Translate("Jump to start").c_str()))
   {
     char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.6g", tmin0);
+    std::snprintf(buf, sizeof(buf), "%.6g", tminD);
     this->SendCommand(std::string("load_animation_time ") + buf);
   }
+  ImGui::SameLine();
+
+  // Single-frame stepping (1 frame = the interactor's frame delta x the speed factor), on the
+  // manager's authoritative time. The manager clamps AND warns past the range ends, so disable at
+  // the ends instead of letting held clicks spam warnings.
+  centerNextY(G3DTheme::Size::IconButton * scale);
+  ImGui::BeginDisabled(tcur <= tminD + stepEps);
+  if (G3DWidgets::IconButton("##g3d.anim.stepback", G3DIconId::SkipBack, -1.f, false,
+        loc.Translate("Previous frame").c_str()))
+  {
+    this->SendCommand("jump_to_frame -1 true");
+  }
+  ImGui::EndDisabled();
   ImGui::SameLine();
 
   // Play / pause.
@@ -2698,24 +2715,44 @@ void vtkF3DImguiActor::DrawTimelineContent()
   }
   ImGui::SameLine();
 
-  // With several animations: cycle button + the CURRENT animation's name, so switching has visible
-  // feedback (the name alone tells which of the N clips is scrubbed).
+  centerNextY(G3DTheme::Size::IconButton * scale);
+  ImGui::BeginDisabled(tcur >= tmaxD - stepEps);
+  if (G3DWidgets::IconButton("##g3d.anim.stepfwd", G3DIconId::StepForward, -1.f, false,
+        loc.Translate("Next frame").c_str()))
+  {
+    this->SendCommand("jump_to_frame 1 true");
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+
+  // With several animations: a dropdown listing every clip by name (plus "All animations"),
+  // replacing the old blind one-way cycle button. The trigger shows the CURRENT selection, which
+  // also labels multi/all states.
   if (this->AnimState.count > 1)
   {
-    centerNextY(G3DTheme::Size::IconButton * scale);
-    if (G3DWidgets::IconButton("##g3d.anim.cycle", G3DIconId::StepForward, -1.f, false,
-          loc.Translate("Next animation").c_str()))
+    const float animSelW = 150.f * scale;
+    ImGui::SetNextItemWidth(animSelW);
+    centerNextY(G3DTheme::Size::Control * scale);
+    // The Select trigger end-ellipsizes overflowing text itself; full name on the popup items.
+    const std::string preview = loc.Translate(this->AnimState.name.c_str());
+    if (G3DWidgets::BeginSelect("##g3d.anim.select", preview.c_str()))
     {
-      this->SendCommand("cycle_animation");
+      for (std::size_t i = 0; i < this->AnimState.names.size(); ++i)
+      {
+        if (G3DWidgets::SelectItem(this->AnimState.names[i].c_str(),
+              static_cast<int>(i) == this->AnimState.index))
+        {
+          this->SendCommand("set_animation_index " + std::to_string(i));
+        }
+      }
+      if (G3DWidgets::SelectItem(
+            loc.Translate("All animations").c_str(), this->AnimState.index < 0))
+      {
+        this->SendCommand("set_animation_index -1");
+      }
+      G3DWidgets::EndSelect();
     }
     ImGui::SameLine();
-    if (!this->AnimState.name.empty())
-    {
-      centerNextY(ImGui::GetTextLineHeight());
-      ImGui::TextColored(G3DTheme::TextMuted(), "%s",
-        ::EllipsizeMiddle(this->AnimState.name, 140.f * scale).c_str());
-      ImGui::SameLine();
-    }
   }
 
   // Scrubber: seek by dragging (load_animation_time). Reserve room on the right for the duration

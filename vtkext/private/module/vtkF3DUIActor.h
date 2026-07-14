@@ -16,6 +16,8 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <string>
+#include <vector>
 #include <vtkProp.h>
 
 class vtkOpenGLRenderWindow;
@@ -60,7 +62,9 @@ public:
     double currentTime = 0.0;        ///< current playback time
     std::array<double, 2> timeRange = { 0.0, 0.0 }; ///< [min, max]
     bool playing = false;            ///< whether playback is running
-    std::string name;                ///< current animation name
+    std::string name;                ///< current animation name (labels multi/all selections too)
+    std::vector<std::string> names;  ///< all animation names, for the timeline dropdown
+    int index = -1;                  ///< current single selection, -1 = multi/all animations
   };
 
   /**

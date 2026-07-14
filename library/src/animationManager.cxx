@@ -56,6 +56,7 @@ void animationManager::Initialize()
   this->Playing = false;
   this->CurrentTime = 0;
   this->CurrentTimeSet = false;
+  this->CachedAnimationNames.reset();
 
   this->AvailAnimations = this->Importer->GetNumberOfAnimations();
   if (this->AvailAnimations > 0 && this->Interactor)
@@ -312,6 +313,8 @@ bool animationManager::LoadAtTime(double timeValue)
 
     this->Interactor->UpdateRendererAfterInteraction();
   }
+
+  this->PushUIAnimationState();
   return true;
 }
 
@@ -440,6 +443,12 @@ std::vector<std::string> animationManager::GetAnimationNames()
     return {};
   }
 
+  // The UI state push queries this every tick; the names only change on load (Initialize resets).
+  if (this->CachedAnimationNames.has_value())
+  {
+    return this->CachedAnimationNames.value();
+  }
+
   std::vector<std::string> animations(this->AvailAnimations);
 
   for (int index = 0; index < this->AvailAnimations; index++)
@@ -447,7 +456,54 @@ std::vector<std::string> animationManager::GetAnimationNames()
     animations[index] = this->Importer->GetAnimationName(index);
   }
 
+  this->CachedAnimationNames = animations;
   return animations;
+}
+
+//----------------------------------------------------------------------------
+void animationManager::SetAnimationIndex(int index)
+{
+  // Mirror CycleAnimation's tail: (re)prepare for the new selection and rewind to its start.
+  // Just writing the option would leave paused geometry posed on the previous animation until
+  // something else triggers a lazy prepare.
+  this->Options.scene.animation.indices = { index };
+  this->PrepareForAnimationIndices();
+  this->LoadAtTime(this->TimeRange[0]);
+
+  vtkRenderWindow* renWin = this->Window.GetRenderWindow();
+  vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+  ren->SetCheatSheetConfigured(false);
+}
+
+//----------------------------------------------------------------------------
+void animationManager::PushUIAnimationState()
+{
+  // Single fill point for the timeline's UI state: the interactor pushes it every tick, the scene
+  // pushes it after a load, and LoadAtTime pushes it directly so a headless `--command-script`
+  // render reflects what an animation command just changed (no event loop ticks there).
+  vtkF3DUIActor::UIAnimationState animState;
+  animState.count = this->GetNumberOfAvailableAnimations();
+  if (animState.count > 0)
+  {
+    animState.currentTime = this->CurrentTime;
+    const std::pair<double, double> range = this->GetTimeRange();
+    animState.timeRange = { range.first, range.second };
+    animState.playing = this->Playing;
+    animState.name = this->GetAnimationName();
+    animState.names = this->GetAnimationNames();
+    const std::vector<int>& indices = this->Options.scene.animation.indices;
+    animState.index = (indices.size() == 1 && indices[0] >= 0 &&
+                        indices[0] < static_cast<int>(animState.count))
+      ? indices[0]
+      : -1;
+  }
+
+  vtkRenderWindow* renWin = this->Window.GetRenderWindow();
+  vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+  if (ren)
+  {
+    ren->SetUIAnimationState(animState);
+  }
 }
 
 //----------------------------------------------------------------------------

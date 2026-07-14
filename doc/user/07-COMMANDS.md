@@ -29,6 +29,10 @@ The libf3d provides a few commands, many related to manipulating libf3d (options
 
 `cycle_animation`: A specific command to cycle `scene.animation.index` option using model information. No argument.
 
+`set_animation_index index`: A specific command to select the animation with the provided index and rewind to its start; `-1` selects all animations. Modifies the `scene.animation.indices` option, eg: `set_animation_index 2`.
+
+`load_animation_time time`: A specific command to load the animation at the provided time value, clamped to the animation range, eg: `load_animation_time 1.5`.
+
 `cycle_coloring field/array/component`: A specific command to manipulate scivis options using model information.
 Supports `field`, `array` or `component` arguments, see [documentation](04-INTERACTIONS.md#cycling-coloring).
 eg: `cycle_coloring array`.

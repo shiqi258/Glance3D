@@ -76,6 +76,19 @@ public:
   void CycleAnimation();
 
   /**
+   * Select the animation with the provided index and rewind to its start; -1 selects all
+   * animations. This modifies the scene.animation.indices option (same tail as CycleAnimation).
+   */
+  void SetAnimationIndex(int index);
+
+  /**
+   * Push the current animation state (count/time/range/playing/name/names/selection) to the UI
+   * actor for the timeline bar. Single fill implementation shared by the interactor's per-tick
+   * push, the scene's post-load push, and LoadAtTime (headless command scripts don't tick).
+   */
+  void PushUIAnimationState();
+
+  /**
    * Return the animation name of a given animation index, if any.
    *
    * Specific animation (0..availableAnimations): Returns the name of the animation at that index
@@ -205,6 +218,7 @@ private:
   int AnimationDirection = 1;
 
   std::optional<std::vector<int>> PreparedAnimationIndices;
+  std::optional<std::vector<std::string>> CachedAnimationNames; // reset on Initialize (new load)
   vtkNew<vtkDoubleArray> AnimationTimeSteps;
   double TimeRange[2] = { 0.0, 0.0 };
   bool Playing = false;
