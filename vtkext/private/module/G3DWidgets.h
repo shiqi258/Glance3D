@@ -54,8 +54,10 @@ bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant = Butto
 /// How an IconButton renders its persistent "on" state.
 enum class IconOnStyle
 {
-  Fill, ///< accent-soft filled chip + accent icon (structural toggles, e.g. panel visibility)
-  Dot,  ///< ghost background, accent icon + small underline dot (lightweight display toggles)
+  Fill,  ///< accent-soft filled chip + accent icon (structural toggles, e.g. panel visibility)
+  Dot,   ///< ghost background, accent icon + small underline dot (lightweight display toggles)
+  Solid, ///< solid accent fill + white icon regardless of @p on — the ONE primary action of a
+         ///< bar (e.g. transport play); everything around it stays ghost-quiet
 };
 
 /// Square icon-only button (toolbar / FAB style). @p size <= 0 uses the icon-button token; @p round

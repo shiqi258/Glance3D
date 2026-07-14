@@ -340,14 +340,17 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   // state keeps an accent-soft wash (deepening on hover/press) so toggle buttons read as engaged.
   // Dot style keeps the rest bg ghost even when on (only the icon tint + underline dot signal the
   // state) so rows of lightweight display toggles don't stack into a wall of filled chips.
+  const bool solid = onStyle == IconOnStyle::Solid;
   const bool fillWhenOn = on && onStyle == IconOnStyle::Fill;
-  ImVec4 rest = fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::Surface();
-  if (!fillWhenOn)
+  ImVec4 rest = solid ? G3DTheme::Accent() : (fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::Surface());
+  if (!fillWhenOn && !solid)
   {
     rest.w = 0.f;
   }
-  ImVec4 hoverBg = fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::SurfaceHover();
-  ImVec4 pressBg = fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::SurfacePress();
+  ImVec4 hoverBg =
+    solid ? G3DTheme::AccentHover() : (fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::SurfaceHover());
+  ImVec4 pressBg =
+    solid ? G3DTheme::AccentPress() : (fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::SurfacePress());
   if (fillWhenOn)
   {
     hoverBg.w = std::min(1.f, hoverBg.w * 1.7f);
@@ -378,7 +381,9 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
     dl->AddRect(ImVec2(r0.x - o, r0.y - o), ImVec2(r1.x + o, r1.y + o),
       U32(G3DTheme::Accent(), 0.45f * alpha), radius + o, 0, 2.f * s);
   }
-  G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(on ? G3DTheme::Accent() : G3DTheme::Text(), alpha));
+  const ImVec4 iconCol =
+    solid ? ImVec4(1.f, 1.f, 1.f, 1.f) : (on ? G3DTheme::Accent() : G3DTheme::Text());
+  G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(iconCol, alpha));
   if (on && onStyle == IconOnStyle::Dot)
   {
     // Small accent underline dot hugging the button's bottom edge (scales with the press shrink).
@@ -1656,6 +1661,13 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
   // track + accent fill
   dl->AddRectFilled(ImVec2(x0, cy - trackH * 0.5f), ImVec2(x1, cy + trackH * 0.5f),
     U32(G3DTheme::SurfacePress(), alpha), trackH * 0.5f);
+  if (emphasizeValue)
+  {
+    // Transport-style slider (timeline scrubber): a hairline rim keeps the long thin track
+    // legible across the whole bar; the inspector's short sliders stay rim-less.
+    dl->AddRect(ImVec2(x0, cy - trackH * 0.5f), ImVec2(x1, cy + trackH * 0.5f),
+      U32(G3DTheme::Border(), alpha), trackH * 0.5f, 0, G3DTheme::Size::Border * s);
+  }
   const float tt = (vMax > vMin && v) ? std::clamp((*v - vMin) / (vMax - vMin), 0.f, 1.f) : 0.f;
   const float gx = G3DLerp(x0, x1, tt);
   dl->AddRectFilled(ImVec2(x0, cy - trackH * 0.5f), ImVec2(gx, cy + trackH * 0.5f),

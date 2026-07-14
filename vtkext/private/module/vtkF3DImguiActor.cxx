@@ -1957,8 +1957,6 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     const std::string title = loc.Translate("Geometry");
     G3DWidgets::CollapseDesc d;
     d.title = title.c_str();
-    d.hasIcon = true;
-    d.icon = G3DIconId::Info;
     d.variant = G3DWidgets::CollapseVariant::Flat;
     d.open = &geomOpen;
     if (G3DWidgets::BeginCollapse("g3d.sec.geom", d).open)
@@ -1993,8 +1991,6 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     const std::string countStr = std::to_string(pointArrays.size() + cellArrays.size());
     G3DWidgets::CollapseDesc d;
     d.title = title.c_str();
-    d.hasIcon = true;
-    d.icon = G3DIconId::Layers;
     d.count = countStr.c_str();
     d.variant = G3DWidgets::CollapseVariant::Flat;
     d.open = &arraysOpen;
@@ -2231,8 +2227,6 @@ void vtkF3DImguiActor::DrawAppearanceContent()
   const std::string title = loc.Translate("Appearance");
   G3DWidgets::CollapseDesc d;
   d.title = title.c_str();
-  d.hasIcon = true;
-  d.icon = G3DIconId::Grid;
   d.variant = G3DWidgets::CollapseVariant::Flat;
   d.open = &appearanceOpen;
   if (G3DWidgets::BeginCollapse("g3d.sec.appearance", d).open)
@@ -2278,8 +2272,6 @@ void vtkF3DImguiActor::DrawLightingContent()
   const std::string title = loc.Translate("Lighting & environment");
   G3DWidgets::CollapseDesc d;
   d.title = title.c_str();
-  d.hasIcon = true;
-  d.icon = G3DIconId::Light;
   d.variant = G3DWidgets::CollapseVariant::Flat;
   d.open = &lightingOpen;
   if (G3DWidgets::BeginCollapse("g3d.sec.lighting", d).open)
@@ -2346,8 +2338,6 @@ void vtkF3DImguiActor::DrawMaterialContent()
   const std::string title = loc.Translate("Material");
   G3DWidgets::CollapseDesc d;
   d.title = title.c_str();
-  d.hasIcon = true;
-  d.icon = G3DIconId::Sliders;
   d.variant = G3DWidgets::CollapseVariant::Flat;
   d.open = &materialOpen;
   if (G3DWidgets::BeginCollapse("g3d.sec.material", d).open)
@@ -2518,8 +2508,6 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   const std::string title = loc.Translate("Coloring");
   G3DWidgets::CollapseDesc d;
   d.title = title.c_str();
-  d.hasIcon = true;
-  d.icon = G3DIconId::Image;
   d.variant = G3DWidgets::CollapseVariant::Flat;
   d.open = &coloringOpen;
   if (!G3DWidgets::BeginCollapse("g3d.sec.coloring", d).open)
@@ -2559,9 +2547,9 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   }
   G3DWidgets::EndPropRow();
 
-  // Everything below depends on coloring being on: gray the whole group while it is off so the
+  // Cells / component / range depend on coloring being on: gray them while it is off so the
   // dependency is visible (the widgets multiply style.Alpha into their custom paint). The array
-  // card rows remain the one-click "pick an array AND enable" shortcut.
+  // card rows and the colormap select stay live as one-click "pick AND enable" shortcuts.
   ImGui::BeginDisabled(!enable);
 
   // Point vs cell data (only offer the switch when both are present). Display mirrors the
@@ -2621,6 +2609,11 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     }
     G3DWidgets::EndPropRow();
   }
+
+  // The colormap row stays LIVE while coloring is off: picking a map is an intent to SEE it, so
+  // the select re-enables coloring itself (previewer semantics — one click, not "open a master
+  // switch first"). The disabled group resumes after this row for the range section.
+  ImGui::EndDisabled();
 
   // Colormap presets. "Default" resets to the libf3d default; others set explicit transfer-function
   // control points (val,r,g,b,...). The current option value is matched back to a preset for the
@@ -2692,6 +2685,10 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       if (G3DWidgets::SelectItemColormap(
             loc.Translate(preset.name).c_str(), presetStops, matched == static_cast<int>(i)))
       {
+        if (!enable)
+        {
+          this->SendCommand("set model.scivis.enable true");
+        }
         if (preset.points[0] == '\0')
         {
           this->SendCommand("reset model.scivis.colormap");
@@ -2705,6 +2702,8 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     G3DWidgets::EndSelect();
   }
   G3DWidgets::EndPropRow();
+
+  ImGui::BeginDisabled(!enable); // range below keeps the coloring dependency visible
 
   // Value-range override [min,max] (unset = auto from data); bounds are the array's magnitude range.
   const F3DColoringInfoHandler::ColoringInfo* currentInfo = nullptr;
@@ -2850,11 +2849,13 @@ void vtkF3DImguiActor::DrawTimelineContent()
   ImGui::EndDisabled();
   ImGui::SameLine();
 
-  // Play / pause.
+  // Play / pause — the transport's primary action: a solid accent circle one size up, so it
+  // outranks the ghost-quiet step keys around it (media-player convention).
   const bool playing = this->AnimState.playing;
-  centerNextY(G3DTheme::Size::IconButton * scale);
+  centerNextY(G3DTheme::Size::Fab * scale);
   if (G3DWidgets::IconButton("##g3d.anim.playpause", playing ? G3DIconId::Pause : G3DIconId::Play,
-        -1.f, false, loc.Translate(playing ? "Pause" : "Play").c_str()))
+        G3DTheme::Size::Fab, true, loc.Translate(playing ? "Pause" : "Play").c_str(), false,
+        G3DWidgets::IconOnStyle::Solid))
   {
     this->SendCommand("toggle_animation");
   }

@@ -620,6 +620,23 @@ public:
   //----------------------------------------------------------------------------
   void EventLoop(double deltaTime)
   {
+    // Re-entrancy guard: a command that loads a scene (reload / load_next) blocks inside this
+    // very loop while VTK pumps the interactor, which fires the loop timer again. The nested tick
+    // must not run — draining the command buffer or ticking animation mid-load recurses into the
+    // loader (the historical roaming stack-overflow crashes in console interaction tests).
+    if (this->EventLoopEntered)
+    {
+      return;
+    }
+    this->EventLoopEntered = true;
+    const struct ReentryGuard
+    {
+      bool& flag;
+      ~ReentryGuard()
+      {
+        this->flag = false;
+      }
+    } reentryGuard{ this->EventLoopEntered };
     if (deltaTime <= 0)
     {
       log::error("Interaction: delta time should be > 0");
@@ -635,20 +652,24 @@ public:
       this->EventLoopUserCallback({ .animationTime = this->AnimationManager->GetCurrentTime() });
     }
 
-    if (this->CommandBuffer.has_value())
+    if (!this->CommandBuffer.empty())
     {
-      try
+      // Drain a snapshot: a running command may enqueue follow-ups, which then run next loop.
+      std::vector<std::string> pending = std::move(this->CommandBuffer);
+      this->CommandBuffer.clear();
+      for (const std::string& cmd : pending)
       {
-        // XXX: Ignore the boolean return of triggerCommand,
-        // error is already logged by triggerCommand
-        this->Interactor.triggerCommand(this->CommandBuffer.value(), false);
+        try
+        {
+          // XXX: Ignore the boolean return of triggerCommand,
+          // error is already logged by triggerCommand
+          this->Interactor.triggerCommand(cmd, false);
+        }
+        catch (const f3d::interactor::command_runtime_exception& ex)
+        {
+          log::error("Interaction: error running command: \"" + cmd + "\": " + ex.what());
+        }
       }
-      catch (const f3d::interactor::command_runtime_exception& ex)
-      {
-        log::error("Interaction: error running command: \"" + this->CommandBuffer.value() +
-          "\": " + ex.what());
-      }
-      this->CommandBuffer.reset();
     }
 
     this->AnimationManager->SetDeltaTime(deltaTime);
@@ -695,7 +716,8 @@ public:
   vtkNew<vtkF3DUIObserver> UIObserver;
 
   std::map<std::string, CommandCallbacks> Commands;
-  std::optional<std::string> CommandBuffer;
+  std::vector<std::string> CommandBuffer; // FIFO — every command queued this frame must run
+  bool EventLoopEntered = false;          // re-entrancy latch (see EventLoop)
 
   std::map<interaction_bind_t, BindingCommands> Bindings;
   std::multimap<std::string, interaction_bind_t> GroupedBinds;
@@ -2276,7 +2298,8 @@ void interactor_impl::ResetTemporaryUp()
 //----------------------------------------------------------------------------
 void interactor_impl::SetCommandBuffer(const char* command)
 {
-  // XXX This replace previous command buffer, it should be improved
-  this->Internals->CommandBuffer = command;
+  // Append — a single UI interaction may emit several commands in one frame (e.g. the inspector's
+  // "pick array AND enable coloring" click); replacing dropped all but the last of them.
+  this->Internals->CommandBuffer.emplace_back(command);
 }
 }

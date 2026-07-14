@@ -134,7 +134,8 @@ public:
   void EventLoop();
 
   /**
-   * Set a command to be run on the next event loop
+   * Queue a command to be run on the next event loop. Commands accumulate in order — a UI click
+   * may emit several (e.g. set array + enable coloring) and every one must survive the frame.
    */
   void SetCommandBuffer(const char* command);
 
