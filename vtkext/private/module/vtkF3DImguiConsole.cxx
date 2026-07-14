@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
 
 struct vtkF3DImguiConsole::Internals
 {
@@ -21,144 +22,106 @@ struct vtkF3DImguiConsole::Internals
     Log,
     Warning,
     Error,
-    Typed,
-    Completion
+    Typed
   };
 
   std::vector<std::pair<LogType, std::string>> Logs;
   std::array<char, 2048> CurrentInput = {};
   bool NewError = false;
   bool NewWarning = false;
-  std::pair<size_t, size_t> Completions{ 0,
-    0 }; // Index for start and length of completions in Logs
   std::function<std::vector<std::string>(const std::string& pattern)>
     CompletionCallback; // Callback to get the list of commands matching pattern
   std::vector<std::string> CommandHistory;
   std::pair<std::string, int> LastInput; // Last input before navigating history
   int CommandHistoryIndexInv = -1;       // Current inverted index in command history navigation
 
-  /**
-   * Clear completions from the logs
-   */
-  void ClearCompletions()
-  {
-    if (this->Completions.second > 0)
-    {
-      this->Logs.erase(this->Logs.begin() + this->Completions.first,
-        this->Logs.begin() + this->Completions.second);
-      this->Completions.second = 0;
-    }
-  }
+  // Command-palette live suggestions: refreshed whenever the input text changes (the legacy
+  // Tab-prints-candidates-into-the-log flow is retired with the full-screen console).
+  std::vector<std::string> LiveCandidates;
+  int CandidateSel = 0;
+  bool CandidateSelScrolled = true; // false => scroll the selected row into view this frame
+  bool PendingCursorToEnd = false;  // caret fix-up after a click wrote the input buffer
+  std::string LastPattern = "\x01"; // never equals real input, forces the first refresh
+
   /**
    * Callback to process text editing events in console
    */
   int TextEditCallback(ImGuiInputTextCallbackData* data)
   {
-    this->ClearCompletions();
     switch (data->EventFlag)
     {
+      case ImGuiInputTextFlags_CallbackAlways:
+      {
+        // A candidate click wrote the buffer while the input was momentarily inactive (the click
+        // made the row the active item); on reactivation the caret must land at the end with no
+        // select-all, or the next keystroke would wipe the accepted text.
+        if (this->PendingCursorToEnd)
+        {
+          data->CursorPos = data->BufTextLen;
+          data->SelectionStart = data->BufTextLen;
+          data->SelectionEnd = data->BufTextLen;
+          this->PendingCursorToEnd = false;
+        }
+        break;
+      }
       case ImGuiInputTextFlags_CallbackCompletion:
       {
-        assert(this->CompletionCallback);
-        std::string pattern{ data->Buf };
-        std::vector<std::string> candidates =
-          this->CompletionCallback(pattern); // List of candidates completion
-
-        if (candidates.size() == 1)
+        // Palette: Tab accepts the SELECTED live candidate wholesale — the list is visible and
+        // arrow-navigable, incremental prefix cycling lost its purpose there.
+        if (!this->LiveCandidates.empty())
         {
-          // Single match. Delete the beginning of the word and replace it entirely so we've got
-          // nice casing.
-          data->DeleteChars(0, static_cast<int>(pattern.size()));
-          data->InsertChars(data->CursorPos, candidates[0].c_str());
+          const int n = static_cast<int>(this->LiveCandidates.size());
+          const int sel = std::clamp(this->CandidateSel, 0, n - 1);
+          data->DeleteChars(0, data->BufTextLen);
+          data->InsertChars(0, this->LiveCandidates[sel].c_str());
+          break;
         }
-        else if (candidates.size() > 1)
+        // Minimal console (no live list): classic longest-common-prefix completion.
+        if (!this->CompletionCallback)
         {
-          std::string_view bestCandidate = candidates[0];
-#if defined(_WIN32) || defined(__APPLE__)
-          // Find which candidate matches the casing of the pattern the best
-          int bestPatternMatchLen = 0;
-          for (const auto& candidate : candidates)
+          break;
+        }
+        const std::string pattern{ data->Buf };
+        const std::vector<std::string> candidates = this->CompletionCallback(pattern);
+        if (candidates.empty())
+        {
+          break;
+        }
+        std::string prefix = candidates[0];
+        for (const std::string& c : candidates)
+        {
+          std::size_t k = 0;
+          while (k < prefix.size() && k < c.size() && prefix[k] == c[k])
           {
-            int patternMatchLen = 0;
-            for (unsigned i = 0; i < pattern.size() && i < candidate.size(); i++)
-            {
-              if (pattern[i] == candidate[i])
-              {
-                patternMatchLen++;
-              }
-              else
-              {
-                break;
-              }
-            }
-            if (patternMatchLen > bestPatternMatchLen)
-            {
-              bestCandidate = candidate;
-              bestPatternMatchLen = patternMatchLen;
-            }
+            ++k;
           }
-#endif
-
-          // Multiple matches. Complete as much as we can.
-          // So inputting "C"+Tab will complete to "CL" then display "CLEAR" and "CLASSIFY" as
-          // matches.
-          size_t matchLen = 0;
-          bool allCandidatesMatches = true;
-          // Find the common prefix to all candidates
-          while (allCandidatesMatches)
-          {
-            if (bestCandidate.size() <= matchLen)
-            {
-              // The best candidate is shorter than the current match length
-              allCandidatesMatches = false;
-            }
-            else
-            {
-              // Check if all candidates match the current character
-              const char target = bestCandidate[matchLen];
-              allCandidatesMatches = std::ranges::all_of(candidates,
-                [matchLen, target](const std::string& s)
-                {
-                  return s.size() > matchLen &&
-#if defined(_WIN32) || defined(__APPLE__)
-                    // Windows and Mac filesystems are case-insensitive by default
-                    // Perform a case-insensitive comparison in case this char is part of a file
-                    // path
-                    std::tolower(s[matchLen]) == std::tolower(target);
-#else
-                    // Linux filesystems are typically case-sensitive
-                    s[matchLen] == target;
-#endif
-                });
-            }
-            if (allCandidatesMatches)
-            {
-              matchLen++;
-            }
-          }
-
-          if (matchLen > 0)
-          {
-            // Fill the best we can by now - use the longest common prefix from available candidates
-            // (possibly just pattern itself in the worst case)
-            data->DeleteChars(0, static_cast<int>(pattern.size()));
-            data->InsertChars(
-              data->CursorPos, bestCandidate.data(), bestCandidate.data() + matchLen);
-          }
-
-          this->Completions.first = this->Logs.size();
-          this->Completions.second = this->Logs.size() + candidates.size() + 1;
-          // Add all candidates to the logs
-          this->Logs.emplace_back(
-            std::make_pair(Internals::LogType::Completion, "Possible matches:"));
-          std::ranges::transform(candidates, std::back_inserter(this->Logs),
-            [](const std::string& candidate)
-            { return std::make_pair(Internals::LogType::Completion, candidate); });
+          prefix.resize(k);
+        }
+        if (!prefix.empty())
+        {
+          data->DeleteChars(0, data->BufTextLen);
+          data->InsertChars(0, prefix.c_str());
         }
         break;
       }
       case ImGuiInputTextFlags_CallbackHistory:
       {
+        // With live candidates visible the arrows drive the candidate selection; command history
+        // stays reachable from an empty input (the usual "recall last command" gesture).
+        if (!this->LiveCandidates.empty())
+        {
+          const int n = static_cast<int>(this->LiveCandidates.size());
+          if (data->EventKey == ImGuiKey_UpArrow)
+          {
+            this->CandidateSel = (this->CandidateSel + n - 1) % n;
+          }
+          else if (data->EventKey == ImGuiKey_DownArrow)
+          {
+            this->CandidateSel = (this->CandidateSel + 1) % n;
+          }
+          this->CandidateSelScrolled = false;
+          break;
+        }
         /* CommandHistoryIndexInv is a reversed index for command history:
         - `-1` represents the current user input (not yet stored in history).
         - `0` corresponds to the most recent command (CommandHistory.size() - 1).
@@ -243,112 +206,74 @@ void vtkF3DImguiConsole::DisplayText(const char* text)
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DImguiConsole::ShowConsole(bool minimal)
+void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
 {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
   constexpr float margin = F3DStyle::GetDefaultMargin();
   const float padding = ImGui::GetStyle().WindowPadding.x + ImGui::GetStyle().FramePadding.x;
-  float windowWidth = viewport->WorkSize.x - 2.f * margin;
+  const float fontH = ImGui::GetFontSize();
+  // Shared by the candidate list and the log tail so the palette height is stable between modes.
+  const float contentH = std::min(viewport->WorkSize.y * 0.5f, 16.f * fontH * 1.45f);
 
-  ImGui::SetNextWindowPos(ImVec2(margin, margin));
-  // explicitly calculate size of minimal console to avoid extra flashing frame
+  ImGuiWindowFlags winFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+    ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+
   if (minimal)
   {
+    float windowWidth = viewport->WorkSize.x - 2.f * margin;
     if (this->Pimpl->NewError || this->Pimpl->NewWarning)
     {
       // prevent overlap with console badge in minimal console
       const ImVec2 badgeSize = this->GetBadgeSize();
       windowWidth = viewport->WorkSize.x - badgeSize.x - 3.f * margin;
     }
+    // minimal console shouldn't clear the console badge
+    ImGui::SetNextWindowPos(ImVec2(margin, margin + topOffset));
     ImGui::SetNextWindowSize(ImVec2(windowWidth, ImGui::CalcTextSize(">").y + 2.f * padding));
+    winFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
   }
   else
   {
-    // minimal console shouldn't clear console badge
+    // Command palette (VS Code quick-open convention): a focused, top-centered overlay over a
+    // light scrim — typing a command keeps the model visible, unlike the legacy full-screen
+    // takeover. Reading it clears the badge (the log tail below shows the new entries).
     this->Pimpl->NewError = false;
     this->Pimpl->NewWarning = false;
 
-    ImGui::SetNextWindowSize(ImVec2(windowWidth, viewport->WorkSize.y - 2.f * margin));
+    ImDrawList* bg = ImGui::GetBackgroundDrawList();
+    bg->AddRectFilled(viewport->WorkPos,
+      ImVec2(
+        viewport->WorkPos.x + viewport->WorkSize.x, viewport->WorkPos.y + viewport->WorkSize.y),
+      IM_COL32(0, 0, 0, 90));
+
+    const float paletteW = std::min(48.f * fontH, viewport->WorkSize.x * 0.86f);
+    const float paletteY = std::max(topOffset + 2.f * margin, viewport->WorkSize.y * 0.10f);
+    ImGui::SetNextWindowPos(
+      ImVec2(viewport->WorkPos.x + (viewport->WorkSize.x - paletteW) * 0.5f,
+        viewport->WorkPos.y + paletteY));
+    ImGui::SetNextWindowSize(ImVec2(paletteW, 0.f)); // height fits content
+    // Hard z-order guarantee: the docked bars are NoBringToFrontOnFocus, so the focused palette
+    // always sits above them regardless of window creation order.
+    ImGui::SetNextWindowFocus();
   }
 
-  ImGui::SetNextWindowBgAlpha(0.9f);
-
-  ImGuiWindowFlags winFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
-    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+  ImGui::SetNextWindowBgAlpha(minimal ? 0.9f : 0.98f);
 
   // Since imgui has focus, it won't propagate the "Escape" key event to VTK
   // So let's handle the console visibility here
   if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) && this->Pimpl->CurrentInput[0] == '\0')
   {
     this->Pimpl->CommandHistoryIndexInv = -1; // Reset history navigation on hiding
-    this->Pimpl->ClearCompletions();          // Clear completion on hiding
     this->InvokeEvent(vtkF3DUserEvents::HideEvent);
   }
 
   ImGui::Begin("Console", nullptr, winFlags);
 
-  // Log window, will only show if not in minimal mode
-  if (!minimal)
-  {
-    const float reservedHeight =
-      ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
-    if (ImGui::BeginChild(
-          "LogRegion", ImVec2(0, -reservedHeight), 0, ImGuiWindowFlags_HorizontalScrollbar))
-    {
-      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1)); // Tighten spacing
-      for (const auto& [severity, msg] : this->Pimpl->Logs)
-      {
-        bool hasColor = true;
-
-        if (this->GetUseColoring())
-        {
-          switch (severity)
-          {
-            case Internals::LogType::Error:
-              ImGui::PushStyleColor(ImGuiCol_Text, F3DStyle::imgui::GetErrorColor());
-              break;
-            case Internals::LogType::Warning:
-              ImGui::PushStyleColor(ImGuiCol_Text, F3DStyle::imgui::GetWarningColor());
-              break;
-            case Internals::LogType::Typed:
-              ImGui::PushStyleColor(ImGuiCol_Text, F3DStyle::imgui::GetHighlightColor());
-              break;
-            case Internals::LogType::Completion:
-              ImGui::PushStyleColor(ImGuiCol_Text, F3DStyle::imgui::GetCompletionColor());
-              break;
-            default:
-              hasColor = false;
-          }
-        }
-        else
-        {
-          hasColor = false;
-        }
-
-        ImGui::TextUnformatted(msg.c_str());
-        if (hasColor)
-        {
-          ImGui::PopStyleColor();
-        }
-      }
-
-      if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
-      {
-        ImGui::SetScrollHereY(1.0f);
-      }
-
-      ImGui::PopStyleVar();
-    }
-    ImGui::EndChild();
-
-    ImGui::Separator();
-  }
-
-  // input
+  // Input row first (palette anatomy: prompt on top, suggestions/log below).
   ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue |
     ImGuiInputTextFlags_EscapeClearsAll | ImGuiInputTextFlags_CallbackCompletion |
-    ImGuiInputTextFlags_CallbackHistory;
+    ImGuiInputTextFlags_CallbackHistory | ImGuiInputTextFlags_CallbackAlways;
 
   ImGui::Text(">");
   ImGui::SameLine();
@@ -374,6 +299,114 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal)
     ImGui::SetKeyboardFocusHere(-1);
   }
 
+  if (!minimal)
+  {
+    // Live suggestions while typing, the recent log tail otherwise (badge clicks land here to
+    // read new warnings/errors without losing the scene).
+    const std::string pattern(this->Pimpl->CurrentInput.data());
+    if (pattern != this->Pimpl->LastPattern)
+    {
+      this->Pimpl->LastPattern = pattern;
+      this->Pimpl->LiveCandidates.clear();
+      if (!pattern.empty() && this->Pimpl->CompletionCallback)
+      {
+        this->Pimpl->LiveCandidates = this->Pimpl->CompletionCallback(pattern);
+      }
+      this->Pimpl->CandidateSel = 0;
+    }
+
+    ImGui::Separator();
+    if (!this->Pimpl->LiveCandidates.empty())
+    {
+      const int n = static_cast<int>(this->Pimpl->LiveCandidates.size());
+      this->Pimpl->CandidateSel = std::clamp(this->Pimpl->CandidateSel, 0, n - 1);
+      const float listH = std::min(contentH, (static_cast<float>(n) + 0.5f) * fontH * 1.45f);
+      if (ImGui::BeginChild("Candidates", ImVec2(0, listH)))
+      {
+        for (int i = 0; i < n; i++)
+        {
+          const bool sel = i == this->Pimpl->CandidateSel;
+          if (ImGui::Selectable(this->Pimpl->LiveCandidates[i].c_str(), sel))
+          {
+            // Click accepts into the input (like Tab), it does not execute — most commands
+            // still want arguments typed after them. The click itself deactivated the input
+            // (the row became the active item), so the buffer write takes on refocus; the
+            // CallbackAlways branch then parks the caret at the end.
+            std::snprintf(this->Pimpl->CurrentInput.data(), this->Pimpl->CurrentInput.size(),
+              "%s", this->Pimpl->LiveCandidates[i].c_str());
+            this->Pimpl->CandidateSel = i;
+            this->Pimpl->PendingCursorToEnd = true;
+          }
+          if (sel && !this->Pimpl->CandidateSelScrolled)
+          {
+            ImGui::SetScrollHereY(0.4f);
+            this->Pimpl->CandidateSelScrolled = true;
+          }
+        }
+      }
+      ImGui::EndChild();
+    }
+    else
+    {
+      // Fit the tail to its content (few logs -> short palette) up to the shared cap.
+      const float logH = std::min(contentH,
+        (static_cast<float>(std::max<std::size_t>(this->Pimpl->Logs.size(), 3)) + 0.5f) * fontH *
+          1.45f);
+      if (ImGui::BeginChild(
+            "LogRegion", ImVec2(0, logH), 0, ImGuiWindowFlags_HorizontalScrollbar))
+      {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1)); // Tighten spacing
+        for (const auto& [severity, msg] : this->Pimpl->Logs)
+        {
+          bool hasColor = true;
+
+          if (this->GetUseColoring())
+          {
+            switch (severity)
+            {
+              case Internals::LogType::Error:
+                ImGui::PushStyleColor(ImGuiCol_Text, F3DStyle::imgui::GetErrorColor());
+                break;
+              case Internals::LogType::Warning:
+                ImGui::PushStyleColor(ImGuiCol_Text, F3DStyle::imgui::GetWarningColor());
+                break;
+              case Internals::LogType::Typed:
+                ImGui::PushStyleColor(ImGuiCol_Text, F3DStyle::imgui::GetHighlightColor());
+                break;
+              default:
+                hasColor = false;
+            }
+          }
+          else
+          {
+            hasColor = false;
+          }
+
+          ImGui::TextUnformatted(msg.c_str());
+          if (hasColor)
+          {
+            ImGui::PopStyleColor();
+          }
+        }
+
+        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+        {
+          ImGui::SetScrollHereY(1.0f);
+        }
+
+        ImGui::PopStyleVar();
+      }
+      ImGui::EndChild();
+    }
+
+    // Click outside closes the palette (it is modal-ish: it holds window focus while open).
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+      !ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+    {
+      this->InvokeEvent(vtkF3DUserEvents::HideEvent);
+    }
+  }
+
   // do not run the command if nothing is in the input text
   if (runCommand && this->Pimpl->CurrentInput[0] != 0)
   {
@@ -387,8 +420,10 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal)
 
   if (runCommand)
   {
-    // No need to show completions after command is run
-    this->Pimpl->ClearCompletions();
+    // The input changed: refresh (clear) the suggestion list next frame.
+    this->Pimpl->LastPattern = "\x01";
+    this->Pimpl->LiveCandidates.clear();
+    this->Pimpl->CandidateSel = 0;
 
     // exit console immediately after running command if in minimal mode
     if (minimal)

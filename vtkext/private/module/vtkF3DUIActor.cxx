@@ -274,39 +274,22 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
     this->RenderDropZone();
   }
 
-  if (this->ConsoleVisible)
+  // Also dispatched when the panel chrome is (effectively) open: the presenter then renders the
+  // name as the top bar's centered title (see vtkF3DImguiActor::RenderFileName), so the editor
+  // chrome always identifies the open file even with ui.filename off. The legacy floating
+  // metadata / scene-hierarchy widgets are retired: their visibility flags force the docked
+  // chrome open instead (see EffectivePanelVisible / the presenter's bar resolution).
+  if (this->FileNameVisible || this->EffectivePanelVisible())
   {
-    // To improve user readability when console is visible, all other overlays won't be shown
-    this->RenderConsole(false);
-    this->EndFrame(renWin);
-    return 1;
+    this->RenderFileName();
   }
-
-  if (this->MinimalConsoleVisible)
+  if (this->HDRIFileNameVisible)
   {
-    // To improve user readability when minimal console is visible cheatsheet and filename
-    // are not shown
-    this->RenderConsole(true);
+    this->RenderHDRIFileName();
   }
-  else
+  if (this->CheatSheetVisible)
   {
-    // Also dispatched when the panel chrome is (effectively) open: the presenter then renders the
-    // name as the top bar's centered title (see vtkF3DImguiActor::RenderFileName), so the editor
-    // chrome always identifies the open file even with ui.filename off. The legacy floating
-    // metadata / scene-hierarchy widgets are retired: their visibility flags force the docked
-    // chrome open instead (see EffectivePanelVisible / the presenter's bar resolution).
-    if (this->FileNameVisible || this->EffectivePanelVisible())
-    {
-      this->RenderFileName();
-    }
-    if (this->HDRIFileNameVisible)
-    {
-      this->RenderHDRIFileName();
-    }
-    if (this->CheatSheetVisible)
-    {
-      this->RenderCheatSheet();
-    }
+    this->RenderCheatSheet();
   }
 
   if (this->ConsoleBadgeEnabled)
@@ -344,6 +327,19 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   if (this->NotificationVisible)
   {
     this->RenderNotifications(currentTime);
+  }
+
+  // The console renders LAST: the palette is a light, focused overlay that must sit above the
+  // docked chrome and every other overlay (its window also requests focus each frame; the bars
+  // are NoBringToFrontOnFocus, so it can never sink below them). The legacy full-screen console
+  // short-circuit is gone with the full-screen console itself.
+  if (this->ConsoleVisible)
+  {
+    this->RenderConsole(false);
+  }
+  else if (this->MinimalConsoleVisible)
+  {
+    this->RenderConsole(true);
   }
 
   this->EndFrame(renWin);

@@ -58,10 +58,12 @@
 #include <cstdio>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <numeric>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -83,7 +85,7 @@ constexpr float LOADING_SPIN_PERIOD_SEC = 4.4f; // seconds per revolution (slow,
 // Control panel (FAB + sliding panel) geometry and animation tuning. Grouped so the feel is easy
 // to retune in one place. The fully-open bar thicknesses themselves live in G3DLayout.h
 // (G3DLayout::DefaultBarSizes) so the renderer derives the central viewport from the same numbers.
-constexpr float CONTROL_FAB_SIZE = 32.f;        // reopen handle size (was a 40px FAB)
+constexpr float CONTROL_FAB_SIZE = G3DTheme::Size::Fab; // reopen handle size (single token source)
 constexpr double CONTROL_PANEL_ANIM_SEC = 0.22; // panel slide in/out duration
 constexpr double CONTROL_FAB_FADE_SEC = 0.18;   // FAB fade in/out duration
 constexpr double CONTROL_FAB_IDLE_SEC = 2.5;    // idle before the FAB starts fading out
@@ -136,6 +138,7 @@ struct SceneTreeRow
   int node = -1;        // vtkDataAssembly node id
   int depth = 0;        // indentation depth
   int parentIndex = -1; // index of the parent row in the flat list (-1 for an importer root)
+  int placeholder = 0;  // 1 = unnamed <object>, 2 = unnamed <group> (drives sibling numbering)
   bool hasChildren = false;
   bool collapsed = false;
   bool visible = true;
@@ -210,10 +213,12 @@ protected:
     if (row.label == "<object>")
     {
       row.label = G3DLocaleCore::GetInstance().Translate("Object");
+      row.placeholder = 1;
     }
     else if (row.label == "<group>")
     {
       row.label = G3DLocaleCore::GetInstance().Translate("Group");
+      row.placeholder = 2;
     }
     if (hasChildren)
     {
@@ -772,6 +777,26 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
       flattener->SetImporterIndex(i);
       info.DataAssembly->Visit(vtkDataAssembly::GetRootNode(), flattener);
     }
+    // Number repeated unnamed placeholders per parent ("Object 1" / "Object 2"): several bare
+    // "Object" rows under one group are otherwise indistinguishable. Single placeholders keep
+    // the clean bare label.
+    std::map<std::pair<int, int>, int> placeholderTotal;
+    std::map<std::pair<int, int>, int> placeholderSeen;
+    for (const SceneTreeRow& r : flat)
+    {
+      if (r.placeholder != 0)
+      {
+        placeholderTotal[{ r.parentIndex, r.placeholder }]++;
+      }
+    }
+    for (SceneTreeRow& r : flat)
+    {
+      if (r.placeholder != 0 && placeholderTotal[{ r.parentIndex, r.placeholder }] > 1)
+      {
+        r.label += " " + std::to_string(++placeholderSeen[{ r.parentIndex, r.placeholder }]);
+      }
+    }
+
     this->Pimpl->SceneTreeSig = sig;
     this->Pimpl->SceneTreeSigValid = true;
   }
@@ -1380,10 +1405,15 @@ void vtkF3DImguiActor::RenderCheatSheet()
 
   this->Pimpl->CheatSheetWidth += ImGui::GetStyle().ScrollbarSize + 4.f * padding;
   textHeight += 2.f * ImGui::GetStyle().WindowPadding.y;
+  textHeight += 30.f * static_cast<float>(this->FontScale); // PanelHeader band
 
   const float winTop = std::max(margin, (viewport->WorkSize.y - textHeight) * 0.5f);
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
+  // Card rounding + a PanelHeader below: the sheet shares the docked chrome's anatomy instead of
+  // reading as a legacy floating window (the global 8px popup rounding stays for true popups).
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,
+    G3DTheme::Radius::Card * static_cast<float>(this->FontScale));
 
   ::SetupNextWindow(ImVec2(margin, winTop),
     ImVec2(
@@ -1398,6 +1428,9 @@ void vtkF3DImguiActor::RenderCheatSheet()
     ImGuiWindowFlags_NoBringToFrontOnFocus;
 
   ImGui::Begin("CheatSheet", nullptr, flags);
+
+  G3DWidgets::PanelHeader(
+    G3DLocaleCore::GetInstance().Translate("Shortcuts").c_str(), G3DIconId::Info);
 
   if (this->Pimpl->SearchFocusRequested)
   {
@@ -1472,7 +1505,10 @@ void vtkF3DImguiActor::RenderCheatSheet()
         bindingTextColor = ::ColorToImVec4(this->FontColor);
         bindingRectColor = F3DStyle::imgui::GetMidColor();
         descTextColor = ::ColorToImVec4(this->FontColor);
-        valueTextColor = F3DStyle::imgui::GetHighlightColor();
+        // "Unset" is a state note, not a cyclable value — in highlight blue it reads like a link.
+        valueTextColor = (val == locale.Translate("Unset") || val == "Unset")
+          ? G3DTheme::TextMuted()
+          : F3DStyle::imgui::GetHighlightColor();
       }
 
       ImGui::TableNextRow(ImGuiTableRowFlags_None, ImGui::GetTextLineHeightWithSpacing() + margin);
@@ -1525,7 +1561,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
   }
 
   ImGui::End();
-  ImGui::PopStyleVar();
+  ImGui::PopStyleVar(2); // WindowPadding + WindowRounding
 }
 
 //----------------------------------------------------------------------------
@@ -3583,7 +3619,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 void vtkF3DImguiActor::RenderConsole(bool minimal)
 {
   vtkF3DImguiConsole* console = vtkF3DImguiConsole::SafeDownCast(vtkOutputWindow::GetInstance());
-  console->ShowConsole(minimal);
+  // Keep the console clear of the docked top bar (palette minimum y / minimal pill anchor).
+  const float topOffset =
+    G3DLayout::DefaultBarSizes(static_cast<float>(this->FontScale)).topH * this->PanelAnim.Value();
+  console->ShowConsole(minimal, topOffset);
 }
 
 //----------------------------------------------------------------------------

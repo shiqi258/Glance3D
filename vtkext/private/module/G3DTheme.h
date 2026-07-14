@@ -52,7 +52,7 @@ namespace Size
 {
 constexpr float Control = 25.f;    ///< standard control height (inputs, sliders)
 constexpr float IconButton = 27.f; ///< square icon button
-constexpr float Fab = 40.f;        ///< floating action button
+constexpr float Fab = 32.f;        ///< floating action button (the reopen handle uses this)
 constexpr float Icon = 18.f;       ///< default icon edge (== base font size)
 constexpr float IconSm = 14.f;     ///< small icon edge
 constexpr float Border = 1.f;      ///< hairline border / divider thickness

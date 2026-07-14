@@ -36,9 +36,11 @@ public:
   void DisplayText(const char*) override;
 
   /**
-   * Show console window
+   * Show the console: the command palette (top-centered overlay with live suggestions and the
+   * recent log tail) or, when @p minimal, the single input line. @p topOffset keeps the window
+   * clear of the docked top bar when the panel chrome is open.
    */
-  void ShowConsole(bool);
+  void ShowConsole(bool minimal, float topOffset = 0.f);
 
   /**
    * Show console badge
