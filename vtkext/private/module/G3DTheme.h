@@ -203,6 +203,13 @@ inline ImVec4 BorderStrong()
 {
   return ImVec4(1.f, 1.f, 1.f, 0.16f);
 }
+/// Recessed seam between the docked chrome and the viewport: a dark joint (Blender-style area
+/// gap), never a light line — a white-based hairline reads brighter than both sides and outlines
+/// the canvas like a glowing wire.
+inline ImVec4 Seam()
+{
+  return ImVec4(0.f, 0.f, 0.f, 0.45f);
+}
 
 inline ImVec4 Danger()
 {

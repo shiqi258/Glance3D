@@ -3672,14 +3672,15 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   drawSplitter("##g3d.split.left", r.center.x, r.left, true);
   drawSplitter("##g3d.split.right", r.right.x, r.right, false);
 
-  // Hairline frame around the central viewport — a crisp seam between the opaque docked chrome and
-  // the live 3D. This single line is what makes the bars read as panels framing a viewport rather
-  // than a flat dark wash. Drawn on the foreground so it sits above the bar fills at the boundary;
-  // its alpha follows the open fraction so it fades in/out with the panel.
+  // Recessed joint around the central viewport — the seam between the opaque docked chrome and
+  // the live 3D. A dark gap (Blender-style) so the canvas reads as set INTO the workbench; the
+  // previous white-based hairline rendered brighter than both sides and outlined the canvas like
+  // a glowing wire. Drawn on the foreground so it sits above the bar fills at the boundary; its
+  // alpha follows the open fraction so it fades in/out with the panel.
   if (r.center.w > 1.f && r.center.h > 1.f)
   {
     ImDrawList* fg = ImGui::GetForegroundDrawList();
-    ImVec4 seam = G3DTheme::BorderStrong();
+    ImVec4 seam = G3DTheme::Seam();
     seam.w *= eased;
     fg->AddRect(ImVec2(r.center.x, r.center.y),
       ImVec2(r.center.x + r.center.w, r.center.y + r.center.h), G3DTheme::U32(seam), 0.f, 0,
