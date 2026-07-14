@@ -959,6 +959,28 @@ void EndAccordion()
   ImGui::PopID();
 }
 
+namespace
+{
+// Collapse twisty mid-rotation: G3DIcon's ChevronRight profile rotated 0deg (collapsed, pointing
+// right) -> 90deg (open, pointing down) on the same eased fraction as the body height, so arrow
+// and panel move together (the select trigger's DrawSelectChevron does the same for down -> up).
+void DrawTwistyChevron(ImDrawList* dl, const ImVec2& center, float size, ImU32 col, float openT)
+{
+  const float ang = 90.f * openT * (3.14159265f / 180.f);
+  const float cs = std::cos(ang);
+  const float sn = std::sin(ang);
+  const ImVec2 base[3] = { ImVec2(-0.10f, -0.26f), ImVec2(0.14f, 0.f), ImVec2(-0.10f, 0.26f) };
+  ImVec2 pts[3];
+  for (int i = 0; i < 3; ++i)
+  {
+    const float x = base[i].x * size;
+    const float y = base[i].y * size;
+    pts[i] = ImVec2(center.x + x * cs - y * sn, center.y + x * sn + y * cs);
+  }
+  dl->AddPolyline(pts, 3, col, ImDrawFlags_None, std::max(1.f, size * 0.085f));
+}
+} // namespace
+
 //----------------------------------------------------------------------------
 CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
 {
@@ -1172,13 +1194,13 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   // --- leading items, left-to-right. ---
   float leftX = p0.x + headPadL;
   // Twisty chevron (right = collapsed, down = open), text-subtle brightening to text on hover.
+  // Rotates with openT so it tracks the body-height tween instead of snapping between glyphs.
   {
     const float twBox = 18.f * s;
     ImVec4 subtle = G3DTheme::Text();
     subtle.w *= 0.45f;
     const ImVec4 twCol = LerpColor(subtle, G3DTheme::Text(), hoverT);
-    G3DIcon::Draw(dl, isOpen ? G3DIconId::ChevronDown : G3DIconId::ChevronRight,
-      ImVec2(leftX + twBox * 0.5f, cy), 15.f * s, U32(twCol));
+    DrawTwistyChevron(dl, ImVec2(leftX + twBox * 0.5f, cy), 15.f * s, U32(twCol), openT);
     leftX += twBox;
   }
   // Leading type icon.
@@ -1508,7 +1530,11 @@ bool Toggle(const char* label, bool* v)
 
   const float knobR = h * 0.5f - 2.f * s + w.hover.Value() * 1.f * s;
   const float kx = G3DLerp(t0.x + h * 0.5f, t1.x - h * 0.5f, w.value.Value());
-  dl->AddCircleFilled(ImVec2(kx, cy), knobR, U32(ImVec4(1.f, 1.f, 1.f, 1.f), alpha), 24);
+  // Knob brightness carries state too (Fluent/Material): muted when off so a resting panel is not
+  // dotted with pure-white circles; full white is reserved for the accent track of the on state.
+  const ImVec4 knob =
+    LerpColor(G3DTheme::Hex(0xB8BEC9), ImVec4(1.f, 1.f, 1.f, 1.f), w.value.Value());
+  dl->AddCircleFilled(ImVec2(kx, cy), knobR, U32(knob, alpha), 24);
 
   if (hasText)
   {
@@ -2058,12 +2084,9 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   {
     const float rx = p0.x + i * indent + indent * 0.5f;
     const bool active = i == chrome.activeGuide;
-    ImVec4 col = G3DTheme::Border();
-    if (active)
-    {
-      col = G3DTheme::Accent();
-      col.w = 0.6f;
-    }
+    // Active rail stays neutral (VS Code): accent on the guide would stack a third blue indicator
+    // onto the selected row's edge bar + soft fill.
+    const ImVec4 col = active ? G3DTheme::BorderStrong() : G3DTheme::Border();
     dl->AddLine(ImVec2(rx, p0.y), ImVec2(rx, p0.y + rowH), U32(col), 1.f * s);
   }
 

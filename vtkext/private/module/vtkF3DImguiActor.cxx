@@ -555,6 +555,27 @@ struct vtkF3DImguiActor::Internals
 
 namespace
 {
+// Bottom fade for a scrollable child: when content continues past the visible end, dissolve the
+// cut row into the panel instead of slicing it flush against the seam below. Call before EndChild.
+void DrawScrollEndFade(float scale)
+{
+  if (ImGui::GetScrollMaxY() <= 0.f || ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.f)
+  {
+    return;
+  }
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImVec2 wp = ImGui::GetWindowPos();
+  const ImVec2 ws = ImGui::GetWindowSize();
+  const float fadeH = 18.f * scale;
+  const float w = ws.x - ImGui::GetStyle().ScrollbarSize; // keep the scrollbar gutter crisp
+  ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+  bg.w = 1.f;
+  const ImU32 c0 = ImGui::ColorConvertFloat4ToU32(ImVec4(bg.x, bg.y, bg.z, 0.f));
+  const ImU32 c1 = ImGui::ColorConvertFloat4ToU32(bg);
+  dl->AddRectFilledMultiColor(
+    ImVec2(wp.x, wp.y + ws.y - fadeH), ImVec2(wp.x + w, wp.y + ws.y), c0, c0, c1, c1);
+}
+
 void SetupNextWindow(std::optional<ImVec2> position, std::optional<ImVec2> size)
 {
   if (size.has_value())
@@ -900,6 +921,9 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
       }
     });
   G3DWidgets::EndTree();
+  // Same bottom breathing room as the inspector: keep the scroll end off the bottom seam.
+  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * static_cast<float>(this->FontScale)));
+  ::DrawScrollEndFade(static_cast<float>(this->FontScale));
   ImGui::EndChild();
 }
 
@@ -1419,8 +1443,10 @@ void vtkF3DImguiActor::RenderCheatSheet()
     ImVec2(
       this->Pimpl->CheatSheetWidth, std::min(viewport->WorkSize.y - (2 * margin), textHeight)));
   ImGuiStyle& style = ImGui::GetStyle();
-  style.Colors[ImGuiCol_WindowBg] = ImVec4(
-    this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2], this->BackdropOpacity);
+  // Floor the sheet's opacity: at the shared backdrop default, bright model areas ghost through
+  // the reference text. Only this window — the user option keeps driving the other overlays.
+  style.Colors[ImGuiCol_WindowBg] = ImVec4(this->BackdropColor[0], this->BackdropColor[1],
+    this->BackdropColor[2], std::max(static_cast<float>(this->BackdropOpacity), 0.95f));
 
   ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
@@ -1439,25 +1465,72 @@ void vtkF3DImguiActor::RenderCheatSheet()
   }
   G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
   const std::string searchHint = locale.Translate("Search...");
-  const std::string descModeLabel = locale.Translate("Description") + "##searchModeDescription";
-  const std::string keybindModeLabel = locale.Translate("Keybind") + "##searchModeKeybind";
+  const std::string descModeLabel = locale.Translate("Description");
+  const std::string keybindModeLabel = locale.Translate("Keybind");
+  const float uiScale = static_cast<float>(this->FontScale);
 
-  ImGui::PushStyleColor(ImGuiCol_FrameBg, F3DStyle::imgui::GetMidColor());
+  // Search field in the G3D input anatomy (surface fill + hairline border, accent while typing)
+  // instead of the stock bright FrameBg slab.
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, G3DTheme::Surface());
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, G3DTheme::Radius::Control * uiScale);
   ImGui::PushItemWidth(-1);
   ImGui::InputTextWithHint("##SearchFilter", searchHint.c_str(), this->Pimpl->SearchFilter.data(),
     this->Pimpl->SearchFilter.size(), ImGuiInputTextFlags_EscapeClearsAll);
   ImGui::PopItemWidth();
+  ImGui::PopStyleVar();
   ImGui::PopStyleColor();
+  {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImDrawListFlags savedFlags = dl->Flags;
+    dl->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
+    const ImVec4 bc =
+      ImGui::IsItemActive() ? F3DStyle::imgui::GetHighlightColor() : G3DTheme::Border();
+    dl->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), G3DTheme::U32(bc),
+      G3DTheme::Radius::Control * uiScale, 0, G3DTheme::Size::Border * uiScale);
+    dl->Flags = savedFlags;
+  }
 
-  if (ImGui::RadioButton(
-        descModeLabel.c_str(), this->Pimpl->CurrentSearchMode == Internals::SearchMode::Description))
+  // Search-target switch as quiet text pills (stock RadioButtons put stray accent dots here).
+  auto modePill = [&](const char* id, const std::string& text, bool active) -> bool
+  {
+    const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
+    const float padX = 10.f * uiScale;
+    const float padY = 3.f * uiScale;
+    const ImVec2 sz(ts.x + 2.f * padX, ts.y + 2.f * padY);
+    const ImVec2 q0 = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::InvisibleButton(id, sz);
+    const bool hovered = ImGui::IsItemHovered();
+    if (hovered)
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImDrawListFlags savedFlags = dl->Flags;
+    dl->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
+    const ImVec2 q1(q0.x + sz.x, q0.y + sz.y);
+    if (active)
+    {
+      dl->AddRectFilled(q0, q1, G3DTheme::U32(G3DTheme::AccentSoft()), sz.y * 0.5f);
+    }
+    else if (hovered)
+    {
+      dl->AddRectFilled(q0, q1, G3DTheme::U32(G3DTheme::Surface()), sz.y * 0.5f);
+    }
+    dl->AddText(ImVec2(q0.x + padX, q0.y + padY),
+      G3DTheme::U32(active ? G3DTheme::Text() : G3DTheme::TextMuted()), text.c_str());
+    dl->Flags = savedFlags;
+    return clicked;
+  };
+
+  if (modePill("##searchModeDescription", descModeLabel,
+        this->Pimpl->CurrentSearchMode == Internals::SearchMode::Description))
   {
     this->Pimpl->CurrentSearchMode = Internals::SearchMode::Description;
     this->Pimpl->SearchFocusRequested = true;
   }
-  ImGui::SameLine();
-  if (ImGui::RadioButton(
-        keybindModeLabel.c_str(), this->Pimpl->CurrentSearchMode == Internals::SearchMode::Keybind))
+  ImGui::SameLine(0.f, 6.f * uiScale);
+  if (modePill("##searchModeKeybind", keybindModeLabel,
+        this->Pimpl->CurrentSearchMode == Internals::SearchMode::Keybind))
   {
     this->Pimpl->CurrentSearchMode = Internals::SearchMode::Keybind;
     this->Pimpl->SearchFocusRequested = true;
@@ -3521,6 +3594,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     this->DrawAppearanceContent();
     this->DrawLightingContent();
     this->DrawMaterialContent();
+    // Bottom breathing room: without it the scroll end clips the last row flush against the
+    // timeline seam (a half-sliced row at narrow window heights).
+    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * scale));
+    ::DrawScrollEndFade(scale);
     ImGui::EndChild();
     ImGui::End();
   }

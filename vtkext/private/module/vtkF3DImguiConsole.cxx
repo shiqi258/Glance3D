@@ -1,6 +1,7 @@
 #include "vtkF3DImguiConsole.h"
 
 #include "F3DStyle.h"
+#include "G3DLocaleCore.h"
 #include "vtkF3DUserEvents.h"
 
 #include <vtkCallbackCommand.h>
@@ -286,7 +287,8 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
     return internals->TextEditCallback(data);
   };
 
-  bool runCommand = ImGui::InputTextWithHint("##ConsoleInput", "Type a command...",
+  const std::string inputHint = G3DLocaleCore::GetInstance().Translate("Type a command...");
+  bool runCommand = ImGui::InputTextWithHint("##ConsoleInput", inputHint.c_str(),
     this->Pimpl->CurrentInput.data(), sizeof(this->Pimpl->CurrentInput), inputFlags,
     TextEditCallbackStub, this->Pimpl.get());
   ImGui::PopItemWidth();
@@ -315,9 +317,9 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
       this->Pimpl->CandidateSel = 0;
     }
 
-    ImGui::Separator();
     if (!this->Pimpl->LiveCandidates.empty())
     {
+      ImGui::Separator();
       const int n = static_cast<int>(this->Pimpl->LiveCandidates.size());
       this->Pimpl->CandidateSel = std::clamp(this->Pimpl->CandidateSel, 0, n - 1);
       const float listH = std::min(contentH, (static_cast<float>(n) + 0.5f) * fontH * 1.45f);
@@ -346,12 +348,13 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
       }
       ImGui::EndChild();
     }
-    else
+    else if (!this->Pimpl->Logs.empty())
     {
-      // Fit the tail to its content (few logs -> short palette) up to the shared cap.
-      const float logH = std::min(contentH,
-        (static_cast<float>(std::max<std::size_t>(this->Pimpl->Logs.size(), 3)) + 0.5f) * fontH *
-          1.45f);
+      ImGui::Separator();
+      // Fit the tail to its content (few logs -> short palette) up to the shared cap. With no
+      // logs at all the whole region is skipped above: the empty palette is the input row only.
+      const float logH =
+        std::min(contentH, (static_cast<float>(this->Pimpl->Logs.size()) + 0.5f) * fontH * 1.45f);
       if (ImGui::BeginChild(
             "LogRegion", ImVec2(0, logH), 0, ImGuiWindowFlags_HorizontalScrollbar))
       {
