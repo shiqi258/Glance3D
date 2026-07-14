@@ -379,12 +379,13 @@ Display the _name of the file_ on top of the window.
 
 ### `-m`, `--metadata` (_bool_, default: `false`)
 
-Display the _metadata_.
+Display the _metadata_. On desktop this opens the docked panel chrome with the inspector, whose Geometry group carries the metadata (points/cells/objects counts and size); the legacy floating box was retired.
 
 ### `--scene-hierarchy` (_bool_, default: `false`)
 
 Display the _scene hierarchy_ as a tree representing the internal structure of the model, with checkboxes allowing to hide or show individual parts.
 By default the tree is only expanded enough to show nodes that have meaningful names, but all nodes can be fully expanded manually.
+On desktop the tree lives in the docked panel chrome's left bar (the legacy floating window was retired).
 
 ### `--notifications` (_bool_, default: `false`)
 

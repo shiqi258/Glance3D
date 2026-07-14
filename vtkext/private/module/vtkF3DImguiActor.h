@@ -70,19 +70,9 @@ private:
   void RenderLoadingOverlay() override;
 
   /**
-   * Render the scene hierarchy UI widget
-   */
-  void RenderSceneHierarchy(vtkOpenGLRenderWindow* renWin) override;
-
-  /**
    * Render the filename UI widget
    */
   void RenderFileName() override;
-
-  /**
-   * Render the metadata UI widget
-   */
-  void RenderMetaData() override;
 
   /**
    * Render the HDRI filename UI widget

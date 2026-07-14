@@ -290,10 +290,12 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   }
   else
   {
-    // Also dispatched when the control panel chrome is open: the presenter then renders the name
-    // as the top bar's centered title (see vtkF3DImguiActor::RenderFileName), so the editor chrome
-    // always identifies the open file even with ui.filename off.
-    if (this->FileNameVisible || this->ControlPanelVisible)
+    // Also dispatched when the panel chrome is (effectively) open: the presenter then renders the
+    // name as the top bar's centered title (see vtkF3DImguiActor::RenderFileName), so the editor
+    // chrome always identifies the open file even with ui.filename off. The legacy floating
+    // metadata / scene-hierarchy widgets are retired: their visibility flags force the docked
+    // chrome open instead (see EffectivePanelVisible / the presenter's bar resolution).
+    if (this->FileNameVisible || this->EffectivePanelVisible())
     {
       this->RenderFileName();
     }
@@ -305,21 +307,11 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
     {
       this->RenderCheatSheet();
     }
-
-    if (this->SceneHierarchyVisible)
-    {
-      this->RenderSceneHierarchy(renWin);
-    }
   }
 
   if (this->ConsoleBadgeEnabled)
   {
     this->RenderConsoleBadge();
-  }
-
-  if (this->MetaDataVisible)
-  {
-    this->RenderMetaData();
   }
 
   if (this->FpsCounterVisible)

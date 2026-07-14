@@ -743,42 +743,6 @@ void vtkF3DImguiActor::ReleaseGraphicsResources(vtkWindow* w)
 vtkF3DImguiActor::~vtkF3DImguiActor() = default;
 
 //----------------------------------------------------------------------------
-void vtkF3DImguiActor::RenderSceneHierarchy(vtkOpenGLRenderWindow* renWin)
-{
-  const ImGuiViewport* viewport = ImGui::GetMainViewport();
-  assert(viewport);
-
-  constexpr float margin = F3DStyle::GetDefaultMargin();
-  constexpr float defaultWidth = 280.f;
-  float winHeight = viewport->WorkSize.y - 2.0f * margin;
-
-  float posX = margin;
-
-  if (this->CheatSheetVisible)
-  {
-    posX += this->Pimpl->CheatSheetWidth + margin;
-  }
-
-  ImGui::SetNextWindowPos(ImVec2(posX, margin));
-  ImGui::SetNextWindowSize(ImVec2(defaultWidth, winHeight), ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowSizeConstraints(
-    ImVec2(10.f, winHeight), ImVec2(std::numeric_limits<float>::max(), winHeight));
-  ImGuiStyle& style = ImGui::GetStyle();
-  style.Colors[ImGuiCol_WindowBg] = ImVec4(
-    this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2], this->BackdropOpacity);
-
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-    ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings |
-    ImGuiWindowFlags_HorizontalScrollbar;
-
-  ImGui::Begin("Scene Hierarchy", nullptr, flags);
-
-  this->DrawSceneTreeContent(renWin);
-
-  ImGui::End();
-}
-
-//----------------------------------------------------------------------------
 void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
 {
   vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
@@ -1293,32 +1257,6 @@ void vtkF3DImguiActor::RenderFileName()
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DImguiActor::RenderMetaData()
-{
-  const ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-  constexpr float margin = F3DStyle::GetDefaultMargin();
-
-  ImVec2 winSize = ImGui::CalcTextSize(this->MetaData.c_str());
-  winSize.x += 2.f * ImGui::GetStyle().WindowPadding.x;
-  winSize.y += 2.f * ImGui::GetStyle().WindowPadding.y;
-
-  ::SetupNextWindow(ImVec2(viewport->WorkSize.x - winSize.x - margin,
-                      viewport->GetWorkCenter().y - 0.5f * winSize.y),
-    winSize);
-  ImGuiStyle& style = ImGui::GetStyle();
-  style.Colors[ImGuiCol_WindowBg] = ImVec4(
-    this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2], this->BackdropOpacity);
-
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
-    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
-
-  ImGui::Begin("MetaData", nullptr, flags);
-  ImGui::TextUnformatted(this->MetaData.c_str());
-  ImGui::End();
-}
-
-//----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderHDRIFileName()
 {
   if (!this->HDRIFileName.empty())
@@ -1639,7 +1577,7 @@ void vtkF3DImguiActor::UpdateControlPanelSlide()
   // ticking even while a blocking load stalls the ImGui frame clock — same reasoning as the loading
   // overlay spinner.
   const double dt = this->SlideClock.Tick(++this->SlideFrame);
-  const float target = this->ControlPanelVisible ? 1.f : 0.f;
+  const float target = this->EffectivePanelVisible() ? 1.f : 0.f;
 
   // Consume the one-shot full-render request from a narrow-mode side flip (see ResolveBars): by
   // the time this pre-pass runs, the render it forced is the one being built.
@@ -1680,7 +1618,7 @@ bool vtkF3DImguiActor::IsControlPanelAnimating()
 {
   // Animating while the eased value is still in flight OR has not yet reached the state implied by
   // the current visibility (covers the frame right after a toggle, before the first advance runs).
-  const float target = this->ControlPanelVisible ? 1.f : 0.f;
+  const float target = this->EffectivePanelVisible() ? 1.f : 0.f;
   return this->PanelAnim.IsAnimating() || this->PanelAnim.Value() != target ||
     this->ControlBarDragging || this->ViewportDirtyOneShot;
 }
@@ -1690,8 +1628,10 @@ vtkF3DImguiActor::BarsResolution vtkF3DImguiActor::ResolveBars(float workW)
 {
   const float scale = static_cast<float>(this->FontScale);
   BarsResolution rb;
-  rb.leftShown = this->ReadOptionBool("ui.control_left", true);
-  rb.rightShown = this->ReadOptionBool("ui.control_right", true);
+  // The legacy scene-hierarchy / metadata toggles force their side open: their floating widgets
+  // are retired, the docked tree/inspector is the single presenter of that information.
+  rb.leftShown = this->ReadOptionBool("ui.control_left", true) || this->SceneHierarchyVisible;
+  rb.rightShown = this->ReadOptionBool("ui.control_right", true) || this->MetaDataVisible;
   // The timeline bar only exists when the scene has animations.
   rb.bottomShown = this->ReadOptionBool("ui.control_bottom", true) && this->AnimState.count > 0;
 
@@ -1775,7 +1715,7 @@ void vtkF3DImguiActor::AdvanceControlAnim()
   // The FAB is only the REOPEN handle: hidden whenever the panel is open or sliding (the toolbar's
   // collapse button owns closing), and once fully closed it shows only while the viewport was
   // recently active — so the working 3D view carries no floating chrome.
-  const bool fabWanted = !this->ControlPanelVisible && this->PanelAnim.Value() < 0.001f &&
+  const bool fabWanted = !this->EffectivePanelVisible() && this->PanelAnim.Value() < 0.001f &&
     this->ControlIdleSec <= ::CONTROL_FAB_IDLE_SEC;
   const float fabTarget = fabWanted ? 1.f : 0.f;
 
@@ -3383,6 +3323,13 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
           this->LastOpenedRight = false;
           this->ViewportDirtyOneShot = true;
         }
+        else if (rb.leftShown && this->SceneHierarchyVisible)
+        {
+          // Closing a bar the legacy toggle force-opened: clear that toggle too, or the OR keeps
+          // the bar up and the click looks dead.
+          this->SendCommand("set ui.scene_hierarchy false");
+          this->SendCommand("set ui.control_left false");
+        }
         else
         {
           this->SendCommand("toggle ui.control_left");
@@ -3393,6 +3340,11 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
         {
           this->LastOpenedRight = true;
           this->ViewportDirtyOneShot = true;
+        }
+        else if (rb.rightShown && this->MetaDataVisible)
+        {
+          this->SendCommand("set ui.metadata false");
+          this->SendCommand("set ui.control_right false");
         }
         else
         {
@@ -3417,8 +3369,23 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     const float btnY = wp.y + (r.top.h - btn) * 0.5f;
     float rightX = wp.x + r.top.w - ImGui::GetStyle().WindowPadding.x - btn;
     ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
-    toolButton("##tb.collapse", G3DIconId::PanelClose, "toggle ui.control_panel",
-      loc.Translate("Collapse panel").c_str());
+    // Collapse = close the chrome whatever opened it: the panel option itself or the legacy
+    // metadata / scene-hierarchy force-opens (a bare toggle could re-OPEN ui.control_panel while
+    // a force flag holds the chrome up, making the button look dead).
+    if (G3DWidgets::IconButton("##tb.collapse", G3DIconId::PanelClose, -1.f, false,
+          loc.Translate("Collapse panel").c_str()))
+    {
+      this->SendCommand("set ui.control_panel false");
+      if (this->MetaDataVisible)
+      {
+        this->SendCommand("set ui.metadata false");
+      }
+      if (this->SceneHierarchyVisible)
+      {
+        this->SendCommand("set ui.scene_hierarchy false");
+      }
+    }
+    ImGui::SameLine(0.f, gapXs);
 
     rightX -= btn + gapXs;
     ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));

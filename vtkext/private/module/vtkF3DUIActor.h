@@ -346,23 +346,9 @@ protected:
   }
 
   /**
-   * Render the scene hierarchy UI widget
-   */
-  virtual void RenderSceneHierarchy(vtkOpenGLRenderWindow*)
-  {
-  }
-
-  /**
    * Render the filename UI widget
    */
   virtual void RenderFileName()
-  {
-  }
-
-  /**
-   * Render the metadata UI widget
-   */
-  virtual void RenderMetaData()
   {
   }
 
@@ -470,6 +456,16 @@ protected:
   bool FpsCounterVisible = false;
 
   bool ControlPanelVisible = false;
+
+  /**
+   * The docked panel chrome is effectively open: explicitly (ui.control_panel) or force-opened by
+   * the legacy metadata / scene-hierarchy toggles, whose floating widgets were retired in favor of
+   * the docked inspector / scene tree (single presenter for the same information).
+   */
+  bool EffectivePanelVisible() const
+  {
+    return this->ControlPanelVisible || this->MetaDataVisible || this->SceneHierarchyVisible;
+  }
 
   /**
    * Query a libf3d option's current value as a string via the injected accessor. Returns nullopt if
