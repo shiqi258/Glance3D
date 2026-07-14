@@ -83,6 +83,10 @@
   "Jump to start": "回到开头",
 
   "Collapse panel": "收起面板",
+  "Open file...": "打开文件…",
+  "Screenshot": "截图",
+  "Previous file": "上一个文件",
+  "Next file": "下一个文件",
   "Coloring": "着色",
   "Enable": "启用",
   "Volume rendering forces coloring": "体渲染强制着色",

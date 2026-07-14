@@ -3204,13 +3204,20 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     auto toolSeparator = [&]()
     {
       const ImVec2 sp = ImGui::GetCursorScreenPos();
+      // BorderStrong: at Border's alpha the grouping line was invisible in practice, so the
+      // action | toggle | layout clusters read as one undifferentiated row.
       ImGui::GetWindowDrawList()->AddLine(ImVec2(sp.x, sp.y + btn * 0.22f),
-        ImVec2(sp.x, sp.y + btn * 0.78f), G3DTheme::U32(G3DTheme::Border()),
+        ImVec2(sp.x, sp.y + btn * 0.78f), G3DTheme::U32(G3DTheme::BorderStrong()),
         G3DTheme::Size::Border * scale);
       ImGui::Dummy(ImVec2(G3DTheme::Spacing::Sm * scale, btn));
       ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
     };
 
+    // Open file — the previewer's entry action. Backed by the app-level tinyfiledialogs command;
+    // builds without that module just log an unknown command on click.
+    toolButton("##tb.open", G3DIconId::Folder, "open_file_dialog",
+      loc.Translate("Open file...").c_str());
+    toolSeparator();
     toolButton("##tb.fit", G3DIconId::Fit, "reset_camera", loc.Translate("Reset view").c_str());
     toolButton(
       "##tb.iso", G3DIconId::Cube, "set_camera isometric", loc.Translate("Isometric view").c_str());
@@ -3279,40 +3286,90 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
     const float clusterEndX = ImGui::GetCursorScreenPos().x;
 
-    // Centered window title (file name) — fitted to the REAL free span between the left cluster
-    // and the collapse button (measured this frame, not a fixed reservation), middle-ellipsized,
+    // Right cluster, composed right -> left: collapse (the VS Code layout-toggle spot; the FAB
+    // becomes the reopen handle once fully closed), screenshot, and — for multi-file groups —
+    // the ‹ i/m › file pager, fixed at the edge so the centered title never collides with it.
+    // Screenshot / pager / open are app-level commands: embedding contexts without them just log
+    // an unknown-command warning on click.
+    const float gapXs = G3DTheme::Spacing::Xs * scale;
+    const float btnY = wp.y + (r.top.h - btn) * 0.5f;
+    float rightX = wp.x + r.top.w - ImGui::GetStyle().WindowPadding.x - btn;
+    ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
+    toolButton("##tb.collapse", G3DIconId::PanelClose, "toggle ui.control_panel",
+      loc.Translate("Collapse panel").c_str());
+
+    rightX -= btn + gapXs;
+    ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
+    toolButton("##tb.shot", G3DIconId::Camera, "take_screenshot",
+      loc.Translate("Screenshot").c_str());
+
+    // Parse the app-composed "(i/m) " prefix out of the title (F3DStarter builds it): the bare
+    // name goes to the centered title, i/m drive the pager; a single-file "(1/1)" prefix is
+    // stripped and shows no pager at all.
+    std::string title = this->FileName;
+    int fgIndex = 0;
+    int fgTotal = 0;
+    {
+      int idx = 0;
+      int total = 0;
+      int off = 0;
+      if (std::sscanf(this->FileName.c_str(), "(%d/%d) %n", &idx, &total, &off) == 2 && off > 0)
+      {
+        fgIndex = idx;
+        fgTotal = total;
+        title = this->FileName.substr(static_cast<std::size_t>(off));
+      }
+    }
+
+    if (fgTotal > 1)
+    {
+      char counter[32];
+      std::snprintf(counter, sizeof(counter), "%d/%d", fgIndex, fgTotal);
+      const float counterW = ImGui::CalcTextSize(counter).x;
+
+      rightX -= G3DTheme::Spacing::Sm * scale + btn; // next-file arrow
+      const float nextX = rightX;
+      rightX -= gapXs + counterW; // counter
+      const float counterX = rightX;
+      rightX -= gapXs + btn; // previous-file arrow
+      ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
+      toolButton("##tb.prevfile", G3DIconId::ChevronLeft, "load_previous_file_group",
+        loc.Translate("Previous file").c_str());
+      ImGui::SetCursorScreenPos(
+        ImVec2(counterX, wp.y + (r.top.h - ImGui::GetTextLineHeight()) * 0.5f));
+      ImGui::TextColored(G3DTheme::TextMuted(), "%s", counter);
+      ImGui::SetCursorScreenPos(ImVec2(nextX, btnY));
+      toolButton("##tb.nextfile", G3DIconId::ChevronRight, "load_next_file_group",
+        loc.Translate("Next file").c_str());
+    }
+
+    // Centered window title (bare file name) — fitted to the REAL free span between the left and
+    // right clusters (measured this frame, not a fixed reservation), middle-ellipsized,
     // window-centered when that keeps it inside the span. Drawn only once the bar has settled:
-    // during the slide the legacy floating pill (RenderFileName) flies to this line and hands off.
-    const float collapseX = wp.x + r.top.w - ImGui::GetStyle().WindowPadding.x - btn;
-    if (eased >= 0.999f && !this->FileName.empty())
+    // during the slide the floating pill (RenderFileName) flies to this line and hands off.
+    if (eased >= 0.999f && !title.empty())
     {
       const float titleGap = G3DTheme::Spacing::Sm * scale;
-      const float titleAvail = collapseX - clusterEndX - 2.f * titleGap;
+      const float titleAvail = rightX - clusterEndX - 2.f * titleGap;
       if (titleAvail >= 80.f * scale)
       {
-        const std::string shown = ::EllipsizeMiddle(this->FileName, titleAvail);
+        const std::string shown = ::EllipsizeMiddle(title, titleAvail);
         const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
         // The ellipsizer keeps a fixed tail; on extreme widths that tail alone can overflow the
-        // span — skip rather than run under the collapse button.
+        // span — skip rather than run under the right cluster.
         if (ts.x <= titleAvail)
         {
           float tx = wp.x + (r.top.w - ts.x) * 0.5f;
-          tx = std::max(clusterEndX + titleGap, std::min(tx, collapseX - titleGap - ts.x));
+          tx = std::max(clusterEndX + titleGap, std::min(tx, rightX - titleGap - ts.x));
           ImGui::SetCursorScreenPos(ImVec2(tx, wp.y + (r.top.h - ts.y) * 0.5f));
           ImGui::TextColored(G3DTheme::TextMuted(), "%s", shown.c_str());
-          if (shown.size() != this->FileName.size() && ImGui::IsItemHovered())
+          if (shown.size() != title.size() && ImGui::IsItemHovered())
           {
-            ImGui::SetTooltip("%s", this->FileName.c_str()); // ellipsized — reveal the full name
+            ImGui::SetTooltip("%s", title.c_str()); // ellipsized — reveal the full name
           }
         }
       }
     }
-
-    // Collapse the whole panel chrome — pinned to the bar's right edge (the VS Code layout-toggle
-    // spot). The FAB then becomes the reopen handle once the panel is fully closed.
-    ImGui::SetCursorScreenPos(ImVec2(collapseX, wp.y + (r.top.h - btn) * 0.5f));
-    toolButton("##tb.collapse", G3DIconId::PanelClose, "toggle ui.control_panel",
-      loc.Translate("Collapse panel").c_str());
     ImGui::End();
   }
 

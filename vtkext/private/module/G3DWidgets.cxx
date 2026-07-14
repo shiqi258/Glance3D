@@ -439,19 +439,21 @@ int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count)
     // BeginDisabled dims style.Alpha — read it inside the scope so the paint follows.
     const float segAlpha = ImGui::GetStyle().Alpha;
 
-    // Same emphasis semantics as IconButton's Fill style: accent-soft wash when on, deepening on
-    // hover/press; ghost -> surface hover otherwise.
-    ImVec4 rest = it.on ? G3DTheme::AccentSoft() : G3DTheme::Surface();
+    // NEUTRAL active state, matching the styleguide's text segmented (surface-4 indicator + text
+    // brightening): these are layout/state switches, not data emphasis — accent stays reserved for
+    // data toggles (IconButton Dot) so several open panels never become the loudest thing on
+    // screen. On = surface-press fill; hover deepens slightly.
+    ImVec4 rest = it.on ? G3DTheme::SurfacePress() : G3DTheme::Surface();
     if (!it.on)
     {
       rest.w = 0.f;
     }
-    ImVec4 hoverBg = it.on ? G3DTheme::AccentSoft() : G3DTheme::SurfaceHover();
-    ImVec4 pressBg = it.on ? G3DTheme::AccentSoft() : G3DTheme::SurfacePress();
+    ImVec4 hoverBg = it.on ? G3DTheme::SurfacePress() : G3DTheme::SurfaceHover();
+    ImVec4 pressBg = G3DTheme::SurfacePress();
     if (it.on)
     {
-      hoverBg.w = std::min(1.f, hoverBg.w * 1.7f);
-      pressBg.w = std::min(1.f, pressBg.w * 2.2f);
+      hoverBg.w = std::min(1.f, hoverBg.w * 1.35f);
+      pressBg.w = std::min(1.f, pressBg.w * 1.6f);
     }
     ImVec4 bg = LerpColor(rest, hoverBg, a.hover.Value());
     bg = LerpColor(bg, pressBg, a.press.Value());
@@ -480,7 +482,7 @@ int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count)
         U32(G3DTheme::Accent(), 0.45f * segAlpha), radius + o, 0, 2.f * s);
     }
     G3DIcon::Draw(dl, it.icon, ImVec2((c0.x + c1.x) * 0.5f, (c0.y + c1.y) * 0.5f), h * 0.52f,
-      U32(it.on ? G3DTheme::Accent() : G3DTheme::Text(), segAlpha));
+      U32(it.on ? G3DTheme::Text() : G3DTheme::TextMuted(), segAlpha));
     if (it.disabled)
     {
       ImGui::EndDisabled();
