@@ -1564,25 +1564,16 @@ void vtkF3DImguiActor::RenderCheatSheet()
         continue;
       }
 
-      ImVec4 bindingTextColor, bindingRectColor, descTextColor, valueTextColor;
-
-      if (type == CheatSheetBindingType::TOGGLE && val == "ON")
-      {
-        bindingTextColor = F3DStyle::imgui::GetBackgroundColor();
-        bindingRectColor = F3DStyle::imgui::GetWarningColor();
-        descTextColor = F3DStyle::imgui::GetWarningColor();
-        valueTextColor = F3DStyle::imgui::GetWarningColor();
-      }
-      else
-      {
-        bindingTextColor = ::ColorToImVec4(this->FontColor);
-        bindingRectColor = F3DStyle::imgui::GetMidColor();
-        descTextColor = ::ColorToImVec4(this->FontColor);
-        // "Unset" is a state note, not a cyclable value — in highlight blue it reads like a link.
-        valueTextColor = (val == locale.Translate("Unset") || val == "Unset")
-          ? G3DTheme::TextMuted()
-          : F3DStyle::imgui::GetHighlightColor();
-      }
+      // Values are reference information, not links or alerts: the sheet stays neutral so accent
+      // keeps meaning state elsewhere. ON/OFF and the cycled value text already carry the state
+      // (the old TOGGLE+ON branch repainted desc+value+chip warning-yellow all at once, and the
+      // highlight-blue value column read as a page of links).
+      const ImVec4 bindingTextColor = ::ColorToImVec4(this->FontColor);
+      const ImVec4 bindingRectColor = F3DStyle::imgui::GetMidColor();
+      const ImVec4 descTextColor = ::ColorToImVec4(this->FontColor);
+      const ImVec4 valueTextColor = (val == locale.Translate("Unset") || val == "Unset")
+        ? G3DTheme::TextMuted()
+        : G3DTheme::Text();
 
       ImGui::TableNextRow(ImGuiTableRowFlags_None, ImGui::GetTextLineHeightWithSpacing() + margin);
 

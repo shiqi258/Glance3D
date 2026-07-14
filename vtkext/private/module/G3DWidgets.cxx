@@ -681,8 +681,10 @@ void PanelHeaderImpl(const char* title, const G3DIconId* icon)
   {
     const float isz = 15.f * s;
     rowH = std::max(rowH, isz);
+    // Static identity, not state: keep the header icon neutral so accent stays reserved for
+    // selection/activity (Blender/UE panel headers carry no accent).
     G3DIcon::Draw(
-      dl, *icon, ImVec2(p.x + isz * 0.5f, p.y + rowH * 0.5f), isz, U32(G3DTheme::Accent()));
+      dl, *icon, ImVec2(p.x + isz * 0.5f, p.y + rowH * 0.5f), isz, U32(G3DTheme::TextMuted()));
     tx = p.x + isz + G3DTheme::Spacing::Sm * s;
   }
   ImVec4 titleCol = G3DTheme::Text();
@@ -1979,7 +1981,13 @@ ImVec4 TreeIconColor(TreeIconVariant v)
       return G3DTheme::Warning();
     case TreeIconVariant::Tex:
     case TreeIconVariant::Root:
-      return G3DTheme::Accent();
+    {
+      // Neutral-bright, not accent: the root row is identity, and blue here would shout over the
+      // real selection cues (edge bar + soft fill).
+      ImVec4 c = G3DTheme::Text();
+      c.w *= 0.80f;
+      return c;
+    }
     case TreeIconVariant::Default:
     default:
       return G3DTheme::TextMuted();
