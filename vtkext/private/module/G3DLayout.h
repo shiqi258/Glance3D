@@ -67,6 +67,14 @@ inline constexpr float MIN_SIDE_CONTENT_W = 240.f;
 /// fraction of the window (two panels then leave >= 30% for the live viewport).
 inline constexpr float MAX_SIDE_FRAC_HARD = 0.35f;
 
+/// Below this work width (nominal px — multiply by the UI scale) the two side bars go mutually
+/// exclusive: only the most recently opened one is drawn, the other stays requested and comes back
+/// when the window widens. At 900 a single default bar still leaves ~2/3 of the window to the live
+/// viewport, while both bars would leave barely half; 960 keeps the common 900-wide window in the
+/// exclusive mode while the 1000-wide default resolution stays two-bar. Keep this comfortably above
+/// 2*MIN_SIDE_CONTENT_W or the per-side caps would degrade both panels before exclusivity engages.
+inline constexpr float NARROW_BREAKPOINT_W = 960.f;
+
 /// The effective per-side width cap in DEVICE px. Proportional by default; floored by the scaled
 /// minimum content width; hard-capped so the viewport survives. Shared by Compute() and the
 /// panel-edge drag clamp in the ImGui actor (which mirrors it in nominal space) — the two MUST

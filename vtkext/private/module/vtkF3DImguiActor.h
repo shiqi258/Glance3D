@@ -11,6 +11,7 @@
 #include "vtkF3DUIActor.h"
 
 #include "G3DAnimation.h"
+#include "G3DLayout.h"
 
 #include <memory>
 
@@ -226,6 +227,22 @@ private:
   void ReadOptionColor(const char* name, float out[3], const float fallback[3]) const;
   ///@}
 
+  /**
+   * Resolved per-frame bar layout: fully-open sizes honoring the drag overrides, per-bar
+   * visibility (a hidden bar collapses to 0 so the center grows) and the narrow-window side
+   * exclusivity. Both the bar layout and the central-viewport derivation call this, so every
+   * visibility rule lives in one place and the two stay in lockstep. The top bar is always shown.
+   */
+  struct BarsResolution
+  {
+    G3DLayout::Sizes sizes;
+    bool leftShown = false;
+    bool rightShown = false;
+    bool bottomShown = false;
+    bool narrowExclusive = false; ///< a narrow window suppressed one of two requested side bars
+  };
+  BarsResolution ResolveBars(float workW);
+
   ///@{
   /**
    * Local UI selection in the scene tree, persisted across frames (not part of the SDK state; a
@@ -267,6 +284,20 @@ private:
   float ControlBarLeftW = -1.f;
   float ControlBarRightW = -1.f;
   bool ControlBarDragging = false;
+  ///@}
+
+  ///@{
+  /**
+   * Narrow-window side exclusivity: below G3DLayout::NARROW_BREAKPOINT_W only the most recently
+   * opened side bar is drawn (the options keep both true, so widening the window restores the
+   * other). Prev* detect option rising edges; ViewportDirtyOneShot forces one full render after an
+   * in-place side flip, which sends no command and would otherwise leave a stale scene texture.
+   */
+  bool LastOpenedRight = true;
+  bool PrevCtrlLeft = false;
+  bool PrevCtrlRight = false;
+  bool PrevCtrlInit = false;
+  bool ViewportDirtyOneShot = false;
   ///@}
 };
 

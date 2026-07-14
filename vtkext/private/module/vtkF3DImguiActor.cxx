@@ -566,36 +566,6 @@ void SetupNextWindow(std::optional<ImVec2> position, std::optional<ImVec2> size)
   }
 }
 
-// Fully-open bar sizes, honoring user drag overrides for the left/right widths (nominal px, < 0 =
-// keep the G3DLayout default) and per-bar visibility (a hidden bar collapses to 0 so the center
-// grows). Used by BOTH the bar layout and the central-viewport derivation so resize/hide stays in
-// lockstep. The top bar (toolbar, which hosts the toggles) is always shown.
-G3DLayout::Sizes ResolvedBarSizes(float scale, float leftOverride, float rightOverride,
-  bool leftVisible, bool rightVisible, bool bottomVisible)
-{
-  G3DLayout::Sizes sizes = G3DLayout::DefaultBarSizes(scale);
-  if (leftOverride > 0.f)
-  {
-    sizes.leftW = leftOverride * scale;
-  }
-  if (rightOverride > 0.f)
-  {
-    sizes.rightW = rightOverride * scale;
-  }
-  if (!leftVisible)
-  {
-    sizes.leftW = 0.f;
-  }
-  if (!rightVisible)
-  {
-    sizes.rightW = 0.f;
-  }
-  if (!bottomVisible)
-  {
-    sizes.bottomH = 0.f;
-  }
-  return sizes;
-}
 }
 
 vtkStandardNewMacro(vtkF3DImguiActor);
@@ -1262,10 +1232,10 @@ void vtkF3DImguiActor::RenderFileName()
     const float scale = static_cast<float>(this->FontScale);
     const float eased = this->PanelAnim.Value();
 
-    // When ui.filename is off, the name is shown only as the top bar's title (the editor chrome
-    // should always identify the open file). Wait for the slide to finish so the legacy floating
-    // pill never flashes at the interpolated position; the opt-in HUD behavior is unchanged.
-    if (!this->FileNameVisible && eased < 0.999f)
+    // Once the panel chrome settles, the top bar draws the title itself (fitted to the real free
+    // span between its button clusters — see RenderControlPanel). This legacy widget only covers
+    // the panel-closed pill and, when the HUD is opted in, its short flight toward the bar line.
+    if (!this->FileNameVisible || eased >= 0.999f)
     {
       return;
     }
@@ -1661,6 +1631,28 @@ void vtkF3DImguiActor::UpdateControlPanelSlide()
   const double dt = this->SlideClock.Tick(++this->SlideFrame);
   const float target = this->ControlPanelVisible ? 1.f : 0.f;
 
+  // Consume the one-shot full-render request from a narrow-mode side flip (see ResolveBars): by
+  // the time this pre-pass runs, the render it forced is the one being built.
+  this->ViewportDirtyOneShot = false;
+
+  // Track which side bar the user opened last — the narrow-window exclusive mode keeps that one.
+  const bool ctrlLeft = this->ReadOptionBool("ui.control_left", true);
+  const bool ctrlRight = this->ReadOptionBool("ui.control_right", true);
+  if (this->PrevCtrlInit)
+  {
+    if (ctrlLeft && !this->PrevCtrlLeft)
+    {
+      this->LastOpenedRight = false;
+    }
+    if (ctrlRight && !this->PrevCtrlRight)
+    {
+      this->LastOpenedRight = true; // both opened the same frame -> the inspector wins
+    }
+  }
+  this->PrevCtrlInit = true;
+  this->PrevCtrlLeft = ctrlLeft;
+  this->PrevCtrlRight = ctrlRight;
+
   if (!this->PanelAnimInit)
   {
     // Snap on the first frame so a single offscreen/headless render shows the correct end state.
@@ -1680,7 +1672,58 @@ bool vtkF3DImguiActor::IsControlPanelAnimating()
   // the current visibility (covers the frame right after a toggle, before the first advance runs).
   const float target = this->ControlPanelVisible ? 1.f : 0.f;
   return this->PanelAnim.IsAnimating() || this->PanelAnim.Value() != target ||
-    this->ControlBarDragging;
+    this->ControlBarDragging || this->ViewportDirtyOneShot;
+}
+
+//----------------------------------------------------------------------------
+vtkF3DImguiActor::BarsResolution vtkF3DImguiActor::ResolveBars(float workW)
+{
+  const float scale = static_cast<float>(this->FontScale);
+  BarsResolution rb;
+  rb.leftShown = this->ReadOptionBool("ui.control_left", true);
+  rb.rightShown = this->ReadOptionBool("ui.control_right", true);
+  // The timeline bar only exists when the scene has animations.
+  rb.bottomShown = this->ReadOptionBool("ui.control_bottom", true) && this->AnimState.count > 0;
+
+  // A narrow window can't afford both side bars (the viewport shrinks to a sliver): keep only the
+  // most recently opened side. Visual override only — both options stay true, so widening the
+  // window brings the other bar right back.
+  rb.narrowExclusive =
+    rb.leftShown && rb.rightShown && workW < G3DLayout::NARROW_BREAKPOINT_W * scale;
+  if (rb.narrowExclusive)
+  {
+    if (this->LastOpenedRight)
+    {
+      rb.leftShown = false;
+    }
+    else
+    {
+      rb.rightShown = false;
+    }
+  }
+
+  rb.sizes = G3DLayout::DefaultBarSizes(scale);
+  if (this->ControlBarLeftW > 0.f)
+  {
+    rb.sizes.leftW = this->ControlBarLeftW * scale;
+  }
+  if (this->ControlBarRightW > 0.f)
+  {
+    rb.sizes.rightW = this->ControlBarRightW * scale;
+  }
+  if (!rb.leftShown)
+  {
+    rb.sizes.leftW = 0.f;
+  }
+  if (!rb.rightShown)
+  {
+    rb.sizes.rightW = 0.f;
+  }
+  if (!rb.bottomShown)
+  {
+    rb.sizes.bottomH = 0.f;
+  }
+  return rb;
 }
 
 //----------------------------------------------------------------------------
@@ -1700,12 +1743,8 @@ void vtkF3DImguiActor::GetControlPanelViewport(const int windowSize[2], double v
 
   const float scale = static_cast<float>(this->FontScale);
   const G3DLayout::Rect work{ 0.f, 0.f, static_cast<float>(W), static_cast<float>(H) };
-  const G3DLayout::Result r = G3DLayout::Compute(work,
-    ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW,
-      this->ReadOptionBool("ui.control_left", true), this->ReadOptionBool("ui.control_right", true),
-      // The timeline bar only exists when the scene has animations; must match RenderControlPanel.
-      this->ReadOptionBool("ui.control_bottom", true) && this->AnimState.count > 0),
-    eased, scale);
+  const G3DLayout::Result r =
+    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, eased, scale);
   G3DLayout::CenterToVTKViewport(r.center, W, H, vp);
 }
 
@@ -3070,13 +3109,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   const float scale = static_cast<float>(this->FontScale);
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
-  const G3DLayout::Result r = G3DLayout::Compute(work,
-    ::ResolvedBarSizes(scale, this->ControlBarLeftW, this->ControlBarRightW,
-      this->ReadOptionBool("ui.control_left", true), this->ReadOptionBool("ui.control_right", true),
-      // The timeline bar only exists when the scene has animations; must match
-      // GetControlPanelViewport or the pushed 3D viewport and the bars would disagree.
-      this->ReadOptionBool("ui.control_bottom", true) && this->AnimState.count > 0),
-    eased, scale);
+  // ResolveBars is the single source of the per-bar visibility rules, shared with
+  // GetControlPanelViewport so the pushed 3D viewport and the bars can never disagree.
+  const BarsResolution rb = this->ResolveBars(work.w);
+  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, eased, scale);
 
   // Docked bars are opaque chrome that frame the 3D viewport. The scene is physically pushed into
   // the central gap: the renderer derives its VTK viewport from this same G3DLayout `center` rect
@@ -3107,20 +3143,6 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::Begin(id, nullptr, flags);
     ImGui::PopStyleVar();
     return true;
-  };
-
-  // The short strip bars (bottom timeline) are single-row: a vertically-centered overline title
-  // reads as an intentional, titled strip rather than a label dropped in a corner.
-  auto barTitle = [&](const char* text)
-  {
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float fs = 12.f * scale;
-    const ImVec2 wp = ImGui::GetWindowPos();
-    const ImVec2 wsz = ImGui::GetWindowSize();
-    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.f, text);
-    const ImVec2 pad = ImGui::GetStyle().WindowPadding;
-    dl->AddText(ImGui::GetFont(), fs, ImVec2(wp.x + pad.x, wp.y + (wsz.y - ts.y) * 0.5f),
-      G3DTheme::U32(G3DTheme::TextMuted()), text);
   };
 
   // Top bar — command toolbar: vertically-centered icon buttons for safe, momentary view actions and
@@ -3177,21 +3199,39 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     const std::string inspectorTip = loc.Translate("Inspector");
     const std::string timelineTip =
       hasAnim ? loc.Translate("Timeline") : loc.Translate("No animation");
+    // The segments reflect what is actually DRAWN (rb.*Shown), not the raw options: in the
+    // narrow-window exclusive mode one side is suppressed while its option stays true, and showing
+    // it lit would promise a panel that isn't there.
     const G3DWidgets::SegmentedIconItem layoutSegs[3] = {
-      { G3DIconId::PanelLeft, sceneTip.c_str(), this->ReadOptionBool("ui.control_left", true),
-        false },
-      { G3DIconId::PanelRight, inspectorTip.c_str(), this->ReadOptionBool("ui.control_right", true),
-        false },
-      { G3DIconId::PanelBottom, timelineTip.c_str(),
-        hasAnim && this->ReadOptionBool("ui.control_bottom", true), !hasAnim },
+      { G3DIconId::PanelLeft, sceneTip.c_str(), rb.leftShown, false },
+      { G3DIconId::PanelRight, inspectorTip.c_str(), rb.rightShown, false },
+      { G3DIconId::PanelBottom, timelineTip.c_str(), rb.bottomShown, !hasAnim },
     };
     switch (G3DWidgets::SegmentedIcon("##tb.layout", layoutSegs, 3))
     {
       case 0:
-        this->SendCommand("toggle ui.control_left");
+        if (rb.narrowExclusive && !rb.leftShown)
+        {
+          // Exclusive mode hides this side while its option is still on: clicking it means
+          // "switch to it", not "toggle the option off" (which would take a second click to open).
+          this->LastOpenedRight = false;
+          this->ViewportDirtyOneShot = true;
+        }
+        else
+        {
+          this->SendCommand("toggle ui.control_left");
+        }
         break;
       case 1:
-        this->SendCommand("toggle ui.control_right");
+        if (rb.narrowExclusive && !rb.rightShown)
+        {
+          this->LastOpenedRight = true;
+          this->ViewportDirtyOneShot = true;
+        }
+        else
+        {
+          this->SendCommand("toggle ui.control_right");
+        }
         break;
       case 2:
         this->SendCommand("toggle ui.control_bottom");
@@ -3200,11 +3240,40 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
         break;
     }
     ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
+    const float clusterEndX = ImGui::GetCursorScreenPos().x;
+
+    // Centered window title (file name) — fitted to the REAL free span between the left cluster
+    // and the collapse button (measured this frame, not a fixed reservation), middle-ellipsized,
+    // window-centered when that keeps it inside the span. Drawn only once the bar has settled:
+    // during the slide the legacy floating pill (RenderFileName) flies to this line and hands off.
+    const float collapseX = wp.x + r.top.w - ImGui::GetStyle().WindowPadding.x - btn;
+    if (eased >= 0.999f && !this->FileName.empty())
+    {
+      const float titleGap = G3DTheme::Spacing::Sm * scale;
+      const float titleAvail = collapseX - clusterEndX - 2.f * titleGap;
+      if (titleAvail >= 80.f * scale)
+      {
+        const std::string shown = ::EllipsizeMiddle(this->FileName, titleAvail);
+        const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
+        // The ellipsizer keeps a fixed tail; on extreme widths that tail alone can overflow the
+        // span — skip rather than run under the collapse button.
+        if (ts.x <= titleAvail)
+        {
+          float tx = wp.x + (r.top.w - ts.x) * 0.5f;
+          tx = std::max(clusterEndX + titleGap, std::min(tx, collapseX - titleGap - ts.x));
+          ImGui::SetCursorScreenPos(ImVec2(tx, wp.y + (r.top.h - ts.y) * 0.5f));
+          ImGui::TextColored(G3DTheme::TextMuted(), "%s", shown.c_str());
+          if (shown.size() != this->FileName.size() && ImGui::IsItemHovered())
+          {
+            ImGui::SetTooltip("%s", this->FileName.c_str()); // ellipsized — reveal the full name
+          }
+        }
+      }
+    }
 
     // Collapse the whole panel chrome — pinned to the bar's right edge (the VS Code layout-toggle
     // spot). The FAB then becomes the reopen handle once the panel is fully closed.
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + r.top.w - ImGui::GetStyle().WindowPadding.x - btn,
-      wp.y + (r.top.h - btn) * 0.5f));
+    ImGui::SetCursorScreenPos(ImVec2(collapseX, wp.y + (r.top.h - btn) * 0.5f));
     toolButton("##tb.collapse", G3DIconId::PanelClose, "toggle ui.control_panel",
       loc.Translate("Collapse panel").c_str());
     ImGui::End();

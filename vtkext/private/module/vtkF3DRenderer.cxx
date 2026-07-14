@@ -2129,6 +2129,14 @@ void vtkF3DRenderer::UpdateActors()
   }
 #endif
 
+  // XXX: The commit that fills the actor collection only advances the importer's update time, not
+  // its MTime (which moves at AddImporter, before any actor exists). Without this, the async-load
+  // polling loop configures metadata against an empty collection once and freezes "0 points".
+  if (importerUpdateMTime > this->ImporterUpdateTimeStamp)
+  {
+    this->MetaDataConfigured = false;
+  }
+
   if (this->UsingExpandingRange && (importerUpdateMTime > this->ImporterUpdateTimeStamp) &&
     (this->EnableColoring || (!this->UseRaytracing && this->UseVolume)))
   {

@@ -196,6 +196,12 @@ f3d_test(NAME TestSceneHierarchyNonGLTF DATA cow.vtp ARGS --scene-hierarchy UI)
 f3d_test(NAME TestSceneHierarchyMultipleFiles DATA cow.vtp suzanne.obj ARGS --scene-hierarchy --multi-file-mode=all --opacity=0.3 UI)
 f3d_test(NAME TestSceneHierarchyMultiBlock DATA mb.vtm ARGS --scene-hierarchy UI)
 
+## Glance3D control panel (docked editor chrome)
+f3d_test(NAME TestG3DControlPanel DATA f3d.glb ARGS -Dui.control_panel=true RESOLUTION 1000,600 UI)
+# Narrow window: the side bars go mutually exclusive (G3DLayout::NARROW_BREAKPOINT_W), only the
+# inspector stays and the top-bar title must fit between the button clusters.
+f3d_test(NAME TestG3DControlPanelNarrow DATA InterpolationTest.glb ARGS -Dui.control_panel=true RESOLUTION 640,400 UI)
+
 ## Special files handling
 f3d_test(NAME TestRemoveEmptyFileGroups DATA mb/mb_3_0.vtt mb/mb_0_0.vtu ARGS -n --remove-empty-file-groups UI)
 f3d_test(NAME TestMultiFileMetaData DATA mb/recursive ARGS -m --multi-file-mode=all UI)
