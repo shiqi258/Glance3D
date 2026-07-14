@@ -2921,11 +2921,22 @@ void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
   const double t0 = stops.data[0];
   const double t1 = stops.data[(n - 1) * 4];
   const double span = (t1 > t0) ? (t1 - t0) : 1.0;
+  // Dimmed contexts (BeginDisabled -> style alpha < 1) also DESATURATE: a saturated ramp at 60%
+  // alpha still reads as the loudest element in an otherwise grayed group.
+  const bool dim = alpha < 0.999f;
   auto color = [&](int i)
   {
-    return ImGui::ColorConvertFloat4ToU32(
-      ImVec4(static_cast<float>(stops.data[i * 4 + 1]), static_cast<float>(stops.data[i * 4 + 2]),
-        static_cast<float>(stops.data[i * 4 + 3]), alpha));
+    float r = static_cast<float>(stops.data[i * 4 + 1]);
+    float g = static_cast<float>(stops.data[i * 4 + 2]);
+    float b = static_cast<float>(stops.data[i * 4 + 3]);
+    if (dim)
+    {
+      const float luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+      r += (luma - r) * 0.6f;
+      g += (luma - g) * 0.6f;
+      b += (luma - b) * 0.6f;
+    }
+    return ImGui::ColorConvertFloat4ToU32(ImVec4(r, g, b, alpha));
   };
   for (int i = 0; i + 1 < n; i++)
   {

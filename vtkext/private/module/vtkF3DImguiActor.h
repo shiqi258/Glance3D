@@ -190,10 +190,12 @@ private:
   void DrawDataInfoContent(vtkOpenGLRenderWindow* renWin);
 
   /**
-   * Draw the Appearance / Material inspector groups: option-backed controls that read current values
-   * via the injected option accessor and write changes through commands (set/toggle).
+   * Draw the Appearance / Lighting & environment / Material inspector groups: option-backed
+   * controls that read current values via the injected option accessor and write changes through
+   * commands (set/toggle).
    */
   void DrawAppearanceContent();
+  void DrawLightingContent();
   void DrawMaterialContent();
 
   /**

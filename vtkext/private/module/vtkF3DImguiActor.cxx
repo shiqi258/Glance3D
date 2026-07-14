@@ -1220,6 +1220,16 @@ std::string EllipsizeMiddle(const std::string& text, float maxW)
   }
   return text.substr(0, headEnd) + "..." + text.substr(tailStart);
 }
+
+// Human range label "0 ~ 1.41": the JSON-ish "[a, b]" with raw %.4g scientific tails reads as
+// debug output in an inspector. ASCII '~' because the shipped glyph table has no en dash (the
+// RangeSlider readout uses the same separator).
+std::string FormatRangeLabel(double lo, double hi)
+{
+  char buf[64];
+  std::snprintf(buf, sizeof(buf), "%.3g ~ %.3g", lo, hi);
+  return buf;
+}
 } // namespace
 
 void vtkF3DImguiActor::RenderFileName()
@@ -2021,16 +2031,30 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
           ImGui::EndTooltip();
         }
         // Badge right-aligned on the same line (it advances the layout cursor to the next line).
+        // Its "point · 4c" shorthand gets a spelled-out tooltip — new users can't decode it.
         ImGui::SetCursorScreenPos(ImVec2(top.x + w - bw, top.y));
         G3DWidgets::Badge(tag, G3DWidgets::BadgeVariant::Accent);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay))
+        {
+          ImGui::SetTooltip("%s \xc2\xb7 %d %s",
+            loc.Translate(isCell ? "Cell data" : "Point data").c_str(),
+            a.MaximumNumberOfComponents, loc.Translate("components").c_str());
+        }
 
-        // Line 2: value range, muted + indented.
-        char rng[64];
-        std::snprintf(rng, sizeof(rng), "[%.4g, %.4g]", a.MagnitudeRange[0], a.MagnitudeRange[1]);
+        // Line 2: value range, muted + indented, human-formatted ("0 ~ 1.41", not "[..., ...]").
+        const std::string rng = ::FormatRangeLabel(a.MagnitudeRange[0], a.MagnitudeRange[1]);
         ImGui::Dummy(ImVec2(0.f, 2.f * scale));
         const ImVec2 p2 = ImGui::GetCursorScreenPos();
         dl->AddText(ImVec2(p2.x + G3DTheme::Spacing::Md * scale, p2.y),
-          G3DTheme::U32(G3DTheme::TextMuted()), rng);
+          G3DTheme::U32(G3DTheme::TextMuted()), rng.c_str());
+        // Hover: a small paint hint at the row's right end makes the click affordance visible
+        // without waiting for the tooltip.
+        if (hovered)
+        {
+          G3DIcon::Draw(dl, G3DIconId::Image,
+            ImVec2(base.x + w - 8.f * scale, p2.y + lineH * 0.5f), 12.f * scale,
+            G3DTheme::U32(G3DTheme::TextMuted()));
+        }
         ImGui::Dummy(ImVec2(w, lineH + padY));
 
         if (clicked)
@@ -2189,6 +2213,9 @@ void vtkF3DImguiActor::DrawAppearanceContent()
       loc.Translate("Ambient occlusion").c_str(), "render.effect.ambient_occlusion", false);
     optionToggle(loc.Translate("Anti-aliasing").c_str(), "render.effect.antialiasing.enable", false);
     optionToggle(loc.Translate("Tone mapping").c_str(), "render.effect.tone_mapping", false);
+    // Camera projection lives here with the other view toggles (there is no dedicated camera
+    // group yet; FOV needs a camera-API bridge and is deliberately out of scope).
+    optionToggle(loc.Translate("Orthographic").c_str(), "scene.camera.orthographic", false);
 
     // Background color: the styleguide color picker (swatch trigger + popup picker). Drawn as a
     // proprow — muted label left, the swatch fills the value column (grow), exactly like the
@@ -2196,6 +2223,75 @@ void vtkF3DImguiActor::DrawAppearanceContent()
     const float bgDefault[3] = { 0.2f, 0.2f, 0.2f };
     this->DrawOptionColorRow(
       loc.Translate("Background").c_str(), "render.background.color", "g3d.bg.color", bgDefault);
+  }
+  G3DWidgets::EndCollapse();
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::DrawLightingContent()
+{
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const float scale = static_cast<float>(this->FontScale);
+  static bool lightingOpen = true;
+  const std::string title = loc.Translate("Lighting & environment");
+  G3DWidgets::CollapseDesc d;
+  d.title = title.c_str();
+  d.hasIcon = true;
+  d.icon = G3DIconId::Light;
+  d.variant = G3DWidgets::CollapseVariant::Flat;
+  d.open = &lightingOpen;
+  if (G3DWidgets::BeginCollapse("g3d.sec.lighting", d).open)
+  {
+    // Light intensity: multiplicative factor, same range the L / Shift+L bindings walk through.
+    {
+      float value = this->ReadOptionFloat("render.light.intensity", 1.f);
+      G3DWidgets::BeginPropRow(loc.Translate("Light intensity").c_str());
+      if (G3DWidgets::SliderFloat("##v", &value, 0.f, 5.f))
+      {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.4g", value);
+        this->SendCommand(std::string("set render.light.intensity ") + buf);
+      }
+      G3DWidgets::EndPropRow();
+    }
+
+    auto optionToggle = [this](const char* label, const char* option, bool fallback)
+    {
+      bool on = this->ReadOptionBool(option, fallback);
+      G3DWidgets::BeginPropRow(label, -1.f, G3DTheme::Size::Icon);
+      if (G3DWidgets::Toggle("", &on))
+      {
+        this->SendCommand(std::string("set ") + option + (on ? " true" : " false"));
+      }
+      G3DWidgets::EndPropRow();
+    };
+    optionToggle(loc.Translate("Ambient lighting").c_str(), "render.hdri.ambient", false);
+    optionToggle(loc.Translate("Skybox").c_str(), "render.background.skybox", false);
+
+    // HDRI file: read-only display (basename + full path on hover). Picking a file goes through
+    // the top bar's open dialog / drag-drop — no browse affordance here yet.
+    {
+      const std::string hdri = this->QueryOption("render.hdri.file").value_or("");
+      std::string shown = loc.Translate("Unset");
+      if (!hdri.empty())
+      {
+        const std::size_t cut = hdri.find_last_of("/\\");
+        shown = cut == std::string::npos ? hdri : hdri.substr(cut + 1);
+      }
+      G3DWidgets::BeginPropRow(loc.Translate("HDRI file").c_str());
+      const float availW = ImGui::GetContentRegionAvail().x;
+      ImDrawList* dl = ImGui::GetWindowDrawList();
+      const ImVec2 tp = ImGui::GetCursorScreenPos();
+      G3DWidgets::TextEllipsis(dl,
+        ImVec2(tp.x, tp.y + (G3DTheme::Size::Control * scale - ImGui::GetTextLineHeight()) * 0.5f),
+        availW, G3DTheme::U32(G3DTheme::TextMuted()), shown.c_str());
+      ImGui::Dummy(ImVec2(availW, G3DTheme::Size::Control * scale));
+      if (!hdri.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+      {
+        ImGui::SetTooltip("%s", hdri.c_str());
+      }
+      G3DWidgets::EndPropRow();
+    }
   }
   G3DWidgets::EndCollapse();
 }
@@ -2375,6 +2471,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   }
 
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const float scale = static_cast<float>(this->FontScale);
   static bool coloringOpen = true;
   const std::string title = loc.Translate("Coloring");
   G3DWidgets::CollapseDesc d;
@@ -2440,28 +2537,14 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   const std::vector<F3DColoringInfoHandler::ColoringInfo>& arrays =
     (cells && !cellArrays.empty()) ? cellArrays : pointArrays;
 
-  // Array selector. Writing the name also enables coloring so a pick takes effect immediately.
-  // An unset option falls back to the effective array (default-first-array path).
+  // The ARRAYS card above is the selector (click a row to color by it) — no duplicate dropdown
+  // here. `current` still resolves the selection for the component/colormap/range rows below; an
+  // unset option falls back to the effective array (default-first-array path).
   std::string current = this->QueryOption("model.scivis.array_name").value_or("");
   if (current.empty() && effectiveInfo.has_value())
   {
     current = effectiveInfo->Name;
   }
-  G3DWidgets::BeginPropRow(loc.Translate("Array").c_str());
-  if (G3DWidgets::BeginSelect(
-        "##g3d.scivis.array", current.c_str(), loc.Translate("Select array").c_str()))
-  {
-    for (const auto& array : arrays)
-    {
-      if (G3DWidgets::SelectItem(array.Name.c_str(), array.Name == current))
-      {
-        this->SendCommand(std::string("set model.scivis.array_name \"") + array.Name + "\"");
-        this->SendCommand("set model.scivis.enable true");
-      }
-    }
-    G3DWidgets::EndSelect();
-  }
-  G3DWidgets::EndPropRow();
 
   // Component: magnitude (-1) or a specific component of the current array.
   int maxComponents = 1;
@@ -2595,52 +2678,72 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   {
     const float dataMin = static_cast<float>(currentInfo->MagnitudeRange[0]);
     const float dataMax = static_cast<float>(currentInfo->MagnitudeRange[1]);
-    float rmin = dataMin;
-    float rmax = dataMax;
-    const std::optional<std::string> rangeStr = this->QueryOption("model.scivis.range");
-    if (rangeStr)
+
+    // Near-degenerate span (numerically > 0 but invisible at display precision, e.g. unit
+    // normals' [0.9999, 1.0001]): a slider would show two overlapping handles and a "1~1"
+    // readout — show the constant instead.
+    char loTxt[32];
+    char hiTxt[32];
+    std::snprintf(loTxt, sizeof(loTxt), "%.4g", dataMin);
+    std::snprintf(hiTxt, sizeof(hiTxt), "%.4g", dataMax);
+    if (std::string(loTxt) == hiTxt)
     {
-      std::stringstream ss(*rangeStr);
-      std::string token;
-      if (std::getline(ss, token, ','))
+      G3DWidgets::BeginPropRow(loc.Translate("Range").c_str());
+      ImGui::TextColored(G3DTheme::TextMuted(), "= %s", loTxt);
+      G3DWidgets::EndPropRow();
+    }
+    else
+    {
+      float rmin = dataMin;
+      float rmax = dataMax;
+      const std::optional<std::string> rangeStr = this->QueryOption("model.scivis.range");
+      if (rangeStr)
       {
-        try
+        std::stringstream ss(*rangeStr);
+        std::string token;
+        if (std::getline(ss, token, ','))
         {
-          rmin = std::stof(token);
+          try
+          {
+            rmin = std::stof(token);
+          }
+          catch (...)
+          {
+          }
         }
-        catch (...)
+        if (std::getline(ss, token, ','))
         {
+          try
+          {
+            rmax = std::stof(token);
+          }
+          catch (...)
+          {
+          }
         }
       }
-      if (std::getline(ss, token, ','))
+      // One dual-handle interval row: the filled span IS the active range (the widget keeps
+      // lo <= hi, so no post-hoc swap is needed before committing). The trailing icon button is
+      // "fit range to data" (auto range) — inline, instead of a floating full-width button row.
+      G3DWidgets::BeginPropRow(loc.Translate("Range").c_str());
+      const float autoBtnW = G3DTheme::Size::Control * scale;
+      const float rangeGap = G3DTheme::Spacing::Xs * scale;
+      ImGui::SetNextItemWidth(
+        std::max(40.f * scale, ImGui::GetContentRegionAvail().x - autoBtnW - rangeGap));
+      if (G3DWidgets::RangeSliderFloat("##v", &rmin, &rmax, dataMin, dataMax, "%.4g"))
       {
-        try
-        {
-          rmax = std::stof(token);
-        }
-        catch (...)
-        {
-        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.6g,%.6g", rmin, rmax);
+        this->SendCommand(std::string("set model.scivis.range ") + buf);
       }
+      ImGui::SameLine(0.f, rangeGap);
+      if (G3DWidgets::IconButton("##g3d.scivis.autorange", G3DIconId::Fit, autoBtnW, false,
+            loc.Translate("Auto range").c_str()))
+      {
+        this->SendCommand("reset model.scivis.range");
+      }
+      G3DWidgets::EndPropRow();
     }
-    // One dual-handle interval row: the filled span IS the active range (the widget keeps
-    // lo <= hi, so no post-hoc swap is needed before committing).
-    G3DWidgets::BeginPropRow(loc.Translate("Range").c_str());
-    if (G3DWidgets::RangeSliderFloat("##v", &rmin, &rmax, dataMin, dataMax, "%.4g"))
-    {
-      char buf[64];
-      std::snprintf(buf, sizeof(buf), "%.6g,%.6g", rmin, rmax);
-      this->SendCommand(std::string("set model.scivis.range ") + buf);
-    }
-    G3DWidgets::EndPropRow();
-    // Soft (not Ghost) so the action reads as a button, aligned to the value column like the
-    // controls above it.
-    G3DWidgets::BeginPropRow("");
-    if (G3DWidgets::Button(loc.Translate("Auto range").c_str(), G3DWidgets::ButtonVariant::Soft))
-    {
-      this->SendCommand("reset model.scivis.range");
-    }
-    G3DWidgets::EndPropRow();
   }
 
   bool scalarBar = this->ReadOptionBool("ui.scalar_bar", false);
@@ -2895,7 +2998,28 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
   auto rightAligned = [&](const char* text, float y, ImU32 col)
   { dl->AddText(ImVec2(p1.x - ImGui::CalcTextSize(text).x, y), col, text); };
   char valBuf[32];
-  const bool degenerate = !(range[1] > range[0]);
+  char minBuf[32];
+  char midBuf[32];
+  bool degenerate = !(range[1] > range[0]);
+  int prec = 4;
+  if (!degenerate)
+  {
+    // Near-degenerate spans print the same number at every tick at %.4g, which reads like a bug:
+    // escalate precision until min/mid/max actually differ; if even %.8g cannot separate them,
+    // fall through to the constant-field label.
+    for (; prec <= 8; ++prec)
+    {
+      std::snprintf(valBuf, sizeof(valBuf), "%.*g", prec, range[1]);
+      std::snprintf(minBuf, sizeof(minBuf), "%.*g", prec, range[0]);
+      std::snprintf(midBuf, sizeof(midBuf), "%.*g", prec, 0.5 * (range[0] + range[1]));
+      if (std::string(valBuf) != minBuf && std::string(valBuf) != midBuf &&
+        std::string(minBuf) != midBuf)
+      {
+        break;
+      }
+    }
+    degenerate = prec > 8;
+  }
   if (degenerate)
   {
     // Constant field: repeating the same number at both ends looks like a bug — one "= v" label
@@ -2905,10 +3029,9 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
   }
   else
   {
-    std::snprintf(valBuf, sizeof(valBuf), "%.4g", range[1]);
+    // valBuf/minBuf/midBuf already hold the labels at the resolved precision.
     rightAligned(valBuf, p0.y - lineH - pad, G3DTheme::U32(G3DTheme::Text()));
-    std::snprintf(valBuf, sizeof(valBuf), "%.4g", range[0]);
-    rightAligned(valBuf, p1.y + pad, G3DTheme::U32(G3DTheme::Text()));
+    rightAligned(minBuf, p1.y + pad, G3DTheme::U32(G3DTheme::Text()));
 
     // Quarter notches + a labeled midpoint on the strip's left flank: a tall two-endpoint bar is
     // hard to read values off; the mid value anchors the scale at a glance.
@@ -2920,10 +3043,9 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
       dl->AddLine(ImVec2(p0.x - tickW - 1.f * scale, ty), ImVec2(p0.x - 1.f * scale, ty), tickCol,
         1.f * scale);
     }
-    std::snprintf(valBuf, sizeof(valBuf), "%.4g", 0.5 * (range[0] + range[1]));
     const float midY = (p0.y + p1.y) * 0.5f;
-    dl->AddText(ImVec2(p0.x - 7.f * scale - ImGui::CalcTextSize(valBuf).x, midY - lineH * 0.5f),
-      tickCol, valBuf);
+    dl->AddText(ImVec2(p0.x - 7.f * scale - ImGui::CalcTextSize(midBuf).x, midY - lineH * 0.5f),
+      tickCol, midBuf);
   }
   const std::string shownTitle = ::EllipsizeMiddle(title, 220.f * scale);
   rightAligned(
@@ -3394,6 +3516,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     this->DrawDataInfoContent(renWin);
     this->DrawColoringContent(renWin);
     this->DrawAppearanceContent();
+    this->DrawLightingContent();
     this->DrawMaterialContent();
     ImGui::EndChild();
     ImGui::End();
