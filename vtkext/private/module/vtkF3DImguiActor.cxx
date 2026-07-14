@@ -741,7 +741,9 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   style->WindowRounding = 8.f;
   style->ScaleAllSizes(this->FontScale);
   style->Colors[ImGuiCol_Text] = ::ColorToImVec4(this->FontColor);
-  style->Colors[ImGuiCol_WindowBg] = F3DStyle::imgui::GetBackgroundColor();
+  // Docked chrome base = the styleguide Panel token, one source of truth with the G3D surface
+  // ramp (#181b21/#20242c/#282d36 all assume this base). F3D_BLACK stays for in-scene elements.
+  style->Colors[ImGuiCol_WindowBg] = G3DTheme::Panel();
   style->Colors[ImGuiCol_FrameBg] = colTransparent;
   style->Colors[ImGuiCol_FrameBgActive] = colTransparent;
   style->Colors[ImGuiCol_ScrollbarBg] = colTransparent;
@@ -3319,8 +3321,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // scene texture into it while keeping this UI texture full-window. So the bars never overlap live
   // 3D — they tile the area around it.
   ImGuiStyle& style = ImGui::GetStyle();
-  style.Colors[ImGuiCol_WindowBg] =
-    ImVec4(this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2], 1.0f);
+  // Docked chrome base = the styleguide Panel token, one source of truth with the G3D surface
+  // ramp (#181b21/#20242c/#282d36 all assume this base). The ui.backdrop option keeps driving the
+  // translucent floating overlays (cheatsheet, pills); the workbench itself is design-fixed.
+  style.Colors[ImGuiCol_WindowBg] = G3DTheme::Panel();
 
   constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
@@ -3718,6 +3722,11 @@ void vtkF3DImguiActor::StartFrame(vtkOpenGLRenderWindow* renWin)
   ImGui::GetMainViewport()->PlatformHandleRaw = renWin->GetGenericWindowId();
 
   this->Pimpl->Initialize(renWin);
+
+  // Reset the default window background every frame: several overlays (cheatsheet, filename pill,
+  // FPS counter) write style.Colors[WindowBg] in place for their own window and never restore it,
+  // so whatever drew last would otherwise dictate the docked bars' base color.
+  ImGui::GetStyle().Colors[ImGuiCol_WindowBg] = G3DTheme::Panel();
 
   ImGui::NewFrame();
 }
