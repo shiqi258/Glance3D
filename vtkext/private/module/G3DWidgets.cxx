@@ -42,6 +42,32 @@ float Scale()
   return ImGui::GetFontSize() / BASE_FONT;
 }
 
+// Data font (monospace) registered by the host — see G3DWidgets::SetDataFont(). Null until set.
+ImFont* gDataFont = nullptr;
+
+// RAII: switch to the data font (values / filenames / array names / counts) at the current size,
+// so Scale() and every text metric stay consistent inside the scope. No-op when no data font is
+// registered — widgets keep working in hosts that never inject one.
+struct DataFontScope
+{
+  bool pushed;
+  DataFontScope()
+    : pushed(gDataFont != nullptr)
+  {
+    if (this->pushed)
+    {
+      ImGui::PushFont(gDataFont, 0.f);
+    }
+  }
+  ~DataFontScope()
+  {
+    if (this->pushed)
+    {
+      ImGui::PopFont();
+    }
+  }
+};
+
 // Per-widget animation state, keyed by ImGuiID and advanced once per frame by a shared clock.
 struct WidgetAnim
 {
@@ -732,6 +758,8 @@ void StatRow(const char* key, const char* value)
   const ImVec2 kts = ImGui::CalcTextSize(key);
   dl->AddText(p, U32(G3DTheme::TextMuted()), key);
 
+  // Values are data — measured and drawn in the data font (mono digits align across rows).
+  const DataFontScope dataFont;
   const ImVec2 vts = ImGui::CalcTextSize(value);
   // Right-align the value, but never let it run back over the key.
   const float vx = std::max(p.x + kts.x + G3DTheme::Spacing::Sm * s, p.x + w - vts.x);
@@ -1181,9 +1209,10 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
     rightX = c0.x - 1.f * s;
   }
 
-  // Count pill (left of the actions).
+  // Count pill (left of the actions) — counts are data.
   if (desc.count && desc.count[0])
   {
+    const DataFontScope dataFont;
     const float fs = 11.f * s;
     const ImVec2 ts = CalcTextSized(desc.count, fs);
     const float px = 7.f * s;
@@ -1612,6 +1641,8 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
   bool emphasizeValue)
 {
   ImGui::PushID(label);
+  // The only text this widget draws is the numeric readout — data font for the whole scope.
+  const DataFontScope dataFont;
   const float s = Scale();
   const float h = G3DTheme::Size::Control * s;
   const float width = ImGui::CalcItemWidth();
@@ -1699,6 +1730,8 @@ bool RangeSliderFloat(
   const char* label, float* lo, float* hi, float vMin, float vMax, const char* format)
 {
   ImGui::PushID(label);
+  // Numeric range readout only — data font for the whole scope (SliderFloat pattern).
+  const DataFontScope dataFont;
   const float s = Scale();
   const float h = G3DTheme::Size::Control * s;
   const float width = ImGui::CalcItemWidth();
@@ -2183,6 +2216,9 @@ void TreeRowLabel(const char* text, bool group, bool dim)
   {
     return;
   }
+  // Node names are data (filenames / assembly node names) — mono; CJK placeholders fall back to
+  // the merged CJK face either way.
+  const DataFontScope dataFont;
   TreeRowFrame& f = gRowStack.back();
   ImVec4 col = group ? G3DTheme::Text() : G3DTheme::TextMuted();
   if (dim)
@@ -2241,6 +2277,8 @@ void TreeRowMeta(const char* text)
   {
     return;
   }
+  // Counts are data — mono digits align down the tree edge.
+  const DataFontScope dataFont;
   TreeRowFrame& f = gRowStack.back();
   const float cy = f.p0.y + f.rowH * 0.5f;
   const ImVec2 ts = ImGui::CalcTextSize(text);
@@ -5019,6 +5057,18 @@ void EndSelect()
 void SetTraceSink(void (*sink)(const char*))
 {
   gTraceSink = sink;
+}
+
+//----------------------------------------------------------------------------
+void SetDataFont(ImFont* font)
+{
+  gDataFont = font;
+}
+
+//----------------------------------------------------------------------------
+ImFont* DataFont()
+{
+  return gDataFont;
 }
 
 //----------------------------------------------------------------------------

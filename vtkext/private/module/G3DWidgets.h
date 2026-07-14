@@ -32,8 +32,17 @@
 #include <functional>
 #include <vector>
 
+struct ImFont;
+
 namespace G3DWidgets
 {
+
+/// Register the DATA font (monospace — numeric values, filenames, array names, timecodes, key
+/// chips). The host loads it next to the UI font and injects it here; widgets push it for data
+/// cells at the ambient size. Null (or never calling this) falls back to the ambient font.
+void SetDataFont(ImFont* font);
+/// The registered data font, or null when none.
+ImFont* DataFont();
 
 /// Visual emphasis of a button.
 enum class ButtonVariant

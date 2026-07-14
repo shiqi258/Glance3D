@@ -3,6 +3,7 @@
 #include "F3DColoringInfoHandler.h"
 #include "F3DDefaultLogo.h"
 #include "F3DFontBuffer.h"
+#include "G3DUIFontBuffer.h"
 #include "F3DStyle.h"
 #include "G3DIcon.h"
 #include "G3DLayout.h"
@@ -667,7 +668,12 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   const bool mergeCJKFont = G3DLocaleCore::GetInstance().NeedsCJK() && !cjkFontPath.empty() &&
     std::filesystem::exists(cjkFontPath);
 
-  auto mergeCJK = [&](float size)
+  // ImGui sizes a font by its total height (ascent - descent) via stbtt_ScaleForPixelHeight, not
+  // by the em. Noto Sans SC has tall CJK vertical metrics (~1.45em), so at the same pixel size
+  // its ideographs render smaller than the Latin base font's caps. Each base font therefore
+  // carries its own rebalance factor for the merged CJK glyphs (tuned by eye against 14px):
+  // Monaspace Neon caps ~0.638x -> 1.2; Inter's tighter vertical metrics pair at ~1.14.
+  auto mergeCJK = [&](float size, float cjkScale)
   {
     if (!mergeCJKFont)
     {
@@ -675,15 +681,10 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
     }
     ImFontConfig cjkConfig;
     cjkConfig.MergeMode = true; // merge into the most recently added font
-    // ImGui sizes a font by its total height (ascent - descent) via stbtt_ScaleForPixelHeight,
-    // not by the em. Noto Sans SC has tall CJK vertical metrics (~1.45em), so at the same pixel
-    // size its ideographs render ~0.611x the size, smaller than the Latin base font's caps
-    // (Monaspace Neon, ~0.638x). Scale the merged CJK font up to rebalance: cap-height parity
-    // is ~1.04 (0.638/0.611), nudged higher so the denser ideographs read on par with the Latin
-    // text. The merged glyphs share the base font's baseline.
-    constexpr float cjkSizeScale = 1.2f;
-    io.Fonts->AddFontFromFileTTF(cjkFontPath.c_str(), size * cjkSizeScale, &cjkConfig, nullptr);
+    io.Fonts->AddFontFromFileTTF(cjkFontPath.c_str(), size * cjkScale, &cjkConfig, nullptr);
   };
+  constexpr float cjkUiScale = 1.14f;   // pairs Noto Sans SC with Inter
+  constexpr float cjkDataScale = 1.2f;  // pairs Noto Sans SC with Monaspace
 
   // Regular UI font size (logical px), unified with the design system (doc/dev/ui-styleguide.html):
   // the industry "regular" base for professional editors is 14px (Ant Design / Fluent / Material;
@@ -693,29 +694,42 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   const float uiFont = 14.f * this->FontScale;
   const float notiSize = uiFont * 0.8f;
 
+  // Dual-font system: UI text = proportional sans (Inter, embedded; --font-file overrides it),
+  // data = Monaspace (always embedded), pushed by widgets for values / filenames / array names /
+  // timecodes. Every base font gets the CJK merge — filenames and user data can be CJK too.
   ImFont* font = nullptr;
   if (this->FontFile.empty())
   {
     // ImGui API is not very helpful with this
     fontConfig.FontDataOwnedByAtlas = false;
     font = io.Fonts->AddFontFromMemoryTTF(
-      const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer), uiFont,
-      &fontConfig, nullptr);
-    mergeCJK(uiFont);
+      const_cast<void*>(reinterpret_cast<const void*>(G3DUIFontBuffer)), sizeof(G3DUIFontBuffer),
+      uiFont, &fontConfig, nullptr);
+    mergeCJK(uiFont, cjkUiScale);
     ImFont* notiFont = io.Fonts->AddFontFromMemoryTTF(
-      const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer),
+      const_cast<void*>(reinterpret_cast<const void*>(G3DUIFontBuffer)), sizeof(G3DUIFontBuffer),
       notiSize, &fontConfig, nullptr);
-    mergeCJK(notiSize);
+    mergeCJK(notiSize, cjkUiScale);
     Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
   else
   {
     font = io.Fonts->AddFontFromFileTTF(this->FontFile.c_str(), uiFont, &fontConfig, nullptr);
-    mergeCJK(uiFont);
+    mergeCJK(uiFont, cjkUiScale);
     ImFont* notiFont =
       io.Fonts->AddFontFromFileTTF(this->FontFile.c_str(), notiSize, &fontConfig, nullptr);
-    mergeCJK(notiSize);
+    mergeCJK(notiSize, cjkUiScale);
     Pimpl->ExtraFonts["notiFont"] = notiFont;
+  }
+  {
+    ImFontConfig dataConfig;
+    dataConfig.FontDataOwnedByAtlas = false;
+    ImFont* dataFont = io.Fonts->AddFontFromMemoryTTF(
+      const_cast<void*>(reinterpret_cast<const void*>(F3DFontBuffer)), sizeof(F3DFontBuffer),
+      uiFont, &dataConfig, nullptr);
+    mergeCJK(uiFont, cjkDataScale);
+    Pimpl->ExtraFonts["dataFont"] = dataFont;
+    G3DWidgets::SetDataFont(dataFont);
   }
 
   // No io.Fonts->Build() / GetTexDataAsRGBA32(): with ImGuiBackendFlags_RendererHasTextures the atlas
@@ -1594,6 +1608,12 @@ void vtkF3DImguiActor::RenderCheatSheet()
 
       ImGui::TableNextColumn();
 
+      // Key chips are data — mono, like every keycap rendering convention.
+      ImFont* chipFont = G3DWidgets::DataFont();
+      if (chipFont != nullptr)
+      {
+        ImGui::PushFont(chipFont, 0.f);
+      }
       ImVec2 topBindingCorner, bottomBindingCorner;
       std::vector<std::string> splittedBinding = ::SplitBindings(bind, '+');
       const float maxCursorPosX = ImGui::GetCursorPosX() + ImGui::GetColumnWidth();
@@ -1620,6 +1640,10 @@ void vtkF3DImguiActor::RenderCheatSheet()
           ImGui::Text("+");
         }
         ImGui::SameLine();
+      }
+      if (chipFont != nullptr)
+      {
+        ImGui::PopFont();
       }
     }
 
@@ -2049,6 +2073,13 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
         ImGui::Dummy(ImVec2(0.f, padY));
         const ImVec2 top = ImGui::GetCursorScreenPos();
 
+        // Name / badge / range are data — mono (CJK glyphs in the badge fall back the same way).
+        ImFont* dataFont = G3DWidgets::DataFont();
+        if (dataFont != nullptr)
+        {
+          ImGui::PushFont(dataFont, 0.f);
+        }
+
         // Line 1: array name (primary, ellipsized) on the left + trailing component badge on the
         // right. The trailing "..." makes the truncation read as intentional (a hard clip against
         // the badge looks like a layout bug).
@@ -2085,6 +2116,10 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
         const ImVec2 p2 = ImGui::GetCursorScreenPos();
         dl->AddText(ImVec2(p2.x + G3DTheme::Spacing::Md * scale, p2.y),
           G3DTheme::U32(G3DTheme::TextMuted()), rng.c_str());
+        if (dataFont != nullptr)
+        {
+          ImGui::PopFont();
+        }
         // Hover: a small paint hint at the row's right end makes the click affordance visible
         // without waiting for the tooltip.
         if (hovered)
@@ -2908,9 +2943,18 @@ void vtkF3DImguiActor::DrawTimelineContent()
   float t = static_cast<float>(this->AnimState.currentTime);
   char timeLabel[32];
   std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
+  ImFont* dataFont = G3DWidgets::DataFont(); // timecodes are data — measure AND draw in mono
   const float speedW = 64.f * scale;
+  if (dataFont != nullptr)
+  {
+    ImGui::PushFont(dataFont, 0.f);
+  }
   const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW +
     2.f * ImGui::GetStyle().ItemSpacing.x + 8.f * scale;
+  if (dataFont != nullptr)
+  {
+    ImGui::PopFont();
+  }
   const float scrubW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - rightW);
   ImGui::SetNextItemWidth(scrubW);
   centerNextY(G3DTheme::Size::Control * scale);
@@ -2925,7 +2969,15 @@ void vtkF3DImguiActor::DrawTimelineContent()
 
   // Total duration label — secondary to the current time, hence muted, on the shared midline.
   centerNextY(ImGui::GetTextLineHeight());
+  if (dataFont != nullptr)
+  {
+    ImGui::PushFont(dataFont, 0.f);
+  }
   ImGui::TextColored(G3DTheme::TextMuted(), "%s", timeLabel);
+  if (dataFont != nullptr)
+  {
+    ImGui::PopFont();
+  }
   ImGui::SameLine();
 
   // Playback speed: stepped dropdown instead of a tiny free slider — the presets cover animation
@@ -3515,10 +3567,15 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       }
     }
 
+    ImFont* dataFont = G3DWidgets::DataFont(); // pager counter + filename title are data
     if (fgTotal > 1)
     {
       char counter[32];
       std::snprintf(counter, sizeof(counter), "%d/%d", fgIndex, fgTotal);
+      if (dataFont != nullptr)
+      {
+        ImGui::PushFont(dataFont, 0.f);
+      }
       const float counterW = ImGui::CalcTextSize(counter).x;
 
       rightX -= G3DTheme::Spacing::Sm * scale + btn; // next-file arrow
@@ -3532,6 +3589,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       ImGui::SetCursorScreenPos(
         ImVec2(counterX, wp.y + (r.top.h - ImGui::GetTextLineHeight()) * 0.5f));
       ImGui::TextColored(G3DTheme::TextMuted(), "%s", counter);
+      if (dataFont != nullptr)
+      {
+        ImGui::PopFont();
+      }
       ImGui::SetCursorScreenPos(ImVec2(nextX, btnY));
       toolButton("##tb.nextfile", G3DIconId::ChevronRight, "load_next_file_group",
         loc.Translate("Next file").c_str());
@@ -3547,6 +3608,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       const float titleAvail = rightX - clusterEndX - 2.f * titleGap;
       if (titleAvail >= 80.f * scale)
       {
+        if (dataFont != nullptr)
+        {
+          ImGui::PushFont(dataFont, 0.f); // filename — measure, ellipsize and draw in mono
+        }
         const std::string shown = ::EllipsizeMiddle(title, titleAvail);
         const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
         // The ellipsizer keeps a fixed tail; on extreme widths that tail alone can overflow the
@@ -3561,6 +3626,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
           {
             ImGui::SetTooltip("%s", title.c_str()); // ellipsized — reveal the full name
           }
+        }
+        if (dataFont != nullptr)
+        {
+          ImGui::PopFont();
         }
       }
     }

@@ -249,6 +249,17 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
 
+## Inter-Medium.ttf
+
+```
+Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The full license text is identical to the SIL OPEN FONT LICENSE Version 1.1
+reproduced in the MonaspaceNeon-Regular section above, and is also available
+with a FAQ at: http://scripts.sil.org/OFL
+```
+
 ### tinyfiledialogs
 
 ```

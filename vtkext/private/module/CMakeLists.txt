@@ -39,16 +39,24 @@ list(APPEND private_headers
   ${CMAKE_CURRENT_BINARY_DIR}/G3DLocaleZhCN.h)
 
 if(F3D_MODULE_UI)
-  set(F3D_FONT_FILE "${F3D_SOURCE_DIR}/resources/MonaspaceNeon-Regular.otf" CACHE PATH "Font used in UI widgets")
+  # Dual-font system: UI text is a proportional sans (Inter), while the historical Monaspace
+  # stays embedded as the DATA font (values, filenames, array names, timecodes via PushFont).
+  set(G3D_UI_FONT_FILE "${F3D_SOURCE_DIR}/resources/Inter-Medium.ttf" CACHE PATH "UI text font")
+  mark_as_advanced(G3D_UI_FONT_FILE)
+  set(F3D_FONT_FILE "${F3D_SOURCE_DIR}/resources/MonaspaceNeon-Regular.otf" CACHE PATH "Data font used in UI widgets (values / filenames)")
   mark_as_advanced(F3D_FONT_FILE)
 
+  f3d_embed_file(
+    INPUT "${G3D_UI_FONT_FILE}"
+    NAME G3DUIFontBuffer
+    BINARY)
   f3d_embed_file(
     INPUT "${F3D_FONT_FILE}"
     NAME F3DFontBuffer
     BINARY)
 
-  list(APPEND sources ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.cxx)
-  list(APPEND private_headers F3DStyle.h G3DAnimation.h G3DLayout.h G3DTheme.h G3DLoupeRaster.h ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.h)
+  list(APPEND sources ${CMAKE_CURRENT_BINARY_DIR}/G3DUIFontBuffer.cxx ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.cxx)
+  list(APPEND private_headers F3DStyle.h G3DAnimation.h G3DLayout.h G3DTheme.h G3DLoupeRaster.h ${CMAKE_CURRENT_BINARY_DIR}/G3DUIFontBuffer.h ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.h)
 
   set(F3D_DEFAULT_LOGO "${F3D_SOURCE_DIR}/resources/logo-black.png" CACHE PATH "logo")
   mark_as_advanced(F3D_DEFAULT_LOGO)
