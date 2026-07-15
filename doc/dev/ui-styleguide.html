@@ -871,16 +871,23 @@
         width: 18px;
         height: 18px;
         border-radius: 50%;
-        background: #fff;
+        /* OFF 旋钮中灰——面板静息时一列关闭开关不该是最亮元素；hover 回亮作可触暗示，
+           纯白只留给 ON 态（accent 轨道上） */
+        background: #878d99;
         box-shadow: var(--shadow-sm);
-        transition: transform var(--t-std) var(--ease);
+        transition: transform var(--t-std) var(--ease), background var(--t-micro) var(--ease);
+      }
+      .toggle:hover::after {
+        background: #b8bec9;
       }
       .toggle.on {
         background: var(--accent);
         border-color: transparent;
       }
-      .toggle.on::after {
+      .toggle.on::after,
+      .toggle.on:hover::after {
         transform: translateX(16px);
+        background: #fff;
       }
       .toggle:focus-visible {
         outline: none;

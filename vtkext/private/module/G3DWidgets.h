@@ -229,14 +229,17 @@ struct GradientStops
 /// Multi-stop gradient bar between @p p0 / @p p1: piecewise AddRectFilledMultiColor segments with
 /// the dark inset ring color chips use (square corners, like the picker's SV/hue bars). @p alpha
 /// multiplies every color (menu fade-in bypasses style.Alpha for custom draws). @p vertical maps
-/// t = max to the top edge (scalar-bar orientation) instead of left-to-right.
+/// t = max to the top edge (scalar-bar orientation) instead of left-to-right. @p muted desaturates
+/// and darkens at full alpha — for a ramp whose feature is present but not currently active (the
+/// strip must go quiet without looking disabled or translucent).
 void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
-  const GradientStops& stops, float alpha = 1.f, bool vertical = false);
+  const GradientStops& stops, float alpha = 1.f, bool vertical = false, bool muted = false);
 
 /// BeginSelect variant whose trigger shows a small gradient strip of the current colormap before
-/// the value text. Same open/close contract as BeginSelect (close with EndSelect()).
-bool BeginSelectColormap(
-  const char* id, const char* preview, const GradientStops& stops, const char* hint = nullptr);
+/// the value text. Same open/close contract as BeginSelect (close with EndSelect()). @p muted
+/// quiets the trigger strip (see DrawGradientStrip) — menu preset rows always stay full-color.
+bool BeginSelectColormap(const char* id, const char* preview, const GradientStops& stops,
+  const char* hint = nullptr, bool muted = false);
 
 /// SelectItem variant with a leading gradient strip (colormap preset rows).
 bool SelectItemColormap(const char* label, const GradientStops& stops, bool selected = false);

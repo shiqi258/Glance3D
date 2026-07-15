@@ -1189,7 +1189,12 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
     dl->AddRectFilled(t0, t1, U32(track), tH * 0.5f);
     const float knobR = tH * 0.5f - 2.f * s;
     const float kx = G3DLerp(t0.x + tH * 0.5f, t1.x - tH * 0.5f, tw.value.Value());
-    dl->AddCircleFilled(ImVec2(kx, cy), knobR, U32(ImVec4(1.f, 1.f, 1.f, 1.f)), 24);
+    // Same muted-off knob as the standalone Toggle(); the header's own hover doubles as the lift
+    // affordance (the toggle has no per-widget hover anim of its own here).
+    const ImVec4 knobOff =
+      LerpColor(G3DTheme::Hex(0x878D99), G3DTheme::Hex(0xB8BEC9), hoverT);
+    const ImVec4 knob = LerpColor(knobOff, ImVec4(1.f, 1.f, 1.f, 1.f), tw.value.Value());
+    dl->AddCircleFilled(ImVec2(kx, cy), knobR, U32(knob), 24);
     if (pressed && mp.x >= t0.x && mp.x <= t1.x)
     {
       *desc.enable = !*desc.enable;
@@ -1585,10 +1590,12 @@ bool Toggle(const char* label, bool* v)
 
   const float knobR = h * 0.5f - 2.f * s + w.hover.Value() * 1.f * s;
   const float kx = G3DLerp(t0.x + h * 0.5f, t1.x - h * 0.5f, w.value.Value());
-  // Knob brightness carries state too (Fluent/Material): muted when off so a resting panel is not
-  // dotted with pure-white circles; full white is reserved for the accent track of the on state.
-  const ImVec4 knob =
-    LerpColor(G3DTheme::Hex(0xB8BEC9), ImVec4(1.f, 1.f, 1.f, 1.f), w.value.Value());
+  // Knob brightness carries state too (Fluent/Material): a resting OFF knob sits at mid grey so a
+  // column of disabled switches is not the brightest thing on the panel; hover lifts it back up as
+  // a touch affordance, and full white is reserved for the accent track of the on state.
+  const ImVec4 knobOff =
+    LerpColor(G3DTheme::Hex(0x878D99), G3DTheme::Hex(0xB8BEC9), w.hover.Value());
+  const ImVec4 knob = LerpColor(knobOff, ImVec4(1.f, 1.f, 1.f, 1.f), w.value.Value());
   dl->AddCircleFilled(ImVec2(kx, cy), knobR, U32(knob, alpha), 24);
 
   if (hasText)
@@ -1713,10 +1720,12 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
     U32(G3DTheme::SurfacePress(), alpha), trackH * 0.5f);
   if (emphasizeValue)
   {
-    // Transport-style slider (timeline scrubber): a hairline rim keeps the long thin track
-    // legible across the whole bar; the inspector's short sliders stay rim-less.
+    // Transport-style slider (timeline scrubber): a strong rim keeps the long thin track legible
+    // across the whole bar (the resting track is barely half a step above the panel — sharpening
+    // its silhouette beats brightening its fill, which would eat the accent fill's contrast); the
+    // inspector's short sliders stay rim-less. Same token as the thumb ring below.
     dl->AddRect(ImVec2(x0, cy - trackH * 0.5f), ImVec2(x1, cy + trackH * 0.5f),
-      U32(G3DTheme::Border(), alpha), trackH * 0.5f, 0, G3DTheme::Size::Border * s);
+      U32(G3DTheme::BorderStrong(), alpha), trackH * 0.5f, 0, G3DTheme::Size::Border * s);
   }
   const float tt = (vMax > vMin && v) ? std::clamp((*v - vMin) / (vMax - vMin), 0.f, 1.f) : 0.f;
   const float gx = G3DLerp(x0, x1, tt);
@@ -3007,7 +3016,7 @@ void EndPropRow()
 
 //----------------------------------------------------------------------------
 void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
-  const GradientStops& stops, float alpha, bool vertical)
+  const GradientStops& stops, float alpha, bool vertical, bool muted)
 {
   // Dark inset ring, same convention as the color chips (never a light outer border on dark UI).
   const ImU32 ring = U32(ImVec4(0.f, 0.f, 0.f, 0.28f), alpha);
@@ -3024,8 +3033,10 @@ void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
   const double t1 = stops.data[(n - 1) * 4];
   const double span = (t1 > t0) ? (t1 - t0) : 1.0;
   // Dimmed contexts (BeginDisabled -> style alpha < 1) also DESATURATE: a saturated ramp at 60%
-  // alpha still reads as the loudest element in an otherwise grayed group.
-  const bool dim = alpha < 0.999f;
+  // alpha still reads as the loudest element in an otherwise grayed group. An explicitly muted
+  // strip (feature present but not active) desaturates AND darkens at full alpha instead — it must
+  // read quiet yet stay clickable-looking, not half-transparent.
+  const bool dim = muted || alpha < 0.999f;
   auto color = [&](int i)
   {
     float r = static_cast<float>(stops.data[i * 4 + 1]);
@@ -3037,6 +3048,12 @@ void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
       r += (luma - r) * 0.6f;
       g += (luma - g) * 0.6f;
       b += (luma - b) * 0.6f;
+    }
+    if (muted)
+    {
+      r *= 0.7f;
+      g *= 0.7f;
+      b *= 0.7f;
     }
     return ImGui::ColorConvertFloat4ToU32(ImVec4(r, g, b, alpha));
   };
@@ -4776,8 +4793,8 @@ void DrawSelectChevron(ImDrawList* dl, const ImVec2& center, float size, ImU32 c
 } // namespace
 
 //----------------------------------------------------------------------------
-static bool BeginSelectImpl(
-  const char* id, const char* preview, const char* hint, const GradientStops* strip)
+static bool BeginSelectImpl(const char* id, const char* preview, const char* hint,
+  const GradientStops* strip, bool mutedStrip = false)
 {
   ImGui::PushID(id);
   const float s = Scale();
@@ -4871,7 +4888,7 @@ static bool BeginSelectImpl(
       const float stripW = std::clamp(stripAvail, 20.f * s, 44.f * s);
       const float stripH = 14.f * s;
       DrawGradientStrip(dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f),
-        *strip, alpha);
+        *strip, alpha, /*vertical=*/false, mutedStrip);
       tx += stripW + G3DTheme::Spacing::Sm * s;
     }
     if (shown[0] != '\0')
@@ -4973,9 +4990,9 @@ bool BeginSelect(const char* id, const char* preview, const char* hint)
 
 //----------------------------------------------------------------------------
 bool BeginSelectColormap(
-  const char* id, const char* preview, const GradientStops& stops, const char* hint)
+  const char* id, const char* preview, const GradientStops& stops, const char* hint, bool muted)
 {
-  return BeginSelectImpl(id, preview, hint, &stops);
+  return BeginSelectImpl(id, preview, hint, &stops, muted);
 }
 
 //----------------------------------------------------------------------------

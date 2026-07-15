@@ -2710,7 +2710,10 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   const G3DWidgets::GradientStops previewStops{ previewPts.data(),
     static_cast<int>(previewPts.size()) };
   G3DWidgets::BeginPropRow(loc.Translate("Colormap").c_str());
-  if (G3DWidgets::BeginSelectColormap("##g3d.scivis.colormap", mapPreview.c_str(), previewStops))
+  // Coloring off -> quiet the trigger swatch (desaturate+darken, still clickable: clicking a
+  // preset auto-enables coloring). The preset rows inside the menu stay full color.
+  if (G3DWidgets::BeginSelectColormap(
+        "##g3d.scivis.colormap", mapPreview.c_str(), previewStops, nullptr, !enable))
   {
     for (std::size_t i = 0; i < std::size(presets); i++)
     {
