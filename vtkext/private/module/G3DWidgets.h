@@ -156,8 +156,12 @@ bool Checkbox(const char* label, bool* v);
 /// Styled slider (pill track + fill + grab, hover glow). Returns true when the value changed.
 /// @p emphasizeValue draws the readout in full-strength text instead of muted — for sliders whose
 /// value IS the primary information (e.g. the timeline's current time), not a secondary detail.
+/// @p tickUnit > 0 draws faint tick marks under the track at automatic multiples of that domain
+/// unit (the timeline passes 1 == one second; the step ladder keeps ticks ≥ ~40px apart). Only the
+/// slider knows its track span (the readout column eats part of the item width), so ticks must be
+/// drawn here, not by the caller. 0 = no ticks.
 bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char* format = "%.2f",
-  bool emphasizeValue = false);
+  bool emphasizeValue = false, float tickUnit = 0.f);
 
 /// Styled dual-handle interval slider: one track, two grabs, the span between them filled with the
 /// accent (the standard "range" control — e.g. scalar coloring min/max). Dragging a handle moves the

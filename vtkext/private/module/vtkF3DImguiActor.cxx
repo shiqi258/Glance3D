@@ -761,9 +761,11 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   style->Colors[ImGuiCol_FrameBg] = colTransparent;
   style->Colors[ImGuiCol_FrameBgActive] = colTransparent;
   style->Colors[ImGuiCol_ScrollbarBg] = colTransparent;
-  style->Colors[ImGuiCol_ScrollbarGrab] = ImVec4(1.f, 1.f, 1.f, 0.12f);
-  style->Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1.f, 1.f, 1.f, 0.25f);
-  style->Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(1.f, 1.f, 1.f, 0.32f);
+  // Scrollbar grab stays quieter than the hairline vocabulary (a resting rail pinned to the panel
+  // edge should be sensed, not read); hover/active lift it back into reach.
+  style->Colors[ImGuiCol_ScrollbarGrab] = ImVec4(1.f, 1.f, 1.f, 0.08f);
+  style->Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1.f, 1.f, 1.f, 0.17f);
+  style->Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(1.f, 1.f, 1.f, 0.21f);
   style->Colors[ImGuiCol_TextSelectedBg] = F3DStyle::imgui::GetHighlightColor();
   style->Colors[ImGuiCol_CheckMark] = F3DStyle::imgui::GetHighlightColor();
   style->Colors[ImGuiCol_ResizeGrip] = F3DStyle::imgui::GetMidColor();
@@ -2961,8 +2963,10 @@ void vtkF3DImguiActor::DrawTimelineContent()
   const float scrubW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - rightW);
   ImGui::SetNextItemWidth(scrubW);
   centerNextY(G3DTheme::Size::Control * scale);
-  // The current time is the timeline's primary readout — full-strength text (emphasizeValue).
-  if (tmax > tmin && G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs", true))
+  // The current time is the timeline's primary readout — full-strength text (emphasizeValue);
+  // tickUnit 1 = faint one-second ruler marks under the track.
+  if (tmax > tmin &&
+    G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs", true, 1.f))
   {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%.6g", t);

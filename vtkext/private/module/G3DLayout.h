@@ -139,7 +139,11 @@ inline Result Compute(const Rect& work, const Sizes& s, float frac, float scale 
 /// panel width.
 inline constexpr float BAR_TOP_H = 44.f;
 inline constexpr float BAR_BOTTOM_H = 40.f;
-inline constexpr float BAR_LEFT_W = 300.f; // scene tree — wide enough for nested node names (matches right bar)
+// Scene tree default: preview scenes are mostly 2–5 shallow nodes, so the tree opens narrow and
+// gives the pixels to the model; users drag it wider for deep assemblies (drag floor is the
+// splitter's 180, ceiling is MaxSideWidth). Deliberately narrower than the inspector, whose
+// two-column prop rows need the width.
+inline constexpr float BAR_LEFT_W = 200.f;
 inline constexpr float BAR_RIGHT_W = 300.f;
 
 /// Build the (scale-multiplied) fully-open bar sizes for the layout solver.

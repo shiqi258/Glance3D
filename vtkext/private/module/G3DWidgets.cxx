@@ -1664,7 +1664,7 @@ bool Checkbox(const char* label, bool* v)
 
 //----------------------------------------------------------------------------
 bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char* format,
-  bool emphasizeValue)
+  bool emphasizeValue, float tickUnit)
 {
   ImGui::PushID(label);
   // The only text this widget draws is the numeric readout — data font for the whole scope.
@@ -1726,6 +1726,39 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
     // inspector's short sliders stay rim-less. Same token as the thumb ring below.
     dl->AddRect(ImVec2(x0, cy - trackH * 0.5f), ImVec2(x1, cy + trackH * 0.5f),
       U32(G3DTheme::BorderStrong(), alpha), trackH * 0.5f, 0, G3DTheme::Size::Border * s);
+  }
+  if (tickUnit > 0.f && vMax > vMin && trackW > 1.f)
+  {
+    // Faint domain-unit ticks under the track (transport rulers): pick the first step from a
+    // 1/5/10/30/60… ladder (then keep doubling) that keeps neighbours ≥ ~40px apart, and draw
+    // hairlines at absolute multiples so the marks stay put while the range scrubs.
+    static constexpr float ladder[] = { 1.f, 5.f, 10.f, 30.f, 60.f, 300.f, 600.f, 1800.f, 3600.f };
+    const float pxPerUnit = trackW / (vMax - vMin);
+    float interval = 0.f;
+    for (float m : ladder)
+    {
+      if (tickUnit * m * pxPerUnit >= 40.f * s)
+      {
+        interval = tickUnit * m;
+        break;
+      }
+    }
+    if (interval <= 0.f)
+    {
+      interval = tickUnit * ladder[std::size(ladder) - 1];
+      while (interval * pxPerUnit < 40.f * s && interval < vMax - vMin)
+      {
+        interval *= 2.f;
+      }
+    }
+    const float tickTop = cy + trackH * 0.5f + 2.f * s;
+    const ImU32 tickCol = U32(G3DTheme::Border(), alpha);
+    for (float t = std::ceil(vMin / interval) * interval; t <= vMax + 1e-4f; t += interval)
+    {
+      const float tx = G3DLerp(x0, x1, std::clamp((t - vMin) / (vMax - vMin), 0.f, 1.f));
+      dl->AddLine(ImVec2(tx, tickTop), ImVec2(tx, tickTop + 3.f * s), tickCol,
+        G3DTheme::Size::Border * s);
+    }
   }
   const float tt = (vMax > vMin && v) ? std::clamp((*v - vMin) / (vMax - vMin), 0.f, 1.f) : 0.f;
   const float gx = G3DLerp(x0, x1, tt);
