@@ -1107,20 +1107,26 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   const bool animating = showBody && openT < 0.999f;
   res.open = showBody;
 
+  // Flat headers draw an INSET rounded band (the app-wide "rounded inset" interactive shape); the
+  // full-width row stays the hit target, so the pads below place content relative to the band edge
+  // (band inset 8 + band-internal pad 8 = 16, on the 8px grid).
+  const float flatInset = G3DTheme::Spacing::Sm * s;
   const float headPadL = (desc.variant == CollapseVariant::Ghost ? 2.f
       : desc.variant == CollapseVariant::Sub                     ? 6.f
-      : desc.variant == CollapseVariant::Flat                    ? 10.f
+      : desc.variant == CollapseVariant::Flat                    ? 16.f
                                                                  : 8.f) *
     s;
-  const float headPadR = 10.f * s;
+  const float headPadR = (desc.variant == CollapseVariant::Flat ? 16.f : 10.f) * s;
 
   AAGuard aa(dl);
 
-  // Flat sections have a persistent subtle header band (UE5 category header): one surface step
-  // above the panel, square and full-bleed — the only rest-state chrome a docked section carries.
+  // Flat sections have a persistent subtle header band (a docked category header): one surface
+  // step above the panel, drawn inset and rounded like every other interactive surface — the only
+  // rest-state chrome a docked section carries. The click target stays the full row width.
   if (desc.variant == CollapseVariant::Flat)
   {
-    dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + headerH), U32(G3DTheme::Surface()));
+    dl->AddRectFilled(ImVec2(p0.x + flatInset, p0.y), ImVec2(p0.x + width - flatInset, p0.y + headerH),
+      U32(G3DTheme::Surface()), G3DTheme::Radius::Control * s);
   }
 
   // Header hover background (rest = none; the card/accordion surface shows through). For a flush
@@ -1130,29 +1136,40 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   // pokes past a rounded corner.
   if (hoverT > 0.001f)
   {
-    const ImVec4 hbg = inAccordion ? G3DTheme::Surface() : G3DTheme::SurfaceHover();
-    ImDrawFlags rf = ImDrawFlags_RoundCornersNone;
-    float rr = 0.f;
-    if (desc.variant == CollapseVariant::Sub || desc.variant == CollapseVariant::Ghost)
+    if (desc.variant == CollapseVariant::Flat)
     {
-      rr = G3DTheme::Radius::Small * s;
-      rf = ImDrawFlags_RoundCornersAll;
+      // Flat: brighten the inset band itself, and jump TWO surface steps (press tone) — the band
+      // rests only half a step above the panel, so a one-step hover barely registered.
+      dl->AddRectFilled(ImVec2(p0.x + flatInset, p0.y),
+        ImVec2(p0.x + width - flatInset, p0.y + headerH), U32(G3DTheme::SurfacePress(), hoverT),
+        G3DTheme::Radius::Control * s);
     }
-    else if (hasBorder)
+    else
     {
-      // Standalone card: only when fully collapsed is the header the whole card (round all four
-      // corners). Open OR mid-animation, the body sits below behind a straight seam -> round the top
-      // only (keyed on the animated openT so the corners don't pop during the tween).
-      rr = G3DTheme::Radius::Card * s;
-      rf = showBody ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll;
+      const ImVec4 hbg = inAccordion ? G3DTheme::Surface() : G3DTheme::SurfaceHover();
+      ImDrawFlags rf = ImDrawFlags_RoundCornersNone;
+      float rr = 0.f;
+      if (desc.variant == CollapseVariant::Sub || desc.variant == CollapseVariant::Ghost)
+      {
+        rr = G3DTheme::Radius::Small * s;
+        rf = ImDrawFlags_RoundCornersAll;
+      }
+      else if (hasBorder)
+      {
+        // Standalone card: only when fully collapsed is the header the whole card (round all four
+        // corners). Open OR mid-animation, the body sits below behind a straight seam -> round the
+        // top only (keyed on the animated openT so the corners don't pop during the tween).
+        rr = G3DTheme::Radius::Card * s;
+        rf = showBody ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll;
+      }
+      else if (firstInAccordion)
+      {
+        // First item follows the accordion's rounded top corners (the rest of the seam is straight).
+        rr = G3DTheme::Radius::Card * s;
+        rf = ImDrawFlags_RoundCornersTop;
+      }
+      dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + headerH), U32(hbg, hoverT), rr, rf);
     }
-    else if (firstInAccordion)
-    {
-      // First item follows the accordion's rounded top corners (the rest of the seam is straight).
-      rr = G3DTheme::Radius::Card * s;
-      rf = ImDrawFlags_RoundCornersTop;
-    }
-    dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + headerH), U32(hbg, hoverT), rr, rf);
   }
 
   // --- trailing items, laid out right-to-left; record their hit so the click routes correctly. ---
@@ -1465,9 +1482,11 @@ void EndCollapse()
   }
   else if (cf.flatSection)
   {
-    // Flat sections stack flush, separated by a single full-width hairline (Blender/UE5). Reserve
-    // the line's pixel so the next section's header band starts below it instead of covering it.
-    dl->AddLine(ImVec2(cf.p0.x, bottomY), ImVec2(cf.p0.x + cf.width, bottomY),
+    // Flat sections stack flush, separated by a single hairline. Its ends align with the header
+    // band's inset edges (one width vocabulary). Reserve the line's pixel so the next section's
+    // header band starts below it instead of covering it.
+    const float inset = G3DTheme::Spacing::Sm * s;
+    dl->AddLine(ImVec2(cf.p0.x + inset, bottomY), ImVec2(cf.p0.x + cf.width - inset, bottomY),
       U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
     ImGui::Dummy(ImVec2(cf.width, G3DTheme::Size::Border * s));
   }

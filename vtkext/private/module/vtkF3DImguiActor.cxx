@@ -3386,6 +3386,54 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
 
+  // Gutter system: the bars are drawn as rounded "islands" separated from each other and from the
+  // central viewport by a uniform dark joint. Compute()'s tiling stays untouched (the 3D viewport
+  // derives from the same untouched `center`); each island is its bar rect shrunk by the gutter on
+  // the ONE edge that faces a neighbor (top bar: bottom edge; bottom bar: top edge; side bars:
+  // inner edge), so every adjacency shows exactly one gutter width.
+  const float gutter = 2.f * scale;
+  auto shrinkX = [&](G3DLayout::Rect rc, bool fromLeft) -> G3DLayout::Rect
+  {
+    const float d = std::min(gutter, rc.w);
+    rc.w = std::max(0.f, rc.w - d);
+    if (fromLeft)
+    {
+      rc.x += d;
+    }
+    return rc;
+  };
+  auto shrinkY = [&](G3DLayout::Rect rc, bool fromTop) -> G3DLayout::Rect
+  {
+    const float d = std::min(gutter, rc.h);
+    rc.h = std::max(0.f, rc.h - d);
+    if (fromTop)
+    {
+      rc.y += d;
+    }
+    return rc;
+  };
+  const G3DLayout::Rect topIsle = shrinkY(r.top, /*fromTop=*/false);
+  const G3DLayout::Rect bottomIsle = shrinkY(r.bottom, /*fromTop=*/true);
+  const G3DLayout::Rect leftIsle = shrinkX(r.left, /*fromLeft=*/false);
+  const G3DLayout::Rect rightIsle = shrinkX(r.right, /*fromLeft=*/true);
+
+  // The chrome substrate: fill the ORIGINAL bar rects (they tile work − center exactly) with the
+  // opaque AppBg on the background draw list — above the 3D, below every window. This is what
+  // shows through the gutters and the islands' rounded corners. It MUST be opaque: outside the
+  // central rect the compositor samples the scene texture clamped-to-edge (see
+  // vtkF3DOverlayRenderPass), so a translucent fill would blend with smeared scene edge pixels.
+  {
+    ImDrawList* bg = ImGui::GetBackgroundDrawList();
+    const ImU32 appBg = G3DTheme::U32(G3DTheme::AppBg());
+    for (const G3DLayout::Rect* rc : { &r.top, &r.bottom, &r.left, &r.right })
+    {
+      if (rc->w > 0.5f && rc->h > 0.5f)
+      {
+        bg->AddRectFilled(ImVec2(rc->x, rc->y), ImVec2(rc->x + rc->w, rc->y + rc->h), appBg);
+      }
+    }
+  }
+
   auto beginBar = [&](const char* id, const G3DLayout::Rect& rc) -> bool
   {
     if (rc.w < 1.f || rc.h < 1.f)
@@ -3393,9 +3441,9 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       return false; // bar collapsed to nothing mid-animation
     }
     ::SetupNextWindow(ImVec2(rc.x, rc.y), ImVec2(rc.w, rc.h));
-    // Docked chrome is square: the global WindowRounding (kept for floating windows) would round
-    // every bar corner and open a notch where two bars meet (e.g. bottom strip vs side panel).
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+    // Islands are gently rounded; the corner cutouts land on the AppBg substrate (they are inside
+    // the original bar rect), so no neighbor notch can open where two bars meet.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, G3DTheme::Radius::Control * scale);
     ImGui::Begin(id, nullptr, flags);
     ImGui::PopStyleVar();
     return true;
@@ -3403,12 +3451,12 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 
   // Top bar — command toolbar: vertically-centered icon buttons for safe, momentary view actions and
   // display toggles, dispatched through the same command path the FAB uses.
-  if (beginBar("##g3d.bar.top", r.top))
+  if (beginBar("##g3d.bar.top", topIsle))
   {
     const float btn = G3DTheme::Size::IconButton * scale;
     const ImVec2 wp = ImGui::GetWindowPos();
     ImGui::SetCursorScreenPos(
-      ImVec2(wp.x + ImGui::GetStyle().WindowPadding.x, wp.y + (r.top.h - btn) * 0.5f));
+      ImVec2(wp.x + ImGui::GetStyle().WindowPadding.x, wp.y + (topIsle.h - btn) * 0.5f));
 
     auto toolButton = [&](const char* id, G3DIconId icon, const char* cmd, const char* tip,
                         bool on = false,
@@ -3523,8 +3571,8 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     // Screenshot / pager / open are app-level commands: embedding contexts without them just log
     // an unknown-command warning on click.
     const float gapXs = G3DTheme::Spacing::Xs * scale;
-    const float btnY = wp.y + (r.top.h - btn) * 0.5f;
-    float rightX = wp.x + r.top.w - ImGui::GetStyle().WindowPadding.x - btn;
+    const float btnY = wp.y + (topIsle.h - btn) * 0.5f;
+    float rightX = wp.x + topIsle.w - ImGui::GetStyle().WindowPadding.x - btn;
     ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
     // Collapse = close the chrome whatever opened it: the panel option itself or the legacy
     // metadata / scene-hierarchy force-opens (a bare toggle could re-OPEN ui.control_panel while
@@ -3587,7 +3635,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       toolButton("##tb.prevfile", G3DIconId::ChevronLeft, "load_previous_file_group",
         loc.Translate("Previous file").c_str());
       ImGui::SetCursorScreenPos(
-        ImVec2(counterX, wp.y + (r.top.h - ImGui::GetTextLineHeight()) * 0.5f));
+        ImVec2(counterX, wp.y + (topIsle.h - ImGui::GetTextLineHeight()) * 0.5f));
       ImGui::TextColored(G3DTheme::TextMuted(), "%s", counter);
       if (dataFont != nullptr)
       {
@@ -3618,9 +3666,9 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
         // span — skip rather than run under the right cluster.
         if (ts.x <= titleAvail)
         {
-          float tx = wp.x + (r.top.w - ts.x) * 0.5f;
+          float tx = wp.x + (topIsle.w - ts.x) * 0.5f;
           tx = std::max(clusterEndX + titleGap, std::min(tx, rightX - titleGap - ts.x));
-          ImGui::SetCursorScreenPos(ImVec2(tx, wp.y + (r.top.h - ts.y) * 0.5f));
+          ImGui::SetCursorScreenPos(ImVec2(tx, wp.y + (topIsle.h - ts.y) * 0.5f));
           ImGui::TextColored(G3DTheme::TextMuted(), "%s", shown.c_str());
           if (shown.size() != title.size() && ImGui::IsItemHovered())
           {
@@ -3637,7 +3685,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   }
 
   // Left bar — scene hierarchy tree (shared traversal with the floating widget).
-  if (beginBar("##g3d.bar.left", r.left))
+  if (beginBar("##g3d.bar.left", leftIsle))
   {
     G3DWidgets::PanelHeader(loc.Translate("Scene").c_str(), G3DIconId::Layers);
     this->DrawSceneTreeContent(renWin);
@@ -3650,7 +3698,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // section's body carries its own content inset (PanelHeader keeps its own minimum edge inset).
   ImGui::PushStyleVar(
     ImGuiStyleVar_WindowPadding, ImVec2(0.f, ImGui::GetStyle().WindowPadding.y));
-  if (beginBar("##g3d.bar.right", r.right))
+  if (beginBar("##g3d.bar.right", rightIsle))
   {
     G3DWidgets::PanelHeader(loc.Translate("Inspector").c_str(), G3DIconId::Sliders);
     ImGui::BeginChild("##g3d.inspector", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
@@ -3669,7 +3717,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   ImGui::PopStyleVar();
 
   // Bottom bar — animation timeline (play/pause, scrubber, speed); a hint when there is no animation.
-  if (beginBar("##g3d.bar.bottom", r.bottom))
+  if (beginBar("##g3d.bar.bottom", bottomIsle))
   {
     this->DrawTimelineContent();
     ImGui::End();
@@ -3729,33 +3777,21 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     }
     if (hovered || active)
     {
+      // Light up the gutter itself (the visible joint between the island and the viewport) — a
+      // filled strip reads as "this seam is grabbable", where the old 1.5px line at the window
+      // center barely registered.
       ImDrawList* dl = ImGui::GetWindowDrawList();
-      const ImVec2 p = ImGui::GetWindowPos();
-      const float cx = p.x + splitterW * 0.5f;
+      const float gx = isLeft ? boundaryX - gutter : boundaryX;
       ImVec4 col = G3DTheme::Accent();
-      col.w = active ? 0.9f : 0.5f;
-      dl->AddLine(ImVec2(cx, p.y), ImVec2(cx, p.y + bar.h), G3DTheme::U32(col), 1.5f * scale);
+      col.w = active ? 0.9f : 0.55f;
+      dl->AddRectFilled(
+        ImVec2(gx, bar.y), ImVec2(gx + gutter, bar.y + bar.h), G3DTheme::U32(col));
     }
     ImGui::End();
     ImGui::PopStyleVar();
   };
   drawSplitter("##g3d.split.left", r.center.x, r.left, true);
   drawSplitter("##g3d.split.right", r.right.x, r.right, false);
-
-  // Recessed joint around the central viewport — the seam between the opaque docked chrome and
-  // the live 3D. A dark gap (Blender-style) so the canvas reads as set INTO the workbench; the
-  // previous white-based hairline rendered brighter than both sides and outlined the canvas like
-  // a glowing wire. Drawn on the foreground so it sits above the bar fills at the boundary; its
-  // alpha follows the open fraction so it fades in/out with the panel.
-  if (r.center.w > 1.f && r.center.h > 1.f)
-  {
-    ImDrawList* fg = ImGui::GetForegroundDrawList();
-    ImVec4 seam = G3DTheme::Seam();
-    seam.w *= eased;
-    fg->AddRect(ImVec2(r.center.x, r.center.y),
-      ImVec2(r.center.x + r.center.w, r.center.y + r.center.h), G3DTheme::U32(seam), 0.f, 0,
-      G3DTheme::Size::Border * scale);
-  }
 }
 
 //----------------------------------------------------------------------------

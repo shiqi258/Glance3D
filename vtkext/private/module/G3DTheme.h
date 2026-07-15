@@ -174,6 +174,15 @@ inline ImVec4 TextSubtle()
   return t;
 }
 
+/// App backdrop (styleguide --bg) — the window base BELOW the docked chrome. Shows only through
+/// the gutters between panel islands and their rounded corners; must stay opaque there (the
+/// compositor clamps the 3D scene texture outside the central viewport, so any transparency
+/// would blend with smeared scene edge pixels — see vtkF3DOverlayRenderPass).
+inline ImVec4 AppBg()
+{
+  return Hex(0x0b0c10);
+}
+
 /// Panel surface (styleguide surface-1) — the darkest elevation, used for docked panel chrome.
 inline ImVec4 Panel()
 {
@@ -203,14 +212,6 @@ inline ImVec4 BorderStrong()
 {
   return ImVec4(1.f, 1.f, 1.f, 0.16f);
 }
-/// Recessed seam between the docked chrome and the viewport: a dark joint (Blender-style area
-/// gap), never a light line — a white-based hairline reads brighter than both sides and outlines
-/// the canvas like a glowing wire.
-inline ImVec4 Seam()
-{
-  return ImVec4(0.f, 0.f, 0.f, 0.45f);
-}
-
 inline ImVec4 Danger()
 {
   return Hex(0xf56a57);

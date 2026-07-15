@@ -1812,22 +1812,45 @@
         padding-right: 0;
       }
 
-      /* 变体 · flat 停靠满宽分区（Blender/UE5 分类头：无卡片壳，淡色满宽表头带 +
-         分区间 1px 分隔线；用于停靠面板栏，非浮动窗口） */
+      /* 变体 · flat 停靠分区（停靠面板栏的分类头，非浮动窗口）：表头是「内衬圆角带」——
+         视觉带两侧各内衬 8px、圆角 --r-md，与树行/图标钮的悬停形状同一语言；命中区保持
+         满行宽（带画在 ::before 上，head 自身不缩）。hover 跳两档到 surface-4（带静息只比
+         面板高半档，跳一档读不出来）。分区间分隔线同样内衬 8px 与带边对齐。 */
       .collapse.flat {
         background: transparent;
         border: none;
         border-radius: 0;
-        border-bottom: 1px solid var(--border);
+      }
+      .collapse.flat::after {
+        content: "";
+        display: block;
+        height: 1px;
+        margin: 0 8px;
+        background: var(--border);
       }
       .collapse.flat > .collapse-head {
         height: 30px;
-        padding-left: 10px;
+        padding: 0 16px; /* 带内衬 8 + 带内边距 8 */
+        position: relative;
+        isolation: isolate;
+        background: transparent;
+      }
+      .collapse.flat > .collapse-head::before {
+        content: "";
+        position: absolute;
+        inset: 0 8px;
+        border-radius: var(--r-md);
         background: var(--surface-2);
+        z-index: -1;
+        transition: background var(--t-micro) var(--ease);
       }
       .collapse.flat > .collapse-head:hover,
       .collapse.flat.is-hover > .collapse-head {
-        background: var(--surface-3);
+        background: transparent;
+      }
+      .collapse.flat > .collapse-head:hover::before,
+      .collapse.flat.is-hover > .collapse-head::before {
+        background: var(--surface-4);
       }
       .collapse.flat > .collapse-body > .collapse-clip > .collapse-body-inner {
         border-top: none;
@@ -2990,10 +3013,10 @@
               <div style="width: 260px"><div class="state-label">禁用</div><g3d-collapse ic="cube" title="区段" state="disabled"><g3d-proprow k="属性"><g3d-toggle></g3d-toggle></g3d-proprow></g3d-collapse></div>
               <div style="width: 260px"><div class="state-label">幽灵（无边框 · 内联）</div><g3d-collapse v="ghost" title="高级选项" open><g3d-proprow k="属性"><g3d-toggle></g3d-toggle></g3d-proprow></g3d-collapse></div>
               <div style="width: 260px"><div class="state-label">超紧凑 dense</div><g3d-collapse ic="cube" title="区段" den="dense" open><g3d-proprow k="属性"><g3d-segmented val="A" opts="A|B|C"></g3d-segmented></g3d-proprow></g3d-collapse></div>
-              <div style="width: 260px; background: var(--surface-1)"><div class="state-label">flat（停靠满宽分区）</div><g3d-collapse v="flat" ic="cube" title="几何" open><g3d-proprow k="属性"><g3d-toggle on></g3d-toggle></g3d-proprow></g3d-collapse><g3d-collapse v="flat" ic="layers" title="数组" count="2"></g3d-collapse></div>
+              <div style="width: 260px; background: var(--surface-1)"><div class="state-label">flat（停靠分区 · 内衬带）</div><g3d-collapse v="flat" ic="cube" title="几何" open><g3d-proprow k="属性"><g3d-toggle on></g3d-toggle></g3d-proprow></g3d-collapse><g3d-collapse v="flat" ic="layers" title="数组" count="2"></g3d-collapse></div>
             </div>
             <div class="note">
-              密度：<code>den="compact|dense"</code> 压低表头与正文内边距；变体：<code>v="sub"</code> 嵌套子面板缩进弱化、<code>v="ghost"</code> 去边框内联、<code>v="overline"</code> 大写微标题（VS Code 侧栏式）、<code>v="flat"</code> 停靠满宽分区（Blender/UE5 分类头：淡色表头带 + 分区间 1px 分隔，检视器停靠栏用）。
+              密度：<code>den="compact|dense"</code> 压低表头与正文内边距；变体：<code>v="sub"</code> 嵌套子面板缩进弱化、<code>v="ghost"</code> 去边框内联、<code>v="overline"</code> 大写微标题（VS Code 侧栏式）、<code>v="flat"</code> 停靠分区（检视器停靠栏用：内衬圆角表头带 + 内衬 1px 分隔，命中区仍满行宽；hover 跳 surface-4）。
               展开过渡用 <code>grid-rows 0fr↔1fr</code> 近似，桌面 ImGui 端对应 <code>CollapsingHeader</code> 即时展开。
             </div>
           </div>
