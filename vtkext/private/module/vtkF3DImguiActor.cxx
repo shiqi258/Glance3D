@@ -3382,7 +3382,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // 3D — they tile the area around it.
   ImGuiStyle& style = ImGui::GetStyle();
   // Docked chrome base = the styleguide Panel token, one source of truth with the G3D surface
-  // ramp (#181b21/#20242c/#282d36 all assume this base). The ui.backdrop option keeps driving the
+  // ramp (#242933/#2e3441/#384050 all assume this base). The ui.backdrop option keeps driving the
   // translucent floating overlays (cheatsheet, pills); the workbench itself is design-fixed.
   style.Colors[ImGuiCol_WindowBg] = G3DTheme::Panel();
 
@@ -3398,7 +3398,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // derives from the same untouched `center`); each island is its bar rect shrunk by the gutter on
   // the ONE edge that faces a neighbor (top bar: bottom edge; bottom bar: top edge; side bars:
   // inner edge), so every adjacency shows exactly one gutter width.
-  const float gutter = 2.f * scale;
+  const float gutter = 4.f * scale;
   auto shrinkX = [&](G3DLayout::Rect rc, bool fromLeft) -> G3DLayout::Rect
   {
     const float d = std::min(gutter, rc.w);
@@ -3449,10 +3449,16 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     }
     ::SetupNextWindow(ImVec2(rc.x, rc.y), ImVec2(rc.w, rc.h));
     // Islands are gently rounded; the corner cutouts land on the AppBg substrate (they are inside
-    // the original bar rect), so no neighbor notch can open where two bars meet.
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, G3DTheme::Radius::Control * scale);
+    // the original bar rect), so no neighbor notch can open where two bars meet. A 1px hairline
+    // rim traces each island: two dark surfaces meeting across a dark gutter are hard to tell
+    // apart by fill alone, but the eye picks up a faint bright edge immediately — the rim is what
+    // keeps the island outline legible everywhere, including next to empty (all-Panel) regions.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, G3DTheme::Radius::Card * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, G3DTheme::Size::Border * scale);
+    ImGui::PushStyleColor(ImGuiCol_Border, G3DTheme::Border());
     ImGui::Begin(id, nullptr, flags);
-    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
     return true;
   };
 

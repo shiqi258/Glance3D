@@ -186,21 +186,24 @@ inline ImVec4 AppBg()
 /// Panel surface (styleguide surface-1) — the darkest elevation, used for docked panel chrome.
 inline ImVec4 Panel()
 {
-  return Hex(0x131519);
+  return Hex(0x1a1e24);
 }
 
 /// Elevation surfaces (styleguide surface ramp), opaque so fills read over the panel.
+/// The five dark steps (AppBg → Panel → Surface → Hover → Press) form an even perceptual ramp,
+/// each ≥5 L* apart, so every adjacency — gutter vs panel, panel vs section band — is legible at
+/// rest; tighter steps proved indistinguishable in the docked layout (no shadows to help).
 inline ImVec4 Surface()
 {
-  return Hex(0x181b21);
+  return Hex(0x242933);
 }
 inline ImVec4 SurfaceHover()
 {
-  return Hex(0x20242c);
+  return Hex(0x2e3441);
 }
 inline ImVec4 SurfacePress()
 {
-  return Hex(0x282d36);
+  return Hex(0x384050);
 }
 
 /// Hairline border / divider, and a stronger variant for hover/emphasis.

@@ -399,7 +399,7 @@ void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned c
   const float pillRR = 7.f * sf;
   const unsigned char shadowCol[4] = { 0, 0, 0, 70 };
   const unsigned char noCol[4] = { 0, 0, 0, 0 };
-  const unsigned char pillBg[4] = { 24, 27, 33, 255 };       // G3DTheme::Surface (0x181b21)
+  const unsigned char pillBg[4] = { 36, 41, 51, 255 };       // G3DTheme::Surface (0x242933)
   const unsigned char pillBorder[4] = { 255, 255, 255, 23 }; // G3DTheme::Border (white @ 9%)
   G3DLoupe::RenderRoundRect(px, W, H, pillX - 1.f, pillY + 2.f * sf,
     static_cast<float>(pillX + pillW) + 1.f, static_cast<float>(pillY + pillH) + 2.f * sf, pillRR,

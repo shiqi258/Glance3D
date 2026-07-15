@@ -2725,10 +2725,10 @@ bool gEyedropCancel = false; // right-click cancel request from CancelEyedropper
 constexpr float HDR_INT_MAX = 8.f;
 
 // The styleguide preset row (a balanced ramp), packed 0xRRGGBB. The neutral tail carries the two
-// viewer-background anchors: 0x333333 (factory background) and 0x131519 (== G3DTheme::Panel(),
+// viewer-background anchors: 0x333333 (factory background) and 0x1a1e24 (== G3DTheme::Panel(),
 // "match the workbench" for an immersive canvas).
 const unsigned int kPresets[] = { 0x7C8CFF, 0x5566F0, 0x22D3EE, 0x5FD08A, 0xF3B13F, 0xF56A57,
-  0xF472B6, 0xA78BFA, 0xE8EAF0, 0x9AA1AD, 0x333333, 0x131519 };
+  0xF472B6, 0xA78BFA, 0xE8EAF0, 0x9AA1AD, 0x333333, 0x1A1E24 };
 
 // Checkerboard transparency base. DARK-THEME cells (two muted grays, not the classic white/light
 // #c2c8d2) so a translucent color reads as part of the dark UI instead of flashing a white backdrop.
