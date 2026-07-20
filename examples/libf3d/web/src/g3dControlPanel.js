@@ -262,6 +262,7 @@ export function initG3DControlPanel(engine) {
   let tlPlay = null;
   let tlScrub = null;
   let tlCur = null;
+  let tlLoop = null;
   let scrubbing = false;
 
   const buildTimeline = () => {
@@ -321,9 +322,23 @@ export function initG3DControlPanel(engine) {
     speed.value = String(getFloat("scene.animation.speed_factor", 1));
     speed.addEventListener("input", () => setOpt("scene.animation.speed_factor", speed.value));
 
+    // Loop toggle — a playback MODE switch mirroring the desktop timeline. Default on keeps a
+    // glanced-at preview moving; off lets the clip play once and rest on its final pose (the engine
+    // gates the wrap on scene.animation.loop, so the shared core drives the behavior either way).
+    tlLoop = el("button", "g3d-timeline__loop");
+    tlLoop.type = "button";
+    tlLoop.textContent = "🔁";
+    tlLoop.title = "Loop";
+    tlLoop.setAttribute("aria-label", "Loop");
+    tlLoop.classList.toggle("is-active", getBool("scene.animation.loop", true));
+    tlLoop.addEventListener("click", () => {
+      setOpt("scene.animation.loop", getBool("scene.animation.loop", true) ? "false" : "true");
+      tlLoop.classList.toggle("is-active", getBool("scene.animation.loop", true));
+    });
+
     timelineEl.append(el("p", "g3d-timeline__section", "Animation"));
     const row = el("div", "g3d-timeline__row");
-    row.append(tlPlay, tlScrub, tlCur, tlTotal);
+    row.append(tlPlay, tlScrub, tlCur, tlTotal, tlLoop);
     const speedRow = el("div", "g3d-timeline__row");
     speedRow.append(el("span", "g3d-timeline__label", "Speed"), speed);
     timelineEl.append(row, speedRow);
@@ -343,6 +358,9 @@ export function initG3DControlPanel(engine) {
       if (tlCur) {
         tlCur.textContent = fmtTime(t);
       }
+    }
+    if (tlLoop) {
+      tlLoop.classList.toggle("is-active", getBool("scene.animation.loop", true));
     }
   };
 
