@@ -3605,7 +3605,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     toolButton("##tb.open", G3DIconId::Folder, "open_file_dialog",
       loc.Translate("Open file...").c_str(), false, G3DWidgets::IconOnStyle::Fill, "Ctrl+O");
     toolSeparator();
-    toolButton("##tb.fit", G3DIconId::Fit, "reset_camera", loc.Translate("Reset view").c_str(),
+    toolButton("##tb.fit", G3DIconId::Home, "reset_camera", loc.Translate("Reset view").c_str(),
       false, G3DWidgets::IconOnStyle::Fill, "Enter");
     toolButton("##tb.iso", G3DIconId::Cube, "set_camera isometric",
       loc.Translate("Isometric view").c_str(), false, G3DWidgets::IconOnStyle::Fill, "9");

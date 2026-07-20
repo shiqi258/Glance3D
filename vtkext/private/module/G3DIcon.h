@@ -32,7 +32,8 @@ enum class G3DIconId
   EyeOff,
   Grid,
   Axis,
-  Fit, ///< four corner brackets (fit / reset view to frame the model)
+  Fit,  ///< four corner brackets (fit — e.g. reset a data range to its extent)
+  Home, ///< house silhouette (reset / home view — the default camera framing)
   Camera,
   Cube,
   Folder,     ///< closed folder (tree group)

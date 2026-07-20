@@ -152,6 +152,25 @@ void DrawFit(const IconCanvas& c)
   c.Line(b, b, b, b - k); // bottom-right
 }
 
+void DrawHome(const IconCanvas& c)
+{
+  // House silhouette (roof slopes + walls as one closed pentagon) with a doorway — the conventional
+  // "home / reset view" glyph. Unambiguous where the corner brackets read as crop/select.
+  const ImVec2 house[6] = {
+    c.P(0.50f, 0.15f), // peak
+    c.P(0.85f, 0.44f), // right eave
+    c.P(0.85f, 0.85f), // right foot
+    c.P(0.15f, 0.85f), // left foot
+    c.P(0.15f, 0.44f), // left eave
+    c.P(0.50f, 0.15f), // close back to the peak
+  };
+  c.Poly(house, 6);
+  // Doorway: an inverted U standing on the floor (open at the bottom).
+  const ImVec2 door[4] = { c.P(0.41f, 0.85f), c.P(0.41f, 0.60f), c.P(0.59f, 0.60f),
+    c.P(0.59f, 0.85f) };
+  c.Poly(door, 4);
+}
+
 void DrawCamera(const IconCanvas& c)
 {
   c.dl->AddRect(c.P(0.14f, 0.34f), c.P(0.86f, 0.78f), c.color, c.R(0.06f), ImDrawFlags_None, c.th);
@@ -391,6 +410,9 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Fit:
       DrawFit(c);
+      break;
+    case G3DIconId::Home:
+      DrawHome(c);
       break;
     case G3DIconId::Camera:
       DrawCamera(c);
