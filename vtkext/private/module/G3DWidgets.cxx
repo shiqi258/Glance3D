@@ -4823,6 +4823,57 @@ void DrawSelectChevron(ImDrawList* dl, const ImVec2& center, float size, ImU32 c
   }
   dl->AddPolyline(pts, 3, col, ImDrawFlags_None, std::max(1.f, size * 0.085f));
 }
+
+// Shared floating-menu chrome (styleguide .menu box): identical for the <g3d-select> dropdown and
+// the right-click context menu, so both read as one surface. PushMenuStyle before BeginPopup,
+// DrawMenuChrome right after it opens, PopMenuStyle after EndPopup. @p alpha carries the open fade-in.
+void PushMenuStyle(float alpha)
+{
+  const float s = Scale();
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.f * s, 4.f * s)); // .menu padding: 4px
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Popup * s); // floating layer
+  // border drawn manually (DrawMenuChrome): ImGui strokes window borders without line AA (disabled
+  // globally), which staircases the rounded corners
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.f);
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.f, 0.f)); // .menu-item rows stack flush
+  ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);                  // fade-in
+  ImGui::PushStyleColor(ImGuiCol_PopupBg, U32(G3DTheme::SurfaceHover())); // surface-3
+  ImGui::PushStyleColor(ImGuiCol_Border, U32(G3DTheme::Border()));
+}
+
+void PopMenuStyle()
+{
+  ImGui::PopStyleColor(2);
+  ImGui::PopStyleVar(5);
+}
+
+// Styleguide .menu box-shadow + crisp AA border around the fitted popup window (call once, right
+// after BeginPopup returns true).
+void DrawMenuChrome(float alpha)
+{
+  const float s = Scale();
+  ImDrawList* pdl = ImGui::GetWindowDrawList();
+  AAGuard aa(pdl);
+  const ImVec2 wp = ImGui::GetWindowPos();
+  const ImVec2 ws = ImGui::GetWindowSize();
+  const ImVec2 w1(wp.x + ws.x, wp.y + ws.y);
+  const float rounding = G3DTheme::Radius::Popup * s;
+  DrawMenuShadow(pdl, wp, w1, rounding, s, alpha);
+  pdl->PushClipRectFullScreen();
+  pdl->AddRect(wp, w1, U32(G3DTheme::Border(), alpha), rounding, 0, G3DTheme::Size::Border * s);
+  pdl->PopClipRect();
+}
+
+// Right-click context menu bookkeeping: rows draw at the fixed window width (like the dropdown's
+// trigger-width menu), so the popup is pre-sized to the widest label — cached across frames the same
+// way SelectState::menuSize feeds the dropdown's flip-above placement.
+struct ContextMenuState
+{
+  float width = 0.f;     ///< last frame's committed window width
+  float measuring = 0.f; ///< running max row-intrinsic width being accumulated this frame
+};
+std::unordered_map<ImGuiID, ContextMenuState> gContextMenus;
+std::vector<ImGuiID> gContextMenuStack; ///< active context-menu state ids (MenuAction/EndContextMenu)
 } // namespace
 
 //----------------------------------------------------------------------------
@@ -4978,38 +5029,16 @@ static bool BeginSelectImpl(const char* id, const char* preview, const char* hin
   ImGui::SetNextWindowSize(ImVec2(width, 0.f), ImGuiCond_Always); // height auto-fits
   ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.f), ImVec2(width, maxMenuH));
 
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.f * s, 4.f * s)); // .menu padding: 4px
-  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Popup * s); // floating layer
-  // border drawn manually below: ImGui strokes window borders without line AA (disabled globally),
-  // which staircases the rounded corners
-  ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.f);
-  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.f, 0.f)); // .menu-item rows stack flush
-  ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mt);                     // fade-in
-  ImGui::PushStyleColor(ImGuiCol_PopupBg, U32(G3DTheme::SurfaceHover())); // surface-3
-  ImGui::PushStyleColor(ImGuiCol_Border, U32(G3DTheme::Border()));
-
+  PushMenuStyle(mt);
   if (!ImGui::BeginPopup("##menu"))
   {
-    ImGui::PopStyleColor(2);
-    ImGui::PopStyleVar(5);
+    PopMenuStyle();
     Ensure(menuId).hover.Snap(0.f);
     ImGui::PopID();
     return false;
   }
 
-  // shadow + crisp border around the fitted window (the styleguide .menu box-shadow + border)
-  {
-    ImDrawList* pdl = ImGui::GetWindowDrawList();
-    AAGuard aa(pdl);
-    const ImVec2 wp = ImGui::GetWindowPos();
-    const ImVec2 ws = ImGui::GetWindowSize();
-    const ImVec2 w1(wp.x + ws.x, wp.y + ws.y);
-    const float rounding = G3DTheme::Radius::Popup * s;
-    DrawMenuShadow(pdl, wp, w1, rounding, s, mt);
-    pdl->PushClipRectFullScreen();
-    pdl->AddRect(wp, w1, U32(G3DTheme::Border(), mt), rounding, 0, G3DTheme::Size::Border * s);
-    pdl->PopClipRect();
-  }
+  DrawMenuChrome(mt);
 
   gSelectMenuStack.push_back(SelectMenuFrame{ stateId });
   return true;
@@ -5117,8 +5146,86 @@ void EndSelect()
     gSelectMenuStack.pop_back();
   }
   ImGui::EndPopup();
-  ImGui::PopStyleColor(2);
-  ImGui::PopStyleVar(5);
+  PopMenuStyle();
+  ImGui::PopID();
+}
+
+//----------------------------------------------------------------------------
+bool BeginContextMenu(const char* id)
+{
+  ImGui::PushID(id);
+  const float s = Scale();
+  const ImGuiID stateId = ImGui::GetID("##ctxstate");
+  ContextMenuState& st = gContextMenus[stateId];
+
+  // Open on a right-click of the PREVIOUS item (mirrors ImGui::BeginPopupContextItem = this exact
+  // pair). No trigger widget and no toggle state machine: a context menu closes on outside-click /
+  // Esc / item-click like any popup.
+  ImGui::OpenPopupOnItemClick("##ctxmenu", ImGuiPopupFlags_MouseButtonRight);
+
+  const ImGuiID menuId = ImGui::GetID("##ctxmenu");
+  if (!ImGui::IsPopupOpen("##ctxmenu"))
+  {
+    if (ImGui::GetFrameCount() - Ensure(menuId).lastFrame <= 2)
+    {
+      Ensure(menuId).hover.Snap(0.f); // just closed — rearm the fade-in for the next open
+    }
+    ImGui::PopID();
+    return false;
+  }
+
+  // Open transition (same store/Micro motion as the dropdown menu): the ~transparent first frame also
+  // hides the one-frame width guess before this frame's measured fit is committed.
+  WidgetAnim& m = Ensure(menuId);
+  m.lastFrame = ImGui::GetFrameCount();
+  m.hover.AnimateTo(1.f);
+  m.hover.Update(FrameDelta());
+  const float mt = m.hover.Value();
+
+  // Rows fill the window width (SelectItemImpl uses GetContentRegionAvail), so pre-size the popup to
+  // last frame's widest label; a fresh menu falls back to a sensible min until it settles next frame.
+  const float width = st.width > 1.f ? st.width : 160.f * s;
+  ImGui::SetNextWindowSize(ImVec2(width, 0.f), ImGuiCond_Always); // height auto-fits
+  st.measuring = 0.f;
+
+  PushMenuStyle(mt);
+  if (!ImGui::BeginPopup("##ctxmenu"))
+  {
+    PopMenuStyle();
+    ImGui::PopID();
+    return false;
+  }
+  DrawMenuChrome(mt);
+  gContextMenuStack.push_back(stateId);
+  return true;
+}
+
+//----------------------------------------------------------------------------
+bool MenuAction(const char* label)
+{
+  // Feed the popup width cache: rows draw at the fixed window width, so track the widest label's
+  // intrinsic width (text + item padding) this frame; EndContextMenu commits it (+ window padding).
+  if (!gContextMenuStack.empty())
+  {
+    const float s = Scale();
+    ContextMenuState& st = gContextMenus[gContextMenuStack.back()];
+    st.measuring = std::max(st.measuring, ImGui::CalcTextSize(label).x + 2.f * 10.f * s);
+  }
+  return SelectItemImpl(label, false, nullptr); // no check, plain Text() row — same as a dropdown item
+}
+
+//----------------------------------------------------------------------------
+void EndContextMenu()
+{
+  if (!gContextMenuStack.empty())
+  {
+    const float s = Scale();
+    ContextMenuState& st = gContextMenus[gContextMenuStack.back()];
+    st.width = std::max(st.measuring + 2.f * 4.f * s, 120.f * s); // + window padding, min width
+    gContextMenuStack.pop_back();
+  }
+  ImGui::EndPopup();
+  PopMenuStyle();
   ImGui::PopID();
 }
 

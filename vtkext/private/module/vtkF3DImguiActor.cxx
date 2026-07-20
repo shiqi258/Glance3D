@@ -1379,27 +1379,27 @@ void vtkF3DImguiActor::FileNameCopyAffordance(const std::string& fallbackName, b
   }
 
   // Right-click: path variants. File name / containing folder are split off the target string.
-  if (ImGui::BeginPopupContextItem("##g3d.fname.ctx"))
+  if (G3DWidgets::BeginContextMenu("##g3d.fname.ctx"))
   {
     const std::size_t cut = target.find_last_of("/\\");
     const std::string base = cut == std::string::npos ? target : target.substr(cut + 1);
     const std::string dir = cut == std::string::npos ? std::string() : target.substr(0, cut);
-    if (ImGui::MenuItem(loc.Translate("Copy full path").c_str()))
+    if (G3DWidgets::MenuAction(loc.Translate("Copy full path").c_str()))
     {
       ImGui::SetClipboardText(target.c_str());
       this->FileNamePathCopiedTime = ImGui::GetTime();
     }
-    if (ImGui::MenuItem(loc.Translate("Copy file name").c_str()))
+    if (G3DWidgets::MenuAction(loc.Translate("Copy file name").c_str()))
     {
       ImGui::SetClipboardText(base.c_str());
       this->FileNamePathCopiedTime = ImGui::GetTime();
     }
-    if (!dir.empty() && ImGui::MenuItem(loc.Translate("Copy containing folder").c_str()))
+    if (!dir.empty() && G3DWidgets::MenuAction(loc.Translate("Copy containing folder").c_str()))
     {
       ImGui::SetClipboardText(dir.c_str());
       this->FileNamePathCopiedTime = ImGui::GetTime();
     }
-    ImGui::EndPopup();
+    G3DWidgets::EndContextMenu();
   }
 }
 

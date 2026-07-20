@@ -249,6 +249,33 @@ bool BeginSelectColormap(const char* id, const char* preview, const GradientStop
 bool SelectItemColormap(const char* label, const GradientStops& stops, bool selected = false);
 
 //----------------------------------------------------------------------------
+// Context menu
+//
+// A right-click menu sharing the exact styleguide .menu chrome as the <g3d-select> dropdown (same
+// surface-3 popup, r-popup rounding, shadow + AA border, hover-tinted rows) — but with no trigger
+// and action rows instead of a checked value list. Open it on the PREVIOUS item's right-click; the
+// popup auto-positions at the cursor and closes on outside-click / Esc / item-click. Usage:
+//
+//   ImGui::InvisibleButton(...);                 // the item the menu attaches to
+//   if (G3DWidgets::BeginContextMenu("##id"))     // true while the menu is open
+//   {
+//     if (G3DWidgets::MenuAction("Copy path")) { /* do it (the menu closes itself) */ }
+//     G3DWidgets::EndContextMenu();               // ONLY when BeginContextMenu() returned true
+//   }
+//----------------------------------------------------------------------------
+
+/// Right-click context menu begin: opens on the previous item's right-click, styled like the
+/// dropdown .menu. Returns true while open — then emit MenuAction()s and close with EndContextMenu().
+bool BeginContextMenu(const char* id);
+
+/// One context-menu action row (mirrors .menu-item, no check): hover-tinted, plain text; a click
+/// applies and closes the menu. Returns true on the click frame.
+bool MenuAction(const char* label);
+
+/// Close the menu opened by a true-returning BeginContextMenu(). Call exactly then.
+void EndContextMenu();
+
+//----------------------------------------------------------------------------
 // Tree / outliner
 //
 // A reusable, data-source-agnostic outliner that mirrors the styleguide tree (doc/dev/
