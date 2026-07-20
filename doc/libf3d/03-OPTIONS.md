@@ -505,6 +505,11 @@ Display the _filename info content_ on top of the window.
 
 Content of _filename info_ to display.
 
+### `ui.filename_path` (_string_, default: `""`)
+
+Full path of the current file, used by the UI's copy-path affordance (the top-bar filename reveals
+it on hover and copies it on click). Mirrors `ui.filename_info`, which only carries the basename.
+
 ### `ui.hdri_filename` (_bool_, default: `false`)
 
 Display the _HDRI filename info content_ on top of the window.

@@ -1314,12 +1314,92 @@ void vtkF3DImguiActor::RenderFileName()
       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
     ImGui::Begin("FileName", nullptr, flags);
-    ImGui::TextColored(G3DTheme::TextMuted(), "%s", shown.c_str());
-    if (shown.size() != this->FileName.size() && ImGui::IsWindowHovered())
-    {
-      ImGui::SetTooltip("%s", this->FileName.c_str()); // ellipsized — reveal the full name
-    }
+    // Same copy affordance as the docked top-bar title: the name is click-to-copy with a full-path
+    // tooltip and a right-click variants menu. No inline glyph — the floating pill is sized exactly
+    // to the text, so keep it text-only and let hover/tooltip carry the hint.
+    const ImVec2 pillPos = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##g3d.pill.fname", ImGui::CalcTextSize(shown.c_str()));
+    const ImU32 pillCol =
+      G3DTheme::U32(ImGui::IsItemHovered() ? G3DTheme::Text() : G3DTheme::TextMuted());
+    ImGui::GetWindowDrawList()->AddText(pillPos, pillCol, shown.c_str());
+    this->FileNameCopyAffordance(this->FileName, false, 0.f, 0.f, 0.f);
     ImGui::End();
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::FileNameCopyAffordance(const std::string& fallbackName, bool drawGlyph,
+  float glyphCenterX, float glyphCenterY, float glyphSize)
+{
+  // The full absolute path is pushed app-side into ui.filename_path (mirrors ui.filename_info);
+  // fall back to the displayed name when it is unset (piped input / empty scene).
+  const std::string fullPath = this->QueryOption("ui.filename_path").value_or("");
+  const std::string target = fullPath.empty() ? fallbackName : fullPath;
+  if (target.empty())
+  {
+    return;
+  }
+
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const bool hovered = ImGui::IsItemHovered();
+  const double now = ImGui::GetTime();
+  const bool flashing = (now - this->FileNamePathCopiedTime) < 1.5;
+
+  // Inline glyph at the right edge of the name: a check while the "copied" flash is active,
+  // otherwise a copy hint that only shows on hover so the resting bar stays clean.
+  if (drawGlyph && (flashing || hovered))
+  {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 col =
+      flashing ? G3DTheme::U32(G3DTheme::Success()) : G3DTheme::U32(G3DTheme::TextMuted());
+    G3DIcon::Draw(dl, flashing ? G3DIconId::Check : G3DIconId::Copy,
+      ImVec2(glyphCenterX, glyphCenterY), glyphSize, col);
+  }
+
+  // Left-click copies the full path; the release-based click keeps a viewport drag (rotate/pan
+  // started elsewhere) from ever triggering an accidental copy.
+  if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+  {
+    ImGui::SetClipboardText(target.c_str());
+    this->FileNamePathCopiedTime = now;
+  }
+
+  // Hover reveals the full path plus the affordance hint (or the just-copied confirmation).
+  if (hovered)
+  {
+    if (flashing)
+    {
+      ImGui::SetTooltip("%s", loc.Translate("Copied").c_str());
+    }
+    else
+    {
+      ImGui::SetTooltip("%s\n%s", target.c_str(),
+        loc.Translate("Click to copy. Right-click for more").c_str());
+    }
+  }
+
+  // Right-click: path variants. File name / containing folder are split off the target string.
+  if (ImGui::BeginPopupContextItem("##g3d.fname.ctx"))
+  {
+    const std::size_t cut = target.find_last_of("/\\");
+    const std::string base = cut == std::string::npos ? target : target.substr(cut + 1);
+    const std::string dir = cut == std::string::npos ? std::string() : target.substr(0, cut);
+    if (ImGui::MenuItem(loc.Translate("Copy full path").c_str()))
+    {
+      ImGui::SetClipboardText(target.c_str());
+      this->FileNamePathCopiedTime = ImGui::GetTime();
+    }
+    if (ImGui::MenuItem(loc.Translate("Copy file name").c_str()))
+    {
+      ImGui::SetClipboardText(base.c_str());
+      this->FileNamePathCopiedTime = ImGui::GetTime();
+    }
+    if (!dir.empty() && ImGui::MenuItem(loc.Translate("Copy containing folder").c_str()))
+    {
+      ImGui::SetClipboardText(dir.c_str());
+      this->FileNamePathCopiedTime = ImGui::GetTime();
+    }
+    ImGui::EndPopup();
   }
 }
 
@@ -3703,20 +3783,33 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
         const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
         // The ellipsizer keeps a fixed tail; on extreme widths that tail alone can overflow the
         // span — skip rather than run under the right cluster.
+        bool titleDrawn = false;
+        ImVec2 titlePos;
         if (ts.x <= titleAvail)
         {
           float tx = wp.x + (topIsle.w - ts.x) * 0.5f;
           tx = std::max(clusterEndX + titleGap, std::min(tx, rightX - titleGap - ts.x));
-          ImGui::SetCursorScreenPos(ImVec2(tx, wp.y + (topIsle.h - ts.y) * 0.5f));
-          ImGui::TextColored(G3DTheme::TextMuted(), "%s", shown.c_str());
-          if (shown.size() != title.size() && ImGui::IsItemHovered())
-          {
-            ImGui::SetTooltip("%s", title.c_str()); // ellipsized — reveal the full name
-          }
+          titlePos = ImVec2(tx, wp.y + (topIsle.h - ts.y) * 0.5f);
+          // Hit region over the name so it is click-to-copy / right-click for path variants; the
+          // label brightens on hover to signal it is actionable (drawn via the draw list so the
+          // InvisibleButton stays the item the copy affordance reads).
+          ImGui::SetCursorScreenPos(titlePos);
+          ImGui::InvisibleButton("##g3d.tb.fname", ts);
+          const ImU32 col =
+            G3DTheme::U32(ImGui::IsItemHovered() ? G3DTheme::Text() : G3DTheme::TextMuted());
+          ImGui::GetWindowDrawList()->AddText(titlePos, col, shown.c_str());
+          titleDrawn = true;
         }
         if (dataFont != nullptr)
         {
-          ImGui::PopFont();
+          ImGui::PopFont(); // pop before the tooltip/menu so they render in the UI font, not mono
+        }
+        if (titleDrawn)
+        {
+          const float glyphSize = 13.f * scale;
+          const bool room = ts.x + titleGap + glyphSize <= titleAvail;
+          this->FileNameCopyAffordance(title, room,
+            titlePos.x + ts.x + titleGap + glyphSize * 0.5f, titlePos.y + ts.y * 0.5f, glyphSize);
         }
       }
     }

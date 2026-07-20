@@ -474,5 +474,11 @@
   "Not coloring": "未着色",
   "Direct Scalars": "直接标量",
   "Magnitude": "模长",
-  "Component #{n}": "分量 #{n}"
+  "Component #{n}": "分量 #{n}",
+
+  "Copied": "已复制",
+  "Click to copy. Right-click for more": "单击复制，右键查看更多",
+  "Copy full path": "复制完整路径",
+  "Copy file name": "复制文件名",
+  "Copy containing folder": "复制所在文件夹"
 }

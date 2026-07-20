@@ -217,6 +217,10 @@
       "type": "string",
       "default_value": ""
     },
+    "filename_path": {
+      "type": "string",
+      "default_value": ""
+    },
     "fps": {
       "type": "bool",
       "default_value": "false"

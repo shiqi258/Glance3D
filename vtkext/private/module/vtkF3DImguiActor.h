@@ -212,6 +212,17 @@ private:
   /// Trigger a command string ("set/toggle/reset ...") through the user-event path.
   void SendCommand(const std::string& cmd);
 
+  /**
+   * Turn the just-drawn filename item (the last ImGui item — an InvisibleButton laid over the
+   * top-bar title or the floating pill) into a copy affordance: hover reveals the full path (read
+   * from ui.filename_path) and copies it on left-click; right-click offers path / name / folder
+   * variants; a brief inline check confirms the copy. @p fallbackName is used when the path option
+   * is unset (piped input / empty scene); when @p drawGlyph is true a copy/check glyph is drawn at
+   * @p glyphCenter fitting @p glyphSize px.
+   */
+  void FileNameCopyAffordance(const std::string& fallbackName, bool drawGlyph, float glyphCenterX,
+    float glyphCenterY, float glyphSize);
+
   ///@{
   /// Read a libf3d option's current value (via QueryOption), falling back when unset/unknown.
   bool ReadOptionBool(const char* name, bool fallback) const;
@@ -265,6 +276,7 @@ private:
   double ControlIdleSec = 0.0;    ///< seconds since last viewport activity (FAB idle auto-hide)
   bool ControlAnimInit = false;   ///< false until the first frame snaps the FAB to its initial state
   bool PanelAnimInit = false;     ///< false until the first pre-pass frame snaps the slide
+  double FileNamePathCopiedTime = -100.0; ///< ImGui::GetTime() of the last filename→clipboard copy (inline "copied" flash)
   ///@}
 
   ///@{

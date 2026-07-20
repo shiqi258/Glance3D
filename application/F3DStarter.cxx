@@ -2373,6 +2373,19 @@ void F3DStarter::LoadFileGroupInternal(
     filenameInfo = groupIdx + " [EMPTY]";
   }
 
+  // Absolute path of the primary loaded file for the UI's copy-path affordance. ui.filename_info
+  // only carries the basename-based title; ui.filename_path mirrors it with the full path so the
+  // top-bar filename can reveal/copy it. Piped input ("-") has no real path.
+  std::string filenamePath;
+  if (!this->Internals->LoadedFiles.empty())
+  {
+    const std::string first = this->Internals->LoadedFiles.at(0).string();
+    if (first != std::string(F3D_PIPED))
+    {
+      filenamePath = first;
+    }
+  }
+
 #if F3D_MODULE_DMON
   // Update dmon watch logic
   if (this->Internals->AppOptions.Watch)
@@ -2437,6 +2450,7 @@ void F3DStarter::LoadFileGroupInternal(
   options.ui.drop_zone.enable = options.ui.drop_zone.show_logo =
     this->Internals->LoadedFiles.empty();
   options.ui.filename_info = filenameInfo;
+  options.ui.filename_path = filenamePath;
 }
 
 //----------------------------------------------------------------------------
