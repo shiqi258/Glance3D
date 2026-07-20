@@ -3608,17 +3608,20 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     toolButton(
       "##tb.iso", G3DIconId::Cube, "set_camera isometric", loc.Translate("Isometric view").c_str());
     toolSeparator();
-    // Display toggles reflect the live option value as a persistent "on" state — the lightweight
-    // Dot style (accent icon + underline dot), so several active toggles don't stack into a row of
-    // filled chips; the filled style stays reserved for the structural panel toggles below.
+    // Display toggles reflect the live option value as a persistent "on" state — the Well style:
+    // a recessed key + hairline rim carried in BOTH states, so a toggle still reads as a switch
+    // when OFF instead of being pixel-identical to the momentary action buttons (Open/Fit/Iso).
+    // When ON it takes an accent wash + accent icon + underline dot. Neutral (not filled-chip) at
+    // rest, so several display toggles don't shout; the structural panel toggles keep the segmented
+    // control below.
     toolButton("##tb.grid", G3DIconId::Grid, "toggle render.grid.enable",
       loc.Translate("Grid").c_str(), this->ReadOptionBool("render.grid.enable", false),
-      G3DWidgets::IconOnStyle::Dot);
+      G3DWidgets::IconOnStyle::Well);
     toolButton("##tb.axis", G3DIconId::Axis, "toggle ui.axis", loc.Translate("Axes").c_str(),
-      this->ReadOptionBool("ui.axis", false), G3DWidgets::IconOnStyle::Dot);
+      this->ReadOptionBool("ui.axis", false), G3DWidgets::IconOnStyle::Well);
     toolButton("##tb.edges", G3DIconId::Edges, "toggle render.show_edges",
       loc.Translate("Edges").c_str(), this->ReadOptionBool("render.show_edges", false),
-      G3DWidgets::IconOnStyle::Dot);
+      G3DWidgets::IconOnStyle::Well);
     toolSeparator();
     // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits).
     // One segmented group instead of three chips: the related layout switches read as a single

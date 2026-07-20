@@ -366,21 +366,49 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   // state keeps an accent-soft wash (deepening on hover/press) so toggle buttons read as engaged.
   // Dot style keeps the rest bg ghost even when on (only the icon tint + underline dot signal the
   // state) so rows of lightweight display toggles don't stack into a wall of filled chips.
+  // Well additionally keeps a quiet recessed key even when OFF: without it a stateful toggle is
+  // pixel-identical to a momentary action button at rest, so the eye can't tell a switch from a
+  // one-shot until it is already on (the toolbar's grid/axes/edges affordance gap).
   const bool solid = onStyle == IconOnStyle::Solid;
-  const bool fillWhenOn = on && onStyle == IconOnStyle::Fill;
-  ImVec4 rest = solid ? G3DTheme::Accent() : (fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::Surface());
-  if (!fillWhenOn && !solid)
+  const bool well = onStyle == IconOnStyle::Well;
+  const bool accentFill = on && (onStyle == IconOnStyle::Fill || well);
+  const bool wellOff = well && !on;
+  // The OFF-well recess is punched from the panel toward the app substrate, so it reads as inset —
+  // the opposite direction from a momentary button's hover (which brightens toward Surface), which
+  // keeps the two unambiguous side by side.
+  const ImVec4 wellRest = LerpColor(G3DTheme::Panel(), G3DTheme::AppBg(), 0.7f);
+  const ImVec4 wellHover = LerpColor(G3DTheme::Panel(), G3DTheme::AppBg(), 0.45f);
+  const ImVec4 wellPress = LerpColor(G3DTheme::Panel(), G3DTheme::AppBg(), 0.82f);
+
+  ImVec4 rest;
+  ImVec4 hoverBg;
+  ImVec4 pressBg;
+  if (solid)
   {
-    rest.w = 0.f;
+    rest = G3DTheme::Accent();
+    hoverBg = G3DTheme::AccentHover();
+    pressBg = G3DTheme::AccentPress();
   }
-  ImVec4 hoverBg =
-    solid ? G3DTheme::AccentHover() : (fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::SurfaceHover());
-  ImVec4 pressBg =
-    solid ? G3DTheme::AccentPress() : (fillWhenOn ? G3DTheme::AccentSoft() : G3DTheme::SurfacePress());
-  if (fillWhenOn)
+  else if (accentFill)
   {
+    rest = G3DTheme::AccentSoft();
+    hoverBg = G3DTheme::AccentSoft();
+    pressBg = G3DTheme::AccentSoft();
     hoverBg.w = std::min(1.f, hoverBg.w * 1.7f);
     pressBg.w = std::min(1.f, pressBg.w * 2.2f);
+  }
+  else if (wellOff)
+  {
+    rest = wellRest;
+    hoverBg = wellHover;
+    pressBg = wellPress;
+  }
+  else // ghost: momentary action button, or a Dot/Fill toggle that is off
+  {
+    rest = G3DTheme::Surface();
+    rest.w = 0.f;
+    hoverBg = G3DTheme::SurfaceHover();
+    pressBg = G3DTheme::SurfacePress();
   }
   ImVec4 bg = LerpColor(rest, hoverBg, a.hover.Value());
   bg = LerpColor(bg, pressBg, a.press.Value());
@@ -400,6 +428,19 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   {
     dl->AddRectFilled(r0, r1, U32(bg, alpha), radius);
   }
+  if (well)
+  {
+    // Hairline rim crisps the recessed key so the toggle reads at rest: a bright edge on a dark
+    // ground registers far better than the fill's L* difference alone (the "faint bright edge" the
+    // island rims rely on). Accent-tinted when engaged, reinforcing the on state.
+    ImVec4 rim = G3DTheme::Border();
+    if (on)
+    {
+      rim = G3DTheme::Accent();
+      rim.w = 0.5f;
+    }
+    dl->AddRect(r0, r1, U32(rim, alpha), radius, 0, G3DTheme::Size::Border * s);
+  }
   if (focused)
   {
     // Keyboard focus ring == styleguide .iconbtn box-shadow 0 0 0 2px accent-ring.
@@ -410,9 +451,11 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   const ImVec4 iconCol =
     solid ? ImVec4(1.f, 1.f, 1.f, 1.f) : (on ? G3DTheme::Accent() : G3DTheme::Text());
   G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(iconCol, alpha));
-  if (on && onStyle == IconOnStyle::Dot)
+  if (on && (onStyle == IconOnStyle::Dot || onStyle == IconOnStyle::Well))
   {
     // Small accent underline dot hugging the button's bottom edge (scales with the press shrink).
+    // Kept for Well too: a non-color cue that survives grayscale / color-blindness, so the on state
+    // never rests on the accent tint alone.
     dl->AddCircleFilled(ImVec2(ctr.x, r1.y - 3.f * s), 1.75f * s, U32(G3DTheme::Accent(), alpha), 12);
   }
 

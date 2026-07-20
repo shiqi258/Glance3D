@@ -654,6 +654,37 @@
         background: var(--accent-soft);
         color: var(--accent);
       }
+      /* Well: a display-toggle that keeps a recessed key + hairline rim in BOTH states, so an OFF
+         toggle still reads as a switch instead of a momentary action button (grid/axes/edges in the
+         workbench toolbar). Rest = recess punched toward the substrate; active = accent wash + rim +
+         underline dot. Mirrors G3DWidgets IconOnStyle::Well. */
+      .iconbtn.well {
+        background: color-mix(in srgb, var(--bg) 70%, var(--surface-1));
+        border-color: var(--border);
+        color: var(--text);
+      }
+      .iconbtn.well:hover,
+      .iconbtn.well.is-hover {
+        background: color-mix(in srgb, var(--bg) 45%, var(--surface-1));
+        color: var(--text);
+      }
+      .iconbtn.well.active {
+        position: relative;
+        background: var(--accent-soft);
+        border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+        color: var(--accent);
+      }
+      .iconbtn.well.active::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        bottom: 3px;
+        width: 3px;
+        height: 3px;
+        transform: translateX(-50%);
+        border-radius: 50%;
+        background: var(--accent);
+      }
       /* Glass FAB (matches the in-viewer floating toggle) */
       .fab {
         width: 40px;
@@ -2662,7 +2693,14 @@
               <g3d-iconbtn n="sliders" sz="20" v="fab"></g3d-iconbtn>
               <g3d-iconbtn n="sliders" sz="20" v="fab active"></g3d-iconbtn>
             </div>
-            <div class="note">FAB 为玻璃拟态（毛玻璃底 + 投影 <span class="tag-impl">≈ImGui</span>），激活态切到渐变主色。</div>
+            <div class="row">
+              <span class="state-label" style="margin: 0">显示开关 Well（关 → 开）→</span>
+              <g3d-iconbtn n="axis" v="well"></g3d-iconbtn>
+              <g3d-iconbtn n="grid" v="well active"></g3d-iconbtn>
+              <span style="width: 16px"></span>
+              <span class="note" style="margin: 0">凹陷键 + 描边常驻两态：关也能认出是开关，非一次性按钮。</span>
+            </div>
+            <div class="note">FAB 为玻璃拟态（毛玻璃底 + 投影 <span class="tag-impl">≈ImGui</span>），激活态切到渐变主色。图标按钮 <code>active</code> = 通用主色填充；<code>well</code> = 显示开关专用（关态凹陷键、开态主色填充 + 描边 + 底点 <span class="tag-impl">≈ImGui</span>）。</div>
           </div>
         </section>
 

@@ -65,6 +65,8 @@ enum class IconOnStyle
 {
   Fill,  ///< accent-soft filled chip + accent icon (structural toggles, e.g. panel visibility)
   Dot,   ///< ghost background, accent icon + small underline dot (lightweight display toggles)
+  Well,  ///< persistent recessed key + hairline rim in BOTH on/off states, so an OFF toggle still
+         ///< reads as a switch (not a momentary action button); accent wash + accent icon + dot on
   Solid, ///< solid accent fill + white icon regardless of @p on — the ONE primary action of a
          ///< bar (e.g. transport play); everything around it stays ghost-quiet
 };
