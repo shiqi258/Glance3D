@@ -34,6 +34,11 @@ The default scene always has at most one animation.
 
 CLI: `--animation-indices`.
 
+### `scene.animation.loop` (_bool_, default: `true`)
+
+Loop the animation. When disabled, playback stops on the final frame (play once) instead of
+wrapping back to the start.
+
 ### `scene.animation.speed_factor` (_ratio_, default: `1`)
 
 Set the animation speed factor to slow, speed up or even invert animation.

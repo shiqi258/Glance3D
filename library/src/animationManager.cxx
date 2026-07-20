@@ -146,6 +146,20 @@ void animationManager::ToggleAnimation()
         this->CurrentTime = this->TimeRange[0];
         this->CurrentTimeSet = true;
       }
+      else if (!this->Options.scene.animation.loop)
+      {
+        // Play-once resting on an endpoint: pressing Play means "replay", so rewind to the opposite
+        // end instead of instantly re-ending on the next tick.
+        const double eps = (this->TimeRange[1] - this->TimeRange[0]) * 1e-6;
+        if (this->AnimationDirection >= 0 && this->CurrentTime >= this->TimeRange[1] - eps)
+        {
+          this->CurrentTime = this->TimeRange[0];
+        }
+        else if (this->AnimationDirection < 0 && this->CurrentTime <= this->TimeRange[0] + eps)
+        {
+          this->CurrentTime = this->TimeRange[1];
+        }
+      }
     }
 
     if (this->Playing && this->Options.scene.camera.index.has_value())
@@ -167,16 +181,34 @@ void animationManager::Tick()
   {
     this->CurrentTime += (this->DeltaTime * this->SpeedFactor) * this->AnimationDirection;
 
-    // Modulo computation, compute CurrentTime in the time range.
+    // Ran past an end of the range: either wrap (loop) or stop and rest on the final pose
+    // (play-once). Read the option live so a UI/command toggle takes effect on the next tick.
     if (this->CurrentTime < this->TimeRange[0] || this->CurrentTime > this->TimeRange[1])
     {
-      auto modulo = [](double val, double mod)
+      if (this->Options.scene.animation.loop)
       {
-        const double remainder = fmod(val, mod);
-        return remainder < 0 ? remainder + mod : remainder;
-      };
-      this->CurrentTime = this->TimeRange[0] +
-        modulo(this->CurrentTime - this->TimeRange[0], this->TimeRange[1] - this->TimeRange[0]);
+        // Modulo computation, compute CurrentTime in the time range.
+        auto modulo = [](double val, double mod)
+        {
+          const double remainder = fmod(val, mod);
+          return remainder < 0 ? remainder + mod : remainder;
+        };
+        this->CurrentTime = this->TimeRange[0] +
+          modulo(this->CurrentTime - this->TimeRange[0], this->TimeRange[1] - this->TimeRange[0]);
+      }
+      else
+      {
+        // Play-once: clamp to the endpoint we ran past, then pause so the true final pose stays on
+        // screen (the timeline's Play button becomes a replay affordance). Restore camera movement
+        // that ToggleAnimation may have disabled for a scene-camera animation.
+        this->CurrentTime =
+          (this->AnimationDirection >= 0) ? this->TimeRange[1] : this->TimeRange[0];
+        this->Playing = false;
+        if (this->Interactor)
+        {
+          this->Interactor->enableCameraMovement();
+        }
+      }
     }
 
     if (this->LoadAtTime(this->CurrentTime))

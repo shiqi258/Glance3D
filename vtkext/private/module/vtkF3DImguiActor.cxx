@@ -2944,6 +2944,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
   const double tmaxD = this->AnimState.timeRange[1];
   const double tcur = this->AnimState.currentTime;
   const double stepEps = (tmaxD - tminD) * 1e-6;
+  const bool loopOn = this->ReadOptionBool("scene.animation.loop", true);
 
   // Jump back to the first frame — the transport's fixed anchor.
   centerNextY(G3DTheme::Size::IconButton * scale);
@@ -2970,12 +2971,17 @@ void vtkF3DImguiActor::DrawTimelineContent()
   ImGui::SameLine();
 
   // Play / pause — the transport's primary action: a solid accent circle one size up, so it
-  // outranks the ghost-quiet step keys around it (media-player convention).
+  // outranks the ghost-quiet step keys around it (media-player convention). When a play-once clip
+  // has finished, the glyph becomes a Replay arrow so end-of-clip is legible; clicking it rewinds
+  // and plays again (handled in animationManager::ToggleAnimation).
   const bool playing = this->AnimState.playing;
+  const bool ended = !playing && !loopOn && (tmaxD > tminD) && (tcur >= tmaxD - stepEps);
+  const G3DIconId playIcon =
+    ended ? G3DIconId::Replay : (playing ? G3DIconId::Pause : G3DIconId::Play);
+  const std::string playTip = loc.Translate(ended ? "Replay" : (playing ? "Pause" : "Play"));
   centerNextY(G3DTheme::Size::Fab * scale);
-  if (G3DWidgets::IconButton("##g3d.anim.playpause", playing ? G3DIconId::Pause : G3DIconId::Play,
-        G3DTheme::Size::Fab, true, loc.Translate(playing ? "Pause" : "Play").c_str(), false,
-        G3DWidgets::IconOnStyle::Solid))
+  if (G3DWidgets::IconButton("##g3d.anim.playpause", playIcon, G3DTheme::Size::Fab, true,
+        playTip.c_str(), false, G3DWidgets::IconOnStyle::Solid))
   {
     this->SendCommand("toggle_animation");
   }
@@ -2989,6 +2995,18 @@ void vtkF3DImguiActor::DrawTimelineContent()
     this->SendCommand("jump_to_frame 1 true");
   }
   ImGui::EndDisabled();
+  ImGui::SameLine();
+
+  // Jump to the last frame — the exact mirror of Jump to start; the transport's other fixed anchor,
+  // so it stays enabled at the end (a click just reloads the final pose).
+  centerNextY(G3DTheme::Size::IconButton * scale);
+  if (G3DWidgets::IconButton("##g3d.anim.skipend", G3DIconId::SkipToEnd, -1.f, false,
+        loc.Translate("Jump to end").c_str()))
+  {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.6g", tmaxD);
+    this->SendCommand(std::string("load_animation_time ") + buf);
+  }
   ImGui::SameLine();
 
   // With several animations: a dropdown listing every clip by name (plus "All animations"),
@@ -3027,6 +3045,8 @@ void vtkF3DImguiActor::DrawTimelineContent()
   const float tmax = static_cast<float>(this->AnimState.timeRange[1]);
   ImFont* dataFont = G3DWidgets::DataFont(); // timecodes are data — measure AND draw in mono
   const float speedW = 64.f * scale;
+  const float loopW = G3DTheme::Size::IconButton * scale; // trailing loop toggle
+  const float itemGap = ImGui::GetStyle().ItemSpacing.x;
   if (tmax > tmin)
   {
     // Reserve room on the right for the duration label and the speed dropdown (computed, not
@@ -3038,8 +3058,8 @@ void vtkF3DImguiActor::DrawTimelineContent()
     {
       ImGui::PushFont(dataFont, 0.f);
     }
-    const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW +
-      2.f * ImGui::GetStyle().ItemSpacing.x + 8.f * scale;
+    const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW + loopW +
+      3.f * itemGap + 8.f * scale;
     if (dataFont != nullptr)
     {
       ImGui::PopFont();
@@ -3078,7 +3098,8 @@ void vtkF3DImguiActor::DrawTimelineContent()
     // drop the meaningless "/ 0.00s") so the gap reads as "intentionally nothing to play" rather
     // than a broken control. Prose, so the UI font — not the mono timecode font.
     const float startX = ImGui::GetCursorScreenPos().x;
-    const float hintW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - speedW);
+    const float hintW =
+      std::max(40.f * scale, ImGui::GetContentRegionAvail().x - speedW - loopW - itemGap);
     centerNextY(ImGui::GetTextLineHeight());
     ImGui::TextColored(
       G3DTheme::TextMuted(), "%s", loc.Translate("Static pose (no duration)").c_str());
@@ -3116,6 +3137,18 @@ void vtkF3DImguiActor::DrawTimelineContent()
       }
     }
     G3DWidgets::EndSelect();
+  }
+
+  // Loop toggle — a playback MODE switch (like speed), so it sits at the trailing edge and uses the
+  // recessed "Well" style: it reads as an on/off switch in both states, not a momentary action.
+  // Default on keeps a glanced-at preview moving; off lets the clip play through once and rest on
+  // its final pose (engine side: animationManager gates the wrap on scene.animation.loop).
+  ImGui::SameLine();
+  centerNextY(G3DTheme::Size::IconButton * scale);
+  if (G3DWidgets::IconButton("##g3d.anim.loop", G3DIconId::Repeat, -1.f, false,
+        loc.Translate("Loop").c_str(), loopOn, G3DWidgets::IconOnStyle::Well))
+  {
+    this->SendCommand("toggle scene.animation.loop");
   }
 }
 

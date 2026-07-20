@@ -121,6 +121,56 @@ void DrawPanelClose(const IconCanvas& c)
   c.Poly(pts, 3);
 }
 
+// kPi lives in imgui_internal.h (not the public imgui.h these icons include), so keep a local
+// constant for the arc-based glyphs below.
+constexpr float kPi = 3.14159265358979f;
+
+// Lucide "repeat": an upper track flowing right and a lower track flowing left, joined by rounded
+// corners, each ending in an arrowhead — the media "loop" glyph. Normalized to the [0,1] box.
+void DrawRepeat(const IconCanvas& c)
+{
+  const float r = c.R(0.167f);
+  // Upper track: left stub -> rounded top-left corner -> rightward top edge + arrowhead at its end.
+  c.dl->PathClear();
+  c.dl->PathLineTo(c.P(0.125f, 0.458f));
+  c.dl->PathLineTo(c.P(0.125f, 0.417f));
+  c.dl->PathArcTo(c.P(0.292f, 0.417f), r, kPi, kPi * 1.5f, 8);
+  c.dl->PathLineTo(c.P(0.875f, 0.25f));
+  c.dl->PathStroke(c.color, ImDrawFlags_None, c.th);
+  const ImVec2 topHead[3] = { c.P(0.708f, 0.083f), c.P(0.875f, 0.25f), c.P(0.708f, 0.417f) };
+  c.Poly(topHead, 3);
+  // Lower track: right stub -> rounded bottom-right corner -> leftward bottom edge + arrowhead.
+  c.dl->PathClear();
+  c.dl->PathLineTo(c.P(0.875f, 0.542f));
+  c.dl->PathLineTo(c.P(0.875f, 0.583f));
+  c.dl->PathArcTo(c.P(0.708f, 0.583f), r, 0.f, kPi * 0.5f, 8);
+  c.dl->PathLineTo(c.P(0.125f, 0.75f));
+  c.dl->PathStroke(c.color, ImDrawFlags_None, c.th);
+  const ImVec2 botHead[3] = { c.P(0.292f, 0.917f), c.P(0.125f, 0.75f), c.P(0.292f, 0.583f) };
+  c.Poly(botHead, 3);
+}
+
+// Counter-clockwise circular arrow with a gap at the top and an arrowhead at the gap — the
+// conventional "replay from start" glyph for a finished play-once clip.
+void DrawReplay(const IconCanvas& c)
+{
+  const ImVec2 ctr = c.P(0.5f, 0.5f);
+  const float r = c.R(0.28f);
+  const float a0 = kPi * -0.30f; // arc start (upper-right, beside the top gap)
+  const float a1 = kPi * 1.20f;  // arc end (lower-left)
+  c.dl->PathArcTo(ctr, r, a0, a1, 20);
+  c.dl->PathStroke(c.color, ImDrawFlags_None, c.th);
+  // Arrowhead at the start end, pointing counter-clockwise into the top gap.
+  const ImVec2 end = ImVec2(ctr.x + r * std::cos(a0), ctr.y + r * std::sin(a0));
+  const ImVec2 tang = ImVec2(std::sin(a0), -std::cos(a0)); // CCW tangent (toward the gap)
+  const ImVec2 rad = ImVec2(std::cos(a0), std::sin(a0));   // outward radial
+  const float ah = c.R(0.15f);
+  const ImVec2 tip = ImVec2(end.x + tang.x * ah, end.y + tang.y * ah);
+  const ImVec2 b1 = ImVec2(end.x + rad.x * ah * 0.75f, end.y + rad.y * ah * 0.75f);
+  const ImVec2 b2 = ImVec2(end.x - rad.x * ah * 0.75f, end.y - rad.y * ah * 0.75f);
+  c.dl->AddTriangleFilled(tip, b1, b2, c.color);
+}
+
 void DrawGrid(const IconCanvas& c)
 {
   c.dl->AddRect(c.P(0.20f, 0.20f), c.P(0.80f, 0.80f), c.color, 0.f, ImDrawFlags_None, c.th);
@@ -463,6 +513,17 @@ void G3DIcon::Draw(
       c.dl->AddRectFilled(c.P(0.20f, 0.26f), c.P(0.28f, 0.74f), c.color);
       c.dl->AddTriangleFilled(c.P(0.54f, 0.26f), c.P(0.54f, 0.74f), c.P(0.28f, 0.50f), c.color);
       c.dl->AddTriangleFilled(c.P(0.80f, 0.26f), c.P(0.80f, 0.74f), c.P(0.54f, 0.50f), c.color);
+      break;
+    case G3DIconId::SkipToEnd:
+      c.dl->AddTriangleFilled(c.P(0.20f, 0.26f), c.P(0.20f, 0.74f), c.P(0.46f, 0.50f), c.color);
+      c.dl->AddTriangleFilled(c.P(0.46f, 0.26f), c.P(0.46f, 0.74f), c.P(0.72f, 0.50f), c.color);
+      c.dl->AddRectFilled(c.P(0.72f, 0.26f), c.P(0.80f, 0.74f), c.color);
+      break;
+    case G3DIconId::Repeat:
+      DrawRepeat(c);
+      break;
+    case G3DIconId::Replay:
+      DrawReplay(c);
       break;
     case G3DIconId::Check:
       DrawCheck(c);

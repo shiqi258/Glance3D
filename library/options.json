@@ -18,6 +18,10 @@
         "type": "int_vector",
         "default_value": "0"
       },
+      "loop": {
+        "type": "bool",
+        "default_value": "true"
+      },
       "speed_factor": {
         "type": "ratio",
         "default_value": "1.0"

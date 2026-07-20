@@ -49,6 +49,9 @@ enum class G3DIconId
   StepForward, ///< triangle + bar (step one frame forward)
   SkipBack,    ///< bar + left-pointing triangle (step one frame back)
   SkipToStart, ///< bar + two left-pointing triangles (jump back to the animation start)
+  SkipToEnd,   ///< two right-pointing triangles + bar (jump forward to the animation end)
+  Repeat,      ///< two arrowed tracks forming a loop (animation loop toggle) — Lucide repeat
+  Replay,      ///< circular arrow (restart a finished play-once clip)
   Check,       ///< checkmark (confirm / copied feedback / swatch selected)
   Copy,        ///< two overlapping rounded rects (copy to clipboard)
   UpDown,      ///< stacked up/down chevrons (cycle / spinner affordance)

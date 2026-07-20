@@ -90,6 +90,9 @@
   "Next frame": "下一帧",
   "All animations": "全部动画",
   "Jump to start": "回到开头",
+  "Jump to end": "跳到末尾",
+  "Replay": "重播",
+  "Loop": "循环",
   "Static pose (no duration)": "静态姿势 · 无时长",
   "All keyframes are at the same instant, so there is nothing to scrub.": "所有关键帧都在同一时刻，没有可拖动的时间范围。",
 
