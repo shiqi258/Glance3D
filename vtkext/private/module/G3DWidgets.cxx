@@ -450,7 +450,10 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   }
   const ImVec4 iconCol =
     solid ? ImVec4(1.f, 1.f, 1.f, 1.f) : (on ? G3DTheme::Accent() : G3DTheme::Text());
-  G3DIcon::Draw(dl, icon, ctr, sz * 0.52f, U32(iconCol, alpha));
+  // Glyph fills ~62% of the button box (≈17px in the 27px default, near the nominal Icon token) —
+  // the conventional icon-to-target ratio. The earlier 0.52 left detailed outline glyphs (circled
+  // ?/i, panel frames) reading small and hard to parse at 1.0x; 0.62 keeps a comfortable edge margin.
+  G3DIcon::Draw(dl, icon, ctr, sz * 0.62f, U32(iconCol, alpha));
   if (on && (onStyle == IconOnStyle::Dot || onStyle == IconOnStyle::Well))
   {
     // Small accent underline dot hugging the button's bottom edge (scales with the press shrink).
