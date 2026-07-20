@@ -43,6 +43,7 @@ enum class G3DIconId
   Image,      ///< picture / texture / material
   Lock,       ///< padlock (locked node)
   Info,       ///< circled "i" (data / details panel)
+  Help,       ///< circled "?" (shortcuts / cheatsheet)
   Edges,      ///< triangle with vertex dots (mesh edges / wireframe)
   Play,       ///< filled right-pointing triangle (animation play)
   Pause,      ///< two filled bars (animation pause)

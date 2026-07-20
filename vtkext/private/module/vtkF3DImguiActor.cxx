@@ -3754,6 +3754,13 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     toolButton("##tb.shot", G3DIconId::Camera, "take_screenshot",
       loc.Translate("Screenshot").c_str(), false, G3DWidgets::IconOnStyle::Fill, "F12");
 
+    // Help — surface the cheatsheet, the keyboard-driven feature set the icon-only bar otherwise
+    // hides (a single low-cost on-ramp to every shortcut). Momentary; 'H' toggles it as well.
+    rightX -= btn + gapXs;
+    ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
+    toolButton("##tb.help", G3DIconId::Help, "toggle ui.cheatsheet",
+      loc.Translate("Shortcuts").c_str(), false, G3DWidgets::IconOnStyle::Fill, "H");
+
     // Parse the app-composed "(i/m) " prefix out of the title (F3DStarter builds it): the bare
     // name goes to the centered title, i/m drive the pager; a single-file "(1/1)" prefix is
     // stripped and shows no pager at all.

@@ -322,6 +322,20 @@ void DrawInfo(const IconCanvas& c)
   c.Line(0.50f, 0.47f, 0.50f, 0.67f); // stem
 }
 
+void DrawHelp(const IconCanvas& c)
+{
+  // Circled "?" — kin to DrawInfo's circled "i". The mark is sized to fill most of the ring (a "?"
+  // carries more detail than an "i", so a middle-hugging glyph read as a smudge at 1.0x).
+  c.Ring(0.50f, 0.50f, 0.34f);
+  // Question-mark hook: an open arc over the top curving down toward the stem.
+  const ImVec2 hookCtr = c.P(0.50f, 0.39f);
+  const float hookR = c.R(0.145f);
+  c.dl->PathArcTo(hookCtr, hookR, kPi * 0.75f, kPi * 2.05f, 16);
+  c.dl->PathLineTo(c.P(0.50f, 0.57f)); // tail down to the stem
+  c.dl->PathStroke(c.color, ImDrawFlags_None, c.th);
+  c.Dot(0.50f, 0.68f, 0.052f); // the dot
+}
+
 void DrawLock(const IconCanvas& c)
 {
   // Shackle arc above, body rectangle below.
@@ -490,6 +504,9 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Info:
       DrawInfo(c);
+      break;
+    case G3DIconId::Help:
+      DrawHelp(c);
       break;
     case G3DIconId::Edges:
       DrawEdges(c);
