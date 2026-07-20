@@ -2941,51 +2941,77 @@ void vtkF3DImguiActor::DrawTimelineContent()
     ImGui::SameLine();
   }
 
-  // Scrubber: seek by dragging (load_animation_time). Reserve room on the right for the duration
-  // label and the speed dropdown (computed, not guessed, so long durations don't squeeze them).
+  // Scrubber: seek by dragging (load_animation_time) when there is a real time span; otherwise a
+  // muted "no duration" hint in its place (see the zero-length branch below).
   const float tmin = static_cast<float>(this->AnimState.timeRange[0]);
   const float tmax = static_cast<float>(this->AnimState.timeRange[1]);
-  float t = static_cast<float>(this->AnimState.currentTime);
-  char timeLabel[32];
-  std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
   ImFont* dataFont = G3DWidgets::DataFont(); // timecodes are data — measure AND draw in mono
   const float speedW = 64.f * scale;
-  if (dataFont != nullptr)
+  if (tmax > tmin)
   {
-    ImGui::PushFont(dataFont, 0.f);
-  }
-  const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW +
-    2.f * ImGui::GetStyle().ItemSpacing.x + 8.f * scale;
-  if (dataFont != nullptr)
-  {
-    ImGui::PopFont();
-  }
-  const float scrubW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - rightW);
-  ImGui::SetNextItemWidth(scrubW);
-  centerNextY(G3DTheme::Size::Control * scale);
-  // The current time is the timeline's primary readout — full-strength text (emphasizeValue);
-  // tickUnit 1 = faint one-second ruler marks under the track.
-  if (tmax > tmin &&
-    G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs", true, 1.f))
-  {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.6g", t);
-    this->SendCommand(std::string("load_animation_time ") + buf);
-  }
-  ImGui::SameLine();
+    // Reserve room on the right for the duration label and the speed dropdown (computed, not
+    // guessed, so long durations don't squeeze them).
+    float t = static_cast<float>(this->AnimState.currentTime);
+    char timeLabel[32];
+    std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
+    if (dataFont != nullptr)
+    {
+      ImGui::PushFont(dataFont, 0.f);
+    }
+    const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW +
+      2.f * ImGui::GetStyle().ItemSpacing.x + 8.f * scale;
+    if (dataFont != nullptr)
+    {
+      ImGui::PopFont();
+    }
+    const float scrubW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - rightW);
+    ImGui::SetNextItemWidth(scrubW);
+    centerNextY(G3DTheme::Size::Control * scale);
+    // The current time is the timeline's primary readout — full-strength text (emphasizeValue);
+    // tickUnit 1 = faint one-second ruler marks under the track.
+    if (G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs", true, 1.f))
+    {
+      char buf[32];
+      std::snprintf(buf, sizeof(buf), "%.6g", t);
+      this->SendCommand(std::string("load_animation_time ") + buf);
+    }
+    ImGui::SameLine();
 
-  // Total duration label — secondary to the current time, hence muted, on the shared midline.
-  centerNextY(ImGui::GetTextLineHeight());
-  if (dataFont != nullptr)
-  {
-    ImGui::PushFont(dataFont, 0.f);
+    // Total duration label — secondary to the current time, hence muted, on the shared midline.
+    centerNextY(ImGui::GetTextLineHeight());
+    if (dataFont != nullptr)
+    {
+      ImGui::PushFont(dataFont, 0.f);
+    }
+    ImGui::TextColored(G3DTheme::TextMuted(), "%s", timeLabel);
+    if (dataFont != nullptr)
+    {
+      ImGui::PopFont();
+    }
+    ImGui::SameLine();
   }
-  ImGui::TextColored(G3DTheme::TextMuted(), "%s", timeLabel);
-  if (dataFont != nullptr)
+  else
   {
-    ImGui::PopFont();
+    // Zero-length clip: every channel has a single keyframe at the same instant, so the time range
+    // is degenerate ([t, t]) and there is nothing to scrub — common for static-pose / reference
+    // clips exported from choreography tools. Put a muted one-liner where the track would be (and
+    // drop the meaningless "/ 0.00s") so the gap reads as "intentionally nothing to play" rather
+    // than a broken control. Prose, so the UI font — not the mono timecode font.
+    const float startX = ImGui::GetCursorScreenPos().x;
+    const float hintW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - speedW);
+    centerNextY(ImGui::GetTextLineHeight());
+    ImGui::TextColored(
+      G3DTheme::TextMuted(), "%s", loc.Translate("Static pose (no duration)").c_str());
+    if (ImGui::IsItemHovered())
+    {
+      ImGui::SetTooltip("%s",
+        loc.Translate("All keyframes are at the same instant, so there is nothing to scrub.")
+          .c_str());
+    }
+    ImGui::SameLine();
+    // Keep the speed dropdown right-anchored exactly where it sits in the scrubber layout.
+    ImGui::SetCursorScreenPos(ImVec2(startX + hintW, ImGui::GetCursorScreenPos().y));
   }
-  ImGui::SameLine();
 
   // Playback speed: stepped dropdown instead of a tiny free slider — the presets cover animation
   // preview needs, every step is an exact value (no hunting for 1.0), and the closed trigger reads
