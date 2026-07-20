@@ -3579,9 +3579,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 
     auto toolButton = [&](const char* id, G3DIconId icon, const char* cmd, const char* tip,
                         bool on = false,
-                        G3DWidgets::IconOnStyle onStyle = G3DWidgets::IconOnStyle::Fill)
+                        G3DWidgets::IconOnStyle onStyle = G3DWidgets::IconOnStyle::Fill,
+                        const char* sc = nullptr)
     {
-      if (G3DWidgets::IconButton(id, icon, -1.f, false, tip, on, onStyle))
+      if (G3DWidgets::IconButton(id, icon, -1.f, false, tip, on, onStyle, sc))
       {
         this->SendCommand(cmd);
       }
@@ -3602,11 +3603,12 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     // Open file — the previewer's entry action. Backed by the app-level tinyfiledialogs command;
     // builds without that module just log an unknown command on click.
     toolButton("##tb.open", G3DIconId::Folder, "open_file_dialog",
-      loc.Translate("Open file...").c_str());
+      loc.Translate("Open file...").c_str(), false, G3DWidgets::IconOnStyle::Fill, "Ctrl+O");
     toolSeparator();
-    toolButton("##tb.fit", G3DIconId::Fit, "reset_camera", loc.Translate("Reset view").c_str());
-    toolButton(
-      "##tb.iso", G3DIconId::Cube, "set_camera isometric", loc.Translate("Isometric view").c_str());
+    toolButton("##tb.fit", G3DIconId::Fit, "reset_camera", loc.Translate("Reset view").c_str(),
+      false, G3DWidgets::IconOnStyle::Fill, "Enter");
+    toolButton("##tb.iso", G3DIconId::Cube, "set_camera isometric",
+      loc.Translate("Isometric view").c_str(), false, G3DWidgets::IconOnStyle::Fill, "9");
     toolSeparator();
     // Display toggles reflect the live option value as a persistent "on" state — the Well style:
     // a recessed key + hairline rim carried in BOTH states, so a toggle still reads as a switch
@@ -3616,12 +3618,12 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     // control below.
     toolButton("##tb.grid", G3DIconId::Grid, "toggle render.grid.enable",
       loc.Translate("Grid").c_str(), this->ReadOptionBool("render.grid.enable", false),
-      G3DWidgets::IconOnStyle::Well);
+      G3DWidgets::IconOnStyle::Well, "G");
     toolButton("##tb.axis", G3DIconId::Axis, "toggle ui.axis", loc.Translate("Axes").c_str(),
-      this->ReadOptionBool("ui.axis", false), G3DWidgets::IconOnStyle::Well);
+      this->ReadOptionBool("ui.axis", false), G3DWidgets::IconOnStyle::Well, "X");
     toolButton("##tb.edges", G3DIconId::Edges, "toggle render.show_edges",
       loc.Translate("Edges").c_str(), this->ReadOptionBool("render.show_edges", false),
-      G3DWidgets::IconOnStyle::Well);
+      G3DWidgets::IconOnStyle::Well, "E");
     toolSeparator();
     // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits).
     // One segmented group instead of three chips: the related layout switches read as a single
@@ -3700,7 +3702,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     // metadata / scene-hierarchy force-opens (a bare toggle could re-OPEN ui.control_panel while
     // a force flag holds the chrome up, making the button look dead).
     if (G3DWidgets::IconButton("##tb.collapse", G3DIconId::PanelClose, -1.f, false,
-          loc.Translate("Collapse panel").c_str()))
+          loc.Translate("Collapse panel").c_str(), false, G3DWidgets::IconOnStyle::Fill, "`"))
     {
       this->SendCommand("set ui.control_panel false");
       if (this->MetaDataVisible)
@@ -3717,7 +3719,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     rightX -= btn + gapXs;
     ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
     toolButton("##tb.shot", G3DIconId::Camera, "take_screenshot",
-      loc.Translate("Screenshot").c_str());
+      loc.Translate("Screenshot").c_str(), false, G3DWidgets::IconOnStyle::Fill, "F12");
 
     // Parse the app-composed "(i/m) " prefix out of the title (F3DStarter builds it): the bare
     // name goes to the centered title, i/m drive the pager; a single-file "(1/1)" prefix is

@@ -345,7 +345,7 @@ bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant)
 
 //----------------------------------------------------------------------------
 bool IconButton(const char* id, G3DIconId icon, float size, bool round, const char* tooltip, bool on,
-  IconOnStyle onStyle)
+  IconOnStyle onStyle, const char* shortcut)
 {
   ImGui::PushID(id);
   const float s = Scale();
@@ -461,7 +461,34 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
 
   if (tooltip && tooltip[0])
   {
-    ItemTooltip(tooltip);
+    const bool hasKey = shortcut != nullptr && shortcut[0] != '\0';
+    if (hasKey &&
+      ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay))
+    {
+      // Label + a dimmed keycap chip (the keyboard accelerator). The label stays the sole
+      // translated string; the key name is locale-independent and drawn as a chip so it reads as
+      // a shortcut, not part of the label. Chip is vertically centered on the label text.
+      ImGui::BeginTooltip();
+      ImGui::TextUnformatted(tooltip);
+      ImGui::SameLine(0.f, G3DTheme::Spacing::Md * s);
+      ImDrawList* tdl = ImGui::GetWindowDrawList();
+      const ImVec2 kts = ImGui::CalcTextSize(shortcut);
+      const float kpx = 5.f * s;
+      const float kpy = 2.f * s;
+      const ImVec2 kc = ImGui::GetCursorScreenPos();
+      const ImVec2 k0(kc.x, kc.y - kpy);
+      const ImVec2 k1(kc.x + kts.x + 2.f * kpx, kc.y + kts.y + kpy);
+      tdl->AddRectFilled(k0, k1, U32(G3DTheme::Surface()), G3DTheme::Radius::Control * s);
+      tdl->AddRect(k0, k1, U32(G3DTheme::BorderStrong()), G3DTheme::Radius::Control * s, 0,
+        G3DTheme::Size::Border * s);
+      tdl->AddText(ImVec2(kc.x + kpx, kc.y), U32(G3DTheme::TextMuted()), shortcut);
+      ImGui::Dummy(ImVec2(kts.x + 2.f * kpx, kts.y));
+      ImGui::EndTooltip();
+    }
+    else if (!hasKey)
+    {
+      ItemTooltip(tooltip);
+    }
   }
   ImGui::PopID();
   return clicked;

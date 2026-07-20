@@ -1642,6 +1642,18 @@
         opacity: 1;
         transform: translateX(-50%) translateY(0);
       }
+      /* Keyboard-accelerator keycap inside a tooltip (the icon toolbar surfaces the shortcut this
+         way — an on-ramp to the keyboard-first workflow). Mirrors G3DWidgets IconButton shortcut. */
+      .tip .bubble .key {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 0 6px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: color-mix(in srgb, var(--text) 8%, transparent);
+        color: var(--text-muted);
+        font-size: 0.9em;
+      }
 
       /* ============================================================
          COLLAPSE / ACCORDION  (折叠面板 · 专业编辑器分组)
@@ -3099,6 +3111,9 @@
             <div class="divider"></div>
             <div class="row">
               <g3d-tip text="Tooltip · 延迟淡入"><g3d-btn v="ghost">悬停看提示</g3d-btn></g3d-tip>
+              <g3d-tip text="网格" key="G"><g3d-iconbtn n="grid" v="well"></g3d-iconbtn></g3d-tip>
+              <g3d-tip text="打开文件…" key="Ctrl+O"><g3d-iconbtn n="folder"></g3d-iconbtn></g3d-tip>
+              <span class="note" style="margin: 0">提示可带快捷键 keycap（<code>key</code> 属性）。</span>
             </div>
           </div>
         </section>
@@ -3309,7 +3324,7 @@
           // — display —
           "g3d-badge": (el) =>
             `<span class="${cls("badge", a(el, "v"))}">${has(el, "dot") ? `<span class="dot"></span>` : ""}${inner(el)}</span>`,
-          "g3d-tip": (el) => `<span class="tip">${inner(el)}<span class="bubble">${a(el, "text")}</span></span>`,
+          "g3d-tip": (el) => `<span class="tip">${inner(el)}<span class="bubble">${a(el, "text")}${a(el, "key") ? `<span class="key">${a(el, "key")}</span>` : ""}</span></span>`,
           "g3d-card": (el) => {
             const head = has(el, "title")
               ? `<div class="card-head">${icon(a(el, "ic"))}<h3>${a(el, "title")}</h3></div>`

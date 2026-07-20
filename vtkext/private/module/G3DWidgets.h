@@ -74,9 +74,12 @@ enum class IconOnStyle
 /// Square icon-only button (toolbar / FAB style). @p size <= 0 uses the icon-button token; @p round
 /// makes it a pill/circle. @p on renders the persistent active state for toggle-style toolbar
 /// buttons — mirrors styleguide .iconbtn.on; @p onStyle picks the emphasis (filled chip vs accent
-/// icon + underline dot). Returns true on click.
+/// icon + underline dot). @p shortcut, when non-null, appends a dimmed keycap to the tooltip (the
+/// keyboard accelerator) — turns the icon-only bar into an on-ramp for the keyboard-first workflow.
+/// Returns true on click.
 bool IconButton(const char* id, G3DIconId icon, float size = -1.f, bool round = false,
-  const char* tooltip = nullptr, bool on = false, IconOnStyle onStyle = IconOnStyle::Fill);
+  const char* tooltip = nullptr, bool on = false, IconOnStyle onStyle = IconOnStyle::Fill,
+  const char* shortcut = nullptr);
 
 /// One segment of a SegmentedIcon group.
 struct SegmentedIconItem
