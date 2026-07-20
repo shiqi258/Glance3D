@@ -324,16 +324,15 @@ void DrawInfo(const IconCanvas& c)
 
 void DrawHelp(const IconCanvas& c)
 {
-  // Circled "?" — kin to DrawInfo's circled "i". The mark is sized to fill most of the ring (a "?"
-  // carries more detail than an "i", so a middle-hugging glyph read as a smudge at 1.0x).
-  c.Ring(0.50f, 0.50f, 0.34f);
-  // Question-mark hook: an open arc over the top curving down toward the stem.
-  const ImVec2 hookCtr = c.P(0.50f, 0.39f);
-  const float hookR = c.R(0.145f);
-  c.dl->PathArcTo(hookCtr, hookR, kPi * 0.75f, kPi * 2.05f, 16);
-  c.dl->PathLineTo(c.P(0.50f, 0.57f)); // tail down to the stem
+  // A bold standalone "?" filling the box (no ring). At small sizes the enclosing circle crowded the
+  // mark into a smudge; dropping it lets the question mark itself be the glyph — large and legible.
+  const ImVec2 hookCtr = c.P(0.50f, 0.33f);
+  const float hookR = c.R(0.20f);
+  // Hook: lower-left, up over the top, down the right side, to where the tail begins.
+  c.dl->PathArcTo(hookCtr, hookR, kPi * 0.82f, kPi * 2.02f, 20);
+  c.dl->PathLineTo(c.P(0.50f, 0.60f)); // tail down into the stem
   c.dl->PathStroke(c.color, ImDrawFlags_None, c.th);
-  c.Dot(0.50f, 0.68f, 0.052f); // the dot
+  c.Dot(0.50f, 0.80f, 0.07f); // the dot
 }
 
 void DrawLock(const IconCanvas& c)
