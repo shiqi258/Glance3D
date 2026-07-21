@@ -287,6 +287,9 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   {
     this->RenderHDRIFileName();
   }
+  // The cheat sheet is a floating card the user may drag over the docked bars. Every overlay here
+  // carries NoBringToFrontOnFocus, and ImGui adds such windows at the BOTTOM of the display list —
+  // so earlier creation means higher z. Keeping the sheet before the chrome keeps it above the bars.
   if (this->CheatSheetVisible)
   {
     this->RenderCheatSheet();

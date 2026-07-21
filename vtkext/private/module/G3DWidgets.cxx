@@ -765,7 +765,7 @@ void Divider()
 //----------------------------------------------------------------------------
 namespace
 {
-void PanelHeaderImpl(const char* title, const G3DIconId* icon)
+bool PanelHeaderImpl(const char* title, const G3DIconId* icon, bool closable)
 {
   const float s = Scale();
   // The panel header is the strongest label in the panel: 13px and near-full-strength text, so each
@@ -794,6 +794,21 @@ void PanelHeaderImpl(const char* title, const G3DIconId* icon)
   ImVec4 titleCol = G3DTheme::Text();
   titleCol.w *= 0.92f;
   DrawTextSized(dl, ImVec2(tx, p.y + (rowH - ts.y) * 0.5f), U32(titleCol), title, fs);
+
+  // Optional close affordance, nested inside the band (18px in the ~30px header) so the header
+  // keeps its height and non-closable callers keep their exact layout.
+  bool closed = false;
+  if (closable)
+  {
+    constexpr float btn = 18.f;         // nominal — IconButton applies the UI scale itself
+    const float btnPx = btn * s;        // on-screen square, for placement math
+    const ImVec2 keep = ImGui::GetCursorScreenPos();
+    const float bx = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - 10.f * s - btnPx;
+    ImGui::SetCursorScreenPos(ImVec2(bx, p.y + (rowH - btnPx) * 0.5f));
+    closed = IconButton("##g3d.ph.close", G3DIconId::Close, btn);
+    ImGui::SetCursorScreenPos(keep);
+  }
+
   ImGui::Dummy(ImVec2(tx - p.x + ts.x, rowH + G3DTheme::Spacing::Sm * s));
 
   // Full-width hairline beneath the title — spans the whole panel, ignoring window padding, so it
@@ -804,17 +819,64 @@ void PanelHeaderImpl(const char* title, const G3DIconId* icon)
   dl->AddLine(
     ImVec2(wp.x, lineY), ImVec2(wp.x + ww, lineY), U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
   ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Sm * s));
+  return closed;
 }
 } // namespace
 
 void PanelHeader(const char* title)
 {
-  PanelHeaderImpl(title, nullptr);
+  PanelHeaderImpl(title, nullptr, false);
 }
 
 void PanelHeader(const char* title, G3DIconId icon)
 {
-  PanelHeaderImpl(title, &icon);
+  PanelHeaderImpl(title, &icon, false);
+}
+
+bool PanelHeader(const char* title, G3DIconId icon, bool closable)
+{
+  return PanelHeaderImpl(title, &icon, closable);
+}
+
+//----------------------------------------------------------------------------
+ImVec2 FloatingCardPos(
+  FloatingCardState& st, ImVec2 defaultPos, ImVec2 size, const ImVec4& bounds, float margin)
+{
+  const float s = Scale();
+  ImVec2 pos(defaultPos.x + st.dragOffset.x * s, defaultPos.y + st.dragOffset.y * s);
+  // std::max guards the clamp range against inversion when the bounds are smaller than the card.
+  pos.x = std::clamp(
+    pos.x, bounds.x + margin, std::max(bounds.x + margin, bounds.x + bounds.z - margin - size.x));
+  pos.y = std::clamp(
+    pos.y, bounds.y + margin, std::max(bounds.y + margin, bounds.y + bounds.w - margin - size.y));
+  // Write the clamped result back: the stored offset must never exceed what is actually shown, or
+  // shrinking the window leaves a dead zone where reverse dragging has no visible effect.
+  st.dragOffset = ImVec2((pos.x - defaultPos.x) / s, (pos.y - defaultPos.y) / s);
+  return pos;
+}
+
+//----------------------------------------------------------------------------
+bool FloatingCardDragHandle(
+  const char* id, FloatingCardState& st, ImVec2 bandSize, float rightReserve)
+{
+  const float s = Scale();
+  const ImVec2 keep = ImGui::GetCursorScreenPos();
+  ImGui::SetCursorScreenPos(ImGui::GetWindowPos());
+  ImGui::InvisibleButton(
+    id, ImVec2(std::max(1.f, bandSize.x - rightReserve), std::max(1.f, bandSize.y)));
+  if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+  {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+  }
+  // Latch on the live item state (splitter convention) — no self-managed pressed bool.
+  st.dragging = ImGui::IsItemActive();
+  if (st.dragging)
+  {
+    st.dragOffset.x += ImGui::GetIO().MouseDelta.x / s;
+    st.dragOffset.y += ImGui::GetIO().MouseDelta.y / s;
+  }
+  ImGui::SetCursorScreenPos(keep);
+  return st.dragging;
 }
 
 //----------------------------------------------------------------------------

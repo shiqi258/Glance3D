@@ -113,6 +113,33 @@ void Divider();
 /// styleguide .tree-toolbar title row). The second overload prefixes an accent-tinted leading icon.
 void PanelHeader(const char* title);
 void PanelHeader(const char* title, G3DIconId icon);
+/// Closable variant: adds a ghost close button at the right end of the header band (the band keeps
+/// its height — the button nests inside it). Returns true when the close button is clicked.
+bool PanelHeader(const char* title, G3DIconId icon, bool closable);
+
+/// Session state of one floating card (owned by the caller, one instance per card). The floating
+/// primitives deliberately know nothing about the app layout: the default anchor and the clamp
+/// bounds are injected per frame; the state only carries what the user did.
+struct FloatingCardState
+{
+  ImVec2 dragOffset = ImVec2(0.f, 0.f); ///< user drag, nominal px (divided by the UI scale)
+  bool dragging = false;                ///< the drag handle is held this frame
+};
+
+/// Resolve a floating card's window position: default anchor + drag offset, clamped into @p bounds
+/// (x,y = origin, z,w = size) with @p margin breathing room. The clamped result is written back so
+/// the stored offset never exceeds what is shown — a window shrink would otherwise leave a dead
+/// zone before reverse dragging takes visible effect. Call before submitting the window.
+ImVec2 FloatingCardPos(
+  FloatingCardState& st, ImVec2 defaultPos, ImVec2 size, const ImVec4& bounds, float margin);
+
+/// Drag handle spanning the card's header band. Call right after Begin, before PanelHeader: lays an
+/// invisible button over the band (minus @p rightReserve, keeping the header's close button
+/// reachable), latches on the held state and accumulates the mouse delta into the state. Returns
+/// true while held — callers OR this into their force-render condition so drags stay
+/// frame-continuous.
+bool FloatingCardDragHandle(
+  const char* id, FloatingCardState& st, ImVec2 bandSize, float rightReserve);
 
 /// Read-only key/value row for inspectors / stat panels: muted label on the left, primary value
 /// right-aligned on the same line (mirrors styleguide .proprow used read-only).

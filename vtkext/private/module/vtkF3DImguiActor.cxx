@@ -551,6 +551,7 @@ struct vtkF3DImguiActor::Internals
   SearchMode CurrentSearchMode = SearchMode::Description;
   bool SearchFocusRequested = false;
   float CheatSheetWidth = 0.f;
+  G3DWidgets::FloatingCardState CheatSheetFloat;
   std::map<std::string, ImFont*> ExtraFonts;
 };
 
@@ -1526,20 +1527,43 @@ void vtkF3DImguiActor::RenderCheatSheet()
   }
 
   this->Pimpl->CheatSheetWidth += ImGui::GetStyle().ScrollbarSize + 4.f * padding;
+  const float uiScale = static_cast<float>(this->FontScale);
   textHeight += 2.f * ImGui::GetStyle().WindowPadding.y;
-  textHeight += 30.f * static_cast<float>(this->FontScale); // PanelHeader band
+  textHeight += 30.f * uiScale; // PanelHeader band
 
-  const float winTop = std::max(margin, (viewport->WorkSize.y - textHeight) * 0.5f);
+  // The sheet is a floating card anchored to the CENTER viewport rect, not a window edge: same
+  // resolve chain as the docked chrome (narrow-exclusive and side-cap rules included), so the
+  // default position never covers a bar. The user can still drag it anywhere in the window.
+  const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
+    viewport->WorkSize.y };
+  const G3DLayout::Rect center =
+    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(), uiScale)
+      .center;
+
+  // Height caps at the center rect (content scrolls) with a usability floor for slit-thin
+  // centers; the window itself stays the hard bound. Width is content-sized, window-clamped.
+  constexpr float minSheetH = 160.f;
+  float sheetH = std::min(textHeight, std::max(center.h - 2.f * margin, minSheetH * uiScale));
+  sheetH = std::min(sheetH, work.h - 2.f * margin);
+  const float sheetW = std::min(this->Pimpl->CheatSheetWidth, work.w - 2.f * margin);
+
+  ImVec2 defaultPos(center.x + (center.w - sheetW) * 0.5f, center.y + (center.h - sheetH) * 0.5f);
+  if (sheetW <= center.w - 2.f * margin && sheetH <= center.h - 2.f * margin)
+  {
+    defaultPos.x =
+      std::clamp(defaultPos.x, center.x + margin, center.x + center.w - margin - sheetW);
+    defaultPos.y =
+      std::clamp(defaultPos.y, center.y + margin, center.y + center.h - margin - sheetH);
+  }
+  const ImVec2 sheetPos = G3DWidgets::FloatingCardPos(this->Pimpl->CheatSheetFloat, defaultPos,
+    ImVec2(sheetW, sheetH), ImVec4(work.x, work.y, work.w, work.h), margin);
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
   // Card rounding + a PanelHeader below: the sheet shares the docked chrome's anatomy instead of
   // reading as a legacy floating window (the global 8px popup rounding stays for true popups).
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,
-    G3DTheme::Radius::Card * static_cast<float>(this->FontScale));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, G3DTheme::Radius::Card * uiScale);
 
-  ::SetupNextWindow(ImVec2(margin, winTop),
-    ImVec2(
-      this->Pimpl->CheatSheetWidth, std::min(viewport->WorkSize.y - (2 * margin), textHeight)));
+  ::SetupNextWindow(sheetPos, ImVec2(sheetW, sheetH));
   ImGuiStyle& style = ImGui::GetStyle();
   // Floor the sheet's opacity: at the shared backdrop default, bright model areas ghost through
   // the reference text. Only this window — the user option keeps driving the other overlays.
@@ -1550,11 +1574,23 @@ void vtkF3DImguiActor::RenderCheatSheet()
     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
     ImGuiWindowFlags_NoBringToFrontOnFocus;
+  if (sheetW < this->Pimpl->CheatSheetWidth)
+  {
+    // Width got clamped by a narrow window: let the rows scroll sideways instead of clipping.
+    flags |= ImGuiWindowFlags_HorizontalScrollbar;
+  }
 
   ImGui::Begin("CheatSheet", nullptr, flags);
 
-  G3DWidgets::PanelHeader(
-    G3DLocaleCore::GetInstance().Translate("Shortcuts").c_str(), G3DIconId::Info);
+  // Header band = drag handle (minus the close button's corner). The sheet must NOT take keyboard
+  // focus (NoFocusOnAppearing/NoNav stay): users keep pressing the shortcuts they are reading.
+  G3DWidgets::FloatingCardDragHandle(
+    "##g3d.cs.drag", this->Pimpl->CheatSheetFloat, ImVec2(sheetW, 30.f * uiScale), 40.f * uiScale);
+  if (G3DWidgets::PanelHeader(
+        G3DLocaleCore::GetInstance().Translate("Shortcuts").c_str(), G3DIconId::Help, true))
+  {
+    this->SendCommand("set ui.cheatsheet false");
+  }
 
   if (this->Pimpl->SearchFocusRequested)
   {
@@ -1565,7 +1601,6 @@ void vtkF3DImguiActor::RenderCheatSheet()
   const std::string searchHint = locale.Translate("Search...");
   const std::string descModeLabel = locale.Translate("Description");
   const std::string keybindModeLabel = locale.Translate("Keybind");
-  const float uiScale = static_cast<float>(this->FontScale);
 
   // Search field in the G3D input anatomy (surface fill + hairline border, accent while typing)
   // instead of the stock bright FrameBg slab.
@@ -1827,8 +1862,11 @@ bool vtkF3DImguiActor::IsControlPanelAnimating()
   // Animating while the eased value is still in flight OR has not yet reached the state implied by
   // the current visibility (covers the frame right after a toggle, before the first advance runs).
   const float target = this->EffectivePanelVisible() ? 1.f : 0.f;
+  // CheatSheetVisible guards the drag latch: closing the sheet mid-drag would otherwise leave
+  // dragging stuck true, since the handle only updates while the sheet renders.
   return this->PanelAnim.IsAnimating() || this->PanelAnim.Value() != target ||
-    this->ControlBarDragging || this->ViewportDirtyOneShot;
+    this->ControlBarDragging || this->ViewportDirtyOneShot ||
+    (this->Pimpl->CheatSheetFloat.dragging && this->CheatSheetVisible);
 }
 
 //----------------------------------------------------------------------------
@@ -3755,11 +3793,13 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       loc.Translate("Screenshot").c_str(), false, G3DWidgets::IconOnStyle::Fill, "F12");
 
     // Help — surface the cheatsheet, the keyboard-driven feature set the icon-only bar otherwise
-    // hides (a single low-cost on-ramp to every shortcut). Momentary; 'H' toggles it as well.
+    // hides (a single low-cost on-ramp to every shortcut). Stateful toggle: the Well reads as
+    // pressed while the sheet is open ('H' toggles it as well).
     rightX -= btn + gapXs;
     ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
     toolButton("##tb.help", G3DIconId::Help, "toggle ui.cheatsheet",
-      loc.Translate("Shortcuts").c_str(), false, G3DWidgets::IconOnStyle::Fill, "H");
+      loc.Translate("Shortcuts").c_str(), this->CheatSheetVisible, G3DWidgets::IconOnStyle::Well,
+      "H");
 
     // Parse the app-composed "(i/m) " prefix out of the title (F3DStarter builds it): the bare
     // name goes to the centered title, i/m drive the pager; a single-file "(1/1)" prefix is
