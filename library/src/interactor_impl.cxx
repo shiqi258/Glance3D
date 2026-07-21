@@ -1006,6 +1006,24 @@ interactor& interactor_impl::initCommands()
     command_documentation_t{ "clear", "clear console" });
 
   this->addCommand(
+    "dismiss_or_toggle_console",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 0, "dismiss_or_toggle_console");
+      // Escape dismisses the top transient overlay first: the shortcuts sheet if open, else the
+      // console toggles as before. When an input field owns the keyboard, ImGui captures Escape
+      // before the binding layer, so this command is never reached (the field clears itself).
+      if (this->Internals->Options.ui.cheatsheet)
+      {
+        this->Internals->Options.ui.cheatsheet = false;
+        return;
+      }
+      this->Internals->Options.toggle("ui.console");
+    },
+    command_documentation_t{ "dismiss_or_toggle_console",
+      "close the shortcuts cheatsheet if open, else toggle the console" });
+
+  this->addCommand(
     "print",
     [&](const std::vector<std::string>& args)
     {
@@ -1837,7 +1855,7 @@ interactor& interactor_impl::initBindings()
   this->addBinding({mod_t::CTRL, "Z"}, "set scene.up_direction +Z", "Scene", std::bind(docStr, tr("Set scene up direction to +Z"), ""));
 #if F3D_MODULE_UI
   this->addBinding({mod_t::NONE, "H"}, "toggle ui.cheatsheet", "Others", std::bind(docStr, tr("Cheatsheet"), ""), f3d::interactor::BindingType::OTHER, true);
-  this->addBinding({mod_t::NONE, "Escape"}, "toggle ui.console", "Others", std::bind(docStr, tr("Console"), ""), f3d::interactor::BindingType::OTHER, true);
+  this->addBinding({mod_t::NONE, "Escape"}, "dismiss_or_toggle_console", "Others", std::bind(docStr, tr("Close help / Console"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::ANY, "Colon"}, "toggle ui.minimal_console", "Others", std::bind(docStr, tr("Minimal console"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::CTRL, "K"}, "toggle ui.notifications.enable", "Others", std::bind(docTgl, tr("Notifications"), std::cref(opts.ui.notifications.enable)), f3d::interactor::BindingType::TOGGLE);
   this->addBinding({mod_t::NONE, "Grave"}, "toggle ui.control_panel", "Others", std::bind(docTgl, tr("Control panel"), std::cref(opts.ui.control_panel)), f3d::interactor::BindingType::TOGGLE);

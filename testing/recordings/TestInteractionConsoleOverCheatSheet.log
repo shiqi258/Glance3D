@@ -22,3 +22,12 @@ KeyReleaseEvent 640 -4 0 27 1 Escape 0
 TimerEvent 640 -4 0 27 1 Escape 0
 TimerEvent 640 -4 0 27 1 Escape 0
 TimerEvent 640 -4 0 27 1 Escape 0
+KeyPressEvent 640 -4 0 27 1 Escape 0
+CharEvent 640 -4 0 27 1 Escape 0
+TimerEvent 640 -4 0 27 1 Escape 0
+TimerEvent 640 -4 0 27 1 Escape 0
+TimerEvent 640 -4 0 27 1 Escape 0
+KeyReleaseEvent 640 -4 0 27 1 Escape 0
+TimerEvent 640 -4 0 27 1 Escape 0
+TimerEvent 640 -4 0 27 1 Escape 0
+TimerEvent 640 -4 0 27 1 Escape 0
