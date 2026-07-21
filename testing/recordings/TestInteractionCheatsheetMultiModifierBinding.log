@@ -8,27 +8,27 @@ CharEvent 0 150 0 104 1 h
 KeyReleaseEvent 0 150 0 104 1 h
 
 # Move hover cheatsheet
-MouseMoveEvent 91 150 0 0 0 h 0
+MouseMoveEvent 600 150 0 0 0 h 0
 
 # Scroll down to max
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 1 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 1 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 1 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 1 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 1 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 1 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
-MouseWheelBackwardEvent 91 150 0 0 1 h 0
-MouseWheelBackwardEvent 91 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 1 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 1 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 1 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 1 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 1 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 1 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0
+MouseWheelBackwardEvent 600 150 0 0 1 h 0
+MouseWheelBackwardEvent 600 150 0 0 0 h 0

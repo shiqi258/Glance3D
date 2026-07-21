@@ -8,10 +8,10 @@ CharEvent 411 310 0 104 1 h 0
 KeyReleaseEvent 411 310 0 104 1 h 0
 
 # Drag scrollbar to bottom
-MouseMoveEvent 815 421 0 0 0 h 0
-TimerEvent 815 421 0 0 0 h 0
-LeftButtonPressEvent 815 421 0 0 0 h 0
-MouseMoveEvent 801 -3 0 0 0 h 0
-TimerEvent 801 -3 0 0 0 h 0
-LeftButtonReleaseEvent 801 -3 0 0 0 h 0
-LeaveEvent 765 -60 0 0 0 h 0
+MouseMoveEvent 707 421 0 0 0 h 0
+TimerEvent 707 421 0 0 0 h 0
+LeftButtonPressEvent 707 421 0 0 0 h 0
+MouseMoveEvent 707 -3 0 0 0 h 0
+TimerEvent 707 -3 0 0 0 h 0
+LeftButtonReleaseEvent 707 -3 0 0 0 h 0
+LeaveEvent 707 -60 0 0 0 h 0
