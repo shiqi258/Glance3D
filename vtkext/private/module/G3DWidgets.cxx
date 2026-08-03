@@ -80,16 +80,12 @@ struct WidgetAnim
 
 std::unordered_map<ImGuiID, WidgetAnim> gAnims;
 
-// Per-scroll-region state for the expanding scrollbar (see BeginScrollAffordance). Separate from
-// WidgetAnim because a scrollbar is not an item we submit: its interaction is sampled from the
-// pointer against the container rect, and the drag latch has to outlive the pointer leaving the
-// gutter.
+// Per-scrollbar state for the expanding scrollbar (see ScrollbarStyle). Separate from WidgetAnim
+// because a scrollbar is not an item we submit: it is keyed by the id ImGui gives it, and its
+// hover/drag state arrives from ImGui rather than from an InvisibleButton of ours.
 struct ScrollAnim
 {
   G3DAnimatedFloat expand; ///< 0 = resting hairline, 1 = fully widened thumb
-  bool dragging = false;   ///< pressed inside the gutter and still holding
-  bool hasY = false;       ///< last frame the container overflowed vertically (a rail to draw)
-  bool hasX = false;       ///< ...horizontally
   int lastFrame = -1;
 };
 std::unordered_map<ImGuiID, ScrollAnim> gScrollAnims;
@@ -1088,19 +1084,6 @@ void EndFloatingCard()
 //----------------------------------------------------------------------------
 namespace
 {
-// Affordance state is keyed off the caller's id string alone, hashed here rather than through
-// ImGui::GetID: BeginScrollAffordance runs *before* the container exists, and for a top-level
-// window there may be no current window to hash against at all.
-ImGuiID ScrollKey(const char* id)
-{
-  ImGuiID h = 2166136261u; // FNV-1a
-  for (const char* c = id; c != nullptr && *c != '\0'; c++)
-  {
-    h = (h ^ static_cast<unsigned char>(*c)) * 16777619u;
-  }
-  return h;
-}
-
 ScrollAnim& EnsureScroll(ImGuiID key)
 {
   auto it = gScrollAnims.find(key);
@@ -1113,112 +1096,45 @@ ScrollAnim& EnsureScroll(ImGuiID key)
   return it->second;
 }
 
-// Open affordances, innermost last — a card body nested in a card is two live regions.
-std::vector<ImGuiID> gScrollStack;
-
-// Is the pointer near a gutter that actually has a bar in it? The approach band reaches a little
-// past the gutter into the content so the thumb is already open by the time the pointer lands on
-// it, which is what makes the widened target feel like a target rather than a reward.
-bool ScrollGutterArmed()
+// ImGui hands every scrollbar here once its own hover/drag state is settled (see
+// ImGuiScrollbarStyleData). The whole expansion lives in this one function: the state is keyed by
+// the scrollbar id ImGui already maintains, the interaction is the one ImGui already resolved, and
+// the result is applied where ImGui already draws — so the affordance reaches scrollbars no call
+// site could (combo popups, list boxes, tables) and no container has to opt in.
+void ScrollbarStyle(ImGuiScrollbarStyleData* d, void*)
 {
-  const ImVec2 wp = ImGui::GetWindowPos();
-  const ImVec2 ws = ImGui::GetWindowSize();
-  const ImVec2 m = ImGui::GetIO().MousePos;
-  if (m.x < wp.x || m.x > wp.x + ws.x || m.y < wp.y || m.y > wp.y + ws.y)
-  {
-    return false;
-  }
-  const float band = ImGui::GetStyle().ScrollbarSize + G3DTheme::Scrollbar::Proximity * Scale();
-  const bool nearY = ImGui::GetScrollMaxY() > 0.f && m.x >= wp.x + ws.x - band;
-  const bool nearX = ImGui::GetScrollMaxX() > 0.f && m.y >= wp.y + ws.y - band;
-  return nearY || nearX;
-}
-}
-
-//----------------------------------------------------------------------------
-void BeginScrollAffordance(const char* id)
-{
-  const ImGuiID key = ScrollKey(id);
-  gScrollStack.push_back(key);
-
-  ScrollAnim& st = EnsureScroll(key);
+  ScrollAnim& st = EnsureScroll(d->ID);
   const int f = ImGui::GetFrameCount();
-  if (st.lastFrame != f) // the target was set by last frame's EndScrollAffordance
+  if (st.lastFrame != f) // one advance per frame even if the same bar is drawn twice
   {
+    st.expand.AnimateTo(d->Hovered || d->Held ? 1.f : 0.f);
     st.expand.Update(FrameDelta());
     st.lastFrame = f;
   }
-
-  // Interpolate the thumb inside the fixed gutter. Both widths are expressed as fractions of the
-  // live (DPI-scaled) gutter so the affordance follows --font-scale without a second scale factor.
-  const float gutter = ImGui::GetStyle().ScrollbarSize;
-  const float thumb = gutter *
-    G3DLerp(G3DTheme::Scrollbar::ThumbRest / G3DTheme::Scrollbar::Gutter,
-      G3DTheme::Scrollbar::ThumbHover / G3DTheme::Scrollbar::Gutter, st.expand.Value());
-  ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarPadding, (gutter - thumb) * 0.5f);
-}
-
-//----------------------------------------------------------------------------
-namespace
-{
-// Rounded rail behind the thumb, faded in with the expansion so a drag has a visible extent to
-// travel along (invisible at rest — there the thumb alone IS the scrollbar).
-//
-// Drawn here rather than through ImGuiCol_ScrollbarBg because ImGui fills the gutter with the
-// *window* rounding and only on the corners that touch the window edge: behind a capsule thumb that
-// reads as a square-ended slab. Painting it into the PARENT's draw list before the child opens is
-// what puts it under the thumb — a child's content, decorations included, composites after its
-// parent, so anything drawn from inside the region would cover the scrollbar instead.
-void DrawScrollRails(const ScrollAnim& st, const ImVec2& pos, const ImVec2& size)
-{
   const float t = st.expand.Value();
-  if (t <= 0.001f || (!st.hasY && !st.hasX))
-  {
-    return;
-  }
+
+  // Both widths are fractions of the live (DPI-scaled) gutter, so the affordance follows the UI
+  // scale without a second scale factor. The gutter is what ImGui carves out of the content region
+  // and it never moves — only the thumb inside it does, so nothing reflows on mouse-over.
   const float gutter = ImGui::GetStyle().ScrollbarSize;
-  const float radius = gutter * 0.5f; // capsule — same vocabulary as the thumb it holds
-  const ImU32 col = U32(ImVec4(1.f, 1.f, 1.f, 0.05f * t));
-  ImDrawList* dl = ImGui::GetWindowDrawList();
-  const AAGuard aa(dl);
-  // Each rail stops short of the other so the two never overlap in the corner ImGui leaves empty.
-  if (st.hasY)
-  {
-    dl->AddRectFilled(ImVec2(pos.x + size.x - gutter, pos.y),
-      ImVec2(pos.x + size.x, pos.y + size.y - (st.hasX ? gutter : 0.f)), col, radius);
-  }
-  if (st.hasX)
-  {
-    dl->AddRectFilled(ImVec2(pos.x, pos.y + size.y - gutter),
-      ImVec2(pos.x + size.x - (st.hasY ? gutter : 0.f), pos.y + size.y), col, radius);
-  }
+  d->GrabThickness = gutter *
+    G3DLerp(G3DTheme::Scrollbar::ThumbRest / G3DTheme::Scrollbar::Gutter,
+      G3DTheme::Scrollbar::ThumbHover / G3DTheme::Scrollbar::Gutter, t);
+
+  // The track is invisible at rest (there the thumb alone IS the scrollbar) and fades in with the
+  // expansion, giving a drag a visible extent to travel along. Capsule, like the thumb it holds.
+  d->TrackCol = U32(ImVec4(1.f, 1.f, 1.f, 0.05f * t));
+  d->TrackRounding = gutter * 0.5f;
+  d->TrackDrawFlags = ImDrawFlags_RoundCornersAll;
 }
 }
 
 //----------------------------------------------------------------------------
-void EndScrollAffordance()
+void InstallScrollbarStyle()
 {
-  if (gScrollStack.empty())
-  {
-    return; // unbalanced call — nothing was pushed, so pop nothing
-  }
-  ScrollAnim& st = EnsureScroll(gScrollStack.back());
-  gScrollStack.pop_back();
-  ImGui::PopStyleVar();
-
-  // Which rails the next frame should draw (the container is still current, so this is its own
-  // overflow state, not the parent's).
-  st.hasY = ImGui::GetScrollMaxY() > 0.f;
-  st.hasX = ImGui::GetScrollMaxX() > 0.f;
-
-  // A drag keeps the thumb open wherever the pointer wanders (releasing it mid-window and watching
-  // it snap thin would read as a bug), so the press latches until the button comes up.
-  const bool armed = ScrollGutterArmed() &&
-    ImGui::IsWindowHovered(
-      ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-  st.dragging = st.dragging ? ImGui::IsMouseDown(ImGuiMouseButton_Left)
-                            : (armed && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
-  st.expand.AnimateTo(armed || st.dragging ? 1.f : 0.f);
+  ImGuiIO& io = ImGui::GetIO();
+  io.ScrollbarStyleFn = &ScrollbarStyle;
+  io.ScrollbarStyleUserData = nullptr;
 }
 
 //----------------------------------------------------------------------------
@@ -1231,8 +1147,6 @@ std::vector<float> gScrollRegionInset;
 //----------------------------------------------------------------------------
 bool BeginScrollRegion(const char* id, const ImVec2& size, ImGuiWindowFlags flags, ScrollBleed bleed)
 {
-  BeginScrollAffordance(id);
-
   // Full bleed: take over the container's horizontal padding so the gutter lands on the panel edge,
   // then hand that padding straight back to the content as the child's own inset — the content
   // keeps its exact position and only the scrollbar moves outward. The padding is measured off the
@@ -1271,11 +1185,10 @@ bool BeginScrollRegion(const char* id, const ImVec2& size, ImGuiWindowFlags flag
   }
 
   // Resolve the child rect the way BeginChild will (0 = fill the available room, negative = trim
-  // that much off it), so the rails land exactly on the gutters ImGui is about to reserve.
+  // that much off it), plus the padding just reclaimed on the far side.
   const ImVec2 avail = ImGui::GetContentRegionAvail();
   const ImVec2 box(
     size.x > 0.f ? size.x : avail.x + size.x + pad, size.y > 0.f ? size.y : avail.y + size.y);
-  DrawScrollRails(EnsureScroll(gScrollStack.back()), ImGui::GetCursorScreenPos(), box);
   const bool visible = ImGui::BeginChild(
     id, box, inset > 0.f ? ImGuiChildFlags_AlwaysUseWindowPadding : ImGuiChildFlags_None, flags);
   if (inset > 0.f)
@@ -1288,7 +1201,6 @@ bool BeginScrollRegion(const char* id, const ImVec2& size, ImGuiWindowFlags flag
 //----------------------------------------------------------------------------
 void EndScrollRegion()
 {
-  EndScrollAffordance();
   ImGui::EndChild();
   if (!gScrollRegionInset.empty())
   {

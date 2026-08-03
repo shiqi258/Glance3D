@@ -132,30 +132,20 @@ bool PanelHeader(const char* title, G3DIconId icon, bool closable);
 // move — only the scrollbar does. Never wrap a scroll region in a padded container and call it
 // done; pass ScrollBleed::Inline only for a list genuinely embedded among other content.
 //
-// Two ways in. The pair, for a container someone else opens (a top-level window, or a BeginChild
-// with flags of its own):
-//
-//   G3DWidgets::BeginScrollAffordance("##my.region");   // BEFORE Begin/BeginChild: ImGui draws the
-//   ImGui::BeginChild("##my.region", ...);              // scrollbar during Begin()
-//   ...content...
-//   G3DWidgets::EndScrollAffordance();                  // still INSIDE the container
-//   ImGui::EndChild();
-//
-// ...and the wrapper, which is the pair plus the BeginChild for the common case:
+// The transition needs NO opt-in: InstallScrollbarStyle() hooks it into ImGui once (io's
+// ScrollbarStyleFn) and from then on EVERY scrollbar animates — including the ones ImGui opens for
+// itself (combo popups, list boxes, tables) that no call site of ours could reach. Scroll
+// containers only ever call:
 //
 //   if (G3DWidgets::BeginScrollRegion("##my.region")) { ...content... }
 //   G3DWidgets::EndScrollRegion();                      // like EndChild: call it either way
 //
-// A container that opts out is not broken, only static: it keeps the resting hairline, since the
-// global style already carries the resting geometry.
+// ...and that pair exists for the full-bleed rule above, not for the scrollbar itself.
 //----------------------------------------------------------------------------
 
-/// Arm the expanding scrollbar for the container opened next. @p id must be stable and unique per
-/// container (the child/window id is the natural choice) — it keys the animation state.
-void BeginScrollAffordance(const char* id);
-/// Sample the pointer against this container's gutter and release the affordance. Must be called
-/// while the container is still the current window, and exactly once per BeginScrollAffordance().
-void EndScrollAffordance();
+/// Hook the expanding-scrollbar transition into ImGui. Call once, after the context and style
+/// exist; every scrollbar drawn afterwards animates, and nothing else has to know about it.
+void InstallScrollbarStyle();
 
 /// Where a scroll region sits relative to its container's padding.
 enum class ScrollBleed
@@ -164,11 +154,11 @@ enum class ScrollBleed
   Inline,    ///< stay within the container's padding: a list embedded among other content
 };
 
-/// BeginScrollAffordance + ImGui::BeginChild, plus the full-bleed treatment (see the RULE above)
-/// and the rounded rail that fades in behind the widened thumb — both need the child rect up front,
-/// which only this form knows, so the bare pair above animates the thumb alone. Bleeding applies
-/// when @p size.x is not an explicit width. Returns BeginChild's visibility (skip content when
-/// false); EndScrollRegion() must be called either way, exactly like ImGui::EndChild().
+/// ImGui::BeginChild with the full-bleed treatment (see the RULE above): the region takes the
+/// container's horizontal padding over so its gutter lands on the panel edge, and re-applies that
+/// padding inside itself so content does not move. Bleeding applies when @p size.x is not an
+/// explicit width. Returns BeginChild's visibility (skip content when false); EndScrollRegion()
+/// must be called either way, exactly like ImGui::EndChild().
 bool BeginScrollRegion(const char* id, const ImVec2& size = ImVec2(0.f, 0.f),
   ImGuiWindowFlags flags = 0, ScrollBleed bleed = ScrollBleed::Container);
 void EndScrollRegion();

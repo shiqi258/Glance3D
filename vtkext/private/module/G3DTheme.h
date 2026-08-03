@@ -67,10 +67,10 @@ constexpr float Border = 1.f;      ///< hairline border / divider thickness
 /// so it is sized for the pointer (Fitts) rather than for the resting thumb.
 namespace Scrollbar
 {
-constexpr float Gutter = 12.f;    ///< reserved track width == hit target; never animated
-constexpr float ThumbRest = 4.f;  ///< resting thumb: sensed, not read
-constexpr float ThumbHover = 8.f; ///< expanded thumb: doubled, still inset from the panel edge
-constexpr float Proximity = 6.f;  ///< extra inward band that arms the expansion before the gutter
+constexpr float Gutter = 12.f;        ///< reserved track width == hit target; never animated
+constexpr float ThumbRest = 4.f;      ///< resting thumb: sensed, not read
+constexpr float ThumbHover = 8.f;     ///< expanded thumb: doubled, still inset from the panel edge
+constexpr float TrackEndMargin = 2.f; ///< thumb's clearance from the two ends of its track
 }
 
 /// A motion preset: duration (seconds) + easing curve, fed straight into a G3DAnimatedFloat.

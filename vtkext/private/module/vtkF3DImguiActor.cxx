@@ -750,11 +750,12 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   // hover/drag brighten it (no accent — it is chrome, not a control).
   // The gutter is deliberately wider than the resting thumb: it is the constant ImGui carves out of
   // the content region *and* the grab hit box, so it is sized for the pointer while the thumb inside
-  // it stays thin. G3DWidgets' scroll affordance animates that thumb open on hover (see
-  // G3DWidgets::BeginScrollAffordance); containers that opt out simply keep the resting hairline.
+  // it stays thin. The thumb's thickness itself is owned by G3DWidgets::InstallScrollbarStyle()
+  // below, which animates it open under the pointer for every scrollbar in the app; ScrollbarPadding
+  // is left as what it now solely means — the thumb's margin from the two ENDS of its track.
   style->ScrollbarSize = G3DTheme::Scrollbar::Gutter;
   style->ScrollbarRounding = G3DTheme::Scrollbar::ThumbHover * 0.5f; // capsule at either width
-  style->ScrollbarPadding = (G3DTheme::Scrollbar::Gutter - G3DTheme::Scrollbar::ThumbRest) * 0.5f;
+  style->ScrollbarPadding = G3DTheme::Scrollbar::TrackEndMargin;
   style->WindowBorderSize = 0.f;
   style->WindowPadding = ImVec2(10, 10);
   style->WindowRounding = 8.f;
@@ -776,6 +777,10 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   style->Colors[ImGuiCol_ResizeGrip] = F3DStyle::imgui::GetMidColor();
   style->Colors[ImGuiCol_ResizeGripHovered] = F3DStyle::imgui::GetHighlightColor();
   style->Colors[ImGuiCol_ResizeGripActive] = F3DStyle::imgui::GetHighlightColor();
+
+  // One hook, every scrollbar: docked panels, floating cards, the console, and anything ImGui opens
+  // on its own (combo popups, list boxes, tables) all get the expanding thumb from here.
+  G3DWidgets::InstallScrollbarStyle();
 
   // Setup backend name
   io.BackendPlatformName = io.BackendRendererName = "F3D/VTK";
