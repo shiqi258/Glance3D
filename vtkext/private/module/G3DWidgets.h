@@ -125,6 +125,13 @@ bool PanelHeader(const char* title, G3DIconId icon, bool closable);
 // The gutter it lives in is a constant (G3DTheme::Scrollbar::Gutter) — ImGui carves the gutter out
 // of the content region, so animating *it* would re-wrap text on mouse-over. Only the thumb moves.
 //
+// RULE — A SCROLL REGION IS FULL-BLEED. It spans its container edge to edge, so the gutter rides
+// the panel edge with no dead strip beside it (and stays reachable by throwing the pointer at that
+// edge). Horizontal padding belongs INSIDE the region, not around it: BeginScrollRegion takes the
+// container's padding over and re-applies it as the region's own content inset, so content does not
+// move — only the scrollbar does. Never wrap a scroll region in a padded container and call it
+// done; pass ScrollBleed::Inline only for a list genuinely embedded among other content.
+//
 // Two ways in. The pair, for a container someone else opens (a top-level window, or a BeginChild
 // with flags of its own):
 //
@@ -150,12 +157,20 @@ void BeginScrollAffordance(const char* id);
 /// while the container is still the current window, and exactly once per BeginScrollAffordance().
 void EndScrollAffordance();
 
-/// BeginScrollAffordance + ImGui::BeginChild, plus the rounded rail that fades in behind the
-/// widened thumb — the rail needs the child rect up front, which only this form knows, so the bare
-/// pair above animates the thumb alone. Returns BeginChild's visibility (skip content when false);
-/// EndScrollRegion() must be called either way, exactly like ImGui::EndChild().
-bool BeginScrollRegion(
-  const char* id, const ImVec2& size = ImVec2(0.f, 0.f), ImGuiWindowFlags flags = 0);
+/// Where a scroll region sits relative to its container's padding.
+enum class ScrollBleed
+{
+  Container, ///< default: edge to edge, padding moved inside — the gutter rides the panel edge
+  Inline,    ///< stay within the container's padding: a list embedded among other content
+};
+
+/// BeginScrollAffordance + ImGui::BeginChild, plus the full-bleed treatment (see the RULE above)
+/// and the rounded rail that fades in behind the widened thumb — both need the child rect up front,
+/// which only this form knows, so the bare pair above animates the thumb alone. Bleeding applies
+/// when @p size.x is not an explicit width. Returns BeginChild's visibility (skip content when
+/// false); EndScrollRegion() must be called either way, exactly like ImGui::EndChild().
+bool BeginScrollRegion(const char* id, const ImVec2& size = ImVec2(0.f, 0.f),
+  ImGuiWindowFlags flags = 0, ScrollBleed bleed = ScrollBleed::Container);
 void EndScrollRegion();
 
 //----------------------------------------------------------------------------

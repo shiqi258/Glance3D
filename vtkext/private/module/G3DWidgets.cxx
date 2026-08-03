@@ -1222,16 +1222,67 @@ void EndScrollAffordance()
 }
 
 //----------------------------------------------------------------------------
-bool BeginScrollRegion(const char* id, const ImVec2& size, ImGuiWindowFlags flags)
+namespace
+{
+// How far each open region pulled its line start out, so EndScrollRegion can put it back.
+std::vector<float> gScrollRegionInset;
+}
+
+//----------------------------------------------------------------------------
+bool BeginScrollRegion(const char* id, const ImVec2& size, ImGuiWindowFlags flags, ScrollBleed bleed)
 {
   BeginScrollAffordance(id);
+
+  // Full bleed: take over the container's horizontal padding so the gutter lands on the panel edge,
+  // then hand that padding straight back to the content as the child's own inset — the content
+  // keeps its exact position and only the scrollbar moves outward. The padding is measured off the
+  // live line start rather than style.WindowPadding, which the container may have pushed to
+  // something else. Growing past the content region widens the parent's ContentSize, which is inert
+  // for the panels and cards this serves (fixed width, no horizontal scrollbar) — a container that
+  // auto-fits its width would want ScrollBleed::Inline.
+  //
+  // Indent() rather than SetCursorScreenPos(): it moves the line start (so EndChild lands the
+  // cursor back on it, and Unindent restores it) without raising the "cursor moved past the window
+  // boundary" flag that a bare cursor write leaves behind for the container's End() to complain
+  // about.
+  //
+  // Two different measurements, deliberately: `lead` is how far the cursor sits from the container's
+  // left edge (what to give back to reach it), while the padding to re-apply is read off the work
+  // rect's right edge, which is padding-derived and so unaffected by whatever left the cursor where
+  // it is. Using `lead` for both would inherit any stray indent as a narrower content inset.
+  const bool wantBleed = (bleed == ScrollBleed::Container && size.x <= 0.f);
+  const float lead = wantBleed ? std::max(0.f, ImGui::GetCursorPosX()) : 0.f;
+  const float pad = wantBleed
+    ? std::max(0.f,
+        (ImGui::GetWindowPos().x + ImGui::GetWindowSize().x) -
+          (ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x))
+    : 0.f;
+  const float inset = (lead > 0.f || pad > 0.f) ? pad : 0.f;
+  gScrollRegionInset.push_back(lead);
+  if (lead > 0.f)
+  {
+    ImGui::Indent(-lead);
+  }
+  if (inset > 0.f)
+  {
+    // BeginChild latches this into the child; popped right after so it cannot re-pad the popups and
+    // tooltips opened from inside the region.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(inset, 0.f));
+  }
+
   // Resolve the child rect the way BeginChild will (0 = fill the available room, negative = trim
   // that much off it), so the rails land exactly on the gutters ImGui is about to reserve.
   const ImVec2 avail = ImGui::GetContentRegionAvail();
   const ImVec2 box(
-    size.x > 0.f ? size.x : avail.x + size.x, size.y > 0.f ? size.y : avail.y + size.y);
+    size.x > 0.f ? size.x : avail.x + size.x + pad, size.y > 0.f ? size.y : avail.y + size.y);
   DrawScrollRails(EnsureScroll(gScrollStack.back()), ImGui::GetCursorScreenPos(), box);
-  return ImGui::BeginChild(id, size, ImGuiChildFlags_None, flags);
+  const bool visible = ImGui::BeginChild(
+    id, box, inset > 0.f ? ImGuiChildFlags_AlwaysUseWindowPadding : ImGuiChildFlags_None, flags);
+  if (inset > 0.f)
+  {
+    ImGui::PopStyleVar();
+  }
+  return visible;
 }
 
 //----------------------------------------------------------------------------
@@ -1239,6 +1290,14 @@ void EndScrollRegion()
 {
   EndScrollAffordance();
   ImGui::EndChild();
+  if (!gScrollRegionInset.empty())
+  {
+    if (gScrollRegionInset.back() > 0.f)
+    {
+      ImGui::Unindent(-gScrollRegionInset.back());
+    }
+    gScrollRegionInset.pop_back();
+  }
 }
 
 //----------------------------------------------------------------------------
