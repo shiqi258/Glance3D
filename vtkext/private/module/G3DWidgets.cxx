@@ -856,27 +856,248 @@ ImVec2 FloatingCardPos(
 }
 
 //----------------------------------------------------------------------------
-bool FloatingCardDragHandle(
-  const char* id, FloatingCardState& st, ImVec2 bandSize, float rightReserve)
+namespace
+{
+// Title-bar band height (nominal px) — fixed, unlike the docked PanelHeader whose height falls out
+// of the layout: the drag hot zone, the band fill and the content offset must agree exactly.
+constexpr float kCardHeaderH = 32.f;
+// Close button edge (nominal — IconButton applies the UI scale itself).
+constexpr float kCardCloseBtn = 18.f;
+// Horizontal inset of the title bar's first/last element from the card edge.
+constexpr float kCardInset = 10.f;
+
+/// The "grab me" texture every draggable handle in the industry wears (Figma panels, VS Code views,
+/// Blender headers): a 2x3 dot grid. Drawn muted at rest and brightened on hover, so the title bar
+/// advertises the drag before the cursor ever changes.
+void DrawGripDots(ImDrawList* dl, const ImVec2& center, float s, ImU32 col)
+{
+  const float step = 3.8f * s;
+  const float r = 1.3f * s;
+  for (int cx = 0; cx < 2; ++cx)
+  {
+    for (int cy = 0; cy < 3; ++cy)
+    {
+      dl->AddCircleFilled(
+        ImVec2(center.x + (cx - 0.5f) * step, center.y + (cy - 1.f) * step), r, col, 8);
+    }
+  }
+}
+
+// Fill of the card currently open, so its scrolling body can fade its cut edge into it. One card at
+// a time (floating cards do not nest — a card's popups are ImGui popups, not nested cards).
+ImVec4 gCardBg = ImVec4(0.f, 0.f, 0.f, 0.f);
+bool gCardHasBg = false;
+
+/// Outward elevation shadow for a floating layer: concentric rounded strokes fading out, drawn
+/// strictly OUTSIDE the card rect (strokes, not fills, so nothing paints over the card itself).
+/// This is what separates the card from the opaque docked chrome it may overlap.
+void DrawCardShadow(ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, float rounding, float s)
+{
+  const AAGuard aa(dl);
+  constexpr int kRings = 5;
+  const float step = 1.8f * s;
+  const float yOff = 1.5f * s; // light from above: the shadow pools below the card
+  for (int i = 1; i <= kRings; ++i)
+  {
+    const float d = i * step;
+    const float t = static_cast<float>(i) / static_cast<float>(kRings);
+    const float alpha = 0.20f * (1.f - t) * (1.f - t);
+    dl->AddRect(ImVec2(mn.x - d, mn.y - d + yOff), ImVec2(mx.x + d, mx.y + d + yOff),
+      IM_COL32(0, 0, 0, static_cast<int>(alpha * 255.f)), rounding + d, 0, step * 1.6f);
+  }
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+float FloatingCardHeaderHeight()
+{
+  return kCardHeaderH * Scale();
+}
+
+//----------------------------------------------------------------------------
+FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDesc& desc)
 {
   const float s = Scale();
-  const ImVec2 keep = ImGui::GetCursorScreenPos();
-  ImGui::SetCursorScreenPos(ImGui::GetWindowPos());
+  FloatingCardResult res;
+
+  const ImVec2 pos = FloatingCardPos(st, desc.defaultPos, desc.size, desc.bounds, desc.margin);
+  // Size must be set explicitly (offscreen rendering skips the auto-size frame — see the actor's
+  // SetupNextWindow), and both are unconditional so a drag lands on the very next frame.
+  ImGui::SetNextWindowPos(pos);
+  ImGui::SetNextWindowSize(desc.size);
+
+  const float pad = desc.padding > 0.f ? desc.padding : G3DTheme::Spacing::Lg * s;
+  const float rounding = G3DTheme::Radius::Card * s;
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad, pad));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, rounding);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, G3DTheme::Size::Border * s);
+  ImGui::PushStyleColor(ImGuiCol_Border, G3DTheme::BorderStrong());
+  gCardHasBg = desc.background != nullptr;
+  if (gCardHasBg)
+  {
+    gCardBg = *desc.background;
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, gCardBg);
+  }
+
+  // Z-ORDER: a floating card must never sink under the docked chrome, so it is submitted WITHOUT
+  // NoBringToFrontOnFocus while every docked bar carries it. ImGui adds NoBringToFrontOnFocus
+  // windows at the BOTTOM of the display list *when they are created* — a card created on demand
+  // (the user presses a shortcut long after the bars exist) would therefore land under them no
+  // matter which order the frame submits them in. Staying focusable puts it on top at creation and
+  // raises it on click, while the bars can never raise themselves above it. The command palette
+  // still wins: it calls SetNextWindowFocus() every frame.
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+    ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
+    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | desc.extraFlags;
+
+  ImGui::Begin(desc.id, nullptr, flags);
+  if (desc.background != nullptr)
+  {
+    ImGui::PopStyleColor();
+  }
+  ImGui::PopStyleColor(); // border
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImVec2 wp = ImGui::GetWindowPos();
+  const ImVec2 ws = ImGui::GetWindowSize();
+  const float headerH = kCardHeaderH * s;
+
+  // Elevation: painted on the card's own draw list (above every window below it) but clipped to
+  // full screen so it can spill outside the window rect.
+  dl->PushClipRectFullScreen();
+  DrawCardShadow(dl, wp, ImVec2(wp.x + ws.x, wp.y + ws.y), rounding, s);
+  dl->PopClipRect();
+
+  // --- title bar = drag handle -------------------------------------------------------------
+  // Submitted first so it owns the band, minus the close button's corner (rather than relying on
+  // item-overlap resolution, which needs a hover frame before the click to arbitrate).
+  const float inset = kCardInset * s;
+  const float closePx = kCardCloseBtn * s;
+  const float reserve = desc.closable ? closePx + 2.f * inset : 0.f;
+  ImGui::SetCursorScreenPos(wp);
   ImGui::InvisibleButton(
-    id, ImVec2(std::max(1.f, bandSize.x - rightReserve), std::max(1.f, bandSize.y)));
-  if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+    "##g3d.fc.drag", ImVec2(std::max(1.f, ws.x - reserve), std::max(1.f, headerH)));
+  const bool bandHovered = ImGui::IsItemHovered();
+  // Latch on the live item state (splitter convention) — no self-managed pressed bool.
+  const bool bandActive = ImGui::IsItemActive();
+  if (bandHovered || bandActive)
   {
     ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
   }
-  // Latch on the live item state (splitter convention) — no self-managed pressed bool.
-  st.dragging = ImGui::IsItemActive();
-  if (st.dragging)
+  st.dragging = bandActive;
+  res.dragging = bandActive;
+  if (bandActive)
   {
-    st.dragOffset.x += ImGui::GetIO().MouseDelta.x / s;
-    st.dragOffset.y += ImGui::GetIO().MouseDelta.y / s;
+    const ImVec2 delta = ImGui::GetIO().MouseDelta;
+    st.dragOffset.x += delta.x / s;
+    st.dragOffset.y += delta.y / s;
+    if (delta.x != 0.f || delta.y != 0.f)
+    {
+      st.moved = true;
+    }
   }
-  ImGui::SetCursorScreenPos(keep);
-  return st.dragging;
+  // Double-click the title bar snaps the card back to its anchor — the standard escape hatch for
+  // "I dragged it somewhere silly" (applies on the next frame, the position is already resolved).
+  if (bandHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+  {
+    st.dragOffset = ImVec2(0.f, 0.f);
+    st.moved = false;
+  }
+  if (desc.dragTooltip != nullptr)
+  {
+    ItemTooltip(desc.dragTooltip);
+  }
+
+  // Band fill: a real title bar, one elevation step above the card body — the primary "this panel
+  // is a movable object" signal, before the grip, the cursor or the tooltip.
+  {
+    const AAGuard aa(dl);
+    ImVec4 band = G3DTheme::Surface();
+    if (bandActive)
+    {
+      band = G3DTheme::SurfacePress();
+    }
+    else if (bandHovered)
+    {
+      band = G3DTheme::SurfaceHover();
+    }
+    dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + headerH), U32(band), rounding,
+      ImDrawFlags_RoundCornersTop);
+    dl->AddLine(ImVec2(wp.x, wp.y + headerH), ImVec2(wp.x + ws.x, wp.y + headerH),
+      U32(G3DTheme::Border()), G3DTheme::Size::Border * s);
+
+    const float cy = wp.y + headerH * 0.5f;
+    float x = wp.x + inset;
+    ImVec4 grip = G3DTheme::Text();
+    grip.w *= (bandHovered || bandActive) ? 0.90f : 0.50f;
+    DrawGripDots(dl, ImVec2(x + 2.5f * s, cy), s, U32(grip));
+    x += 8.f * s + G3DTheme::Spacing::Sm * s;
+
+    const float isz = 15.f * s;
+    G3DIcon::Draw(dl, desc.icon, ImVec2(x + isz * 0.5f, cy), isz, U32(G3DTheme::TextMuted()));
+    x += isz + G3DTheme::Spacing::Sm * s;
+
+    // Same type treatment as the docked PanelHeader (13px, near-full-strength) so a floating panel
+    // and a docked one read as the same family.
+    const float fs = 13.f * s;
+    const ImVec2 ts = CalcTextSized(desc.title, fs);
+    ImVec4 titleCol = G3DTheme::Text();
+    titleCol.w *= 0.92f;
+    DrawTextSized(dl, ImVec2(x, cy - ts.y * 0.5f), U32(titleCol), desc.title, fs);
+  }
+
+  if (desc.closable)
+  {
+    ImGui::SetCursorScreenPos(
+      ImVec2(wp.x + ws.x - inset - closePx, wp.y + (headerH - closePx) * 0.5f));
+    res.closed = IconButton("##g3d.fc.close", G3DIconId::Close, kCardCloseBtn);
+  }
+
+  // Content starts below the band, inside the horizontal padding.
+  ImGui::SetCursorScreenPos(ImVec2(wp.x + pad, wp.y + headerH + pad));
+  return res;
+}
+
+//----------------------------------------------------------------------------
+void EndFloatingCard()
+{
+  ImGui::End();
+  ImGui::PopStyleVar(3); // WindowPadding + WindowRounding + WindowBorderSize
+}
+
+//----------------------------------------------------------------------------
+bool BeginFloatingCardBody(const char* id, bool horizontalScroll)
+{
+  // Fill the card's remaining height: the body owns the scrolling so everything submitted before it
+  // (title bar, search field) stays pinned. max(1) guards the degenerate frame where the caller's
+  // height math leaves nothing — a zero-height child asserts in ImGui.
+  const float h = std::max(1.f, ImGui::GetContentRegionAvail().y);
+  const ImGuiWindowFlags flags = horizontalScroll ? ImGuiWindowFlags_HorizontalScrollbar : 0;
+  return ImGui::BeginChild(id, ImVec2(0.f, h), ImGuiChildFlags_None, flags);
+}
+
+//----------------------------------------------------------------------------
+void EndFloatingCardBody()
+{
+  // Bottom fade while content continues past the visible end: dissolve the cut row into the card
+  // instead of slicing it flush at the edge (same treatment as the docked scroll regions), which
+  // doubles as the "there is more below" cue next to the thin scrollbar.
+  if (ImGui::GetScrollMaxY() > 0.f && ImGui::GetScrollY() < ImGui::GetScrollMaxY() - 1.f)
+  {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 wp = ImGui::GetWindowPos();
+    const ImVec2 ws = ImGui::GetWindowSize();
+    const float fadeH = 18.f * Scale();
+    const float w = ws.x - ImGui::GetStyle().ScrollbarSize; // keep the scrollbar gutter crisp
+    ImVec4 bg = gCardHasBg ? gCardBg : ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+    bg.w = 1.f;
+    const ImU32 c0 = ImGui::ColorConvertFloat4ToU32(ImVec4(bg.x, bg.y, bg.z, 0.f));
+    const ImU32 c1 = ImGui::ColorConvertFloat4ToU32(bg);
+    dl->AddRectFilledMultiColor(
+      ImVec2(wp.x, wp.y + ws.y - fadeH), ImVec2(wp.x + w, wp.y + ws.y), c0, c0, c1, c1);
+  }
+  ImGui::EndChild();
 }
 
 //----------------------------------------------------------------------------

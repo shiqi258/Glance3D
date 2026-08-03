@@ -117,29 +117,85 @@ void PanelHeader(const char* title, G3DIconId icon);
 /// its height — the button nests inside it). Returns true when the close button is clicked.
 bool PanelHeader(const char* title, G3DIconId icon, bool closable);
 
-/// Session state of one floating card (owned by the caller, one instance per card). The floating
-/// primitives deliberately know nothing about the app layout: the default anchor and the clamp
-/// bounds are injected per frame; the state only carries what the user did.
+//----------------------------------------------------------------------------
+// Floating card — the reusable chrome for every draggable overlay panel
+//
+// One component, three calls:
+//
+//   G3DWidgets::FloatingCardDesc d;  d.id = "MyCard"; d.title = ...; d.size = ...;
+//   const auto card = G3DWidgets::BeginFloatingCard(state, d);   // title bar: grip + drag + close
+//   ...pinned content (search field, toolbar) — stays put while the body scrolls...
+//   G3DWidgets::BeginFloatingCardBody();
+//   ...scrolling content...
+//   G3DWidgets::EndFloatingCardBody();
+//   G3DWidgets::EndFloatingCard();
+//   if (card.closed) { ...hide the card... }
+//
+// The component owns: window setup (position/size/flags/rounding/rim/elevation shadow), the title
+// bar anatomy (grip affordance, icon, title, close button), drag-to-move with clamping, and the
+// pinned-header / scrolling-body split. It deliberately knows nothing about the app layout: the
+// default anchor and the clamp bounds are injected per frame, the state only carries what the user
+// did. Reuse it for any new floating panel instead of hand-rolling a Begin() + drag handle.
+//----------------------------------------------------------------------------
+
+/// Session state of one floating card (owned by the caller, one instance per card).
 struct FloatingCardState
 {
   ImVec2 dragOffset = ImVec2(0.f, 0.f); ///< user drag, nominal px (divided by the UI scale)
   bool dragging = false;                ///< the drag handle is held this frame
+  bool moved = false;                   ///< the user has dragged this card at least once
 };
+
+/// Per-frame description of a floating card. Only `id`, `title` and `size` are mandatory; the rest
+/// have sane defaults (centered-anchor callers still pass `defaultPos` / `bounds`).
+struct FloatingCardDesc
+{
+  const char* id = "##g3d.card";              ///< window id, unique + stable per card
+  const char* title = "";                     ///< title-bar label
+  G3DIconId icon = G3DIconId::Info;           ///< title-bar identity glyph
+  bool closable = true;                       ///< show the title-bar close button
+  const char* dragTooltip = nullptr;          ///< hover hint on the title bar
+  ImVec2 size = ImVec2(0.f, 0.f);             ///< card size in px (caller sizes it from content)
+  ImVec2 defaultPos = ImVec2(0.f, 0.f);       ///< anchor used until the user drags
+  ImVec4 bounds = ImVec4(0.f, 0.f, 0.f, 0.f); ///< clamp rect: x,y = origin, z,w = size
+  float margin = 8.f;                         ///< gap kept between the card and the bounds
+  float padding = -1.f;                       ///< content padding (<= 0: theme default)
+  const ImVec4* background = nullptr;         ///< window fill override (null: ImGui WindowBg)
+  ImGuiWindowFlags extraFlags = 0;            ///< extra window flags OR-ed in
+};
+
+/// What the card reported this frame.
+struct FloatingCardResult
+{
+  bool closed = false;   ///< the title-bar close button was clicked
+  bool dragging = false; ///< the title bar is held — OR this into a force-render condition so the
+                         ///< drag stays frame-continuous
+};
+
+/// Open a floating card. Submits the window (positioned from the anchor + the user's drag, clamped
+/// into `bounds`) and its title bar, then leaves the cursor below the title bar ready for content.
+/// Always pair with EndFloatingCard().
+FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDesc& desc);
+void EndFloatingCard();
+
+/// Height of a floating card's title bar (px, already UI-scaled) — for callers sizing their card
+/// from their content height.
+float FloatingCardHeaderHeight();
+
+/// Scrolling region filling the card's remaining height: everything submitted between
+/// BeginFloatingCard() and this call is PINNED (title bar, search field, tabs), everything inside
+/// scrolls. The outer card window never scrolls, so the title can not be pushed out of view.
+/// @p horizontalScroll adds a horizontal scrollbar for content wider than the card.
+bool BeginFloatingCardBody(const char* id = "##g3d.card.body", bool horizontalScroll = false);
+void EndFloatingCardBody();
 
 /// Resolve a floating card's window position: default anchor + drag offset, clamped into @p bounds
 /// (x,y = origin, z,w = size) with @p margin breathing room. The clamped result is written back so
 /// the stored offset never exceeds what is shown — a window shrink would otherwise leave a dead
-/// zone before reverse dragging takes visible effect. Call before submitting the window.
+/// zone before reverse dragging takes visible effect. BeginFloatingCard() calls this itself; it is
+/// exposed for callers that need the resolved rect (hit-testing, non-window cards) before drawing.
 ImVec2 FloatingCardPos(
   FloatingCardState& st, ImVec2 defaultPos, ImVec2 size, const ImVec4& bounds, float margin);
-
-/// Drag handle spanning the card's header band. Call right after Begin, before PanelHeader: lays an
-/// invisible button over the band (minus @p rightReserve, keeping the header's close button
-/// reachable), latches on the held state and accumulates the mouse delta into the state. Returns
-/// true while held — callers OR this into their force-render condition so drags stay
-/// frame-continuous.
-bool FloatingCardDragHandle(
-  const char* id, FloatingCardState& st, ImVec2 bandSize, float rightReserve);
 
 /// Read-only key/value row for inspectors / stat panels: muted label on the left, primary value
 /// right-aligned on the same line (mirrors styleguide .proprow used read-only).

@@ -1489,6 +1489,87 @@
         top: 1px;
       }
 
+      /* ---- floating card: the draggable overlay panel chrome (≡ G3DWidgets::BeginFloatingCard).
+         Anatomy = title bar (grip + icon + title + close, the whole band is the drag handle)
+         / optional pinned row / scrolling body. Elevation + rim are what separate it from the
+         docked chrome it floats over. */
+      .floatcard {
+        width: 320px;
+        background: var(--surface-1);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-lg);
+        overflow: hidden;
+      }
+      .floatcard-bar {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        height: 32px;
+        padding: 0 10px;
+        background: var(--surface-2);
+        border-bottom: 1px solid var(--border);
+        cursor: move; /* the pointer confirms what the grip promises */
+        transition: background var(--t-micro) var(--ease);
+      }
+      .floatcard:hover .floatcard-bar,
+      .floatcard.is-hover .floatcard-bar {
+        background: var(--surface-3);
+      }
+      .floatcard-bar:active {
+        background: var(--surface-4);
+      }
+      .floatcard-bar > .icon.floatcard-grip {
+        flex: none;
+        font-size: 15px;
+        color: var(--text); /* brighter than the identity icon: the grip is the affordance */
+        opacity: 0.5;
+        transition: opacity var(--t-micro) var(--ease);
+      }
+      .floatcard:hover .floatcard-grip,
+      .floatcard.is-hover .floatcard-grip {
+        opacity: 0.9;
+      }
+      .floatcard-bar > .icon {
+        flex: none;
+        font-size: 15px;
+        color: var(--text-muted);
+      }
+      .floatcard-title {
+        flex: 1;
+        font-size: var(--fs-dense); /* 13px — same header type as the docked PanelHeader */
+        font-weight: 600;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .floatcard-close {
+        flex: none;
+        display: grid;
+        place-items: center;
+        width: 18px;
+        height: 18px;
+        border: 0;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+      }
+      .floatcard-close:hover {
+        background: var(--surface-4);
+        color: var(--text);
+      }
+      .floatcard-pinned {
+        padding: var(--s-4) var(--s-4) var(--s-2);
+        border-bottom: 1px solid var(--border);
+      }
+      .floatcard-body {
+        max-height: 150px;
+        overflow: auto;
+        padding: var(--s-3) var(--s-4) var(--s-4);
+      }
+
       .sectiontitle {
         font-size: var(--fs-overline);
         font-weight: 600;
@@ -2450,6 +2531,7 @@
         <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2" /><circle cx="9" cy="10" r="1.8" /><path d="M20.5 15.5 16 11l-9 8.5" /></symbol>
         <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.5 3.5 8 12 12.5 20.5 8Z" /><path d="M3.7 12.2 12 16.5l8.3-4.3" /></symbol>
         <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6.5" r="1.3" fill="currentColor" stroke="none" /><circle cx="15" cy="6.5" r="1.3" fill="currentColor" stroke="none" /><circle cx="9" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="9" cy="17.5" r="1.3" fill="currentColor" stroke="none" /><circle cx="15" cy="17.5" r="1.3" fill="currentColor" stroke="none" /></symbol>
+        <symbol id="i-help" viewBox="0 0 24 24"><path d="M8.8 8.6a3.2 3.2 0 1 1 3.9 3.6c-1 .3-1.7 1.1-1.7 2.1v.6" /><circle cx="12" cy="18.2" r="1.25" fill="currentColor" stroke="none" /></symbol>
         <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></symbol>
         <symbol id="i-expand-all" viewBox="0 0 24 24"><polyline points="8 4.5 12 8.5 16 4.5" /><polyline points="8 19.5 12 15.5 16 19.5" /><line x1="5" y1="12" x2="19" y2="12" /></symbol>
         <symbol id="i-collapse-all" viewBox="0 0 24 24"><polyline points="8 8 12 4 16 8" /><polyline points="8 16 12 20 16 16" /><line x1="5" y1="12" x2="19" y2="12" /></symbol>
@@ -2492,6 +2574,7 @@
         <a href="#tree">树 / 大纲</a>
         <a href="#collapse">折叠面板 / 手风琴</a>
         <a href="#cards">卡片</a>
+        <a href="#floatcard">浮层卡片</a>
         <a href="#misc">徽章 / 标签页 / 提示</a>
         <div class="group">范例</div>
         <a href="#inspector">检视器面板</a>
@@ -2517,6 +2600,7 @@
             <div class="proprow"><span class="k"><code>g3d-slider</code> / <code>g3d-num</code></span><span class="v" style="max-width: 220px"><g3d-slider val="40"></g3d-slider><g3d-num>0.40</g3d-num></span></div>
             <div class="proprow"><span class="k"><code>g3d-badge</code> / <code>g3d-tip</code></span><span class="v"><g3d-badge v="accent" dot>Badge</g3d-badge></span></div>
             <div class="proprow"><span class="k"><code>g3d-card</code> / <code>g3d-proprow</code> / <code>g3d-sectiontitle</code></span><span class="v"><span class="note" style="margin: 0">容器/布局组件，内部插任意子组件</span></span></div>
+            <div class="proprow"><span class="k"><code>g3d-floatcard</code></span><span class="v"><span class="note" style="margin: 0">可拖动浮层面板外壳，标题栏 + 常驻行 + 滚动正文（见「浮层卡片」）</span></span></div>
             <div class="proprow"><span class="k"><code>g3d-tree</code> / <code>g3d-trow</code></span><span class="v"><span class="note" style="margin: 0">大纲与树节点（见「树 / 大纲」）</span></span></div>
             <div class="proprow"><span class="k"><code>g3d-collapse</code> / <code>g3d-accordion</code></span><span class="v"><span class="note" style="margin: 0">可折叠分组与连续列表（见「折叠面板」）</span></span></div>
             <div class="proprow"><span class="k"><code>g3d-colorswatch</code> / <code>g3d-colorpicker</code></span><span class="v"><g3d-colorswatch val="#7C8CFF" nochev></g3d-colorswatch><span class="note" style="margin: 0">取色器触发块与弹出面板（见「颜色选择器」）</span></span></div>
@@ -3095,6 +3179,43 @@
           </div>
         </section>
 
+        <!-- ===================== FLOATING CARD ===================== -->
+        <section class="block" id="floatcard">
+          <h2>浮层卡片</h2>
+          <p class="desc">
+            可拖动的浮层面板外壳 <span class="tag-impl">≡ImGui</span>：标题栏（抓手 + 图标 + 标题 + 关闭，整条即拖拽把手）/
+            可选常驻行 / 滚动正文。快捷键帮助窗就是它的第一个使用者，后续任何浮层面板直接复用，不要再各写一套拖拽。
+          </p>
+          <p class="uses"><b>组合</b>标题栏复用 图标 <code>g3d-icon</code>；<code>slot="pin"</code> 常驻行与正文可嵌任意组件（此处嵌 输入框 <code>g3d-input</code>）。</p>
+          <div class="panel">
+            <div class="row" style="align-items: flex-start; gap: var(--s-5); flex-wrap: wrap">
+              <div>
+                <div class="state-label">静置</div>
+                <g3d-floatcard ic="help" title="快捷键">
+                  <div slot="pin"><g3d-input ic="search" ph="搜索…"></g3d-input></div>
+                  <div class="proprow"><span class="k">切换边线显示</span><span class="v"><g3d-badge>E</g3d-badge></span></div>
+                  <div class="proprow"><span class="k">切换网格显示</span><span class="v"><g3d-badge>G</g3d-badge></span></div>
+                  <div class="proprow"><span class="k">重置相机</span><span class="v"><g3d-badge>Enter</g3d-badge></span></div>
+                  <div class="proprow"><span class="k">截图</span><span class="v"><g3d-badge>F12</g3d-badge></span></div>
+                </g3d-floatcard>
+              </div>
+              <div>
+                <div class="state-label">悬停标题栏（抓手提亮 + 底色抬升 + move 光标）</div>
+                <g3d-floatcard ic="cube" title="材质" state="hover">
+                  <div class="proprow"><span class="k">金属度</span><span class="v"><g3d-slider val="30"></g3d-slider></span></div>
+                  <div class="proprow"><span class="k">粗糙度</span><span class="v"><g3d-slider val="60"></g3d-slider></span></div>
+                </g3d-floatcard>
+              </div>
+            </div>
+            <div class="note">
+              桌面端对应 <code>G3DWidgets::BeginFloatingCard() / BeginFloatingCardBody() / EndFloatingCardBody() /
+              EndFloatingCard()</code>，组件自带：锚点 + 拖拽偏移并按边界钳制、标题栏双击复位、常驻区与滚动正文分离（标题永不被滚走）、
+              正文底缘渐隐、外投影与 1px 描边（浮层与停靠栏的层级区分）。<b>层级</b>：浮层卡片保持可聚焦，停靠栏一律
+              <code>NoBringToFrontOnFocus</code>，因此卡片永远压在四栏之上，且与创建顺序无关。
+            </div>
+          </div>
+        </section>
+
         <!-- ===================== MISC ===================== -->
         <section class="block" id="misc">
           <h2>徽章 / 标签页 / 提示</h2>
@@ -3332,6 +3453,20 @@
               ? `<div class="card-head">${icon(a(el, "ic"))}<h3>${a(el, "title")}</h3></div>`
               : "";
             return `<div class="${cls("card", a(el, "v"))}">${head}<p>${inner(el)}</p></div>`;
+          },
+          // Draggable overlay panel (≡ G3DWidgets::BeginFloatingCard / EndFloatingCard).
+          // A `slot="pin"` child becomes the pinned row (stays put while the body scrolls);
+          // everything else is the scrolling body.
+          "g3d-floatcard": (el) => {
+            const pinEl = el.querySelector('[slot="pin"]');
+            const pin = pinEl ? `<div class="floatcard-pinned">${pinEl.innerHTML}</div>` : "";
+            if (pinEl) pinEl.remove();
+            const bar = `<div class="floatcard-bar">
+                <svg class="icon floatcard-grip"><use href="#i-grip" /></svg>
+                ${icon(a(el, "ic"))}<span class="floatcard-title">${a(el, "title")}</span>
+                ${has(el, "noclose") ? "" : `<button class="floatcard-close" title="关闭">${icon("close")}</button>`}
+              </div>`;
+            return `<div class="${cls("floatcard", a(el, "v"), stateCls(a(el, "state")))}">${bar}${pin}<div class="floatcard-body">${inner(el)}</div></div>`;
           },
           "g3d-sectiontitle": (el) => `<div class="sectiontitle">${inner(el)}</div>`,
           "g3d-divider": () => `<div class="divider"></div>`,

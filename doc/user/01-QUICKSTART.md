@@ -79,7 +79,9 @@ Once you've loaded your scene in Glance3D, you can interact with it by using you
 - Press <kbd>Enter</kbd> to reset the camera.
 - Press <kbd>Space</kbd> to play animation, if any.
 - Press <kbd>G</kbd> to toggle the horizontal grid.
-- Press <kbd>H</kbd> to display a cheatsheet of hotkey interactions.
+- Press <kbd>H</kbd> to display a cheatsheet of hotkey interactions. It is a floating card: drag its
+  title bar to move it anywhere in the window, double-click the title bar to bring it back to the
+  center, and press <kbd>H</kbd> again (or <kbd>Esc</kbd>, or the card's close button) to dismiss it.
 
 For more information, see the [Interactions](04-INTERACTIONS.md) page.
 

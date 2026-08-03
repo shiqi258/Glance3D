@@ -1528,8 +1528,8 @@ void vtkF3DImguiActor::RenderCheatSheet()
 
   this->Pimpl->CheatSheetWidth += ImGui::GetStyle().ScrollbarSize + 4.f * padding;
   const float uiScale = static_cast<float>(this->FontScale);
-  textHeight += 2.f * ImGui::GetStyle().WindowPadding.y;
-  textHeight += 30.f * uiScale; // PanelHeader band
+  textHeight += 2.f * padding;                         // card content padding, top + bottom
+  textHeight += G3DWidgets::FloatingCardHeaderHeight(); // title bar band
 
   // The sheet is a floating card anchored to the CENTER viewport rect, not a window edge: same
   // resolve chain as the docked chrome (narrow-exclusive and side-cap rules included), so the
@@ -1555,39 +1555,36 @@ void vtkF3DImguiActor::RenderCheatSheet()
     defaultPos.y =
       std::clamp(defaultPos.y, center.y + margin, center.y + center.h - margin - sheetH);
   }
-  const ImVec2 sheetPos = G3DWidgets::FloatingCardPos(this->Pimpl->CheatSheetFloat, defaultPos,
-    ImVec2(sheetW, sheetH), ImVec4(work.x, work.y, work.w, work.h), margin);
-
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
-  // Card rounding + a PanelHeader below: the sheet shares the docked chrome's anatomy instead of
-  // reading as a legacy floating window (the global 8px popup rounding stays for true popups).
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, G3DTheme::Radius::Card * uiScale);
-
-  ::SetupNextWindow(sheetPos, ImVec2(sheetW, sheetH));
-  ImGuiStyle& style = ImGui::GetStyle();
+  // The whole floating-panel chrome — window setup, title bar, grip + drag, close, elevation — is
+  // the shared G3DWidgets component; this presenter only feeds it geometry and content.
+  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
+  const std::string sheetTitle = locale.Translate("Shortcuts");
+  // The reset half of the hint only appears once the card has actually been moved — before that it
+  // would advertise an escape hatch from a problem the user does not have yet.
+  const std::string dragHint = this->Pimpl->CheatSheetFloat.moved
+    ? locale.Translate("Drag to move · double-click to reset")
+    : locale.Translate("Drag to move");
   // Floor the sheet's opacity: at the shared backdrop default, bright model areas ghost through
-  // the reference text. Only this window — the user option keeps driving the other overlays.
-  style.Colors[ImGuiCol_WindowBg] = ImVec4(this->BackdropColor[0], this->BackdropColor[1],
-    this->BackdropColor[2], std::max(static_cast<float>(this->BackdropOpacity), 0.95f));
+  // the reference text. Only this card — the user option keeps driving the other overlays.
+  const ImVec4 sheetBg(this->BackdropColor[0], this->BackdropColor[1], this->BackdropColor[2],
+    std::max(static_cast<float>(this->BackdropOpacity), 0.95f));
 
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-    ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
-    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
-    ImGuiWindowFlags_NoBringToFrontOnFocus;
-  if (sheetW < this->Pimpl->CheatSheetWidth)
-  {
-    // Width got clamped by a narrow window: let the rows scroll sideways instead of clipping.
-    flags |= ImGuiWindowFlags_HorizontalScrollbar;
-  }
+  G3DWidgets::FloatingCardDesc cardDesc;
+  cardDesc.id = "CheatSheet";
+  cardDesc.title = sheetTitle.c_str();
+  cardDesc.icon = G3DIconId::Help;
+  cardDesc.closable = true;
+  cardDesc.dragTooltip = dragHint.c_str();
+  cardDesc.size = ImVec2(sheetW, sheetH);
+  cardDesc.defaultPos = defaultPos;
+  cardDesc.bounds = ImVec4(work.x, work.y, work.w, work.h);
+  cardDesc.margin = margin;
+  cardDesc.padding = padding;
+  cardDesc.background = &sheetBg;
 
-  ImGui::Begin("CheatSheet", nullptr, flags);
-
-  // Header band = drag handle (minus the close button's corner). The sheet must NOT take keyboard
-  // focus (NoFocusOnAppearing/NoNav stay): users keep pressing the shortcuts they are reading.
-  G3DWidgets::FloatingCardDragHandle(
-    "##g3d.cs.drag", this->Pimpl->CheatSheetFloat, ImVec2(sheetW, 30.f * uiScale), 40.f * uiScale);
-  if (G3DWidgets::PanelHeader(
-        G3DLocaleCore::GetInstance().Translate("Shortcuts").c_str(), G3DIconId::Help, true))
+  const G3DWidgets::FloatingCardResult card =
+    G3DWidgets::BeginFloatingCard(this->Pimpl->CheatSheetFloat, cardDesc);
+  if (card.closed)
   {
     this->SendCommand("set ui.cheatsheet false");
   }
@@ -1597,7 +1594,6 @@ void vtkF3DImguiActor::RenderCheatSheet()
     ImGui::SetKeyboardFocusHere();
     this->Pimpl->SearchFocusRequested = false;
   }
-  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
   const std::string searchHint = locale.Translate("Search...");
   const std::string descModeLabel = locale.Translate("Description");
   const std::string keybindModeLabel = locale.Translate("Keybind");
@@ -1668,6 +1664,11 @@ void vtkF3DImguiActor::RenderCheatSheet()
     this->Pimpl->CurrentSearchMode = Internals::SearchMode::Keybind;
     this->Pimpl->SearchFocusRequested = true;
   }
+
+  // Only the binding rows scroll — the title bar and the search row above stay pinned, so the
+  // sheet keeps saying what it is and stays searchable however far down the user has scrolled.
+  // Sideways scrolling only when a narrow window clamped the card below its content width.
+  G3DWidgets::BeginFloatingCardBody("##g3d.cs.rows", sheetW < this->Pimpl->CheatSheetWidth);
 
   for (const auto& [group, list] : this->CheatSheet)
   {
@@ -1767,8 +1768,8 @@ void vtkF3DImguiActor::RenderCheatSheet()
     ImGui::EndTable();
   }
 
-  ImGui::End();
-  ImGui::PopStyleVar(2); // WindowPadding + WindowRounding
+  G3DWidgets::EndFloatingCardBody();
+  G3DWidgets::EndFloatingCard();
 }
 
 //----------------------------------------------------------------------------
