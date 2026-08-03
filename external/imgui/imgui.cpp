@@ -1669,6 +1669,8 @@ ImGuiIO::ImGuiIO()
     ConfigWindowsCopyContentsWithCtrlC = false;
     ConfigScrollbarScrollByPage = true;
     ConfigMemoryCompactTimer = 60.0f;
+    ScrollbarStyleFn = NULL;                    // [Glance3D] see ImGuiScrollbarStyleData
+    ScrollbarStyleUserData = NULL;
     ConfigDebugIsDebuggerPresent = false;
     ConfigDebugHighlightIdConflicts = true;
     ConfigDebugHighlightIdConflictsShowItemPicker = true;

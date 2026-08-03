@@ -1114,14 +1114,39 @@ bool ImGui::ScrollbarEx(const ImRect& bb_frame, ImGuiID id, ImGuiAxis axis, ImS6
     }
 
     // Render
-    const ImU32 bg_col = GetColorU32(ImGuiCol_ScrollbarBg);
+    // [Glance3D] Hand this scrollbar to the application now that its interaction state is settled,
+    // so it can drive a per-id transition (thumb thickness, gutter fill) for every scrollbar in the
+    // frame — including the ones ImGui opens itself. Seeded with the stock values, so leaving
+    // io.ScrollbarStyleFn NULL keeps the original rendering exactly.
+    ImGuiScrollbarStyleData sb_style;
+    sb_style.ID = id;
+    sb_style.Hovered = hovered;
+    sb_style.Held = held;
+    sb_style.GrabThickness = (axis == ImGuiAxis_X) ? bb.GetHeight() : bb.GetWidth();
+    sb_style.TrackCol = GetColorU32(ImGuiCol_ScrollbarBg);
+    sb_style.TrackRounding = window->WindowRounding;
+    sb_style.TrackDrawFlags = draw_rounding_flags;
+    if (g.IO.ScrollbarStyleFn != NULL)
+        g.IO.ScrollbarStyleFn(&sb_style, g.IO.ScrollbarStyleUserData);
+
     const ImU32 grab_col = GetColorU32(held ? ImGuiCol_ScrollbarGrabActive : hovered ? ImGuiCol_ScrollbarGrabHovered : ImGuiCol_ScrollbarGrab, alpha);
-    window->DrawList->AddRectFilled(bb_frame.Min, bb_frame.Max, bg_col, window->WindowRounding, draw_rounding_flags);
+    window->DrawList->AddRectFilled(bb_frame.Min, bb_frame.Max, sb_style.TrackCol, sb_style.TrackRounding, sb_style.TrackDrawFlags);
     ImRect grab_rect;
     if (axis == ImGuiAxis_X)
         grab_rect = ImRect(ImLerp(bb.Min.x, bb.Max.x, grab_v_norm), bb.Min.y, ImLerp(bb.Min.x, bb.Max.x, grab_v_norm) + grab_h_pixels, bb.Max.y);
     else
         grab_rect = ImRect(bb.Min.x, ImLerp(bb.Min.y, bb.Max.y, grab_v_norm), bb.Max.x, ImLerp(bb.Min.y, bb.Max.y, grab_v_norm) + grab_h_pixels);
+    // [Glance3D] Re-center the thumb across the gutter at the requested thickness. Cross-axis only:
+    // its length and position along the scrolling axis were solved above and must not shift. The
+    // gutter itself never changes size, so a thicker thumb can never reflow the content region.
+    {
+        const int cross = (int)axis ^ 1;
+        const float avail = bb_frame.Max[cross] - bb_frame.Min[cross];
+        const float thickness = ImClamp(sb_style.GrabThickness, 1.0f, avail);
+        const float inset = (avail - thickness) * 0.5f;
+        grab_rect.Min[cross] = bb_frame.Min[cross] + inset;
+        grab_rect.Max[cross] = bb_frame.Max[cross] - inset;
+    }
     window->DrawList->AddRectFilled(grab_rect.Min, grab_rect.Max, grab_col, style.ScrollbarRounding);
 
     return held;

@@ -288,6 +288,26 @@ typedef void    (*ImGuiSizeCallback)(ImGuiSizeCallbackData* data);              
 typedef void*   (*ImGuiMemAllocFunc)(size_t sz, void* user_data);               // Function signature for ImGui::SetAllocatorFunctions()
 typedef void    (*ImGuiMemFreeFunc)(void* ptr, void* user_data);                // Function signature for ImGui::SetAllocatorFunctions()
 
+// [Glance3D] What a scrollbar should look like this frame, filled in by ImGuiIO::ScrollbarStyleFn.
+// The callback owns the transition (it is handed the live hovered/held state and the scrollbar's id
+// to key any animation on); ScrollbarEx() only applies the result. Fields are pre-filled with the
+// values ImGui would have used, so a callback may leave any of them untouched.
+struct ImGuiScrollbarStyleData
+{
+    ImGuiID     ID;             // in:  the scrollbar's id (stable per window+axis)
+    bool        Hovered;        // in:  pointer is over the scrollbar
+    bool        Held;           // in:  being dragged
+    float       GrabThickness;  // in/out: thumb thickness in pixels, across the scrolling axis.
+                                //     Only the thumb: the frame it sits in keeps its size, so
+                                //     widening it can never reflow the window's content region.
+    ImU32       TrackCol;       // in/out: gutter fill (defaults to ImGuiCol_ScrollbarBg)
+    float       TrackRounding;  // in/out: gutter corner radius (defaults to the window rounding)
+    ImDrawFlags TrackDrawFlags; // in/out: which gutter corners round (defaults to the corners that
+                                //     touch the window edge; set ImDrawFlags_RoundCornersAll for a
+                                //     capsule that floats inside the gutter)
+};
+typedef void    (*ImGuiScrollbarStyleFn)(ImGuiScrollbarStyleData* data, void* user_data);
+
 // ImVec2: 2D vector used to store positions, sizes etc. [Compile-time configurable type]
 // - This is a frequently used type in the API. Consider using IM_VEC2_CLASS_EXTRA to create implicit cast from/to our preferred type.
 // - Add '#define IMGUI_DEFINE_MATH_OPERATORS' before including this file (or in imconfig.h) to access courtesy maths operators for ImVec2 and ImVec4.
@@ -2441,6 +2461,14 @@ struct ImGuiIO
     bool        ConfigWindowsCopyContentsWithCtrlC; // = false      // [EXPERIMENTAL] Ctrl+C copy the contents of focused window into the clipboard. Experimental because: (1) has known issues with nested Begin/End pairs (2) text output quality varies (3) text output is in submission order rather than spatial order.
     bool        ConfigScrollbarScrollByPage;    // = true           // Enable scrolling page by page when clicking outside the scrollbar grab. When disabled, always scroll to clicked location. When enabled, Shift+Click scrolls to clicked location.
     float       ConfigMemoryCompactTimer;       // = 60.0f          // Timer (in seconds) to free transient windows/tables memory buffers when unused. Set to -1.0f to disable.
+
+    // [Glance3D] Per-scrollbar appearance hook. Called from ScrollbarEx() once the scrollbar's own
+    // hovered/held state is known, so the app can drive a per-id transition (e.g. a thumb that
+    // widens under the pointer) for EVERY scrollbar, including the ones ImGui opens itself (combo
+    // popups, list boxes, tables) that no application call site could reach. Leave NULL for stock
+    // behaviour: the callback is the only thing that changes it.
+    ImGuiScrollbarStyleFn   ScrollbarStyleFn;   // = NULL           // See ImGuiScrollbarStyleData.
+    void*                   ScrollbarStyleUserData; // = NULL       // Passed through to the callback.
 
     // Inputs Behaviors
     // (other variables, ones which are expected to be tweaked within UI code, are exposed in ImGuiStyle)
