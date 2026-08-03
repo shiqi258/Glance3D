@@ -119,11 +119,14 @@ int TestSDKTriggerInteractions([[maybe_unused]] int argc, [[maybe_unused]] char*
         f3d::interactor::InputAction::RELEASE, f3d::interactor::MouseButton::RIGHT);
     });
 
-    // Trigger cheatsheet search filtering
+    // Trigger cheatsheet search filtering.
+    // Coordinates are top-left window px (triggerMousePosition flips Y) and must land on the
+    // cheat sheet's search field / mode pills at 300x300: the sheet is a floating card, so its
+    // controls sit below the title bar band (see G3DWidgets::BeginFloatingCard).
     helper("TestSDKTriggerInteractionsCheatSheetSearch", [](f3d::engine& engine) {
       engine.getInteractor().triggerKeyboardKey(f3d::interactor::InputAction::PRESS, "H");
       engine.getInteractor().triggerKeyboardKey(f3d::interactor::InputAction::RELEASE, "H");
-      engine.getInteractor().triggerMousePosition(80, 30);
+      engine.getInteractor().triggerMousePosition(80, 62); // search field
       engine.getInteractor().triggerMouseButton(
         f3d::interactor::InputAction::PRESS, f3d::interactor::MouseButton::LEFT);
       engine.getInteractor().triggerMouseButton(
@@ -139,13 +142,13 @@ int TestSDKTriggerInteractions([[maybe_unused]] int argc, [[maybe_unused]] char*
       engine.getInteractor().triggerKeyboardKey(f3d::interactor::InputAction::PRESS, "H");
       engine.getInteractor().triggerKeyboardKey(f3d::interactor::InputAction::RELEASE, "H");
       engine.getWindow().render();
-      engine.getInteractor().triggerMousePosition(200, 55);
+      engine.getInteractor().triggerMousePosition(144, 84); // "Keybind" mode pill
       engine.getWindow().render();
       engine.getInteractor().triggerMouseButton(
         f3d::interactor::InputAction::PRESS, f3d::interactor::MouseButton::LEFT);
       engine.getInteractor().triggerMouseButton(
         f3d::interactor::InputAction::RELEASE, f3d::interactor::MouseButton::LEFT);
-      engine.getInteractor().triggerMousePosition(80, 30);
+      engine.getInteractor().triggerMousePosition(80, 62); // search field
       engine.getInteractor().triggerMouseButton(
         f3d::interactor::InputAction::PRESS, f3d::interactor::MouseButton::LEFT);
       engine.getInteractor().triggerMouseButton(
