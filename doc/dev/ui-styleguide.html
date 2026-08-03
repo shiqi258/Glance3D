@@ -1489,6 +1489,71 @@
         top: 1px;
       }
 
+      /* ---- scroll region (≡ G3DWidgets::BeginScrollRegion + InstallScrollbarStyle). Two rules,
+         both visible below:
+         (1) the GUTTER is a constant and only the THUMB inside it changes width on hover —
+             `scrollbar-gutter: stable` + a transparent border on the thumb clipped to the content
+             box is the exact web analogue of the desktop side, where ImGui reserves ScrollbarSize
+             and only the grab thickness animates. Animating the gutter would reflow the content.
+         (2) the region is FULL-BLEED: horizontal padding lives INSIDE it, so the gutter rides the
+             container edge instead of floating in a dead strip. */
+      .scrollbox {
+        height: 168px;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+      }
+      .scrollbox::-webkit-scrollbar {
+        width: 12px; /* the gutter: G3DTheme::Scrollbar::Gutter */
+      }
+      .scrollbox::-webkit-scrollbar-track {
+        background: transparent; /* invisible at rest: the thumb alone IS the scrollbar */
+        border-radius: 999px;
+      }
+      .scrollbox::-webkit-scrollbar-thumb {
+        border: 4px solid transparent; /* (12 - 4) / 2 => a 4px resting thumb */
+        background-clip: content-box;
+        background-color: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        transition: border-width var(--t-micro) var(--ease), background-color var(--t-micro) var(--ease);
+      }
+      .scrollbox:hover::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .scrollbox:hover::-webkit-scrollbar-thumb {
+        border-width: 2px; /* (12 - 8) / 2 => an 8px thumb under the pointer */
+        background-color: rgba(255, 255, 255, 0.17);
+      }
+      .scrollbox:hover::-webkit-scrollbar-thumb:active {
+        background-color: rgba(255, 255, 255, 0.21);
+      }
+      /* full-bleed: content carries the inset, the scroller does not */
+      .scrollbox > .sb-inner {
+        padding: var(--s-2) var(--s-3);
+      }
+      /* the anti-pattern for the comparison: padding OUTSIDE the scroller */
+      .scrollbox.is-inset {
+        padding: 0 var(--s-3);
+      }
+      .scrollbox.is-inset > .sb-inner {
+        padding: var(--s-2) 0;
+      }
+      .sb-row {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--s-3);
+        padding: 5px 0;
+        font-size: var(--fs-caption);
+        color: var(--text-muted);
+      }
+      .sb-row b {
+        color: var(--text);
+        font-family: var(--mono);
+        font-weight: 400;
+      }
+
       /* ---- floating card: the draggable overlay panel chrome (≡ G3DWidgets::BeginFloatingCard).
          Anatomy = title bar (grip + icon + title + close, the whole band is the drag handle)
          / optional pinned row / scrolling body. Elevation + rim are what separate it from the
@@ -2575,6 +2640,7 @@
         <a href="#collapse">折叠面板 / 手风琴</a>
         <a href="#cards">卡片</a>
         <a href="#floatcard">浮层卡片</a>
+        <a href="#scroll">滚动区 / 滚动条</a>
         <a href="#misc">徽章 / 标签页 / 提示</a>
         <div class="group">范例</div>
         <a href="#inspector">检视器面板</a>
@@ -3212,6 +3278,68 @@
               EndFloatingCard()</code>，组件自带：锚点 + 拖拽偏移并按边界钳制、标题栏双击复位、常驻区与滚动正文分离（标题永不被滚走）、
               正文底缘渐隐、外投影与 1px 描边（浮层与停靠栏的层级区分）。<b>层级</b>：浮层卡片保持可聚焦，停靠栏一律
               <code>NoBringToFrontOnFocus</code>，因此卡片永远压在四栏之上，且与创建顺序无关。
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================== SCROLL REGION ===================== -->
+        <section class="block" id="scroll">
+          <h2>滚动区 / 滚动条</h2>
+          <p class="desc">
+            凡是会滚动的容器都归这里 <span class="tag-impl">≡ImGui</span>。两条规范，<b>不是可选项</b>，桌面端由组件默认施加：
+            ① 滑块静息 4px、指针移入变 8px 并淡入轨道，<b>槽宽恒定</b>；② 滚动区<b>出血</b>，槽贴容器内缘。
+          </p>
+          <p class="uses"><b>组合</b>正文可嵌任意组件；卡片 <code>g3d-card</code> / 浮层卡片 <code>g3d-floatcard</code> 的滚动正文走的是同一套。</p>
+          <div class="panel">
+            <div class="row" style="align-items: flex-start; gap: var(--s-5); flex-wrap: wrap">
+              <div style="flex: 1 1 260px">
+                <div class="state-label">规范 ①：槽恒定，只有滑块变宽（把指针移进去看）</div>
+                <div class="scrollbox">
+                  <div class="sb-inner">
+                    <div class="sb-row"><span>点数</span><b>726874</b></div>
+                    <div class="sb-row"><span>单元数</span><b>791217</b></div>
+                    <div class="sb-row"><span>对象数</span><b>163</b></div>
+                    <div class="sb-row"><span>尺寸</span><b>95.85 × 60.47</b></div>
+                    <div class="sb-row"><span>材质</span><b>12</b></div>
+                    <div class="sb-row"><span>纹理</span><b>8</b></div>
+                    <div class="sb-row"><span>动画</span><b>3</b></div>
+                    <div class="sb-row"><span>骨骼</span><b>254</b></div>
+                    <div class="sb-row"><span>形变目标</span><b>0</b></div>
+                  </div>
+                </div>
+              </div>
+              <div style="flex: 1 1 260px">
+                <div class="state-label">规范 ②：反例 —— 内边距在滚动区外，槽和边缘之间空一条死带</div>
+                <div class="scrollbox is-inset">
+                  <div class="sb-inner">
+                    <div class="sb-row"><span>点数</span><b>726874</b></div>
+                    <div class="sb-row"><span>单元数</span><b>791217</b></div>
+                    <div class="sb-row"><span>对象数</span><b>163</b></div>
+                    <div class="sb-row"><span>尺寸</span><b>95.85 × 60.47</b></div>
+                    <div class="sb-row"><span>材质</span><b>12</b></div>
+                    <div class="sb-row"><span>纹理</span><b>8</b></div>
+                    <div class="sb-row"><span>动画</span><b>3</b></div>
+                    <div class="sb-row"><span>骨骼</span><b>254</b></div>
+                    <div class="sb-row"><span>形变目标</span><b>0</b></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="note">
+              <b>为什么槽不能跟着变宽</b>：槽是从内容区里挖走的那一份宽度，改它等于改内容区 —— 鼠标一移入
+              文字就重排、右对齐的数值整排跳动。所以只动滑块。槽同时是<b>命中框</b>，按指针尺寸取 12px（而不是
+              按静息滑块的 4px），这才是"好拖"的真正来源。CSS 侧用 <code>scrollbar-gutter: stable</code> +
+              滑块透明边框 <code>background-clip: content-box</code> 表达同一件事：边框变窄 = 滑块变宽，槽不动。
+            </div>
+            <div class="note">
+              <b>为什么必须出血</b>：滚动条属于容器边缘，不属于内容。内边距留在滚动区外面，槽就被推进来一截，
+              既浪费又丢掉"把指针甩到边上即可命中"。<b>水平内边距要放进滚动区里面</b>（上面右侧反例就是放在外面）。
+            </div>
+            <div class="note">
+              桌面端对应 <code>G3DWidgets::BeginScrollRegion() / EndScrollRegion()</code>（出血）与
+              <code>G3DWidgets::InstallScrollbarStyle()</code>（变宽过渡）。后者只需在启动时挂一次，之后<b>每一条</b>
+              滚动条都自动生效 —— 包括 ImGui 自己开的下拉弹层 / 列表框 / 表格，那些是任何调用点都够不到的。
+              几何令牌见 <code>G3DTheme::Scrollbar</code>（Gutter 12 / ThumbRest 4 / ThumbHover 8 / TrackEndMargin 2）。
             </div>
           </div>
         </section>
