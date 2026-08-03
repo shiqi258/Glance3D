@@ -79,6 +79,19 @@ struct WidgetAnim
 };
 
 std::unordered_map<ImGuiID, WidgetAnim> gAnims;
+
+// Per-scroll-region state for the expanding scrollbar (see BeginScrollAffordance). Separate from
+// WidgetAnim because a scrollbar is not an item we submit: its interaction is sampled from the
+// pointer against the container rect, and the drag latch has to outlive the pointer leaving the
+// gutter.
+struct ScrollAnim
+{
+  G3DAnimatedFloat expand; ///< 0 = resting hairline, 1 = fully widened thumb
+  bool dragging = false;   ///< pressed inside the gutter and still holding
+  int lastFrame = -1;
+};
+std::unordered_map<ImGuiID, ScrollAnim> gScrollAnims;
+
 G3DFrameClock gClock;
 int gFrame = -1;
 double gDt = 0.0;
@@ -94,6 +107,10 @@ double FrameDelta()
     for (auto it = gAnims.begin(); it != gAnims.end();)
     {
       it = (f - it->second.lastFrame > 240) ? gAnims.erase(it) : std::next(it);
+    }
+    for (auto it = gScrollAnims.begin(); it != gScrollAnims.end();)
+    {
+      it = (f - it->second.lastFrame > 240) ? gScrollAnims.erase(it) : std::next(it);
     }
   }
   return gDt;
@@ -1067,6 +1084,119 @@ void EndFloatingCard()
 }
 
 //----------------------------------------------------------------------------
+namespace
+{
+// Affordance state is keyed off the caller's id string alone, hashed here rather than through
+// ImGui::GetID: BeginScrollAffordance runs *before* the container exists, and for a top-level
+// window there may be no current window to hash against at all.
+ImGuiID ScrollKey(const char* id)
+{
+  ImGuiID h = 2166136261u; // FNV-1a
+  for (const char* c = id; c != nullptr && *c != '\0'; c++)
+  {
+    h = (h ^ static_cast<unsigned char>(*c)) * 16777619u;
+  }
+  return h;
+}
+
+ScrollAnim& EnsureScroll(ImGuiID key)
+{
+  auto it = gScrollAnims.find(key);
+  if (it == gScrollAnims.end())
+  {
+    ScrollAnim s;
+    G3DTheme::Configure(s.expand, G3DTheme::Motions::Micro);
+    it = gScrollAnims.emplace(key, s).first;
+  }
+  return it->second;
+}
+
+// Open affordances, innermost last — a card body nested in a card is two live regions.
+std::vector<ImGuiID> gScrollStack;
+
+// Is the pointer near a gutter that actually has a bar in it? The approach band reaches a little
+// past the gutter into the content so the thumb is already open by the time the pointer lands on
+// it, which is what makes the widened target feel like a target rather than a reward.
+bool ScrollGutterArmed()
+{
+  const ImVec2 wp = ImGui::GetWindowPos();
+  const ImVec2 ws = ImGui::GetWindowSize();
+  const ImVec2 m = ImGui::GetIO().MousePos;
+  if (m.x < wp.x || m.x > wp.x + ws.x || m.y < wp.y || m.y > wp.y + ws.y)
+  {
+    return false;
+  }
+  const float band = ImGui::GetStyle().ScrollbarSize + G3DTheme::Scrollbar::Proximity * Scale();
+  const bool nearY = ImGui::GetScrollMaxY() > 0.f && m.x >= wp.x + ws.x - band;
+  const bool nearX = ImGui::GetScrollMaxX() > 0.f && m.y >= wp.y + ws.y - band;
+  return nearY || nearX;
+}
+}
+
+//----------------------------------------------------------------------------
+void BeginScrollAffordance(const char* id)
+{
+  const ImGuiID key = ScrollKey(id);
+  gScrollStack.push_back(key);
+
+  ScrollAnim& st = EnsureScroll(key);
+  const int f = ImGui::GetFrameCount();
+  if (st.lastFrame != f) // the target was set by last frame's EndScrollAffordance
+  {
+    st.expand.Update(FrameDelta());
+    st.lastFrame = f;
+  }
+
+  // Interpolate the thumb inside the fixed gutter. Both widths are expressed as fractions of the
+  // live (DPI-scaled) gutter so the affordance follows --font-scale without a second scale factor.
+  const float gutter = ImGui::GetStyle().ScrollbarSize;
+  const float thumb = gutter *
+    G3DLerp(G3DTheme::Scrollbar::ThumbRest / G3DTheme::Scrollbar::Gutter,
+      G3DTheme::Scrollbar::ThumbHover / G3DTheme::Scrollbar::Gutter, st.expand.Value());
+  ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarPadding, (gutter - thumb) * 0.5f);
+
+  // The track stays invisible at rest (the thumb alone is the whole scrollbar) and fades in with
+  // the expansion, so a drag has a visible extent to travel along.
+  ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(1.f, 1.f, 1.f, 0.045f * st.expand.Value()));
+}
+
+//----------------------------------------------------------------------------
+void EndScrollAffordance()
+{
+  if (gScrollStack.empty())
+  {
+    return; // unbalanced call — nothing was pushed, so pop nothing
+  }
+  ScrollAnim& st = EnsureScroll(gScrollStack.back());
+  gScrollStack.pop_back();
+  ImGui::PopStyleColor();
+  ImGui::PopStyleVar();
+
+  // A drag keeps the thumb open wherever the pointer wanders (releasing it mid-window and watching
+  // it snap thin would read as a bug), so the press latches until the button comes up.
+  const bool armed = ScrollGutterArmed() &&
+    ImGui::IsWindowHovered(
+      ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+  st.dragging = st.dragging ? ImGui::IsMouseDown(ImGuiMouseButton_Left)
+                            : (armed && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
+  st.expand.AnimateTo(armed || st.dragging ? 1.f : 0.f);
+}
+
+//----------------------------------------------------------------------------
+bool BeginScrollRegion(const char* id, const ImVec2& size, ImGuiWindowFlags flags)
+{
+  BeginScrollAffordance(id);
+  return ImGui::BeginChild(id, size, ImGuiChildFlags_None, flags);
+}
+
+//----------------------------------------------------------------------------
+void EndScrollRegion()
+{
+  EndScrollAffordance();
+  ImGui::EndChild();
+}
+
+//----------------------------------------------------------------------------
 bool BeginFloatingCardBody(const char* id, bool horizontalScroll)
 {
   // Fill the card's remaining height: the body owns the scrolling so everything submitted before it
@@ -1074,7 +1204,7 @@ bool BeginFloatingCardBody(const char* id, bool horizontalScroll)
   // height math leaves nothing — a zero-height child asserts in ImGui.
   const float h = std::max(1.f, ImGui::GetContentRegionAvail().y);
   const ImGuiWindowFlags flags = horizontalScroll ? ImGuiWindowFlags_HorizontalScrollbar : 0;
-  return ImGui::BeginChild(id, ImVec2(0.f, h), ImGuiChildFlags_None, flags);
+  return BeginScrollRegion(id, ImVec2(0.f, h), flags);
 }
 
 //----------------------------------------------------------------------------
@@ -1097,7 +1227,7 @@ void EndFloatingCardBody()
     dl->AddRectFilledMultiColor(
       ImVec2(wp.x, wp.y + ws.y - fadeH), ImVec2(wp.x + w, wp.y + ws.y), c0, c0, c1, c1);
   }
-  ImGui::EndChild();
+  EndScrollRegion();
 }
 
 //----------------------------------------------------------------------------

@@ -118,6 +118,45 @@ void PanelHeader(const char* title, G3DIconId icon);
 bool PanelHeader(const char* title, G3DIconId icon, bool closable);
 
 //----------------------------------------------------------------------------
+// Scroll regions — the expanding scrollbar affordance
+//
+// Desktop convention (macOS overlay scrollbars, VS Code, browsers): the thumb rests as a hairline
+// so it never competes with content, and widens under the pointer so it is comfortable to grab.
+// The gutter it lives in is a constant (G3DTheme::Scrollbar::Gutter) — ImGui carves the gutter out
+// of the content region, so animating *it* would re-wrap text on mouse-over. Only the thumb moves.
+//
+// Two ways in. The pair, for a container someone else opens (a top-level window, or a BeginChild
+// with flags of its own):
+//
+//   G3DWidgets::BeginScrollAffordance("##my.region");   // BEFORE Begin/BeginChild: ImGui draws the
+//   ImGui::BeginChild("##my.region", ...);              // scrollbar during Begin()
+//   ...content...
+//   G3DWidgets::EndScrollAffordance();                  // still INSIDE the container
+//   ImGui::EndChild();
+//
+// ...and the wrapper, which is the pair plus the BeginChild for the common case:
+//
+//   if (G3DWidgets::BeginScrollRegion("##my.region")) { ...content... }
+//   G3DWidgets::EndScrollRegion();                      // like EndChild: call it either way
+//
+// A container that opts out is not broken, only static: it keeps the resting hairline, since the
+// global style already carries the resting geometry.
+//----------------------------------------------------------------------------
+
+/// Arm the expanding scrollbar for the container opened next. @p id must be stable and unique per
+/// container (the child/window id is the natural choice) — it keys the animation state.
+void BeginScrollAffordance(const char* id);
+/// Sample the pointer against this container's gutter and release the affordance. Must be called
+/// while the container is still the current window, and exactly once per BeginScrollAffordance().
+void EndScrollAffordance();
+
+/// BeginScrollAffordance + ImGui::BeginChild. Returns BeginChild's visibility (skip content when
+/// false); EndScrollRegion() must be called either way, exactly like ImGui::EndChild().
+bool BeginScrollRegion(
+  const char* id, const ImVec2& size = ImVec2(0.f, 0.f), ImGuiWindowFlags flags = 0);
+void EndScrollRegion();
+
+//----------------------------------------------------------------------------
 // Floating card — the reusable chrome for every draggable overlay panel
 //
 // One component, three calls:

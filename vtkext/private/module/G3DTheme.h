@@ -58,6 +58,21 @@ constexpr float IconSm = 14.f;     ///< small icon edge
 constexpr float Border = 1.f;      ///< hairline border / divider thickness
 }
 
+/// Scrollbar geometry (px at FontScale 1.0), following the desktop convention shared by macOS
+/// overlay scrollbars / VS Code / browsers: a thin resting thumb that widens under the pointer.
+///
+/// The invariant that makes it work: the *gutter* is a constant. It is what ImGui reserves from the
+/// content region, so animating it would re-wrap text and shift right-aligned values on mouse-over.
+/// Only the *thumb* inside it animates — no reflow, ever. The gutter doubles as the grab hit box,
+/// so it is sized for the pointer (Fitts) rather than for the resting thumb.
+namespace Scrollbar
+{
+constexpr float Gutter = 12.f;    ///< reserved track width == hit target; never animated
+constexpr float ThumbRest = 4.f;  ///< resting thumb: sensed, not read
+constexpr float ThumbHover = 8.f; ///< expanded thumb: doubled, still inset from the panel edge
+constexpr float Proximity = 6.f;  ///< extra inward band that arms the expansion before the gutter
+}
+
 /// A motion preset: duration (seconds) + easing curve, fed straight into a G3DAnimatedFloat.
 struct Motion
 {

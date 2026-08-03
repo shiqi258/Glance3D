@@ -2,6 +2,7 @@
 
 #include "F3DStyle.h"
 #include "G3DLocaleCore.h"
+#include "G3DWidgets.h"
 #include "vtkF3DUserEvents.h"
 
 #include <vtkCallbackCommand.h>
@@ -323,7 +324,7 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
       const int n = static_cast<int>(this->Pimpl->LiveCandidates.size());
       this->Pimpl->CandidateSel = std::clamp(this->Pimpl->CandidateSel, 0, n - 1);
       const float listH = std::min(contentH, (static_cast<float>(n) + 0.5f) * fontH * 1.45f);
-      if (ImGui::BeginChild("Candidates", ImVec2(0, listH)))
+      if (G3DWidgets::BeginScrollRegion("Candidates", ImVec2(0, listH)))
       {
         for (int i = 0; i < n; i++)
         {
@@ -346,7 +347,7 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
           }
         }
       }
-      ImGui::EndChild();
+      G3DWidgets::EndScrollRegion();
     }
     else if (!this->Pimpl->Logs.empty())
     {
@@ -355,8 +356,8 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
       // logs at all the whole region is skipped above: the empty palette is the input row only.
       const float logH =
         std::min(contentH, (static_cast<float>(this->Pimpl->Logs.size()) + 0.5f) * fontH * 1.45f);
-      if (ImGui::BeginChild(
-            "LogRegion", ImVec2(0, logH), 0, ImGuiWindowFlags_HorizontalScrollbar))
+      if (G3DWidgets::BeginScrollRegion(
+            "LogRegion", ImVec2(0, logH), ImGuiWindowFlags_HorizontalScrollbar))
       {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1)); // Tighten spacing
         for (const auto& [severity, msg] : this->Pimpl->Logs)
@@ -399,7 +400,7 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
 
         ImGui::PopStyleVar();
       }
-      ImGui::EndChild();
+      G3DWidgets::EndScrollRegion();
     }
 
     // Click outside closes the palette (it is modal-ish: it holds window focus while open).

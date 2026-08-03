@@ -746,11 +746,15 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   style->FrameRounding = 4.f; // == G3DTheme::Radius::Control, so native frames match G3D widgets
   style->GrabRounding = 4.0f;
   // Slim, quiet scrollbar: ImGui's 14px default reads as a bright slab pinned to the panel edge on
-  // the dark theme. 8px + fully-rounded grab + low-alpha white keeps it discoverable but recessive;
+  // the dark theme. A hairline capsule in low-alpha white keeps it discoverable but recessive;
   // hover/drag brighten it (no accent — it is chrome, not a control).
-  style->ScrollbarSize = 8.f;
-  style->ScrollbarRounding = 4.f;
-  style->ScrollbarPadding = 2.f;
+  // The gutter is deliberately wider than the resting thumb: it is the constant ImGui carves out of
+  // the content region *and* the grab hit box, so it is sized for the pointer while the thumb inside
+  // it stays thin. G3DWidgets' scroll affordance animates that thumb open on hover (see
+  // G3DWidgets::BeginScrollAffordance); containers that opt out simply keep the resting hairline.
+  style->ScrollbarSize = G3DTheme::Scrollbar::Gutter;
+  style->ScrollbarRounding = G3DTheme::Scrollbar::ThumbHover * 0.5f; // capsule at either width
+  style->ScrollbarPadding = (G3DTheme::Scrollbar::Gutter - G3DTheme::Scrollbar::ThumbRest) * 0.5f;
   style->WindowBorderSize = 0.f;
   style->WindowPadding = ImVec2(10, 10);
   style->WindowRounding = 8.f;
@@ -843,7 +847,7 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
 
   // A child window gives the tree its own scroll region — independent of the host window flags, so it
   // scrolls even inside the docked left bar (which is NoScrollbar). Virtualize over the flat list.
-  ImGui::BeginChild("##g3d.scenetree", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
+  G3DWidgets::BeginScrollRegion("##g3d.scenetree");
   G3DWidgets::BeginTree(G3DWidgets::TreeDensity::Compact);
   G3DWidgets::TreeVirtual(static_cast<int>(flat.size()),
     [&](int i)
@@ -943,7 +947,7 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   // Same bottom breathing room as the inspector: keep the scroll end off the bottom seam.
   ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * static_cast<float>(this->FontScale)));
   ::DrawScrollEndFade(static_cast<float>(this->FontScale));
-  ImGui::EndChild();
+  G3DWidgets::EndScrollRegion();
 }
 
 //----------------------------------------------------------------------------
@@ -3919,7 +3923,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   if (beginBar("##g3d.bar.right", rightIsle))
   {
     G3DWidgets::PanelHeader(loc.Translate("Inspector").c_str(), G3DIconId::Sliders);
-    ImGui::BeginChild("##g3d.inspector", ImVec2(0.f, 0.f), ImGuiChildFlags_None);
+    G3DWidgets::BeginScrollRegion("##g3d.inspector");
     this->DrawDataInfoContent(renWin);
     this->DrawColoringContent(renWin);
     this->DrawAppearanceContent();
@@ -3929,7 +3933,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     // timeline seam (a half-sliced row at narrow window heights).
     ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * scale));
     ::DrawScrollEndFade(scale);
-    ImGui::EndChild();
+    G3DWidgets::EndScrollRegion();
     ImGui::End();
   }
   ImGui::PopStyleVar();
