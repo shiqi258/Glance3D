@@ -150,8 +150,10 @@ void BeginScrollAffordance(const char* id);
 /// while the container is still the current window, and exactly once per BeginScrollAffordance().
 void EndScrollAffordance();
 
-/// BeginScrollAffordance + ImGui::BeginChild. Returns BeginChild's visibility (skip content when
-/// false); EndScrollRegion() must be called either way, exactly like ImGui::EndChild().
+/// BeginScrollAffordance + ImGui::BeginChild, plus the rounded rail that fades in behind the
+/// widened thumb — the rail needs the child rect up front, which only this form knows, so the bare
+/// pair above animates the thumb alone. Returns BeginChild's visibility (skip content when false);
+/// EndScrollRegion() must be called either way, exactly like ImGui::EndChild().
 bool BeginScrollRegion(
   const char* id, const ImVec2& size = ImVec2(0.f, 0.f), ImGuiWindowFlags flags = 0);
 void EndScrollRegion();
