@@ -51,8 +51,10 @@ ImFont* gDataFont = nullptr;
 struct DataFontScope
 {
   bool pushed;
-  DataFontScope()
-    : pushed(gDataFont != nullptr)
+  /// @p enable false makes the scope inert, so a helper can take "mono?" as a flag without
+  /// duplicating its body around two code paths.
+  explicit DataFontScope(bool enable = true)
+    : pushed(enable && gDataFont != nullptr)
   {
     if (this->pushed)
     {
@@ -2558,22 +2560,6 @@ struct TreeRowFrame
 };
 std::vector<TreeRowFrame> gRowStack;
 
-float TreeRowHeight(TreeDensity d, float s)
-{
-  switch (d)
-  {
-    case TreeDensity::Standard:
-      return 24.f * s;
-    case TreeDensity::Dense:
-      return 20.f * s;
-    case TreeDensity::Comfy:
-      return 28.f * s;
-    case TreeDensity::Compact:
-    default:
-      return 22.f * s;
-  }
-}
-
 // styleguide icv -> icon tint.
 ImVec4 TreeIconColor(TreeIconVariant v)
 {
@@ -2604,6 +2590,24 @@ ImVec4 TreeIconColor(TreeIconVariant v)
 } // namespace
 
 //----------------------------------------------------------------------------
+float TreeRowHeight(TreeDensity density, float scale)
+{
+  const float s = scale > 0.f ? scale : Scale();
+  switch (density)
+  {
+    case TreeDensity::Standard:
+      return 24.f * s;
+    case TreeDensity::Dense:
+      return 20.f * s;
+    case TreeDensity::Comfy:
+      return 28.f * s;
+    case TreeDensity::Compact:
+    default:
+      return 22.f * s;
+  }
+}
+
+//----------------------------------------------------------------------------
 void BeginTree(TreeDensity density)
 {
   const float s = Scale();
@@ -2630,15 +2634,30 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   ImGui::PushID(id);
 
   const float s = Scale();
-  const float rowH = gTreeStack.empty() ? 22.f * s : gTreeStack.back().rowH;
+  const float densityH = gTreeStack.empty() ? 22.f * s : gTreeStack.back().rowH;
+  const float rowH = chrome.height > 0.f ? chrome.height : densityH;
   const float indent = gTreeStack.empty() ? G3DTheme::Spacing::Lg * s : gTreeStack.back().indent;
-  const float twistyW = indent;
-  const float width = std::max(rowH, ImGui::GetContentRegionAvail().x);
-  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  // Content-rail mode drops the twisty/indent column: a flat list has no hierarchy to reserve for.
+  const float twistyW = chrome.contentRail ? 0.f : indent;
+  // Two origins: `rail` is where content lines up (the caller's content edge), `p0` is where the
+  // band is painted and hit. They differ only by the bleed, and every downstream user picks the one
+  // it belongs to — that is what keeps "band == hit rect == content extent" true at any bleed.
+  const ImVec2 rail = ImGui::GetCursorScreenPos();
+  const float railW = std::max(rowH, ImGui::GetContentRegionAvail().x);
+  const ImVec2 p0(rail.x - chrome.bleed, rail.y);
+  const float width = railW + 2.f * chrome.bleed;
 
   // One item for the whole row (twisty + trailing actions are hit-routed manually so the row stays
-  // the single ImGui item — a stable anchor for ImGui drag-drop).
+  // the single ImGui item — a stable anchor for ImGui drag-drop). Rows tile flush by construction:
+  // the advance carries zero vertical item spacing whether or not a BeginTree() scope set it, so a
+  // run of rows is contiguous and the hit rect is exactly the painted band, bleed included.
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.f));
+  if (chrome.bleed > 0.f)
+  {
+    ImGui::SetCursorScreenPos(p0);
+  }
   const bool pressed = ImGui::InvisibleButton("##row", ImVec2(width, rowH));
+  ImGui::PopStyleVar();
   const bool hovered = ImGui::IsItemHovered();
   const bool held = ImGui::IsItemActive();
   const WidgetAnim& a = Interact(ImGui::GetID("##row"), hovered && !chrome.disabled, held);
@@ -2648,15 +2667,15 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   }
 
   const float cy = p0.y + rowH * 0.5f;
-  const float twX = p0.x + chrome.depth * indent;
+  const float twX = rail.x + chrome.depth * indent;
 
   // Route the click: twisty region toggles expand, the rest selects.
   res.hovered = hovered;
   if (pressed && !chrome.disabled)
   {
     const ImVec2 mp = ImGui::GetIO().MousePos;
-    const bool inTwisty =
-      chrome.twisty != TreeTwisty::Leaf && mp.x >= twX && mp.x <= twX + twistyW;
+    const bool inTwisty = chrome.twisty != TreeTwisty::Leaf && !chrome.contentRail &&
+      mp.x >= twX && mp.x <= twX + twistyW;
     if (inTwisty)
     {
       res.twistyClicked = true;
@@ -2676,7 +2695,10 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   if (chrome.selected)
   {
     fill = G3DTheme::AccentSoft();
-    fill.w = chrome.focused ? 0.24f : 0.16f;
+    // A selected row still answers the pointer: unfocused selection rides the hover tween up to the
+    // focused depth instead of sitting inert (styleguide .selected -> .selected.focused). The
+    // outliner always sets focused == selected, so it keeps taking the flat 0.24 branch.
+    fill.w = chrome.focused ? 0.24f : G3DLerp(0.16f, 0.24f, ht);
   }
   else if (ht > 0.001f)
   {
@@ -2698,7 +2720,7 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   // Indentation rails (continuing guide lines), one per depth column.
   for (int i = 0; i < chrome.depth; ++i)
   {
-    const float rx = p0.x + i * indent + indent * 0.5f;
+    const float rx = rail.x + i * indent + indent * 0.5f;
     const bool active = i == chrome.activeGuide;
     // Active rail stays neutral (VS Code): accent on the guide would stack a third blue indicator
     // onto the selected row's edge bar + soft fill.
@@ -2708,7 +2730,7 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
 
   // Twisty chevron (down when open, right when collapsed; nothing for a leaf). styleguide twisty is
   // text-subtle, brightening to text on hover.
-  if (chrome.twisty != TreeTwisty::Leaf)
+  if (chrome.twisty != TreeTwisty::Leaf && !chrome.contentRail)
   {
     ImVec4 subtle = G3DTheme::Text();
     subtle.w *= 0.50f;
@@ -2725,7 +2747,10 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   f.rowH = rowH;
   f.scale = s;
   f.contentX = twX + twistyW;
-  f.rightX = p0.x + width - G3DTheme::Spacing::Sm * s;
+  // The 8px inset is the tree row's INTERNAL right padding (styleguide .tree-row padding 0 6px 0 2px).
+  // A content-rail row has no internal padding by definition — its padding is the outward bleed — so
+  // its trailing cells end exactly on the caller's content edge, level with the StatRow values above.
+  f.rightX = chrome.contentRail ? rail.x + railW : p0.x + width - G3DTheme::Spacing::Sm * s;
   f.hoverT = ht;
   f.hovered = hovered;
   f.selected = chrome.selected;
@@ -2773,11 +2798,11 @@ void TreeRowIcon(G3DIconId icon, TreeIconVariant variant, bool dim)
 }
 
 //----------------------------------------------------------------------------
-void TreeRowLabel(const char* text, bool group, bool dim)
+bool TreeRowLabel(const char* text, bool group, bool dim)
 {
   if (gRowStack.empty() || !text)
   {
-    return;
+    return false;
   }
   // Node names are data (filenames / assembly node names) — mono; CJK placeholders fall back to
   // the merged CJK face either way.
@@ -2792,49 +2817,20 @@ void TreeRowLabel(const char* text, bool group, bool dim)
   const float avail = std::max(0.f, f.rightX - G3DTheme::Spacing::Xs * f.scale - f.contentX);
   const ImVec2 ts = ImGui::CalcTextSize(text);
 
-  // Truncate with an ellipsis on overflow (styleguide text-overflow: ellipsis), cutting on UTF-8
-  // codepoint boundaries so multibyte/CJK names are never split mid-character.
-  std::string shown;
-  const char* draw = text;
-  if (ts.x > avail)
-  {
-    const float ellW = ImGui::CalcTextSize("...").x;
-    const float budget = avail - ellW;
-    const char* p = text;
-    const char* fit = text;
-    while (*p)
-    {
-      const char* next = p + 1;
-      while ((static_cast<unsigned char>(*next) & 0xC0) == 0x80)
-      {
-        ++next;
-      }
-      if (ImGui::CalcTextSize(text, next).x > budget)
-      {
-        break;
-      }
-      fit = next;
-      p = next;
-    }
-    shown.assign(text, fit);
-    shown += "...";
-    draw = shown.c_str();
-  }
-
+  // Truncation (UTF-8 safe, styleguide text-overflow: ellipsis) lives in TextEllipsis so the "..."
+  // policy has one home. The clip rect stays: it guards the glyph that straddles the budget.
   ImDrawList* dl = ImGui::GetWindowDrawList();
   dl->PushClipRect(ImVec2(f.contentX, f.p0.y), ImVec2(f.contentX + avail, f.p0.y + f.rowH), true);
-  dl->AddText(ImVec2(f.contentX, cy - ts.y * 0.5f), U32(col), draw);
+  const bool clipped = TextEllipsis(dl, ImVec2(f.contentX, cy - ts.y * 0.5f), avail, U32(col), text);
   dl->PopClipRect();
-  // When the name had to be ellipsized, reveal it in full on hover (VS Code / file-explorer pattern).
-  if (draw != text && f.hovered)
-  {
-    ImGui::SetTooltip("%s", text);
-  }
   f.contentX += std::min(ts.x, avail);
+  // The caller owns the "reveal the full name on hover" tooltip: a headless row must not emit one
+  // behind its caller's back (the inspector's array list wants a single, delayed, composed tooltip).
+  return clipped;
 }
 
 //----------------------------------------------------------------------------
-void TreeRowMeta(const char* text)
+void TreeRowMeta(const char* text, float px)
 {
   if (gRowStack.empty() || !text || !text[0])
   {
@@ -2844,12 +2840,16 @@ void TreeRowMeta(const char* text)
   const DataFontScope dataFont;
   TreeRowFrame& f = gRowStack.back();
   const float cy = f.p0.y + f.rowH * 0.5f;
-  const ImVec2 ts = ImGui::CalcTextSize(text);
+  const float fs = px > 0.f ? px : ImGui::GetFontSize();
+  // Measure the way the size was requested: ImGui::CalcTextSize rounds x UP to the next pixel while
+  // CalcTextSizeA does not, and this width right-aligns the cell — mixing them would nudge every
+  // ambient-size meta cell by up to a pixel.
+  const ImVec2 ts = px > 0.f ? CalcTextSized(text, fs) : ImGui::CalcTextSize(text);
   const float x = f.rightX - ts.x;
   ImVec4 col = G3DTheme::Text();
   col.w *= 0.42f; // text-subtle
   ImDrawList* dl = ImGui::GetWindowDrawList();
-  dl->AddText(ImVec2(x, cy - ts.y * 0.5f), U32(col), text);
+  DrawTextSized(dl, ImVec2(x, cy - ts.y * 0.5f), U32(col), text, fs);
   f.rightX = x - G3DTheme::Spacing::Sm * f.scale;
 }
 
@@ -2913,7 +2913,13 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
   {
     TreeRowMeta(desc.meta);
   }
-  TreeRowLabel(desc.label, desc.group, desc.hidden);
+  const bool clipped = TreeRowLabel(desc.label, desc.group, desc.hidden);
+  // When the name had to be ellipsized, reveal it in full on hover (VS Code / file-explorer pattern).
+  // Owned here rather than in the slot helper — see TreeRowLabel.
+  if (clipped && r.hovered)
+  {
+    ImGui::SetTooltip("%s", desc.label);
+  }
   EndTreeRow();
 
   // Eye takes priority over the row body (matches the styleguide stopPropagation on actions).
@@ -3332,12 +3338,13 @@ void DrawColorChip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, const ImV
 
 // Text with a trailing "..." when it does not fit in @p maxW (styleguide `text-overflow: ellipsis`;
 // ASCII dots — the U+2026 glyph is not guaranteed in the atlas for non-CJK languages).
-void DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text)
+// Returns whether it had to truncate, so a caller can reveal the full string on hover.
+bool DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text)
 {
   if (ImGui::CalcTextSize(text).x <= maxW)
   {
     dl->AddText(pos, col, text);
-    return;
+    return false;
   }
   const float ellW = ImGui::CalcTextSize("...").x;
   const char* end = text + std::strlen(text);
@@ -3352,6 +3359,7 @@ void DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, 
   std::string clipped(text, end);
   clipped += "...";
   dl->AddText(pos, col, clipped.c_str());
+  return true;
 }
 
 // Dashed rounded-rect outline (the styleguide `border: 1px dashed`, e.g. .cp-add). ImGui has no
@@ -3472,10 +3480,24 @@ void DrawDashedRect(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float r,
 } // namespace
 
 //----------------------------------------------------------------------------
-void TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text)
+bool TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text)
 {
   // Public face of the internal helper (kept file-local so its "..." policy has one home).
-  DrawTextEllipsis(dl, pos, maxW, col, text);
+  return DrawTextEllipsis(dl, pos, maxW, col, text);
+}
+
+//----------------------------------------------------------------------------
+void TextSized(ImDrawList* dl, const ImVec2& pos, ImU32 col, const char* text, float px, bool mono)
+{
+  const DataFontScope dataFont(mono);
+  DrawTextSized(dl, pos, col, text, px);
+}
+
+//----------------------------------------------------------------------------
+ImVec2 CalcTextSizedPx(const char* text, float px, bool mono)
+{
+  const DataFontScope dataFont(mono);
+  return CalcTextSized(text, px);
 }
 
 //----------------------------------------------------------------------------
@@ -3617,6 +3639,43 @@ void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
     }
   }
   dl->AddRect(p0, p1, ring, 0.f, 0, ringW);
+}
+
+//----------------------------------------------------------------------------
+void ColormapLegend(const GradientStops& stops, const char* lo, const char* hi)
+{
+  const float s = Scale();
+  const float w = ImGui::GetContentRegionAvail().x;
+  if (w <= 1.f)
+  {
+    return;
+  }
+  const float barH = 4.f * s;
+  const float gap = G3DTheme::Spacing::Xs * s;
+  const float px = OverlineSize();
+  const bool labeled = lo != nullptr && hi != nullptr;
+
+  // On the content rail, not the row band's bled rail: the bleed is a hover-surface affordance (it
+  // lets an interactive band hug the section chrome), and a legend has no surface. Sitting on the
+  // content rail lines its ends up with the array names above and the property controls below.
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  DrawGradientStrip(dl, p, ImVec2(p.x + w, p.y + barH), stops);
+
+  float labelH = 0.f;
+  if (labeled)
+  {
+    const ImU32 col = U32(G3DTheme::TextSubtle());
+    const ImVec2 loTs = CalcTextSizedPx(lo, px, true);
+    const ImVec2 hiTs = CalcTextSizedPx(hi, px, true);
+    const float ty = p.y + barH + gap;
+    TextSized(dl, ImVec2(p.x, ty), col, lo, px, true);
+    // Right-aligned, and clamped so a long pair collides into an ellipsis-free abut rather than
+    // overprinting (both ends are already %.3g — at most a few glyphs each).
+    TextSized(dl, ImVec2(std::max(p.x + loTs.x + gap, p.x + w - hiTs.x), ty), col, hi, px, true);
+    labelH = gap + std::max(loTs.y, hiTs.y);
+  }
+  ImGui::Dummy(ImVec2(w, barH + labelH));
 }
 
 //----------------------------------------------------------------------------

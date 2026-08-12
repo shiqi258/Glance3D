@@ -313,7 +313,16 @@ void ItemTooltip(const char* text);
 
 /// Draw @p text at @p pos, truncated with a trailing "..." when wider than @p maxW (UTF-8 safe —
 /// never splits a multi-byte glyph). Pure draw helper: does not advance the layout cursor.
-void TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text);
+/// @return true when the text had to be truncated — the caller may reveal the full string on hover.
+bool TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text);
+
+/// Draw @p text at an explicit pixel size — the design system's 11px overline / badge sizes, below
+/// the base UI font (ImGui scales the glyphs to it). @p mono uses the DATA font. Pure draw helper:
+/// does not advance the layout cursor.
+void TextSized(ImDrawList* dl, const ImVec2& pos, ImU32 col, const char* text, float px,
+  bool mono = false);
+/// Size TextSized() would occupy — for fit tests and right-alignment before drawing.
+ImVec2 CalcTextSizedPx(const char* text, float px, bool mono = false);
 
 //----------------------------------------------------------------------------
 // Select / dropdown
@@ -381,6 +390,12 @@ bool BeginSelectColormap(const char* id, const char* preview, const GradientStop
 
 /// SelectItem variant with a leading gradient strip (colormap preset rows).
 bool SelectItemColormap(const char* label, const GradientStops& stops, bool selected = false);
+
+/// Colormap legend: a full-width ramp with the mapped range's ends labelled beneath it (11px mono,
+/// subtle). This is the "what do these colors mean" key for a list — a legend, not a control: it
+/// takes no input and shows no state. One per section, never one per row. Pass nullptr for both
+/// @p lo / @p hi to omit the labels (a degenerate range). Consumes its height in the layout flow.
+void ColormapLegend(const GradientStops& stops, const char* lo, const char* hi);
 
 //----------------------------------------------------------------------------
 // Context menu
@@ -457,6 +472,11 @@ enum class TreeIconVariant
 void BeginTree(TreeDensity density = TreeDensity::Compact);
 void EndTree();
 
+/// Row height for @p density in scaled px (what BeginTree() pushes). @p scale <= 0 uses the live UI
+/// scale. For callers that need the height before drawing — an explicit TreeRowChrome::height, or
+/// reserving exactly one row for an empty state so a list does not jump when it empties.
+float TreeRowHeight(TreeDensity density, float scale = 0.f);
+
 /// Structural description of a row — everything the headless row owns (no cell content).
 struct TreeRowChrome
 {
@@ -466,6 +486,24 @@ struct TreeRowChrome
   bool focused = false;                 ///< selected and focused (deeper background)
   bool disabled = false;                ///< not interactive, dimmed
   int activeGuide = -1;                 ///< indent rail column to highlight (selection guide), -1 none
+
+  /// Explicit row height in scaled px. 0 = the active BeginTree() density (22px outside any
+  /// BeginTree scope) — see TreeRowHeight(). Rows of a non-uniform height are NOT usable under
+  /// TreeVirtual(): its clipper positions every row at the density height.
+  float height = 0.f;
+
+  /// Content-rail mode: the row's content rails ARE the container's. No twisty/indent column on the
+  /// left and no inset on the right, so the label starts and the trailing cells end exactly on the
+  /// caller's content edges — a list row then shares one rail with the StatRow / BeginPropRow labels
+  /// stacked above it. For selectable list rows inside a padded panel body (the inspector's array
+  /// list); the outliner keeps the default. `twisty` must stay Leaf: there is no column to draw in.
+  bool contentRail = false;
+
+  /// Paint AND hit the row band this many scaled px wider on each side than the content rails, so the
+  /// band edges can land on the container's own chrome edges (a Flat section body pads by 12 while
+  /// its header band insets by 8 — bleed 4 makes the two flush). The band, the hit rect and the
+  /// content extent stay one rectangle, which is the whole point. 0 = band == row box (the outliner).
+  float bleed = 0.f;
 };
 
 /// What the user clicked on a row this frame.
@@ -485,9 +523,13 @@ void EndTreeRow();
 /// Node type icon at the content cursor. @p dim fades it (hidden node).
 void TreeRowIcon(G3DIconId icon, TreeIconVariant variant = TreeIconVariant::Default, bool dim = false);
 /// Node label at the content cursor. @p group brightens it; @p dim fades it (hidden node).
-void TreeRowLabel(const char* text, bool group = false, bool dim = false);
-/// Right-aligned metadata (e.g. child count). Place after the label.
-void TreeRowMeta(const char* text);
+/// @return true when the name had to be ellipsized. The slot emits no tooltip of its own — a
+/// headless row leaves that to its caller (TreeRow() reveals the full name; a list row that
+/// composes one tooltip from several facts folds it in there instead).
+bool TreeRowLabel(const char* text, bool group = false, bool dim = false);
+/// Right-aligned metadata (e.g. child count). Place after the label. @p px draws at an explicit
+/// pixel size (styleguide .tree-meta is 11px overline); 0 = the ambient font size.
+void TreeRowMeta(const char* text, float px = 0.f);
 /// Trailing icon action button (right-aligned, reveals on row hover). @p on tints it with the accent.
 /// Returns true when clicked. @p id unique within the row.
 bool TreeRowAction(const char* id, G3DIconId icon, bool on = false);
@@ -522,6 +564,8 @@ struct TreeRowDesc
 };
 
 /// Draw the common row in one call (built on BeginTreeRow + slot helpers). Returns the click hit.
+/// This is the outliner row: it deliberately does not expose TreeRowChrome::height / contentRail /
+/// bleed — compose those with BeginTreeRow() + the slot helpers.
 TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc);
 
 /// Virtualized tree body for large node counts: only the rows currently visible in the scroll region
@@ -529,7 +573,8 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc);
 /// 100k-node tree stays O(on-screen rows) per frame. Call inside a scrolling region, between
 /// BeginTree/EndTree. @p drawRow(i) draws the i-th currently-visible row (0-based) with BeginTreeRow/
 /// TreeRow — the caller maps i to its (already flattened, collapse-resolved) node. All rows must be
-/// the uniform tree row height.
+/// the uniform tree row height: do NOT set TreeRowChrome::height inside @p drawRow, the clipper
+/// positions rows at the density height and a taller/shorter row desynchronizes every row below it.
 void TreeVirtual(int rowCount, const std::function<void(int)>& drawRow);
 
 //----------------------------------------------------------------------------
