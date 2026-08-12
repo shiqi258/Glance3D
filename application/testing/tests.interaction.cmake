@@ -181,6 +181,14 @@ if(VTK_VERSION VERSION_GREATER_EQUAL 9.6.20260306)
   f3d_test(NAME TestInteractionSceneHierarchyScroll DATA vtk-dasm-test.glb INTERACTION UI) #Shift+H;Scroll to bottom
 endif()
 
+## Inspector array list — the rows ARE the coloring selector, so both halves of a row must select.
+# ClickMeta is the regression test for a real defect: the old two-line row predicted its own height,
+# so its hit rect covered only the name and clicking the value text did nothing at all.
+# Both recordings end with the pointer moved off the row and the hover tween settled, so the
+# selected row's fill alpha (which rides hover from .16 to .24) is deterministic under replay.
+f3d_test(NAME TestInteractionG3DArraysClickName DATA f3d.glb ARGS -Dui.control_panel=true RESOLUTION 1000,600 INTERACTION UI) #Click an array row's name
+f3d_test(NAME TestInteractionG3DArraysClickMeta DATA f3d.glb ARGS -Dui.control_panel=true RESOLUTION 1000,600 INTERACTION UI) #Click the same row's value cell
+
 ## Console
 f3d_test(NAME TestInteractionConsoleOpen DATA f3d.glb INTERACTION UI) #Escape
 f3d_test(NAME TestInteractionConsoleOpenExit DATA f3d.glb REGEXP "Interactor has been stopped" INTERACTION NO_BASELINE UI) #Escape;exit;Return
