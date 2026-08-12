@@ -817,6 +817,26 @@
         flex: none;
         box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
       }
+      /* Colormap LEGEND (<g3d-cmaplegend> / G3DWidgets::ColormapLegend): the key that says which
+         numbers the ramp maps — a legend, not a control. Sits on the content rail, so its ends line
+         up with the array names above and the proprow controls below (the row bands' outward bleed
+         is a hover-surface affordance; a legend has no surface). One per section, not per row. */
+      .cmap-legend {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .cmap-legend .bar {
+        height: 4px;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+      }
+      .cmap-legend .ends {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--fs-overline);
+        font-family: var(--mono);
+        color: var(--text-subtle);
+      }
       .select-trigger .val {
         flex: 1;
         min-width: 0;
@@ -1308,6 +1328,28 @@
         color: var(--text-subtle);
       }
       .tree-row.group {
+        color: var(--text);
+      }
+
+      /* Content-rail row (G3DWidgets TreeRowChrome::contentRail + ::bleed) — a selectable LIST row
+         inside a padded panel body, e.g. the inspector's array list. No twisty/indent column, and no
+         internal side padding: the label and the meta sit exactly on the container's content rails,
+         level with the proprow labels above them. The hover/selection band instead bleeds OUTWARD by
+         --rail-bleed so its edges land on the section header band's edges (a Flat section body pads
+         by 12 while its header band insets by 8 — 4 makes the two flush). Selected keeps the label in
+         --text: the edge bar plus the soft fill already say "active", and an accent label would be a
+         third blue indicator on one row. */
+      .tree.rail {
+        --row-h: 24px;
+        --rail-bleed: 4px;
+      }
+      .tree.rail .tree-row {
+        margin: 0 calc(var(--rail-bleed) * -1);
+        padding: 0 var(--rail-bleed);
+        font-family: var(--mono);
+        color: var(--text);
+      }
+      .tree.rail .tree-row.selected > .tree-label {
         color: var(--text);
       }
 
@@ -3079,6 +3121,29 @@
             </div>
 
             <div class="divider"></div>
+            <div class="state-label">内容轨行（检视器列表）</div>
+            <div class="hint" style="margin-bottom: var(--s-2)">
+              带 <code>rail</code> 的树行：无 twisty/缩进列，标签与 meta 落在容器内容轨上，色带反向外扩
+              4px 贴住分区头 band 的边。命中区 ≡ 色带 ≡ 内容范围，同一个矩形。选中时标签保持
+              <code>--text</code>（侧条 + 柔填充已表达选中）。对应
+              <code>TreeRowChrome::contentRail / ::bleed / ::height</code>。
+            </div>
+            <div class="panel" style="width: 240px; padding: 12px">
+              <g3d-tree cls="rail">
+                <g3d-trow rail lbl="JOINTS_0" meta="4c · 2 ~ 471"></g3d-trow>
+                <g3d-trow rail lbl="NORMAL" meta="3c · = 1" cls="is-hover"></g3d-trow>
+                <g3d-trow rail lbl="TEXCOORD_0" meta="2c · 0.0005 ~ 5.41" cls="selected"></g3d-trow>
+                <g3d-trow rail lbl="a_very_long_array_name_that_clips" meta="4c"></g3d-trow>
+              </g3d-tree>
+              <g3d-cmaplegend
+                grad="linear-gradient(90deg,#000,#7f0000,#ff3b00,#ffcc00,#fff)"
+                lo="1.24"
+                hi="1.59"
+                style="display: block; margin-top: 8px"
+              ></g3d-cmaplegend>
+            </div>
+
+            <div class="divider"></div>
             <div class="state-label">拖拽排序 / 放入</div>
             <div class="tree-shell" style="width: 300px">
               <div class="tree-scroll" style="max-height: none; padding: 4px">
@@ -3373,15 +3438,31 @@
         <section class="block" id="inspector">
           <h2>范例：检视器面板</h2>
           <p class="desc">把以上组件按"分区标题 + 属性行（左标签右控件）"组织，就是专业检视器的骨架。下面是它叠在视口上的样子。</p>
-          <p class="uses"><b>组合</b>整面板复用：分区 <code>g3d-sectiontitle</code> + 属性行 <code>g3d-proprow</code> ×{下拉 <code>g3d-select</code> / 分段 <code>g3d-segmented</code> / 开关 <code>g3d-toggle</code> / 滑块 <code>g3d-slider</code>} + <code>g3d-divider</code> + 关闭 <code>g3d-iconbtn</code> + 收起 <code>g3d-btn</code>，层层往下都落到 图标 <code>g3d-icon</code>。</p>
+          <p class="uses"><b>组合</b>整面板复用：分区 <code>g3d-sectiontitle</code> + 内容轨列表 <code>g3d-tree cls="rail"</code>×<code>g3d-trow rail</code> + 图例 <code>g3d-cmaplegend</code> + 属性行 <code>g3d-proprow</code> ×{下拉 <code>g3d-select</code> / 分段 <code>g3d-segmented</code> / 开关 <code>g3d-toggle</code> / 滑块 <code>g3d-slider</code>} + <code>g3d-divider</code> + 关闭 <code>g3d-iconbtn</code> + 收起 <code>g3d-btn</code>，层层往下都落到 图标 <code>g3d-icon</code>。</p>
           <div class="viewport-demo">
             <div style="position: absolute; top: 12px; right: 12px">
               <g3d-iconbtn n="sliders" sz="20" v="fab active"></g3d-iconbtn>
             </div>
             <div class="inspector" style="position: absolute; top: 0; right: 0; height: 100%; border-radius: 0; border-top: none; border-right: none; border-bottom: none; width: 300px; overflow: auto; backdrop-filter: blur(8px); background: color-mix(in srgb, var(--surface-1) 88%, transparent)">
               <div class="row" style="justify-content: space-between"><strong>检视器</strong><g3d-iconbtn n="close" cls="xs"></g3d-iconbtn></div>
+              <g3d-sectiontitle>数组</g3d-sectiontitle>
+              <!-- The array list IS the coloring selector: content-rail tree rows, one legend for
+                   the whole section. No per-row badge and no per-row swatch — five accent pills down
+                   the right rail would drown the one accent cue that matters (the active row). -->
+              <g3d-tree cls="rail">
+                <g3d-trow rail lbl="Temperature" meta="1c · 280 ~ 341" cls="selected"></g3d-trow>
+                <g3d-trow rail lbl="Pressure" meta="1c · 0.98 ~ 1.04"></g3d-trow>
+                <g3d-trow rail lbl="Velocity" meta="3c · 0 ~ 12.7"></g3d-trow>
+              </g3d-tree>
+              <g3d-cmaplegend
+                grad="linear-gradient(90deg,#000,#7f0000,#ff3b00,#ffcc00,#fff)"
+                lo="280"
+                hi="341"
+                style="display: block; margin: 8px 0 4px"
+              ></g3d-cmaplegend>
               <g3d-sectiontitle>着色</g3d-sectiontitle>
-              <g3d-proprow k="按数组"><g3d-select grow val="Temperature" opts="Temperature|Pressure|Velocity"></g3d-select></g3d-proprow>
+              <!-- No "按数组" dropdown: the array list above already IS the selector. Two ways to
+                   pick the same thing is one way too many. -->
               <g3d-proprow k="分量"><g3d-segmented val="模长" opts="模长|X|Y"></g3d-segmented></g3d-proprow>
               <g3d-proprow k="色标"><g3d-toggle on></g3d-toggle></g3d-proprow>
               <g3d-sectiontitle>材质</g3d-sectiontitle>
@@ -3632,7 +3713,8 @@
           "g3d-tree": (el) => {
             const id = has(el, "id") ? ` id="${a(el, "id")}"` : "";
             const t = has(el, "tree") ? " data-tree" : "";
-            return `<div class="${cls("tree", a(el, "den"))}"${id}${t}>${inner(el)}</div>`;
+            // `cls` passes modifiers through the same way <g3d-trow cls="..."> does (e.g. "rail").
+            return `<div class="${cls("tree", a(el, "den"), a(el, "cls"))}"${id}${t}>${inner(el)}</div>`;
           },
           "g3d-trow": (el) => {
             const d = parseInt(a(el, "d", "0"), 10);
@@ -3640,8 +3722,13 @@
             let rails = "";
             for (let i = 0; i < d; i++) rails += `<span class="tree-rail${i === aguide ? " active" : ""}"></span>`;
             const tw = a(el, "tw", "leaf");
-            const twisty =
-              tw === "leaf"
+            // A content-rail row emits NO twisty span at all: the leaf twisty is only
+            // visibility:hidden, so it would still burn its 16px column — exactly the column
+            // TreeRowChrome::contentRail removes.
+            const rail = has(el, "rail");
+            const twisty = rail
+              ? ""
+              : tw === "leaf"
                 ? `<span class="tree-twisty leaf"></span>`
                 : `<span class="tree-twisty"><svg class="icon"><use href="#i-chevron" /></svg></span>`;
             const chk = a(el, "chk");
@@ -3669,6 +3756,14 @@
             const actions = acts ? `<span class="tree-actions">${acts}</span>` : "";
             const rowCls = cls("tree-row", tw === "collapsed" ? "collapsed" : "", a(el, "cls"));
             return `<div class="${rowCls}" data-depth="${d}">${rails}${twisty}${check}${ticon}${label}${meta}${actions}</div>`;
+          },
+          // G3DWidgets::ColormapLegend — a ramp plus the mapped range's ends. A legend, not a
+          // control: no state, no input. One per section, never one per row.
+          "g3d-cmaplegend": (el) => {
+            const ends = has(el, "lo")
+              ? `<span class="ends"><span>${a(el, "lo")}</span><span>${a(el, "hi")}</span></span>`
+              : "";
+            return `<div class="cmap-legend"><span class="bar" style="background:${a(el, "grad")}"></span>${ends}</div>`;
           },
         };
 
