@@ -52,11 +52,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -1271,6 +1273,86 @@ std::string FormatRangeLabel(double lo, double hi)
   std::snprintf(buf, sizeof(buf), "%.3g ~ %.3g", lo, hi);
   return buf;
 }
+
+// ASCII-lowercase copy, for case-insensitive name filtering. Array names are ASCII identifiers
+// (COLOR_0, NORMAL, RTData); deliberately no locale folding — a CJK name should match byte for byte
+// rather than through an incomplete casing table.
+std::string AsciiLower(std::string s)
+{
+  for (char& c : s)
+  {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  return s;
+}
+
+// The right-aligned meta cell of one array row, already degraded to fit.
+struct ArrayMetaCell
+{
+  std::string text;          // what to draw: "4c \xc2\xb7 1.24 ~ 1.59", "4c", or empty
+  std::string range;         // the full range label, empty when the array has no valid range
+  bool rangeDropped = false; // the fit rule dropped `range` from `text` (the tooltip must carry it)
+};
+
+// Compose "<n>c \xc2\xb7 <lo> ~ <hi>" and degrade it per row rather than at a window breakpoint, so
+// the cell that does not fit is the one that shrinks and dragging the panel edge never pops the
+// whole list at once. The range goes first (it is several times wider per bit of information, and
+// it stays recoverable from the tooltip and the Range control); the name ellipsizes last, because
+// it is the row's identity.
+ArrayMetaCell BuildArrayMetaCell(
+  const F3DColoringInfoHandler::ColoringInfo& array, float availW, float scale)
+{
+  ArrayMetaCell cell;
+  const std::string comp = array.MaximumNumberOfComponents > 1
+    ? std::to_string(array.MaximumNumberOfComponents) + "c"
+    : std::string();
+
+  // MagnitudeRange defaults to {FLT_MAX, FLT_MIN} for an array VTK never ranged; hi < lo is that
+  // sentinel, and printing it would read as real data ("3.4e+38 ~ 1.18e-38").
+  if (array.MagnitudeRange[1] >= array.MagnitudeRange[0])
+  {
+    char lo[32];
+    char hi[32];
+    std::snprintf(lo, sizeof(lo), "%.3g", array.MagnitudeRange[0]);
+    std::snprintf(hi, sizeof(hi), "%.3g", array.MagnitudeRange[1]);
+    // A constant field would print the same number twice ("1 ~ 1"), which reads like a bug.
+    cell.range = std::strcmp(lo, hi) == 0
+      ? std::string("= ") + lo
+      : ::FormatRangeLabel(array.MagnitudeRange[0], array.MagnitudeRange[1]);
+  }
+
+  const float px = 11.f * scale;                     // styleguide .tree-meta overline
+  const float nameMin = 72.f * scale;                // ~8 mono glyphs: below this the name is a stub
+  const float gap = G3DTheme::Spacing::Sm * scale;
+  auto join = [](const std::string& l, const std::string& r)
+  { return l.empty() ? r : (r.empty() ? l : l + " \xc2\xb7 " + r); };
+  auto fits = [&](const std::string& t)
+  { return availW - G3DWidgets::CalcTextSizedPx(t.c_str(), px, true).x - gap >= nameMin; };
+
+  cell.text = join(comp, cell.range);
+  if (!fits(cell.text))
+  {
+    cell.rangeDropped = !cell.range.empty();
+    cell.text = comp;
+    if (!fits(cell.text))
+    {
+      cell.text.clear();
+    }
+  }
+  return cell;
+}
+
+// 11px overline on the content rail, exactly @p lineH tall. The array-list group sub-headings and
+// its empty-state note share it so both sit on the same rail and consume a predictable height.
+void DrawInspectorOverline(const char* text, float w, float lineH, float scale)
+{
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  const float px = 11.f * scale;
+  G3DWidgets::TextSized(
+    dl, ImVec2(p.x, p.y + (lineH - px) * 0.5f), G3DTheme::U32(G3DTheme::TextSubtle()), text, px);
+  ImGui::Dummy(ImVec2(w, lineH));
+}
 } // namespace
 
 void vtkF3DImguiActor::RenderFileName()
@@ -2136,13 +2218,48 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     G3DWidgets::EndCollapse();
   }
 
-  // --- Arrays: one card; one block per scalar array (name + association/component badge, range). ---
+  // --- Arrays: one selectable row per scalar array. The row IS the coloring selector (the Coloring
+  // group deliberately has no array dropdown), so it is a real tree-family list row: a single
+  // rectangle is the hover band, the hit target and the content extent at once — the row cannot
+  // grow a dead zone or a misaligned highlight, because there is only one rectangle to get wrong.
   F3DColoringInfoHandler& coloring = importer->GetColoringInfoHandler();
   const std::vector<F3DColoringInfoHandler::ColoringInfo> pointArrays = coloring.GetPointDataArrays();
   const std::vector<F3DColoringInfoHandler::ColoringInfo> cellArrays = coloring.GetCellDataArrays();
   {
+    // A filter earns its chrome only once scanning costs more than typing; below a dozen rows the
+    // whole list is on screen at once. The gate reads the TOTAL, never the filtered count, so the
+    // field cannot vanish out from under the user's own typing.
+    static char arrayFilter[64] = "";
+    const std::size_t total = pointArrays.size() + cellArrays.size();
+    const bool showFilter = total > 12;
+    const std::string needle = showFilter ? ::AsciiLower(arrayFilter) : std::string();
+    auto matches = [&needle](const F3DColoringInfoHandler::ColoringInfo& a)
+    { return needle.empty() || ::AsciiLower(a.Name).find(needle) != std::string::npos; };
+
+    std::vector<const F3DColoringInfoHandler::ColoringInfo*> pts;
+    std::vector<const F3DColoringInfoHandler::ColoringInfo*> cls;
+    for (const auto& a : pointArrays)
+    {
+      if (matches(a))
+      {
+        pts.push_back(&a);
+      }
+    }
+    for (const auto& a : cellArrays)
+    {
+      if (matches(a))
+      {
+        cls.push_back(&a);
+      }
+    }
+    const std::size_t shown = pts.size() + cls.size();
+
     const std::string title = loc.Translate("Arrays");
-    const std::string countStr = std::to_string(pointArrays.size() + cellArrays.size());
+    // "7/30" while filtering, plain "30" otherwise. A zero stays visible rather than suppressed: a
+    // visible 0 is information, a missing pill is ambiguity.
+    const std::string countStr = shown == total
+      ? std::to_string(total)
+      : std::to_string(shown) + "/" + std::to_string(total);
     G3DWidgets::CollapseDesc d;
     d.title = title.c_str();
     d.count = countStr.c_str();
@@ -2150,135 +2267,135 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     d.open = &arraysOpen;
     if (G3DWidgets::BeginCollapse("g3d.sec.arrays", d).open)
     {
-      if (pointArrays.empty() && cellArrays.empty())
+      const float w = ImGui::GetContentRegionAvail().x;
+      const float rowH = G3DWidgets::TreeRowHeight(G3DWidgets::TreeDensity::Standard);
+      const float metaPx = 11.f * scale; // styleguide .tree-meta overline
+
+      if (showFilter)
       {
+        G3DWidgets::InputText("##g3d.arrays.filter", arrayFilter, sizeof(arrayFilter),
+          loc.Translate("Filter arrays...").c_str());
         ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
-        ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No data arrays").c_str());
       }
 
-      // One array entry: name on the left, an accent component-count badge right-aligned, and the
-      // value range on a muted, indented second line. The row is a real item — clicking it colors
-      // by that array (same commands as the coloring group), and the effective coloring source is
-      // marked with an accent side bar (the tree-selection convention).
       const std::optional<F3DColoringInfoHandler::ColoringInfo> effective =
         coloring.GetCurrentColoringInfo();
       const bool effectiveCells = ren->GetUseCellColoring();
-      auto arrayRow = [&](const F3DColoringInfoHandler::ColoringInfo& a, const std::string& assoc,
-                        bool isCell)
+
+      auto arrayRow = [&](const F3DColoringInfoHandler::ColoringInfo& a, bool isCell)
       {
-        ImGui::PushID(a.Name.c_str());
-        ImGui::PushID(isCell ? 1 : 0);
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const float w = ImGui::GetContentRegionAvail().x;
-        const float lineH = ImGui::GetTextLineHeight();
-        const float padY = G3DTheme::Spacing::Xs * scale;
-        const float bleed = G3DTheme::Spacing::Xs * scale; // hover surface padding around content
-
-        // The entry's height is deterministic (two lines + paddings): one InvisibleButton is the
-        // hit target, then the content is laid back over it. The hover surface is drawn FIRST
-        // (behind the content) instead of via ChannelsSplit — the splitter is not re-entrant
-        // inside the enclosing collapse card, which already owns the channels.
-        const ImVec2 base = ImGui::GetCursorScreenPos();
-        const float rowH = padY + lineH + 2.f * scale + lineH + padY;
-        const ImVec2 hr0(base.x - bleed, base.y);
-        const ImVec2 hr1(base.x + w + bleed, base.y + rowH);
-        const bool clicked = ImGui::InvisibleButton("##row", ImVec2(std::max(1.f, w), rowH));
-        const bool hovered = ImGui::IsItemHovered();
-        const bool selected =
+        // A point array and a cell array may carry the same name — the active test matches BOTH.
+        const bool active =
           effective.has_value() && effective->Name == a.Name && isCell == effectiveCells;
-        if (hovered)
-        {
-          ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-          dl->AddRectFilled(hr0, hr1, G3DTheme::U32(G3DTheme::SurfaceHover(), 0.5f),
-            G3DTheme::Radius::Small * scale);
-        }
-        if (selected)
-        {
-          dl->AddRectFilled(ImVec2(hr0.x, hr0.y + padY), ImVec2(hr0.x + 3.f * scale, hr1.y - padY),
-            G3DTheme::U32(G3DTheme::Accent()), 1.5f * scale);
-        }
+        const ::ArrayMetaCell meta = ::BuildArrayMetaCell(a, w, scale);
 
-        // Content laid back over the hit item with the original flow (same total height).
-        ImGui::SetCursorScreenPos(base);
-        ImGui::Dummy(ImVec2(0.f, padY));
-        const ImVec2 top = ImGui::GetCursorScreenPos();
+        G3DWidgets::TreeRowChrome chrome;
+        chrome.height = rowH;
+        chrome.contentRail = true;                    // rails == the section's own content rails
+        chrome.bleed = G3DTheme::Spacing::Xs * scale; // band edges == the section header band's
+        chrome.selected = active;                     // focused left false: .16, .24 on hover
+        const std::string id = std::string("##arr.") + (isCell ? "c." : "p.") + a.Name;
+        const G3DWidgets::TreeRowResult r = G3DWidgets::BeginTreeRow(id.c_str(), chrome);
 
-        // Name / badge / range are data — mono (CJK glyphs in the badge fall back the same way).
-        ImFont* dataFont = G3DWidgets::DataFont();
-        if (dataFont != nullptr)
-        {
-          ImGui::PushFont(dataFont, 0.f);
-        }
+        // Meta first, so the name clips against it (styleguide flex: label 1, trailing none).
+        G3DWidgets::TreeRowMeta(meta.text.c_str(), metaPx);
+        // group=true keeps the name at full-strength Text() even when active: the accent bar and the
+        // soft fill already carry selection, and an accent name would be a third blue indicator on
+        // one row — the same call TreeIconColor makes for the outliner's root node.
+        const bool clipped = G3DWidgets::TreeRowLabel(a.Name.c_str(), true, false);
 
-        // Line 1: array name (primary, ellipsized) on the left + trailing component badge on the
-        // right. The trailing "..." makes the truncation read as intentional (a hard clip against
-        // the badge looks like a layout bug).
-        char tag[48];
-        std::snprintf(tag, sizeof(tag), "%s \xc2\xb7 %dc", assoc.c_str(), a.MaximumNumberOfComponents);
-        const float bw = G3DWidgets::BadgeWidth(tag);
-        const float nameW = std::max(0.f, w - bw - G3DTheme::Spacing::Sm * scale);
-        G3DWidgets::TextEllipsis(dl, top,
-          nameW, G3DTheme::U32(selected ? G3DTheme::Accent() : G3DTheme::Text()), a.Name.c_str());
-        if (hovered)
-        {
-          // Full name (it may be ellipsized) + the row's click affordance, which nothing else
-          // advertises — the whole row is a "color by this array" shortcut.
-          ImGui::BeginTooltip();
-          ImGui::TextUnformatted(a.Name.c_str());
-          ImGui::TextColored(
-            G3DTheme::TextMuted(), "%s", loc.Translate("Click to color by this array").c_str());
-          ImGui::EndTooltip();
-        }
-        // Badge right-aligned on the same line (it advances the layout cursor to the next line).
-        // Its "point · 4c" shorthand gets a spelled-out tooltip — new users can't decode it.
-        ImGui::SetCursorScreenPos(ImVec2(top.x + w - bw, top.y));
-        G3DWidgets::Badge(tag, G3DWidgets::BadgeVariant::Accent);
+        // ONE tooltip per row, on the house delay. Every line is conditional, so it says only what
+        // the row could not. The band is still the current ImGui item — the slot helpers paint
+        // through ImDrawList and submit nothing of their own.
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay))
         {
-          ImGui::SetTooltip("%s \xc2\xb7 %d %s",
+          ImGui::BeginTooltip();
+          if (clipped)
+          {
+            ImGui::TextUnformatted(a.Name.c_str());
+          }
+          ImGui::TextColored(G3DTheme::TextMuted(), "%s \xc2\xb7 %d %s",
             loc.Translate(isCell ? "Cell data" : "Point data").c_str(),
             a.MaximumNumberOfComponents, loc.Translate("components").c_str());
+          if (meta.rangeDropped)
+          {
+            ImGui::TextColored(G3DTheme::TextMuted(), "%s %s", loc.Translate("Range").c_str(),
+              meta.range.c_str());
+          }
+          // Advertise the click only until a source has been picked once — after that the list reads
+          // as a selector on its own. Derived from state rather than a counter, so it returns by
+          // itself when coloring is switched back off, which is exactly when it is useful again.
+          if (!effective.has_value())
+          {
+            ImGui::TextColored(G3DTheme::TextSubtle(), "%s",
+              loc.Translate("Click to color by this array").c_str());
+          }
+          ImGui::EndTooltip();
         }
+        G3DWidgets::EndTreeRow();
 
-        // Line 2: value range, muted + indented, human-formatted ("0 ~ 1.41", not "[..., ...]").
-        const std::string rng = ::FormatRangeLabel(a.MagnitudeRange[0], a.MagnitudeRange[1]);
-        ImGui::Dummy(ImVec2(0.f, 2.f * scale));
-        const ImVec2 p2 = ImGui::GetCursorScreenPos();
-        dl->AddText(ImVec2(p2.x + G3DTheme::Spacing::Md * scale, p2.y),
-          G3DTheme::U32(G3DTheme::TextMuted()), rng.c_str());
-        if (dataFont != nullptr)
+        if (r.rowClicked)
         {
-          ImGui::PopFont();
-        }
-        // Hover: a small paint hint at the row's right end makes the click affordance visible
-        // without waiting for the tooltip.
-        if (hovered)
-        {
-          G3DIcon::Draw(dl, G3DIconId::Image,
-            ImVec2(base.x + w - 8.f * scale, p2.y + lineH * 0.5f), 12.f * scale,
-            G3DTheme::U32(G3DTheme::TextMuted()));
-        }
-        ImGui::Dummy(ImVec2(w, lineH + padY));
-
-        if (clicked)
-        {
-          this->SendCommand(
-            std::string("set model.scivis.cells ") + (isCell ? "true" : "false"));
+          this->SendCommand(std::string("set model.scivis.cells ") + (isCell ? "true" : "false"));
           this->SendCommand(std::string("set model.scivis.array_name \"") + a.Name + "\"");
           this->SendCommand("set model.scivis.enable true");
         }
-        ImGui::PopID();
-        ImGui::PopID();
       };
 
-      for (const auto& a : pointArrays)
+      if (pts.empty() && cls.empty())
       {
-        arrayRow(a, loc.Translate("point"), false);
+        // Exactly one row tall, so a filter that matches nothing does not collapse the section.
+        ::DrawInspectorOverline(
+          loc.Translate(total == 0 ? "No data arrays" : "No matching arrays").c_str(), w, rowH,
+          scale);
       }
-      for (const auto& a : cellArrays)
+      else
       {
-        arrayRow(a, loc.Translate("cell"), true);
+        // Sub-headings only when the split is real: with a single association they would label the
+        // obvious and cost a line each. Carrying "point" on every row costs far more.
+        const bool grouped = !pts.empty() && !cls.empty();
+        const float headH = G3DTheme::Spacing::Lg * scale;
+        if (grouped)
+        {
+          ::DrawInspectorOverline(loc.Translate("Point data").c_str(), w, headH, scale);
+        }
+        for (const auto* a : pts)
+        {
+          arrayRow(*a, false);
+        }
+        if (grouped)
+        {
+          // Tree rows leave no trailing item spacing, so the gap has to be explicit.
+          ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
+          ::DrawInspectorOverline(loc.Translate("Cell data").c_str(), w, headH, scale);
+        }
+        for (const auto* a : cls)
+        {
+          arrayRow(*a, true);
+        }
       }
+
+      // One legend for the section, never one per row: the ramp only means anything for the array
+      // actually being rendered, and the mapped range is the renderer's, not any row's. Same gate as
+      // the viewport scalar bar — active coloring, and not direct-scalars mode.
+      double activeRange[2];
+      if (ren->GetColoringRange(activeRange) && ren->GetComponentForColoring() >= -1)
+      {
+        char lo[32];
+        char hi[32];
+        std::snprintf(lo, sizeof(lo), "%.3g", activeRange[0]);
+        std::snprintf(hi, sizeof(hi), "%.3g", activeRange[1]);
+        const bool degenerate = std::strcmp(lo, hi) == 0;
+        const std::vector<double> stops = this->CurrentColormapStops();
+        ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Sm * scale));
+        G3DWidgets::ColormapLegend({ stops.data(), static_cast<int>(stops.size()) },
+          degenerate ? nullptr : lo, degenerate ? nullptr : hi);
+      }
+
+      // Breathing room under the last element — and it restores the trailing ItemSpacing that
+      // EndCollapse subtracts from its measurement (a tree row advances by exactly rowH, with none),
+      // without which the section measures short and clips its own last row.
+      ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
     }
     G3DWidgets::EndCollapse();
   }
@@ -2647,6 +2764,12 @@ bool G3DSameColormap(const std::vector<double>& a, const std::vector<double>& b)
 } // namespace
 
 //----------------------------------------------------------------------------
+std::vector<double> vtkF3DImguiActor::CurrentColormapStops() const
+{
+  return G3DParseColormapTokens(this->QueryOption("model.scivis.colormap").value_or(""));
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
 {
   vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
@@ -2810,6 +2933,8 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     }
     return pts;
   }();
+  // Parsed from the raw readback rather than CurrentColormapStops(): the trace below reports the
+  // uncanonicalized string, so this site needs both halves of the same single read.
   const std::string currentMap = this->QueryOption("model.scivis.colormap").value_or("");
   const std::vector<double> currentPts = G3DParseColormapTokens(currentMap);
   int matched = -1;
@@ -3276,8 +3401,7 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
 
   // Colormap stops straight from the option (the same parse the coloring group uses); an
   // unparsable value degrades to the neutral placeholder strip.
-  const std::vector<double> stops =
-    G3DParseColormapTokens(this->QueryOption("model.scivis.colormap").value_or(""));
+  const std::vector<double> stops = this->CurrentColormapStops();
   const G3DWidgets::GradientStops gs{ stops.data(), static_cast<int>(stops.size()) };
 
   // Pure display: draw on the background list (over the 3D, under every panel window).

@@ -14,6 +14,7 @@
 #include "G3DLayout.h"
 
 #include <memory>
+#include <vector>
 
 class vtkOpenGLRenderWindow;
 class vtkWindow;
@@ -178,6 +179,14 @@ private:
    * current ImGui window, sourced from the renderer's meta importer. Used by the right inspector bar.
    */
   void DrawDataInfoContent(vtkOpenGLRenderWindow* renWin);
+
+  /**
+   * The active colormap as flat (t,r,g,b) control points, read from model.scivis.colormap. Every
+   * surface that paints the ramp (coloring group trigger, scalar bar, array-list legend) needs the
+   * same parse of the same option, so it lives here once. Empty when the value is unparsable —
+   * G3DWidgets::DrawGradientStrip then renders its neutral placeholder.
+   */
+  std::vector<double> CurrentColormapStops() const;
 
   /**
    * Draw the Appearance / Lighting & environment / Material inspector groups: option-backed

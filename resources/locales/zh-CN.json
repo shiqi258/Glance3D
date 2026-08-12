@@ -45,8 +45,8 @@
   "Size": "尺寸",
   "Arrays": "数组",
   "No data arrays": "无数据数组",
-  "point": "点",
-  "cell": "单元",
+  "No matching arrays": "无匹配数组",
+  "Filter arrays...": "过滤数组…",
 
   "Appearance": "外观",
   "Material": "材质",
