@@ -164,33 +164,114 @@ function copyBuildArtifacts() {
   patchTypes(path.join(binDir, "f3d.d.ts"), path.join(distDir, "f3d.d.ts"));
 }
 
+/**
+ * Signatures that embind can only describe as `any`, plus the wrapper-only methods it cannot see at
+ * all. Each entry must match exactly once; a miss is a build error rather than a silent downgrade
+ * back to `any` — which is how `getG3DDataInfo` quietly lost its type before.
+ */
+const TYPE_SUBSTITUTIONS = [
+  {
+    name: "Scene.addBuffer (wrapper-only async variants)",
+    pattern: /^(\s*)addBuffer\(_0: any\): Scene;$/m,
+    replacement: [
+      "$1addBuffer(_0: any): Scene;",
+      "$1addBufferAsync(_0: ArrayBuffer | ArrayBufferView, _1?: Glance3DGLTFPrepareOptions): Promise<Scene>;",
+      "$1addBufferAsyncThreaded?(_0: ArrayBuffer | ArrayBufferView, _1?: Glance3DGLTFPrepareOptions, _2?: (progress: number) => void): Promise<Scene>;",
+      "$1addFileSetAsync?(_0: Glance3DVirtualFile[], _1?: Glance3DFileSetLoadOptions): Promise<Scene>;",
+      "$1addFileSetAsyncThreaded?(_0: Glance3DVirtualFile[], _1?: Glance3DFileSetLoadOptions, _2?: (progress: number) => void): Promise<Scene>;",
+    ].join("\n"),
+  },
+  {
+    name: "Scene.getG3DDataInfo",
+    pattern: /^(\s*)getG3DDataInfo\(\): any;$/m,
+    replacement: "$1getG3DDataInfo(): Glance3DDataInfo;",
+  },
+  {
+    name: "Scene.getSceneTreeInfo",
+    pattern: /^(\s*)getSceneTreeInfo\(\): any;$/m,
+    replacement: "$1getSceneTreeInfo(): Glance3DTreeInfo;",
+  },
+  {
+    name: "Scene.getSceneTreeRows",
+    pattern: /^(\s*)getSceneTreeRows\(_0: number, _1: number\): any;$/m,
+    replacement: "$1getSceneTreeRows(begin: number, count: number): Glance3DTreeRow[];",
+  },
+  {
+    name: "Engine.getReadersInfo",
+    pattern: /^(\s*)getReadersInfo\(\): any;$/m,
+    replacement: "$1getReadersInfo(): Glance3DReaderInfo[];",
+  },
+  {
+    name: "Log.forward",
+    pattern: /^(\s*)forward\(_0: any\): void;$/m,
+    replacement: "$1forward(_0: (level: Glance3DLogLevel, message: string) => void): void;",
+  },
+  // The hand-written file redeclares both of these, so the generated ones have to go.
+  {
+    name: "generated MainModule alias",
+    pattern: /^export type MainModule = WasmModule & typeof RuntimeExports & EmbindModule;$/m,
+    replacement: "",
+  },
+  {
+    name: "generated module factory",
+    pattern:
+      /^export default function MainModuleFactory ?\(options\?: unknown\): Promise<MainModule>;$/m,
+    replacement: "",
+  },
+];
+
+/** Symbols the web viewer imports; if any is missing the declarations shipped are not usable. */
+const REQUIRED_TYPE_SYMBOLS = [
+  "Glance3DModule",
+  "Glance3DModuleFactory",
+  "Glance3DFactoryOptions",
+  "Glance3DGLTFNamespace",
+  "Glance3DReaderInfo",
+  "Glance3DDataInfo",
+  "Glance3DTreeRow",
+  "Glance3DTreeInfo",
+  "Glance3DNodeType",
+  "getSceneTreeRows(begin: number, count: number): Glance3DTreeRow[];",
+  "getSceneTreeInfo(): Glance3DTreeInfo;",
+  "getG3DDataInfo(): Glance3DDataInfo;",
+];
+
+/**
+ * Assemble dist/f3d.d.ts from the emcc-generated declarations plus the hand-written ones.
+ *
+ * The hand-written half lives in `f3d.types.d.ts` as real, formatted TypeScript rather than a
+ * multi-kilobyte string literal in here, and both halves are checked after assembly.
+ */
 function patchTypes(inputPath, outputPath) {
   let types = fs.readFileSync(inputPath, "utf8");
-  types = types.replace(
-    /  addBuffer\(_0: any\): Scene;\r?\n/,
-    "  addBuffer(_0: any): Scene;\n  addBufferAsync(_0: ArrayBuffer | ArrayBufferView, _1?: Glance3DGLTFPrepareOptions): Promise<Scene>;\n  addBufferAsyncThreaded?(_0: ArrayBuffer | ArrayBufferView, _1?: Glance3DGLTFPrepareOptions, _2?: (progress: number) => void): Promise<Scene>;\n  addFileSetAsync?(_0: Glance3DVirtualFile[], _1?: Glance3DFileSetLoadOptions): Promise<Scene>;\n  addFileSetAsyncThreaded?(_0: Glance3DVirtualFile[], _1?: Glance3DFileSetLoadOptions, _2?: (progress: number) => void): Promise<Scene>;\n",
-  );
-  types = types.replace(
-    /  getG3DSceneTree\(\): any;\r?\n/,
-    "  getG3DSceneTree(): Glance3DSceneTreeSnapshot;\n",
-  );
-  types = types.replace(
-    /    getReadersInfo\(\): any;\r?\n/,
-    "    getReadersInfo(): Glance3DReaderInfo[];\n",
-  );
-  types = types.replace(
-    /    forward\(_0: any\): void;\r?\n/,
-    "    forward(_0: (level: Glance3DLogLevel, message: string) => void): void;\n",
-  );
-  types = types.replace(
-    /export type MainModule = WasmModule & typeof RuntimeExports & EmbindModule;\r?\n/,
-    `export type Glance3DCapabilityPack = "gltf-advanced";\n\nexport interface Glance3DGLTFInspection {\n  isGlb: boolean;\n  usedExtensions: string[];\n  requiredExtensions: string[];\n  advancedExtensions: string[];\n  recommendedCapabilityPack: Glance3DCapabilityPack | null;\n}\n\nexport interface Glance3DGLTFPrepareOptions {\n  locateFile?: (path: string) => string;\n  fileName?: string;\n}\n\nexport interface Glance3DVirtualFile {\n  path: string;\n  data: ArrayBuffer | ArrayBufferView;\n}\n\nexport interface Glance3DFileSetLoadOptions {\n  primaryPath?: string;\n  packageName?: string;\n}\n\nexport interface Glance3DGLTFNamespace {\n  inspectBuffer(buffer: ArrayBuffer | ArrayBufferView): Glance3DGLTFInspection;\n  prepareBuffer(buffer: ArrayBuffer | ArrayBufferView, options?: Glance3DGLTFPrepareOptions): Promise<Uint8Array>;\n}\n\nexport type Glance3DCapabilityEvent =\n  | {\n      type: "capability-loading" | "capability-loaded";\n      pack: Glance3DCapabilityPack;\n      extensions: string[];\n    }\n  | {\n      type: "capability-prepared";\n      pack: Glance3DCapabilityPack;\n      extensions: string[];\n      inputByteLength?: number;\n      outputByteLength?: number;\n      remainingRequiredExtensions?: string[];\n      remainingAdvancedExtensions?: string[];\n    }\n  | {\n      type: "gltf-buffer-filesystem-load";\n      pack: Glance3DCapabilityPack | null;\n      extensions: string[];\n      inputByteLength?: number;\n      outputByteLength?: number;\n    }\n  | {\n      type: "file-set-filesystem-load";\n      primaryPath: string;\n      fileCount: number;\n      totalByteLength: number;\n    };\n\nexport type GLTFCapabilityPack = Glance3DCapabilityPack;\nexport type GLTFInspection = Glance3DGLTFInspection;\nexport type GLTFPrepareOptions = Glance3DGLTFPrepareOptions;\nexport type GLTFNamespace = Glance3DGLTFNamespace;\nexport type GLTFCapabilityEvent = Glance3DCapabilityEvent;\n\nexport type Glance3DOptionBag = Options;\nexport type Glance3DScene = Scene;\nexport type Glance3DCamera = Camera;\nexport type Glance3DWindow = Window;\nexport type Glance3DInteractor = Interactor;\nexport type Glance3DEngine = Engine;\n\nexport interface Glance3DReaderInfo {\n  name: string;\n  description: string;\n  pluginName: string;\n  extensions: string[];\n  mimeTypes: string[];\n  hasSceneReader: boolean;\n  hasGeometryReader: boolean;\n}\n\nexport type Glance3DLogLevel = LogVerboseLevel | number;\n\nexport interface Glance3DFactoryOptions {\n  canvas?: HTMLCanvasElement;\n  locateFile?: (path: string, prefix?: string) => string;\n  print?: (message: string) => void;\n  printErr?: (message: string) => void;\n}\n\nexport type Glance3DSceneTreeNodeKind = "root" | "group" | "object";\n\nexport interface Glance3DSceneTreeCapabilities {\n  visibility: boolean;\n  solo: boolean;\n  focus: boolean;\n  selection: boolean;\n  bounds: boolean;\n  stats: boolean;\n}\n\nexport interface Glance3DSceneTreeNode {\n  id: string;\n  label: string;\n  kind: Glance3DSceneTreeNodeKind;\n  visible: boolean;\n  partiallyVisible: boolean;\n  collapsedByDefault: boolean;\n  path: string;\n  bounds?: [number, number, number, number, number, number];\n  children: Glance3DSceneTreeNode[];\n}\n\nexport interface Glance3DSceneTreeSnapshot {\n  schemaVersion: 1;\n  capabilities: Glance3DSceneTreeCapabilities;\n  children: Glance3DSceneTreeNode[];\n}\n\nexport type Glance3DModule = WasmModule & typeof RuntimeExports & EmbindModule & {\n  GLTF: Glance3DGLTFNamespace;\n  onCapabilityEvent?: (event: Glance3DCapabilityEvent) => void;\n};\n\nexport type Glance3DModuleFactory = (options?: Glance3DFactoryOptions) => Promise<Glance3DModule>;\nexport type MainModule = Glance3DModule;\n`,
-  );
-  types = types.replace(
-    /export default function MainModuleFactory \(options\?: unknown\): Promise<MainModule>;\r?\n/,
-    "export default function MainModuleFactory(options?: Glance3DFactoryOptions): Promise<Glance3DModule>;\n",
-  );
+
+  for (const { name, pattern, replacement } of TYPE_SUBSTITUTIONS) {
+    if (!pattern.test(types)) {
+      throw new Error(
+        `Type patching failed: no match for "${name}" in ${inputPath}.\n` +
+          `The emcc-generated declarations changed shape; update TYPE_SUBSTITUTIONS in ` +
+          `webassembly/build-local.mjs to match.`,
+      );
+    }
+    types = types.replace(pattern, replacement);
+  }
+
+  const handWrittenPath = path.join(scriptDir, "f3d.types.d.ts");
+  const handWritten = fs.readFileSync(handWrittenPath, "utf8");
+  types = `${types.trimEnd()}\n\n${handWritten}`;
+
+  const missing = REQUIRED_TYPE_SYMBOLS.filter((symbol) => !types.includes(symbol));
+  if (missing.length > 0) {
+    throw new Error(
+      `Type patching produced declarations missing: ${missing.join(", ")}.\n` +
+        `Check webassembly/f3d.types.d.ts and the embind bindings.`,
+    );
+  }
+
   fs.writeFileSync(outputPath, types);
+  console.log(
+    `Wrote ${outputPath} (${TYPE_SUBSTITUTIONS.length} substitutions, ${REQUIRED_TYPE_SYMBOLS.length} symbols verified)`,
+  );
 }
 
 function build() {
