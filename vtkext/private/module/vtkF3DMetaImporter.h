@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+class vtkCamera;
+
 class vtkF3DMetaImporter : public vtkF3DImporter
 {
 public:
@@ -256,6 +258,20 @@ public:
   vtkIdType GetNumberOfCameras() override;
   std::string GetCameraName(vtkIdType camIndex) override;
   void SetCameraIndex(std::optional<vtkIdType> camIndex);
+  ///@}
+
+  ///@{
+  /**
+   * Cameras declared by the loaded files, flattened across importers.
+   *
+   * Indices match GetNumberOfCameras()/GetCameraName(), so a name and the pose it activates always
+   * refer to the same camera. `ApplyG3DCamera` copies the stored pose onto the renderer's active
+   * camera and returns false for an unknown index or before a renderer exists; it serves both the
+   * load-time camera index and any later switch (scene tree, command) without re-parsing the file.
+   */
+  vtkIdType GetG3DCameraCount() const;
+  vtkCamera* GetG3DCamera(vtkIdType camIndex) const;
+  bool ApplyG3DCamera(vtkIdType camIndex);
   ///@}
 
   /**

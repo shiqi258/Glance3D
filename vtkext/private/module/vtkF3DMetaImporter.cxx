@@ -16,6 +16,8 @@
 #include <vtkImageData.h>
 #include <vtkInformation.h>
 #include <vtkInformationIntegerKey.h>
+#include <vtkLight.h>
+#include <vtkLightCollection.h>
 #include <vtkMath.h>
 #include <vtkObjectFactory.h>
 #include <vtkPointData.h>
@@ -399,6 +401,13 @@ struct vtkF3DMetaImporter::Internals
 
   std::vector<vtkF3DMetaImporter::ImporterInfo> Importers;
   std::optional<vtkIdType> CameraIndex;
+
+  // Cameras and lights declared by the loaded files, flattened across importers in the same order
+  // GetNumberOfCameras()/GetCameraName() use -- a global index must mean the same thing everywhere,
+  // or the scene tree ends up naming one camera and activating another.
+  std::vector<vtkSmartPointer<vtkCamera>> ImportedCameras;
+  std::vector<vtkSmartPointer<vtkLight>> ImportedLights;
+
   vtkBoundingBox GeometryBoundingBox;
   vtkTimeStamp ColoringInfoTime;
   vtkTimeStamp UpdateTime;
@@ -437,6 +446,10 @@ vtkF3DMetaImporter::~vtkF3DMetaImporter()
 void vtkF3DMetaImporter::Clear()
 {
   this->Pimpl->Importers.clear();
+  // The renderer drops its own light list in vtkF3DRenderer::Initialize(); this only forgets the
+  // bookkeeping that maps a global index back to a file camera/light.
+  this->Pimpl->ImportedCameras.clear();
+  this->Pimpl->ImportedLights.clear();
   this->Pimpl->GeometryBoundingBox.Reset();
   this->ActorCollection->RemoveAllItems();
   this->Pimpl->ColoringActorsAndMappers.clear();
@@ -776,6 +789,38 @@ void vtkF3DMetaImporter::CommitToRenderer()
     vtkActorCollection* actorCollection = importer->GetImportedActors();
     const std::vector<vtkActor*> actorLookup = ::BuildG3DActorLookup(importer);
 
+    // [G3D-S2] BuildGeometry() ran the importers against a throwaway GL-free render window, so
+    // ImportCameras()/ImportLights() wrote onto a renderer that is gone by now -- which is why file
+    // cameras and lights used to vanish entirely (and why --camera-index silently did nothing).
+    // Actors are re-homed below; these two collections are the rest of that same handover.
+    //
+    // Importers are appended and committed in order, so appending here keeps the flattened index
+    // identical to the one GetNumberOfCameras()/GetCameraName() walk.
+    vtkCollection* importedCameras = importer->GetImportedCameras();
+    vtkCollectionSimpleIterator cit;
+    importedCameras->InitTraversal(cit);
+    while (vtkObject* cameraObject = importedCameras->GetNextItemAsObject(cit))
+    {
+      this->Pimpl->ImportedCameras.emplace_back(vtkCamera::SafeDownCast(cameraObject));
+    }
+
+    vtkLightCollection* importedLights = importer->GetImportedLights();
+    vtkCollectionSimpleIterator lit;
+    importedLights->InitTraversal(lit);
+    while (vtkLight* light = importedLights->GetNextLight(lit))
+    {
+      this->Renderer->AddLight(light);
+      this->Pimpl->ImportedLights.emplace_back(light);
+    }
+
+    if (importedCameras->GetNumberOfItems() > 0 || importedLights->GetNumberOfItems() > 0)
+    {
+      F3DLog::Print(F3DLog::Severity::Debug,
+        "[G3D] Committed scene elements [" + importerInfo.Name +
+          "]: cameras=" + std::to_string(importedCameras->GetNumberOfItems()) +
+          " lights=" + std::to_string(importedLights->GetNumberOfItems()));
+    }
+
     // Copy the scene hierarchy if it exists and maps renderable actors. Some readers expose an
     // empty/root-only hierarchy; in that case, use the actor fallback so external tree UIs remain
     // useful and interactive.
@@ -958,6 +1003,14 @@ void vtkF3DMetaImporter::CommitToRenderer()
         " ms");
 
     importerInfo.Updated = true;
+  }
+
+  // The requested file camera can only be applied here: BuildGeometry() asked each importer for it,
+  // but the importer answered onto the build renderer. Applying it after the commit is also what
+  // lets the scene tree activate a camera later without re-parsing anything.
+  if (this->Pimpl->CameraIndex.has_value())
+  {
+    this->ApplyG3DCamera(this->Pimpl->CameraIndex.value());
   }
 
   // [G3D] Advance UpdateTime only now that the built actors have been committed and are visible to
@@ -1182,6 +1235,53 @@ std::string vtkF3DMetaImporter::GetCameraName(vtkIdType camIndex)
 void vtkF3DMetaImporter::SetCameraIndex(std::optional<vtkIdType> camIndex)
 {
   this->Pimpl->CameraIndex = camIndex;
+}
+
+//----------------------------------------------------------------------------
+vtkIdType vtkF3DMetaImporter::GetG3DCameraCount() const
+{
+  return static_cast<vtkIdType>(this->Pimpl->ImportedCameras.size());
+}
+
+//----------------------------------------------------------------------------
+vtkCamera* vtkF3DMetaImporter::GetG3DCamera(vtkIdType camIndex) const
+{
+  if (camIndex < 0 || camIndex >= this->GetG3DCameraCount())
+  {
+    return nullptr;
+  }
+  return this->Pimpl->ImportedCameras[static_cast<std::size_t>(camIndex)];
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DMetaImporter::ApplyG3DCamera(vtkIdType camIndex)
+{
+  vtkCamera* source = this->GetG3DCamera(camIndex);
+  if (source == nullptr || this->Renderer == nullptr)
+  {
+    return false;
+  }
+
+  vtkCamera* active = this->Renderer->GetActiveCamera();
+  if (active == nullptr)
+  {
+    return false;
+  }
+
+  // Copying the parameters rather than calling SetActiveCamera() keeps whatever the interactor and
+  // the camera options already wired themselves to; the user then keeps orbiting from this pose
+  // instead of the view snapping back on the next interaction.
+  active->SetPosition(source->GetPosition());
+  active->SetFocalPoint(source->GetFocalPoint());
+  active->SetViewUp(source->GetViewUp());
+  active->SetViewAngle(source->GetViewAngle());
+  active->SetParallelProjection(source->GetParallelProjection());
+  active->SetParallelScale(source->GetParallelScale());
+  active->SetClippingRange(source->GetClippingRange());
+  active->SetUseHorizontalViewAngle(source->GetUseHorizontalViewAngle());
+
+  this->Renderer->ResetCameraClippingRange();
+  return true;
 }
 
 //----------------------------------------------------------------------------
