@@ -28,6 +28,41 @@ All static plugins can be loaded using `f3d::engine::autoloadPlugins()`.
 The scene class is responsible to `add` file from the disk into the scene. It supports reading multiple files at the same time and even mesh or files from memory.
 It is possible to `clear` the scene and to check if the scene `supports` a file.
 
+### Scene tree
+
+The scene class also exposes the loaded hierarchy, in the shape a tree widget actually needs:
+a flat list of **rows**, read one window at a time.
+
+```cpp
+f3d::g3d_tree_info info = scene.getSceneTreeInfo();          // rowCount / nodeCount / selection
+std::vector<f3d::g3d_tree_row> rows = scene.getSceneTreeRows(0, 50);   // one screenful
+```
+
+Rows arrive already resolved: expansion, filtering, the effective-visibility roll-up and the
+numbering of unnamed nodes have all been applied, so every frontend built on this shows the same
+tree. The tree is never returned whole — `getSceneTreeRows(begin, count)` clamps to the available
+range, so asking past the end returns fewer rows rather than failing. That is what keeps a
+100k-node assembly affordable, and what makes the cost of drawing the tree in the WebAssembly
+build independent of how big the model is.
+
+Every node is addressed by its `path`, a stable key built from the structural names in the file
+with `[k]` disambiguating same-named siblings — for example `/f3d.glb/Body/Bolt[3]`. Paths survive
+a reload and are unique across a multi-file scene, so they are safe to persist and to deep-link.
+
+Two groups of operations act on it:
+
+- **View state** — `setSceneTreeExpanded`, `expandSceneTree`, `collapseSceneTree`,
+  `setSceneTreeFilter`, `setSceneTreeSelection`. This is presentation state: it changes what the
+  tree shows without touching the scene or triggering a re-render, and it survives a scene rebuild.
+  There is one view per engine, so a change here moves the tree the user is looking at.
+- **Scene data** — `setSceneTreeNodeVisibility`, `setOnlySceneTreeNodeVisible`,
+  `resetSceneTreeVisibility`, and `focusSceneTreeNode` to frame a subtree. These do change the
+  render.
+
+The write methods return `false` for a path that does not exist in the current scene tree.
+`getG3DDataInfo` complements this with geometry statistics, the bounding box and the list of
+colorable arrays.
+
 ## Context class
 
 Convenience class providing generic context API when using a external rendering backend (using `f3d::engine::createExternal()` factory).

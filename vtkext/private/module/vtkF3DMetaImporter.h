@@ -106,43 +106,6 @@ public:
     vtkSmartPointer<vtkDataAssembly> DataAssembly;
   };
 
-  enum class G3DSceneTreeNodeKind : unsigned char
-  {
-    ROOT,
-    GROUP,
-    OBJECT
-  };
-
-  struct G3DSceneTreeCapabilities
-  {
-    bool Visibility = false;
-    bool Solo = false;
-    bool Focus = false;
-    bool Selection = false;
-    bool Bounds = false;
-    bool Stats = false;
-  };
-
-  struct G3DSceneTreeNode
-  {
-    std::string Id;
-    std::string Label;
-    G3DSceneTreeNodeKind Kind = G3DSceneTreeNodeKind::OBJECT;
-    bool Visible = true;
-    bool PartiallyVisible = false;
-    bool CollapsedByDefault = false;
-    std::string Path;
-    bool HasBounds = false;
-    std::array<double, 6> Bounds = { 0., 0., 0., 0., 0., 0. };
-    std::vector<G3DSceneTreeNode> Children;
-  };
-
-  struct G3DSceneTreeSnapshot
-  {
-    int SchemaVersion = 1;
-    G3DSceneTreeCapabilities Capabilities;
-    std::vector<G3DSceneTreeNode> Children;
-  };
   ///@}
 
   /**
@@ -246,30 +209,22 @@ public:
    */
   const G3DSceneGraph& GetG3DSceneGraph() const;
 
+  ///@{
   /**
-   * Return a Glance3D scene tree snapshot built from all importer data assemblies.
+   * Scene tree mutations, keyed by the graph's stable node path (eg. "/f3d.glb/Body/Bolt[3]").
+   *
+   * Paths survive a reload and are unique across a multi-file scene, which the previous
+   * build-order node ids were not, so they are safe to persist and to deep-link.
+   *
+   * Visibility is *scene data*, so it still round-trips through the source data assembly and the
+   * actor property keys -- the contract the renderer reads. Only the key changed.
    */
-  G3DSceneTreeSnapshot GetG3DSceneTree() const;
-
-  /**
-   * Set a scene tree node and all descendants visibility.
-   */
-  bool SetG3DSceneTreeNodeVisibility(const std::string& nodeId, bool visible);
-
-  /**
-   * Show only a scene tree node subtree.
-   */
-  bool SetOnlyG3DSceneTreeNodeVisible(const std::string& nodeId);
-
-  /**
-   * Reset all scene tree nodes to visible.
-   */
+  bool SetG3DSceneTreeNodeVisibility(const std::string& path, bool visible);
+  bool SetOnlyG3DSceneTreeNodeVisible(const std::string& path);
   void ResetG3DSceneTreeVisibility();
-
-  /**
-   * Get the world-space bounds for a scene tree node subtree.
-   */
-  bool GetG3DSceneTreeNodeBounds(const std::string& nodeId, double bounds[6]) const;
+  /// World-space bounds of a node's whole subtree. False when the path is unknown or has no bounds.
+  bool GetG3DSceneTreeNodeBounds(const std::string& path, double bounds[6]) const;
+  ///@}
 
   /**
    * Shared helper used by Glance3D SDK API and ImGui scene hierarchy.

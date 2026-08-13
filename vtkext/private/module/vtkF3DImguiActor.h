@@ -256,14 +256,6 @@ private:
   };
   BarsResolution ResolveBars(float workW);
 
-  /**
-   * Scene-tree selection, held as a graph node index. Expansion, filtering and the rest of the
-   * view state live in the shared view-model rather than here — this is only what the presenter
-   * needs to draw the parent indentation guide. -1 means no selection.
-   */
-  int SceneTreeSelNode = -1;
-
-
   ///@{
   /**
    * Animation state for the control panel toggle (FAB) and the sliding panel, built on the reusable

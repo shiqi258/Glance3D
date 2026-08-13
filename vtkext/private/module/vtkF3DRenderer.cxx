@@ -2350,6 +2350,17 @@ void vtkF3DRenderer::SetImporter(vtkF3DMetaImporter* importer)
 }
 
 //----------------------------------------------------------------------------
+G3DSceneTreeView& vtkF3DRenderer::GetG3DSceneTreeView()
+{
+  // Rebinding every call is what keeps callers from having to know when the graph was rebuilt: the
+  // graph object is reused in place and the view compares its version, so this costs a pointer
+  // compare unless the scene actually changed.
+  this->SceneTreeView.SetGraph(
+    this->Importer ? &this->Importer->GetG3DSceneGraph() : nullptr);
+  return this->SceneTreeView;
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DRenderer::SetRoughness(const std::optional<double>& roughness)
 {
   if (this->Roughness != roughness)

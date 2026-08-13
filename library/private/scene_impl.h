@@ -56,12 +56,18 @@ public:
   std::string getAnimationName(int index = -1) override;
   std::vector<std::string> getAnimationNames() override;
   double getCurrentAnimationTime() const override;
-  g3d_scene_tree_snapshot getG3DSceneTree() const override;
   g3d_data_info getG3DDataInfo() const override;
-  bool setG3DSceneTreeNodeVisibility(const std::string& nodeId, bool visible) override;
-  bool setOnlyG3DSceneTreeNodeVisible(const std::string& nodeId) override;
-  scene& resetG3DSceneTreeVisibility() override;
-  bool focusG3DSceneTreeNode(const std::string& nodeId) override;
+  g3d_tree_info getSceneTreeInfo() const override;
+  std::vector<g3d_tree_row> getSceneTreeRows(int begin, int count) const override;
+  bool setSceneTreeExpanded(const std::string& path, bool expanded) override;
+  scene& expandSceneTree(int maxDepth = -1) override;
+  scene& collapseSceneTree() override;
+  scene& setSceneTreeFilter(const std::string& query, bool onlyVisible = false) override;
+  bool setSceneTreeSelection(const std::string& path) override;
+  bool setSceneTreeNodeVisibility(const std::string& path, bool visible) override;
+  bool setOnlySceneTreeNodeVisible(const std::string& path) override;
+  scene& resetSceneTreeVisibility() override;
+  bool focusSceneTreeNode(const std::string& path) override;
   ///@}
 
   /**

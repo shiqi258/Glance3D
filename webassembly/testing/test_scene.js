@@ -18,37 +18,95 @@ const settings = {
 
   runAfter: (Module) => {
     const scene = Module.engineInstance.getScene();
-    const tree = scene.getG3DSceneTree();
+    const info = scene.getSceneTreeInfo();
 
     utils.assert(
-      tree.schemaVersion === 1,
-      "Glance3D scene tree schema should be version 1",
+      info.schemaVersion === 2,
+      "Glance3D scene tree schema should be version 2",
     );
 
     utils.assert(
-      tree.children.length > 0,
+      info.rowCount > 0 && info.nodeCount >= info.rowCount,
       "Glance3D scene tree should expose loaded content",
     );
 
+    const rows = scene.getSceneTreeRows(0, info.rowCount);
+
     utils.assert(
-      typeof JSON.stringify(tree) === "string",
-      "Glance3D scene tree should be JSON serializable",
+      rows.length === info.rowCount,
+      "Glance3D scene tree should return the announced number of rows",
     );
 
     utils.assert(
-      scene.setG3DSceneTreeNodeVisibility(tree.children[0].id, false),
+      typeof JSON.stringify(rows) === "string",
+      "Glance3D scene tree rows should be JSON serializable",
+    );
+
+    const filePath = rows[0].path;
+
+    utils.assert(
+      rows[0].type === "file" && rows[0].depth === 0 && filePath.startsWith("/"),
+      "Glance3D scene tree should start at a file row addressed by path",
+    );
+
+    // Windowing is the point of the API: out-of-range windows clamp rather than throw, because a
+    // virtual scroller asking past the end is normal.
+    utils.assert(
+      scene.getSceneTreeRows(-3, 1)[0].path === filePath &&
+        scene.getSceneTreeRows(info.rowCount + 5, 4).length === 0 &&
+        scene.getSceneTreeRows(0, 0).length === 0,
+      "Glance3D scene tree row windows should clamp",
+    );
+
+    utils.assert(
+      scene.setSceneTreeExpanded(filePath, false) &&
+        scene.getSceneTreeInfo().rowCount === 1,
+      "Glance3D scene tree expansion should be settable",
+    );
+
+    scene.expandSceneTree(-1);
+
+    utils.assert(
+      scene.getSceneTreeInfo().rowCount >= info.rowCount,
+      "Glance3D scene tree should expand back",
+    );
+
+    utils.assert(
+      !scene.setSceneTreeExpanded("/no/such/node", true) &&
+        !scene.setSceneTreeNodeVisibility("/no/such/node", false) &&
+        !scene.focusSceneTreeNode("/no/such/node"),
+      "Glance3D scene tree should reject unknown paths",
+    );
+
+    scene.setSceneTreeFilter("zzz-no-such-node", false);
+
+    utils.assert(
+      scene.getSceneTreeInfo().rowCount === 0,
+      "Glance3D scene tree filter should hide non-matching rows",
+    );
+
+    scene.setSceneTreeFilter("", false);
+
+    utils.assert(
+      scene.setSceneTreeSelection(filePath) &&
+        scene.getSceneTreeInfo().selectedPath === filePath,
+      "Glance3D scene tree selection should be settable",
+    );
+
+    utils.assert(
+      scene.setSceneTreeNodeVisibility(filePath, false),
       "Glance3D scene tree visibility should be settable",
     );
 
     utils.assert(
-      scene.getG3DSceneTree().children[0].visible === false,
-      "Glance3D scene tree snapshot should reflect hidden nodes",
+      scene.getSceneTreeRows(0, 1)[0].visible === false,
+      "Glance3D scene tree rows should reflect hidden nodes",
     );
 
-    scene.resetG3DSceneTreeVisibility();
+    scene.resetSceneTreeVisibility();
 
     utils.assert(
-      scene.getG3DSceneTree().children[0].visible === true,
+      scene.getSceneTreeRows(0, 1)[0].visible === true,
       "Glance3D scene tree visibility should reset",
     );
 

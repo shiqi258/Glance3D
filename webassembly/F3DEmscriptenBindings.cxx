@@ -51,66 +51,93 @@ emscripten::val pairToJSArray(const std::pair<U, V>& p)
   return jsArray;
 }
 
-const char* g3dSceneTreeNodeKindToString(f3d::g3d_scene_tree_node_kind kind)
+/// Node types cross the boundary as strings: readable in the devtools console, and stable against
+/// values being inserted into the enumeration later.
+const char* g3dNodeTypeToString(f3d::g3d_node_type type)
 {
-  switch (kind)
+  switch (type)
   {
-    case f3d::g3d_scene_tree_node_kind::ROOT:
+    case f3d::g3d_node_type::ROOT:
       return "root";
-    case f3d::g3d_scene_tree_node_kind::GROUP:
+    case f3d::g3d_node_type::FILE:
+      return "file";
+    case f3d::g3d_node_type::GROUP:
       return "group";
-    case f3d::g3d_scene_tree_node_kind::OBJECT:
-      return "object";
+    case f3d::g3d_node_type::ASSEMBLY:
+      return "assembly";
+    case f3d::g3d_node_type::PART:
+      return "part";
+    case f3d::g3d_node_type::INSTANCE:
+      return "instance";
+    case f3d::g3d_node_type::FACE:
+      return "face";
+    case f3d::g3d_node_type::MESH:
+      return "mesh";
+    case f3d::g3d_node_type::POINT_CLOUD:
+      return "pointCloud";
+    case f3d::g3d_node_type::VOLUME:
+      return "volume";
+    case f3d::g3d_node_type::CAMERA:
+      return "camera";
+    case f3d::g3d_node_type::LIGHT:
+      return "light";
+    case f3d::g3d_node_type::SKELETON:
+      return "skeleton";
+    case f3d::g3d_node_type::JOINT:
+      return "joint";
+    case f3d::g3d_node_type::OTHER:
+      return "other";
   }
-  return "object";
+  return "other";
 }
 
-emscripten::val g3dSceneTreeNodeToJSObject(const f3d::g3d_scene_tree_node& node)
+emscripten::val g3dTreeRowToJSObject(const f3d::g3d_tree_row& row)
 {
-  emscripten::val jsNode = emscripten::val::object();
-  jsNode.set("id", node.id);
-  jsNode.set("label", node.label);
-  jsNode.set("kind", g3dSceneTreeNodeKindToString(node.kind));
-  jsNode.set("visible", node.visible);
-  jsNode.set("partiallyVisible", node.partiallyVisible);
-  jsNode.set("collapsedByDefault", node.collapsedByDefault);
-  jsNode.set("path", node.path);
-
-  if (node.hasBounds)
-  {
-    jsNode.set("bounds", containerToJSArray(node.bounds));
-  }
-
-  emscripten::val children = emscripten::val::array();
-  for (const f3d::g3d_scene_tree_node& child : node.children)
-  {
-    children.call<void>("push", g3dSceneTreeNodeToJSObject(child));
-  }
-  jsNode.set("children", children);
-  return jsNode;
+  emscripten::val js = emscripten::val::object();
+  js.set("path", row.path);
+  js.set("label", row.label);
+  js.set("type", g3dNodeTypeToString(row.type));
+  js.set("depth", row.depth);
+  js.set("childCount", row.childCount);
+  js.set("placeholderOrdinal", row.placeholderOrdinal);
+  js.set("hasChildren", row.hasChildren);
+  js.set("expanded", row.expanded);
+  js.set("visible", row.visible);
+  js.set("partiallyVisible", row.partiallyVisible);
+  js.set("placeholder", row.placeholder);
+  js.set("selected", row.selected);
+  js.set("matched", row.matched);
+  return js;
 }
 
-emscripten::val g3dSceneTreeSnapshotToJSObject(const f3d::g3d_scene_tree_snapshot& snapshot)
+/**
+ * One window of rows as a plain JS array.
+ *
+ * A screenful is ~100 rows, so ordinary objects are fine here -- the win comes from windowing
+ * itself, which makes the boundary cost independent of scene size. Anything fancier (typed arrays,
+ * a shared string pool) should wait for a profile that asks for it.
+ */
+emscripten::val g3dTreeRowsToJSArray(const std::vector<f3d::g3d_tree_row>& rows)
 {
-  emscripten::val jsSnapshot = emscripten::val::object();
-  jsSnapshot.set("schemaVersion", snapshot.schemaVersion);
-
-  emscripten::val capabilities = emscripten::val::object();
-  capabilities.set("visibility", snapshot.capabilities.visibility);
-  capabilities.set("solo", snapshot.capabilities.solo);
-  capabilities.set("focus", snapshot.capabilities.focus);
-  capabilities.set("selection", snapshot.capabilities.selection);
-  capabilities.set("bounds", snapshot.capabilities.bounds);
-  capabilities.set("stats", snapshot.capabilities.stats);
-  jsSnapshot.set("capabilities", capabilities);
-
-  emscripten::val children = emscripten::val::array();
-  for (const f3d::g3d_scene_tree_node& child : snapshot.children)
+  emscripten::val js = emscripten::val::array();
+  for (const f3d::g3d_tree_row& row : rows)
   {
-    children.call<void>("push", g3dSceneTreeNodeToJSObject(child));
+    js.call<void>("push", g3dTreeRowToJSObject(row));
   }
-  jsSnapshot.set("children", children);
-  return jsSnapshot;
+  return js;
+}
+
+emscripten::val g3dTreeInfoToJSObject(const f3d::g3d_tree_info& info)
+{
+  emscripten::val js = emscripten::val::object();
+  js.set("schemaVersion", info.schemaVersion);
+  js.set("rowCount", info.rowCount);
+  js.set("nodeCount", info.nodeCount);
+  js.set("selectedPath", info.selectedPath);
+  js.set("canVisibility", info.canVisibility);
+  js.set("canSolo", info.canSolo);
+  js.set("canFocus", info.canFocus);
+  return js;
 }
 
 emscripten::val g3dDataInfoToJSObject(const f3d::g3d_data_info& info)
@@ -294,16 +321,27 @@ EMSCRIPTEN_BINDINGS(f3d)
       +[](f3d::scene& scene) { return containerToJSArray(scene.getAnimationNames()); })
     .function("getCurrentAnimationTime", &f3d::scene::getCurrentAnimationTime)
     .function(
-      "getG3DSceneTree",
-      +[](f3d::scene& scene) { return g3dSceneTreeSnapshotToJSObject(scene.getG3DSceneTree()); })
-    .function(
       "getG3DDataInfo",
       +[](f3d::scene& scene) { return g3dDataInfoToJSObject(scene.getG3DDataInfo()); })
-    .function("setG3DSceneTreeNodeVisibility", &f3d::scene::setG3DSceneTreeNodeVisibility)
-    .function("setOnlyG3DSceneTreeNodeVisible", &f3d::scene::setOnlyG3DSceneTreeNodeVisible)
-    .function("resetG3DSceneTreeVisibility", &f3d::scene::resetG3DSceneTreeVisibility,
+    .function(
+      "getSceneTreeInfo",
+      +[](f3d::scene& scene) { return g3dTreeInfoToJSObject(scene.getSceneTreeInfo()); })
+    .function(
+      "getSceneTreeRows", +[](f3d::scene& scene, int begin, int count)
+      { return g3dTreeRowsToJSArray(scene.getSceneTreeRows(begin, count)); })
+    .function("setSceneTreeExpanded", &f3d::scene::setSceneTreeExpanded)
+    .function(
+      "expandSceneTree", +[](f3d::scene& scene, int maxDepth) { scene.expandSceneTree(maxDepth); })
+    .function("collapseSceneTree", +[](f3d::scene& scene) { scene.collapseSceneTree(); })
+    .function(
+      "setSceneTreeFilter", +[](f3d::scene& scene, const std::string& query, bool onlyVisible)
+      { scene.setSceneTreeFilter(query, onlyVisible); })
+    .function("setSceneTreeSelection", &f3d::scene::setSceneTreeSelection)
+    .function("setSceneTreeNodeVisibility", &f3d::scene::setSceneTreeNodeVisibility)
+    .function("setOnlySceneTreeNodeVisible", &f3d::scene::setOnlySceneTreeNodeVisible)
+    .function("resetSceneTreeVisibility", &f3d::scene::resetSceneTreeVisibility,
       emscripten::return_value_policy::reference())
-    .function("focusG3DSceneTreeNode", &f3d::scene::focusG3DSceneTreeNode);
+    .function("focusSceneTreeNode", &f3d::scene::focusSceneTreeNode);
 
   // f3d::image
   emscripten::enum_<f3d::image::SaveFormat>("ImageSaveFormat")

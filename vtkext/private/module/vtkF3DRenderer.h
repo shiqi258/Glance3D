@@ -13,6 +13,7 @@
 
 #include "F3DStyle.h"
 
+#include "G3DSceneTreeView.h"
 #include "vtkF3DMetaImporter.h"
 #include "vtkF3DUIActor.h"
 
@@ -417,6 +418,17 @@ public:
   {
     return this->Importer;
   }
+
+  /**
+   * The scene tree view-model of this engine, already bound to the current scene graph.
+   *
+   * One per engine, deliberately: the SDK expanding a node and the on-screen tree are the same
+   * tree, so they must share expansion, filtering and selection state. (Two *processes* -- the
+   * desktop app and the web viewer -- naturally get one each.) It lives here rather than on the
+   * ImGui actor because libf3d has to reach it for the public API and the `scene_tree_*` commands,
+   * and because view state must outlive any particular presenter.
+   */
+  G3DSceneTreeView& GetG3DSceneTreeView();
 
   /**
    * Mark the coloring as dirty for force update
@@ -854,6 +866,7 @@ private:
   vtkF3DMetaImporter* Importer = nullptr;
   vtkMTimeType ImporterTimeStamp = 0;
   vtkMTimeType ImporterUpdateTimeStamp = 0;
+  G3DSceneTreeView SceneTreeView;
 
   vtkNew<vtkScalarBarActor> ScalarBarActor;
   bool ScalarBarActorConfigured = false;

@@ -6,6 +6,9 @@
 #include <scene.h>
 #include <window.h>
 
+#include <algorithm>
+#include <set>
+
 namespace fs = std::filesystem;
 
 int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
@@ -45,9 +48,10 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
   std::string invalidFullScene = std::string(argv[1]) + "data/" + invalidFullSceneFilename;
 
   test("empty Glance3D scene tree", [&]() {
-    f3d::g3d_scene_tree_snapshot tree = sce.getG3DSceneTree();
-    return tree.schemaVersion == 1 && tree.children.empty() && tree.capabilities.visibility &&
-      tree.capabilities.solo && tree.capabilities.focus;
+    const f3d::g3d_tree_info info = sce.getSceneTreeInfo();
+    return info.schemaVersion == 2 && info.rowCount == 0 && info.selectedPath.empty() &&
+      info.canVisibility && info.canSolo && info.canFocus &&
+      sce.getSceneTreeRows(0, 10).empty();
   });
 
   // supports method
@@ -99,25 +103,107 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
   test("add with empty file", [&]() { sce.add(empty); });
   test("add with a single path", [&]() { sce.add(fs::path(logo)); });
   test("Glance3D scene tree after load", [&]() {
-    f3d::g3d_scene_tree_snapshot tree = sce.getG3DSceneTree();
-    return tree.schemaVersion == 1 && !tree.children.empty() && !tree.children[0].id.empty() &&
-      !tree.children[0].label.empty() && tree.children[0].visible && tree.children[0].hasBounds;
+    const f3d::g3d_tree_info info = sce.getSceneTreeInfo();
+    const std::vector<f3d::g3d_tree_row> rows = sce.getSceneTreeRows(0, info.rowCount);
+    return info.schemaVersion == 2 && info.rowCount > 0 && info.nodeCount > info.rowCount &&
+      rows.size() == static_cast<std::size_t>(info.rowCount) && !rows[0].path.empty() &&
+      rows[0].path[0] == '/' && !rows[0].label.empty() && rows[0].depth == 0 &&
+      rows[0].type == f3d::g3d_node_type::FILE && rows[0].hasChildren && rows[0].childCount > 0 &&
+      rows[0].visible && !rows[0].partiallyVisible;
+  });
+  // The tree is deep enough that some rows are nested: this is what the recursive snapshot API
+  // used to expose by construction and what the flat row window has to keep reporting.
+  test("Glance3D scene tree reports nesting", [&]() {
+    // Open everything first: whether a given file starts collapsed is a load-time heuristic, and
+    // this is asserting that depth survives the flattening, not what the heuristic decided.
+    sce.expandSceneTree();
+    const std::vector<f3d::g3d_tree_row> rows =
+      sce.getSceneTreeRows(0, sce.getSceneTreeInfo().rowCount);
+    return std::any_of(rows.begin(), rows.end(), [](const f3d::g3d_tree_row& row)
+      { return row.depth > 0; }) &&
+      std::any_of(rows.begin(), rows.end(),
+        [](const f3d::g3d_tree_row& row) { return !row.hasChildren; });
+  });
+  // Windowing is the whole point of the API, so the boundaries have to be forgiving rather than
+  // throw: a scroller asking for rows past the end is normal, not a programming error.
+  test("Glance3D scene tree row window bounds", [&]() {
+    const int rowCount = sce.getSceneTreeInfo().rowCount;
+    const std::vector<f3d::g3d_tree_row> all = sce.getSceneTreeRows(0, rowCount);
+    const std::vector<f3d::g3d_tree_row> clampedBegin = sce.getSceneTreeRows(-5, 2);
+    const std::vector<f3d::g3d_tree_row> pastEnd = sce.getSceneTreeRows(rowCount + 10, 5);
+    const std::vector<f3d::g3d_tree_row> overlong = sce.getSceneTreeRows(rowCount - 1, 100);
+    return clampedBegin.size() == 2 && clampedBegin[0].path == all[0].path && pastEnd.empty() &&
+      overlong.size() == 1 && overlong[0].path == all.back().path &&
+      sce.getSceneTreeRows(0, 0).empty() && sce.getSceneTreeRows(0, -3).empty();
+  });
+  test("Glance3D scene tree expansion", [&]() {
+    const std::string filePath = sce.getSceneTreeRows(0, 1)[0].path;
+    const int expandedCount = sce.getSceneTreeInfo().rowCount;
+    const bool collapsed = sce.setSceneTreeExpanded(filePath, false);
+    // Collapsing the one top-level file leaves exactly its own row behind.
+    const bool collapsedToOne = sce.getSceneTreeInfo().rowCount == 1 &&
+      !sce.getSceneTreeRows(0, 1)[0].expanded;
+    sce.expandSceneTree();
+    const bool expandedAll = sce.getSceneTreeInfo().rowCount >= expandedCount;
+    sce.collapseSceneTree();
+    const bool collapsedAll = sce.getSceneTreeInfo().rowCount == 1;
+    const bool reExpanded = sce.setSceneTreeExpanded(filePath, true);
+    return collapsed && collapsedToOne && expandedAll && collapsedAll && reExpanded &&
+      sce.getSceneTreeInfo().rowCount > 1;
+  });
+  test("Glance3D scene tree filter", [&]() {
+    const std::string label = sce.getSceneTreeRows(0, 1)[0].label;
+    sce.setSceneTreeFilter(label);
+    const std::vector<f3d::g3d_tree_row> filtered =
+      sce.getSceneTreeRows(0, sce.getSceneTreeInfo().rowCount);
+    sce.setSceneTreeFilter("zzz-no-such-node");
+    const bool noMatch = sce.getSceneTreeInfo().rowCount == 0;
+    sce.setSceneTreeFilter("");
+    return !filtered.empty() && filtered[0].matched && noMatch &&
+      sce.getSceneTreeInfo().rowCount > 1;
+  });
+  test("Glance3D scene tree selection", [&]() {
+    const std::string filePath = sce.getSceneTreeRows(0, 1)[0].path;
+    const bool selected =
+      sce.setSceneTreeSelection(filePath) && sce.getSceneTreeInfo().selectedPath == filePath;
+    const bool rowSelected = sce.getSceneTreeRows(0, 1)[0].selected;
+    const bool cleared =
+      sce.setSceneTreeSelection("") && sce.getSceneTreeInfo().selectedPath.empty();
+    return selected && rowSelected && cleared;
+  });
+  // Every path-keyed entry point has to reject an unknown key rather than act on some other node.
+  test("Glance3D scene tree invalid path", [&]() {
+    const std::string bogus = "/no/such/node";
+    return !sce.setSceneTreeExpanded(bogus, true) && !sce.setSceneTreeSelection(bogus) &&
+      !sce.setSceneTreeNodeVisibility(bogus, false) && !sce.setOnlySceneTreeNodeVisible(bogus) &&
+      !sce.focusSceneTreeNode(bogus);
   });
   test("Glance3D scene tree visibility toggle", [&]() {
-    const std::string nodeId = sce.getG3DSceneTree().children[0].id;
-    bool updated = sce.setG3DSceneTreeNodeVisibility(nodeId, false);
-    f3d::g3d_scene_tree_snapshot hiddenTree = sce.getG3DSceneTree();
-    bool reset = static_cast<bool>(&sce.resetG3DSceneTreeVisibility());
-    f3d::g3d_scene_tree_snapshot visibleTree = sce.getG3DSceneTree();
-    return updated && reset && !hiddenTree.children[0].visible && visibleTree.children[0].visible;
+    const std::string filePath = sce.getSceneTreeRows(0, 1)[0].path;
+    const bool updated = sce.setSceneTreeNodeVisibility(filePath, false);
+    const bool hidden = !sce.getSceneTreeRows(0, 1)[0].visible;
+    const bool reset = static_cast<bool>(&sce.resetSceneTreeVisibility());
+    const bool visible = sce.getSceneTreeRows(0, 1)[0].visible;
+    return updated && reset && hidden && visible;
   });
   test("Glance3D scene tree solo and focus", [&]() {
-    const std::string nodeId = sce.getG3DSceneTree().children[0].id;
-    return sce.setOnlyG3DSceneTreeNodeVisible(nodeId) && sce.focusG3DSceneTreeNode(nodeId);
+    const std::string filePath = sce.getSceneTreeRows(0, 1)[0].path;
+    return sce.setOnlySceneTreeNodeVisible(filePath) && sce.focusSceneTreeNode(filePath);
   });
   test("add with multiples filepaths", [&]() { sce.add({ fs::path(sphere2), fs::path(cube) }); });
-  test("Glance3D scene tree with multiple loaded files",
-    [&]() { return sce.getG3DSceneTree().children.size() >= 2; });
+  test("Glance3D scene tree with multiple loaded files", [&]() {
+    const std::vector<f3d::g3d_tree_row> rows =
+      sce.getSceneTreeRows(0, sce.getSceneTreeInfo().rowCount);
+    const auto fileRows = std::count_if(rows.begin(), rows.end(),
+      [](const f3d::g3d_tree_row& row) { return row.depth == 0; });
+    // Paths must stay unique across files, which the previous per-assembly node ids never were.
+    std::set<std::string> paths;
+    for (const f3d::g3d_tree_row& row : rows)
+    {
+      paths.insert(row.path);
+    }
+    return fileRows >= 2 && paths.size() == rows.size();
+  });
   test("add with multiples file strings", [&]() { sce.add({ sphere1, world }); });
 
   // render test

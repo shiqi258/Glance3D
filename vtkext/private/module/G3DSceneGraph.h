@@ -188,10 +188,11 @@ public:
 
   ///@{
   /**
-   * Compatibility accessors for the not-yet-migrated `vtkDataAssembly`-keyed public API.
+   * Back-reference to the `vtkDataAssembly` node this was ingested from.
    *
-   * The assembly stays authoritative for mutable state until the desktop presenter moves onto the
-   * view-model, so nodes remember where they came from. Both go away with the old API.
+   * Visibility remains stored on the assembly and on the actor property keys -- that is the contract
+   * the renderer reads -- so a write that arrives keyed by path has to find its way back to the
+   * source node. Reads never go through here; they walk this graph.
    */
   int SourceNodeId(int node) const
   {

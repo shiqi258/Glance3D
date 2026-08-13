@@ -53,59 +53,68 @@ namespace f3d::detail
 {
 namespace
 {
-g3d_scene_tree_node_kind ConvertG3DSceneTreeNodeKind(
-  vtkF3DMetaImporter::G3DSceneTreeNodeKind kind)
+/**
+ * Widen the core node type into the public one.
+ *
+ * The two enumerations are deliberately kept identical in order: this is a compile-time-checked
+ * seam rather than a cast, so adding a type to the core without exporting it fails to build here
+ * instead of silently reporting the wrong kind to a frontend.
+ */
+g3d_node_type ConvertG3DNodeType(G3DNodeType type)
 {
-  switch (kind)
+  switch (type)
   {
-    case vtkF3DMetaImporter::G3DSceneTreeNodeKind::ROOT:
-      return g3d_scene_tree_node_kind::ROOT;
-    case vtkF3DMetaImporter::G3DSceneTreeNodeKind::GROUP:
-      return g3d_scene_tree_node_kind::GROUP;
-    case vtkF3DMetaImporter::G3DSceneTreeNodeKind::OBJECT:
-      return g3d_scene_tree_node_kind::OBJECT;
+    case G3DNodeType::ROOT:
+      return g3d_node_type::ROOT;
+    case G3DNodeType::FILE:
+      return g3d_node_type::FILE;
+    case G3DNodeType::GROUP:
+      return g3d_node_type::GROUP;
+    case G3DNodeType::ASSEMBLY:
+      return g3d_node_type::ASSEMBLY;
+    case G3DNodeType::PART:
+      return g3d_node_type::PART;
+    case G3DNodeType::INSTANCE:
+      return g3d_node_type::INSTANCE;
+    case G3DNodeType::FACE:
+      return g3d_node_type::FACE;
+    case G3DNodeType::MESH:
+      return g3d_node_type::MESH;
+    case G3DNodeType::POINT_CLOUD:
+      return g3d_node_type::POINT_CLOUD;
+    case G3DNodeType::VOLUME:
+      return g3d_node_type::VOLUME;
+    case G3DNodeType::CAMERA:
+      return g3d_node_type::CAMERA;
+    case G3DNodeType::LIGHT:
+      return g3d_node_type::LIGHT;
+    case G3DNodeType::SKELETON:
+      return g3d_node_type::SKELETON;
+    case G3DNodeType::JOINT:
+      return g3d_node_type::JOINT;
+    case G3DNodeType::OTHER:
+      return g3d_node_type::OTHER;
   }
-  return g3d_scene_tree_node_kind::OBJECT;
+  return g3d_node_type::OTHER;
 }
 
-g3d_scene_tree_node ConvertG3DSceneTreeNode(
-  const vtkF3DMetaImporter::G3DSceneTreeNode& source)
+g3d_tree_row ConvertG3DTreeRow(const G3DSceneGraph& graph, const G3DTreeRow& source)
 {
-  g3d_scene_tree_node node;
-  node.id = source.Id;
-  node.label = source.Label;
-  node.kind = ConvertG3DSceneTreeNodeKind(source.Kind);
-  node.visible = source.Visible;
-  node.partiallyVisible = source.PartiallyVisible;
-  node.collapsedByDefault = source.CollapsedByDefault;
-  node.path = source.Path;
-  node.hasBounds = source.HasBounds;
-  node.bounds = source.Bounds;
-  node.children.reserve(source.Children.size());
-  for (const vtkF3DMetaImporter::G3DSceneTreeNode& child : source.Children)
-  {
-    node.children.emplace_back(ConvertG3DSceneTreeNode(child));
-  }
-  return node;
-}
-
-g3d_scene_tree_snapshot ConvertG3DSceneTreeSnapshot(
-  const vtkF3DMetaImporter::G3DSceneTreeSnapshot& source)
-{
-  g3d_scene_tree_snapshot snapshot;
-  snapshot.schemaVersion = source.SchemaVersion;
-  snapshot.capabilities.visibility = source.Capabilities.Visibility;
-  snapshot.capabilities.solo = source.Capabilities.Solo;
-  snapshot.capabilities.focus = source.Capabilities.Focus;
-  snapshot.capabilities.selection = source.Capabilities.Selection;
-  snapshot.capabilities.bounds = source.Capabilities.Bounds;
-  snapshot.capabilities.stats = source.Capabilities.Stats;
-  snapshot.children.reserve(source.Children.size());
-  for (const vtkF3DMetaImporter::G3DSceneTreeNode& child : source.Children)
-  {
-    snapshot.children.emplace_back(ConvertG3DSceneTreeNode(child));
-  }
-  return snapshot;
+  g3d_tree_row row;
+  row.path = graph.Path(source.Node);
+  row.label = graph.Label(source.Node);
+  row.type = ConvertG3DNodeType(source.Type);
+  row.depth = source.Depth;
+  row.childCount = source.ChildCount;
+  row.placeholderOrdinal = source.PlaceholderOrdinal;
+  row.hasChildren = source.Has(G3DTreeRowFlag::HasChildren);
+  row.expanded = source.Has(G3DTreeRowFlag::Expanded);
+  row.visible = source.Has(G3DTreeRowFlag::Visible);
+  row.partiallyVisible = source.Has(G3DTreeRowFlag::Partial);
+  row.placeholder = source.Has(G3DTreeRowFlag::Placeholder);
+  row.selected = source.Has(G3DTreeRowFlag::Selected);
+  row.matched = source.Has(G3DTreeRowFlag::Matched);
+  return row;
 }
 }
 
@@ -1118,12 +1127,6 @@ double scene_impl::getCurrentAnimationTime() const
 }
 
 //----------------------------------------------------------------------------
-g3d_scene_tree_snapshot scene_impl::getG3DSceneTree() const
-{
-  return ConvertG3DSceneTreeSnapshot(this->Internals->MetaImporter->GetG3DSceneTree());
-}
-
-//----------------------------------------------------------------------------
 g3d_data_info scene_impl::getG3DDataInfo() const
 {
   g3d_data_info info;
@@ -1163,10 +1166,138 @@ g3d_data_info scene_impl::getG3DDataInfo() const
 }
 
 //----------------------------------------------------------------------------
-bool scene_impl::setG3DSceneTreeNodeVisibility(const std::string& nodeId, bool visible)
+g3d_tree_info scene_impl::getSceneTreeInfo() const
 {
-  const bool updated = this->Internals->MetaImporter->SetG3DSceneTreeNodeVisibility(
-    nodeId, visible);
+  g3d_tree_info info;
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer == nullptr)
+  {
+    return info;
+  }
+
+  const G3DSceneTreeView& view = renderer->GetG3DSceneTreeView();
+  info.rowCount = view.RowCount();
+  const G3DSceneGraph* graph = view.Graph();
+  if (graph != nullptr)
+  {
+    info.nodeCount = graph->NodeCount();
+    const int selected = view.Selection();
+    if (selected >= 0)
+    {
+      info.selectedPath = graph->Path(selected);
+    }
+  }
+  return info;
+}
+
+//----------------------------------------------------------------------------
+std::vector<g3d_tree_row> scene_impl::getSceneTreeRows(int begin, int count) const
+{
+  std::vector<g3d_tree_row> rows;
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer == nullptr)
+  {
+    return rows;
+  }
+
+  const G3DSceneTreeView& view = renderer->GetG3DSceneTreeView();
+  const G3DSceneGraph* graph = view.Graph();
+  if (graph == nullptr)
+  {
+    return rows;
+  }
+
+  std::vector<G3DTreeRow> window;
+  view.GetRows(begin, count, window);
+  rows.reserve(window.size());
+  for (const G3DTreeRow& row : window)
+  {
+    rows.emplace_back(ConvertG3DTreeRow(*graph, row));
+  }
+  return rows;
+}
+
+//----------------------------------------------------------------------------
+bool scene_impl::setSceneTreeExpanded(const std::string& path, bool expanded)
+{
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer == nullptr)
+  {
+    return false;
+  }
+
+  G3DSceneTreeView& view = renderer->GetG3DSceneTreeView();
+  const G3DSceneGraph* graph = view.Graph();
+  const int node = graph ? graph->FindByPath(path) : -1;
+  if (node < 0)
+  {
+    return false;
+  }
+  view.SetExpanded(node, expanded);
+  return true;
+}
+
+//----------------------------------------------------------------------------
+scene& scene_impl::expandSceneTree(int maxDepth)
+{
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer != nullptr)
+  {
+    renderer->GetG3DSceneTreeView().ExpandAll(maxDepth);
+  }
+  return *this;
+}
+
+//----------------------------------------------------------------------------
+scene& scene_impl::collapseSceneTree()
+{
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer != nullptr)
+  {
+    renderer->GetG3DSceneTreeView().CollapseAll();
+  }
+  return *this;
+}
+
+//----------------------------------------------------------------------------
+scene& scene_impl::setSceneTreeFilter(const std::string& query, bool onlyVisible)
+{
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer != nullptr)
+  {
+    G3DTreeFilter filter;
+    filter.Query = query;
+    filter.OnlyVisible = onlyVisible;
+    renderer->GetG3DSceneTreeView().SetFilter(filter);
+  }
+  return *this;
+}
+
+//----------------------------------------------------------------------------
+bool scene_impl::setSceneTreeSelection(const std::string& path)
+{
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer == nullptr)
+  {
+    return false;
+  }
+
+  G3DSceneTreeView& view = renderer->GetG3DSceneTreeView();
+  const G3DSceneGraph* graph = view.Graph();
+  // An empty path is the documented way to clear the selection, not a lookup failure.
+  const int node = path.empty() ? -1 : (graph ? graph->FindByPath(path) : -1);
+  if (node < 0 && !path.empty())
+  {
+    return false;
+  }
+  view.SetSelection(node);
+  return true;
+}
+
+//----------------------------------------------------------------------------
+bool scene_impl::setSceneTreeNodeVisibility(const std::string& path, bool visible)
+{
+  const bool updated = this->Internals->MetaImporter->SetG3DSceneTreeNodeVisibility(path, visible);
   if (updated)
   {
     this->Internals->Window.UpdateActorsVisibility();
@@ -1175,9 +1306,9 @@ bool scene_impl::setG3DSceneTreeNodeVisibility(const std::string& nodeId, bool v
 }
 
 //----------------------------------------------------------------------------
-bool scene_impl::setOnlyG3DSceneTreeNodeVisible(const std::string& nodeId)
+bool scene_impl::setOnlySceneTreeNodeVisible(const std::string& path)
 {
-  const bool updated = this->Internals->MetaImporter->SetOnlyG3DSceneTreeNodeVisible(nodeId);
+  const bool updated = this->Internals->MetaImporter->SetOnlyG3DSceneTreeNodeVisible(path);
   if (updated)
   {
     this->Internals->Window.UpdateActorsVisibility();
@@ -1186,7 +1317,7 @@ bool scene_impl::setOnlyG3DSceneTreeNodeVisible(const std::string& nodeId)
 }
 
 //----------------------------------------------------------------------------
-scene& scene_impl::resetG3DSceneTreeVisibility()
+scene& scene_impl::resetSceneTreeVisibility()
 {
   this->Internals->MetaImporter->ResetG3DSceneTreeVisibility();
   this->Internals->Window.UpdateActorsVisibility();
@@ -1194,12 +1325,12 @@ scene& scene_impl::resetG3DSceneTreeVisibility()
 }
 
 //----------------------------------------------------------------------------
-bool scene_impl::focusG3DSceneTreeNode(const std::string& nodeId)
+bool scene_impl::focusSceneTreeNode(const std::string& path)
 {
   double bounds[6];
-  if (!this->Internals->MetaImporter->GetG3DSceneTreeNodeBounds(nodeId, bounds))
+  if (!this->Internals->MetaImporter->GetG3DSceneTreeNodeBounds(path, bounds))
   {
-    log::debug("[G3D] Cannot focus scene tree node without valid bounds: ", nodeId);
+    log::debug("[G3D] Cannot focus scene tree node without valid bounds: ", path);
     return false;
   }
 

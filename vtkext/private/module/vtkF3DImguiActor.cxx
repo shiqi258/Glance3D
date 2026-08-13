@@ -178,11 +178,6 @@ G3DIconId SceneTreeRowIcon(const G3DTreeRow& row)
 
 struct vtkF3DImguiActor::Internals
 {
-  // Shared headless view-model: it owns expansion/filter/selection state and hands back the rows
-  // that are actually on screen. Drawing below is virtualized over it, so cost stays O(visible
-  // rows) no matter how large the scene is. See DrawSceneTreeContent.
-  G3DSceneTreeView SceneTreeView;
-
   // Honor one of ImGui's dynamic-font texture requests against a vtkTextureObject. Glyph atlases are
   // created/grown/destroyed on demand (ImGuiBackendFlags_RendererHasTextures), so any character the
   // user types is rasterized when first needed — no pre-built glyph range, no '?' for CJK input.
@@ -738,10 +733,12 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   vtkF3DMetaImporter* importer = ren->GetMetaImporter();
   assert(importer != nullptr);
 
+  // The engine's one view-model: it owns expansion/filter/selection state and hands back the rows
+  // that are actually on screen, so drawing below is virtualized and costs O(visible rows) no
+  // matter how large the scene is. The SDK and the `scene_tree_*` commands drive this same object,
+  // which is why expanding a node from a script moves the tree the user is looking at.
   const G3DSceneGraph& graph = importer->GetG3DSceneGraph();
-  G3DSceneTreeView& view = this->Pimpl->SceneTreeView;
-  view.SetGraph(&graph);
-  view.SetSelection(this->SceneTreeSelNode);
+  G3DSceneTreeView& view = ren->GetG3DSceneTreeView();
 
   // The selected node's parent, used to light up one indentation guide across its sibling block.
   const int selectedNode = view.Selection();
@@ -827,7 +824,7 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
           break;
         }
         case G3DWidgets::TreeRowHit::Row:
-          this->SceneTreeSelNode = rr.Node;
+          view.SetSelection(rr.Node);
           break;
         case G3DWidgets::TreeRowHit::None:
         default:
