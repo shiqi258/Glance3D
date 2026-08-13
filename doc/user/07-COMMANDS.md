@@ -66,6 +66,43 @@ eg: `azimuth_camera 120`.
 
 `print_config_info`: A specific command to print config file information. No argument.
 
+### Scene tree commands
+
+These drive the scene hierarchy panel from a script instead of by clicking. Every node is addressed
+by its **path**, a stable key built from the structural names in the file, with `[k]` disambiguating
+same-named siblings — for example `/f3d.glb/Body/Bolt[3]`. A path survives a reload and is unique
+across a multi-file scene, so unlike pixel coordinates it does not move when the tree is restyled.
+
+`print_scene_tree`: A specific command to print the currently shown rows together with their node
+paths. Only rows that are actually displayed are listed, so run `scene_tree_expand_all` first to see
+every path. No argument.
+
+`scene_tree_expand path` / `scene_tree_collapse path`: Open or close one node.
+eg: `scene_tree_expand /f3d.glb/Body`.
+
+`scene_tree_expand_all [depth]`: Open every node, optionally only down to `depth`.
+eg: `scene_tree_expand_all 2`.
+
+`scene_tree_collapse_all`: Close every node. No argument.
+
+`scene_tree_filter [query]`: Keep only nodes whose name contains `query` (case-insensitive), plus
+the ancestors that lead to them. Matches inside closed subtrees are revealed without changing the
+stored expansion state. No argument clears the filter.
+
+`scene_tree_select path`: Select a node. An empty path clears the selection.
+
+`scene_tree_visibility path bool`: Show or hide a node and all of its descendants.
+eg: `scene_tree_visibility /f3d.glb/Body false`.
+
+`scene_tree_solo path`: Hide everything except the provided subtree.
+
+`scene_tree_reset_visibility`: Show every node again. No argument.
+
+`scene_tree_focus path`: Move the camera to frame the bounds of the provided subtree.
+
+Expansion, filtering and selection are view state: they change what the tree shows without touching
+the scene. Visibility and focus do change the render.
+
 `set_camera front/top/right/back/bottom/left/isometric`: A specific command to position the camera in the specified location relative to the model.
 Supports `front`, `top`, `right`, `back`, `bottom`, `left`, `isometric` arguments. eg: `set_camera top`.
 

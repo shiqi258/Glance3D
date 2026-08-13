@@ -1307,6 +1307,171 @@ interactor& interactor_impl::initCommands()
     },
     command_documentation_t{ "print_options_info", "print libf3d options that have a value" });
 
+  // Scene tree commands. These exist so the tree can be driven deterministically from a script
+  // instead of by clicking at absolute pixel coordinates: recorded interaction tests break the
+  // moment a row height or an indent changes, whereas a node path does not move.
+  const auto sceneTreePath = [&](const std::vector<std::string>& args, std::string_view actionName)
+  {
+    check_args(args, 1, actionName);
+    return args[0];
+  };
+
+  this->addCommand(
+    "print_scene_tree",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 0, "print_scene_tree");
+      const g3d_tree_info info = this->Internals->Scene.getSceneTreeInfo();
+      log::print(log::VerboseLevel::INFO,
+        "Scene tree: " + std::to_string(info.rowCount) + " rows shown of " +
+          std::to_string(info.nodeCount) + " nodes");
+      for (const g3d_tree_row& row : this->Internals->Scene.getSceneTreeRows(0, info.rowCount))
+      {
+        std::string line(static_cast<std::size_t>(row.depth) * 2, ' ');
+        line += row.path;
+        if (!row.label.empty())
+        {
+          line += "  \"" + row.label + "\"";
+        }
+        if (row.hasChildren)
+        {
+          line += "  (" + std::to_string(row.childCount) + (row.expanded ? ")" : ", collapsed)");
+        }
+        if (!row.visible)
+        {
+          line += row.partiallyVisible ? "  [partial]" : "  [hidden]";
+        }
+        log::print(log::VerboseLevel::INFO, line);
+      }
+    },
+    command_documentation_t{ "print_scene_tree",
+      "print the currently shown scene tree rows and their node paths" });
+
+  this->addCommand(
+    "scene_tree_expand",
+    [&](const std::vector<std::string>& args)
+    {
+      const std::string path = sceneTreePath(args, "scene_tree_expand");
+      if (!this->Internals->Scene.setSceneTreeExpanded(path, true))
+      {
+        log::warn("Command: unknown scene tree node: ", path);
+      }
+    },
+    command_documentation_t{ "scene_tree_expand path", "expand a scene tree node" });
+
+  this->addCommand(
+    "scene_tree_collapse",
+    [&](const std::vector<std::string>& args)
+    {
+      const std::string path = sceneTreePath(args, "scene_tree_collapse");
+      if (!this->Internals->Scene.setSceneTreeExpanded(path, false))
+      {
+        log::warn("Command: unknown scene tree node: ", path);
+      }
+    },
+    command_documentation_t{ "scene_tree_collapse path", "collapse a scene tree node" });
+
+  this->addCommand(
+    "scene_tree_expand_all",
+    [&](const std::vector<std::string>& args)
+    {
+      if (args.size() > 1)
+      {
+        throw interactor::invalid_args_exception(
+          "Command: scene_tree_expand_all is expecting 0 or 1 arguments");
+      }
+      const int maxDepth = args.empty() ? -1 : options::parse<int>(args[0]);
+      this->Internals->Scene.expandSceneTree(maxDepth);
+    },
+    command_documentation_t{
+      "scene_tree_expand_all [depth]", "expand all scene tree nodes, optionally down to a depth" });
+
+  this->addCommand(
+    "scene_tree_collapse_all",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 0, "scene_tree_collapse_all");
+      this->Internals->Scene.collapseSceneTree();
+    },
+    command_documentation_t{ "scene_tree_collapse_all", "collapse all scene tree nodes" });
+
+  this->addCommand(
+    "scene_tree_filter",
+    [&](const std::vector<std::string>& args)
+    {
+      // No argument clears the filter, which is what an empty query means anyway.
+      if (args.size() > 1)
+      {
+        throw interactor::invalid_args_exception(
+          "Command: scene_tree_filter is expecting 0 or 1 arguments");
+      }
+      this->Internals->Scene.setSceneTreeFilter(args.empty() ? std::string() : args[0]);
+    },
+    command_documentation_t{ "scene_tree_filter [query]", "filter the scene tree, empty to clear" });
+
+  this->addCommand(
+    "scene_tree_select",
+    [&](const std::vector<std::string>& args)
+    {
+      const std::string path = sceneTreePath(args, "scene_tree_select");
+      if (!this->Internals->Scene.setSceneTreeSelection(path))
+      {
+        log::warn("Command: unknown scene tree node: ", path);
+      }
+    },
+    command_documentation_t{ "scene_tree_select path", "select a scene tree node, empty to clear" });
+
+  this->addCommand(
+    "scene_tree_visibility",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 2, "scene_tree_visibility");
+      if (!this->Internals->Scene.setSceneTreeNodeVisibility(
+            args[0], options::parse<bool>(args[1])))
+      {
+        log::warn("Command: unknown scene tree node: ", args[0]);
+      }
+    },
+    command_documentation_t{ "scene_tree_visibility path bool",
+      "show or hide a scene tree node and its descendants" });
+
+  this->addCommand(
+    "scene_tree_solo",
+    [&](const std::vector<std::string>& args)
+    {
+      const std::string path = sceneTreePath(args, "scene_tree_solo");
+      if (!this->Internals->Scene.setOnlySceneTreeNodeVisible(path))
+      {
+        log::warn("Command: unknown scene tree node: ", path);
+      }
+    },
+    command_documentation_t{ "scene_tree_solo path", "show only a scene tree node subtree" });
+
+  this->addCommand(
+    "scene_tree_reset_visibility",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 0, "scene_tree_reset_visibility");
+      this->Internals->Scene.resetSceneTreeVisibility();
+    },
+    command_documentation_t{ "scene_tree_reset_visibility", "show all scene tree nodes again" });
+
+  this->addCommand(
+    "scene_tree_focus",
+    [&](const std::vector<std::string>& args)
+    {
+      const std::string path = sceneTreePath(args, "scene_tree_focus");
+      if (!this->Internals->Scene.focusSceneTreeNode(path))
+      {
+        log::warn("Command: cannot focus scene tree node: ", path);
+      }
+      else
+      {
+        this->Internals->Window.render();
+      }
+    },
+    command_documentation_t{ "scene_tree_focus path", "move the camera onto a scene tree subtree" });
+
   this->addCommand(
     "set_camera",
     [&](const std::vector<std::string>& args)
