@@ -7,6 +7,8 @@
 // A floating toggle button (FAB) and the `` ` `` (backtick) key both flip the state; the FAB
 // auto-hides after the viewport goes idle (presentation only, not part of the shared state).
 
+import { initG3DSceneTree } from "./g3dSceneTree.js";
+
 const PANEL_OPTION = "ui.control_panel";
 const IDLE_HIDE_MS = 2500;
 
@@ -24,6 +26,11 @@ export function initG3DControlPanel(engine) {
   }
 
   const options = engine.getOptions();
+  // Scene hierarchy, driven by the same headless view-model the desktop tree uses.
+  const sceneTree = initG3DSceneTree(
+    document.querySelector("#g3d-scene-tree"),
+    engine,
+  );
   const dataInfoEl = document.querySelector("#g3d-data-info");
   const controlsEl = document.querySelector("#g3d-controls");
   const coloringEl = document.querySelector("#g3d-coloring");
@@ -540,6 +547,9 @@ export function initG3DControlPanel(engine) {
     if (open) {
       // Never auto-hide the FAB while the panel is open.
       fab.classList.remove("is-idle");
+      // The tree's scroll viewport has no height until the panel is on screen, so its first row
+      // window can only be sized now.
+      sceneTree.refresh();
       renderDataInfo(); // refresh the read-only data each time the panel is shown
       renderColoring(); // scalar-coloring group (context-sensitive on arrays)
       renderControls(); // and reflect current option values into the controls

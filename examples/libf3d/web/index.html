@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>F3D Web example</title>
+    <!-- Tree / outliner styles, shared verbatim with doc/dev/ui-styleguide.html. -->
+    <link rel="stylesheet" href="/src/tree.css" />
     <style>
       /* Full-viewport app shell: header keeps its natural height, the content
          row fills the rest, and the 3D canvas fills all space left over after
@@ -165,6 +167,42 @@
         font-size: 0.875rem;
         opacity: 0.8;
         margin-bottom: 16px;
+      }
+
+      /* Scene tree group (right panel). The rows themselves are styled by the shared tree.css;
+         only the container — which has to give the virtual scroller a bounded height — is here.
+         Without an explicit height the scroll viewport would grow to fit its sizer and never
+         scroll, so the virtualization would silently render every row. */
+      .g3d-scene-tree {
+        display: flex;
+        flex-direction: column;
+        height: 260px;
+        margin-bottom: 16px;
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+      }
+      .g3d-scene-tree .tree-scroll {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+      }
+      /* The sizer carries the full row-count height so the scrollbar is honest; the rendered
+         window is translated into place inside it. */
+      .g3d-scene-tree__sizer {
+        position: relative;
+      }
+      .g3d-scene-tree .tree {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        will-change: transform;
+      }
+      .g3d-scene-tree .tree-foot .count {
+        font-size: var(--fs-overline);
+        color: var(--text-subtle);
       }
 
       /* Read-only data-info group (right panel). Mirrors the desktop inspector's Data info group. */
@@ -492,6 +530,7 @@
               <aside id="g3d-control-panel" class="g3d-control-panel">
                 <div class="g3d-control-panel__inner">
                   <p class="g3d-control-panel__title">Inspector</p>
+                  <div id="g3d-scene-tree"></div>
                   <div id="g3d-data-info" class="g3d-data-info"></div>
                   <div id="g3d-coloring" class="g3d-controls"></div>
                   <div id="g3d-controls" class="g3d-controls"></div>

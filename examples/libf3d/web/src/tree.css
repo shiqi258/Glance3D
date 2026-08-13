@@ -1,0 +1,464 @@
+/* Glance3D tree / outliner styles — the single source shared by the web viewer and the styleguide.
+ *
+ * This block used to live inline in `doc/dev/ui-styleguide.html`, which meant the styleguide, the
+ * web viewer and the desktop G3DWidgets implementation were three places to keep in sync. It is now
+ * a real file that both HTML consumers link, removing one of the three.
+ *
+ * The rules consume the shared design tokens. The styleguide defines the full token set itself and
+ * loads this file first, so its values win; the web viewer has no token system of its own, so the
+ * fallbacks below supply exactly the tokens the tree needs (and only those).
+ */
+
+:root {
+  --surface-1: #1a1e24;
+  --surface-2: #242933;
+  --surface-3: #2e3441;
+  --surface-4: #384050;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --text: #e8eaf0;
+  --text-muted: #9aa1ad;
+  --text-subtle: #6a7280;
+  --text-disabled: rgba(232, 234, 240, 0.3);
+
+  --accent: #7c8cff;
+  --accent-soft: rgba(124, 140, 255, 0.14);
+  --accent-soft-hover: rgba(124, 140, 255, 0.22);
+  --accent-ring: rgba(124, 140, 255, 0.45);
+  --warning: #f3b13f;
+
+  --r-sm: 3px;
+  --r-lg: 6px;
+  --s-2: 8px;
+
+  --fs-base: 14px;
+  --fs-caption: 12px;
+  --fs-overline: 11px;
+  --fs-dense: 13px;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-micro: 120ms;
+  --mono: "MonaspaceNeon", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+/* The web viewer flips themes with a class on <html>; the styleguide uses [data-theme] and
+   redefines these itself, so this block simply never applies there. */
+.theme-light {
+  --surface-1: #ffffff;
+  --surface-2: #ffffff;
+  --surface-3: #f0f1f5;
+  --surface-4: #e6e8ee;
+  --border: rgba(15, 18, 30, 0.1);
+  --border-strong: rgba(15, 18, 30, 0.18);
+
+  --text: #1b1e27;
+  --text-muted: #59616f;
+  --text-subtle: #8a93a3;
+  --text-disabled: rgba(27, 30, 39, 0.34);
+
+  --accent: #5566f0;
+  --accent-soft: rgba(85, 102, 240, 0.1);
+  --accent-soft-hover: rgba(85, 102, 240, 0.16);
+  --accent-ring: rgba(85, 102, 240, 0.35);
+  --warning: #c98307;
+}
+
+/* Base icon rule the tree rules depend on: every glyph below is sized with `font-size` and relies
+   on this to be 1em, stroked rather than filled. It lives in the styleguide's own token block, so
+   extracting the tree without it left a dangling dependency — icons came out filled and at their
+   intrinsic 24px. Scoped to the tree so it cannot affect anything else in a host page. */
+.tree svg.icon,
+.tree-toolbar svg.icon,
+.tree-foot svg.icon {
+  width: 1em;
+  height: 1em;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+
+/* ============================================================
+   TREE / OUTLINER  (专业编辑器 · 紧凑 · 大批量节点)
+   ≈ImGui: 整行选中=通道分层后画底；缩进引导线=AddLine；
+   超大列表用 ImGuiListClipper 仅绘制可视行。
+   ============================================================ */
+/* Side-panel shell that hosts the tree (toolbar + scroll body + footer). */
+.tree-shell {
+  width: 320px;
+  max-width: 100%;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.tree-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 7px 8px 7px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.tree-toolbar .ttitle {
+  font-size: var(--fs-overline);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+.tree-toolbar .tsearch {
+  height: 24px;
+  padding: 0 8px;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  margin-left: auto;
+}
+.tree-toolbar .tsearch .icon {
+  font-size: 14px;
+}
+.tree-toolbar .tsearch input {
+  font-size: var(--fs-caption);
+}
+.tree-toolbar .tbtn {
+  width: 24px;
+  height: 24px;
+}
+.tree-toolbar .tbtn .icon {
+  font-size: 16px;
+}
+
+.tree-scroll {
+  max-height: 380px;
+  overflow: auto;
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-4) transparent;
+}
+.tree-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: var(--fs-overline);
+  font-family: var(--mono);
+  color: var(--text-subtle);
+}
+.tree-foot .sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-subtle);
+  opacity: 0.5;
+}
+.tree-foot .accent {
+  color: var(--accent);
+}
+
+/* The tree itself — density driven by --row-h, indentation by --indent. */
+.tree {
+  --indent: 16px;
+  --row-h: 24px;
+  user-select: none;
+  font-size: var(--fs-base);
+  line-height: 1;
+  color: var(--text-muted);
+}
+.tree.compact {
+  --row-h: 22px;
+}
+.tree.dense {
+  --row-h: 20px;
+  font-size: var(--fs-dense);
+}
+.tree.comfy {
+  --row-h: 28px;
+}
+
+.tree-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--row-h);
+  padding: 0 6px 0 2px;
+  border-radius: var(--r-sm);
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+}
+.tree-row:hover,
+.tree-row.is-hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.tree-row.selected {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.tree-row.selected.focused {
+  background: var(--accent-soft-hover);
+}
+/* left accent bar marks the active/selected row */
+.tree-row.selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+.tree-row.disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+.tree-row.locked {
+  cursor: default;
+}
+.tree-row.dim {
+  opacity: 0.5;
+}
+
+/* indentation rails carry the continuing guide lines */
+.tree-rail {
+  position: relative;
+  width: var(--indent);
+  align-self: stretch;
+  flex: none;
+}
+.tree-rail::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+}
+.tree-rail.active::before {
+  border-left-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* expand / collapse twisty (chevron points down when open) */
+.tree-twisty {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-subtle);
+  transform: rotate(90deg);
+  transition: transform var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+}
+.tree-twisty .icon {
+  font-size: 14px;
+}
+.tree-row.collapsed > .tree-twisty {
+  transform: rotate(0deg);
+}
+.tree-row:hover .tree-twisty {
+  color: var(--text);
+}
+.tree-twisty.leaf {
+  visibility: hidden;
+}
+
+/* node type icon — mostly neutral, a single semantic color per type */
+.tree-ticon {
+  font-size: 15px;
+  flex: none;
+  margin: 0 6px 0 2px;
+  color: var(--text-muted);
+}
+.tree-ticon.folder {
+  color: var(--text-subtle);
+}
+.tree-ticon.light {
+  color: var(--warning);
+}
+.tree-ticon.tex {
+  color: var(--accent);
+}
+.tree-ticon.root {
+  color: var(--accent);
+}
+
+.tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-row.hidden .tree-label,
+.tree-row.hidden .tree-ticon {
+  opacity: 0.45;
+}
+.tree-label .match {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 600;
+}
+
+.tree-meta {
+  flex: none;
+  margin-left: 8px;
+  font-size: var(--fs-overline);
+  font-family: var(--mono);
+  color: var(--text-subtle);
+}
+.tree-row.group {
+  color: var(--text);
+}
+
+/* Content-rail row (G3DWidgets TreeRowChrome::contentRail + ::bleed) — a selectable LIST row
+   inside a padded panel body, e.g. the inspector's array list. No twisty/indent column, and no
+   internal side padding: the label and the meta sit exactly on the container's content rails,
+   level with the proprow labels above them. The hover/selection band instead bleeds OUTWARD by
+   --rail-bleed so its edges land on the section header band's edges (a Flat section body pads
+   by 12 while its header band insets by 8 — 4 makes the two flush). Selected keeps the label in
+   --text: the edge bar plus the soft fill already say "active", and an accent label would be a
+   third blue indicator on one row. */
+.tree.rail {
+  --row-h: 24px;
+  --rail-bleed: 4px;
+}
+.tree.rail .tree-row {
+  margin: 0 calc(var(--rail-bleed) * -1);
+  padding: 0 var(--rail-bleed);
+  font-family: var(--mono);
+  color: var(--text);
+}
+.tree.rail .tree-row.selected > .tree-label {
+  color: var(--text);
+}
+
+/* trailing row actions reveal on hover (Blender / Figma pattern) */
+.tree-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 6px;
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--t-micro) var(--ease);
+}
+.tree-row:hover .tree-actions,
+.tree-row.selected .tree-actions,
+.tree-row.hidden .tree-actions,
+.tree-row.locked .tree-actions {
+  opacity: 1;
+}
+.tree-act {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--text-subtle);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease);
+}
+.tree-act .icon {
+  font-size: 14px;
+}
+.tree-act:hover {
+  background: var(--surface-4);
+  color: var(--text);
+}
+.tree-act.on {
+  color: var(--accent);
+}
+
+/* inline rename field */
+.tree-rename {
+  flex: 1;
+  min-width: 0;
+  height: calc(var(--row-h) - 6px);
+  margin-right: 4px;
+  padding: 0 5px;
+  font: inherit;
+  font-size: inherit;
+  color: var(--text);
+  background: var(--surface-1);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+  outline: none;
+}
+
+/* drag & drop affordances: drop-into a folder, or insert line between rows */
+.tree-row.drop-into {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.tree-row.drop-before::after,
+.tree-row.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.tree-row.drop-before::after {
+  top: -1px;
+}
+.tree-row.drop-after::after {
+  bottom: -1px;
+}
+.tree-row.dragging {
+  opacity: 0.5;
+}
+
+/* compact tri-state checkbox for bulk-selection trees */
+.tree-check {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-right: 5px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  transition: background var(--t-micro) var(--ease), border-color var(--t-micro) var(--ease);
+}
+.tree-check .icon {
+  font-size: 12px;
+  color: #fff;
+  opacity: 0;
+}
+.tree-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.tree-check.on .icon {
+  opacity: 1;
+}
+.tree-check.mixed {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.tree-check.mixed::after {
+  content: "";
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: #fff;
+}
