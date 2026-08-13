@@ -1,5 +1,8 @@
 set(test_sources
   TestG3DLocaleFormat.cxx
+  TestG3DSceneGraph.cxx
+  TestG3DSceneGraphFromFile.cxx
+  TestG3DSceneTreeView.cxx
   TestF3DCachedTexturesPrint.cxx
   TestF3DGenericImporter.cxx
   TestF3DInteractorEventRecorder.cxx
