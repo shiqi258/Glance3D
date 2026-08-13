@@ -1,0 +1,494 @@
+#include "G3DSceneGraph.h"
+
+#include <vtkActor.h>
+#include <vtkActorCollection.h>
+#include <vtkBoundingBox.h>
+#include <vtkDataAssembly.h>
+#include <vtkImporter.h>
+#include <vtkMath.h>
+#include <vtkProp3D.h>
+
+#include <algorithm>
+#include <cassert>
+#include <map>
+
+namespace
+{
+const std::string EmptyString;
+
+/// Path separator handling: a label may legitimately contain '/', which would forge a fake level.
+std::string SanitizeG3DPathSegment(const std::string& segment)
+{
+  std::string sanitized = segment;
+  std::replace(sanitized.begin(), sanitized.end(), '/', '_');
+  return sanitized;
+}
+}
+
+//----------------------------------------------------------------------------
+std::uint32_t G3DStringPool::Intern(const std::string& value)
+{
+  const auto existing = this->Index.find(value);
+  if (existing != this->Index.end())
+  {
+    return existing->second;
+  }
+
+  const std::uint32_t id = static_cast<std::uint32_t>(this->Strings.size());
+  this->Strings.emplace_back(value);
+  this->Index.emplace(value, id);
+  return id;
+}
+
+//----------------------------------------------------------------------------
+const std::string& G3DStringPool::Get(std::uint32_t id) const
+{
+  if (id >= this->Strings.size())
+  {
+    return ::EmptyString;
+  }
+  return this->Strings[id];
+}
+
+//----------------------------------------------------------------------------
+void G3DStringPool::Clear()
+{
+  this->Strings.clear();
+  this->Index.clear();
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraph::FirstChild(int node) const
+{
+  return this->SubtreeSize(node) > 0 ? node + 1 : -1;
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraph::NextSibling(int node) const
+{
+  const int parent = this->Parent(node);
+  if (parent < 0)
+  {
+    return -1;
+  }
+
+  const int candidate = node + 1 + this->SubtreeSize(node);
+  const int parentEnd = parent + 1 + this->SubtreeSize(parent);
+  return candidate < parentEnd ? candidate : -1;
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraph::ChildCount(int node) const
+{
+  int count = 0;
+  for (int child = this->FirstChild(node); child >= 0; child = this->NextSibling(child))
+  {
+    count++;
+  }
+  return count;
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraph::SetFlag(int node, std::uint32_t flag, bool on)
+{
+  std::uint32_t& flags = this->NodeFlags[static_cast<std::size_t>(node)];
+  const std::uint32_t updated = on ? (flags | flag) : (flags & ~flag);
+  if (updated == flags)
+  {
+    return;
+  }
+  flags = updated;
+
+  // Consumers cache what they derive from the graph (row lists, visibility roll-ups) and refresh on
+  // Version(). Flags feed straight into that, so mutating one without bumping the version would
+  // leave every view showing stale state until something else happened to rebuild it.
+  this->BuildVersion++;
+}
+
+//----------------------------------------------------------------------------
+const std::string& G3DSceneGraph::Label(int node) const
+{
+  return this->Strings.Get(this->LabelIds[static_cast<std::size_t>(node)]);
+}
+
+//----------------------------------------------------------------------------
+const std::string& G3DSceneGraph::Name(int node) const
+{
+  return this->Strings.Get(this->NameIds[static_cast<std::size_t>(node)]);
+}
+
+//----------------------------------------------------------------------------
+const std::string& G3DSceneGraph::Path(int node) const
+{
+  return this->Strings.Get(this->PathIds[static_cast<std::size_t>(node)]);
+}
+
+//----------------------------------------------------------------------------
+vtkProp3D* G3DSceneGraph::Prop(int node) const
+{
+  const int renderable = this->Renderable(node);
+  if (renderable < 0 || renderable >= static_cast<int>(this->RenderableEntries.size()))
+  {
+    return nullptr;
+  }
+  return this->RenderableEntries[static_cast<std::size_t>(renderable)].Prop;
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraph::FindByPath(const std::string& path) const
+{
+  const auto found = this->PathIndex.find(path);
+  return found != this->PathIndex.end() ? found->second : -1;
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraph::FindBySource(int importerIndex, int sourceNodeId) const
+{
+  if (importerIndex < 0 || sourceNodeId < 0)
+  {
+    return -1;
+  }
+  const std::uint64_t key =
+    (static_cast<std::uint64_t>(importerIndex) << 32) | static_cast<std::uint32_t>(sourceNodeId);
+  const auto found = this->SourceIndex.find(key);
+  return found != this->SourceIndex.end() ? found->second : -1;
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraph::ComputeBounds(
+  std::vector<G3DBounds>& bounds, std::vector<bool>& hasBounds) const
+{
+  const int count = this->NodeCount();
+  bounds.assign(static_cast<std::size_t>(count), G3DBounds{ 0., 0., 0., 0., 0., 0. });
+  hasBounds.assign(static_cast<std::size_t>(count), false);
+
+  std::vector<vtkBoundingBox> boxes(static_cast<std::size_t>(count));
+
+  // Reverse DFS pre-order visits every child before its parent, so one pass suffices.
+  for (int node = count - 1; node >= 0; node--)
+  {
+    const std::size_t index = static_cast<std::size_t>(node);
+    vtkBoundingBox& box = boxes[index];
+
+    vtkProp3D* prop = this->Prop(node);
+    if (prop)
+    {
+      const double* propBounds = prop->GetBounds();
+      if (propBounds != nullptr && vtkMath::AreBoundsInitialized(propBounds))
+      {
+        box.AddBounds(propBounds);
+        hasBounds[index] = true;
+      }
+    }
+
+    for (int child = this->FirstChild(node); child >= 0; child = this->NextSibling(child))
+    {
+      const std::size_t childIndex = static_cast<std::size_t>(child);
+      if (hasBounds[childIndex])
+      {
+        box.AddBox(boxes[childIndex]);
+        hasBounds[index] = true;
+      }
+    }
+
+    if (hasBounds[index])
+    {
+      box.GetBounds(bounds[index].data());
+    }
+  }
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraph::Clear()
+{
+  this->Parents.clear();
+  this->SubtreeSizes.clear();
+  this->Depths.clear();
+  this->Types.clear();
+  this->NodeFlags.clear();
+  this->LabelIds.clear();
+  this->NameIds.clear();
+  this->PathIds.clear();
+  this->Renderables.clear();
+  this->ImporterIndices.clear();
+  this->SourceNodeIds.clear();
+  this->RenderableEntries.clear();
+  this->Strings.Clear();
+  this->PathIndex.clear();
+  this->SourceIndex.clear();
+  this->BuildVersion++;
+}
+
+//----------------------------------------------------------------------------
+G3DSceneGraphBuilder::G3DSceneGraphBuilder(G3DSceneGraph& graph)
+  : Graph(graph)
+{
+  this->Graph.Clear();
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraphBuilder::AddRenderable(vtkProp3D* prop, int importerIndex)
+{
+  this->Graph.RenderableEntries.emplace_back(G3DRenderable{ prop, importerIndex });
+  return static_cast<int>(this->Graph.RenderableEntries.size()) - 1;
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraphBuilder::BeginNode(
+  const std::string& name, const std::string& label, G3DNodeType type)
+{
+  const int node = this->Graph.NodeCount();
+  const int parent = this->OpenNodes.empty() ? -1 : this->OpenNodes.back();
+
+  this->Graph.Parents.emplace_back(parent);
+  this->Graph.SubtreeSizes.emplace_back(0);
+  this->Graph.Depths.emplace_back(static_cast<int>(this->OpenNodes.size()));
+  this->Graph.Types.emplace_back(type);
+  this->Graph.NodeFlags.emplace_back(G3DNodeFlag::VisibleSelf);
+  this->Graph.LabelIds.emplace_back(this->Graph.Strings.Intern(label));
+  this->Graph.NameIds.emplace_back(this->Graph.Strings.Intern(name));
+  this->Graph.PathIds.emplace_back(0);
+  this->Graph.Renderables.emplace_back(-1);
+  this->Graph.ImporterIndices.emplace_back(parent >= 0 ? this->Graph.ImporterIndex(parent) : -1);
+  this->Graph.SourceNodeIds.emplace_back(-1);
+
+  if (label.empty())
+  {
+    this->Graph.SetFlag(node, G3DNodeFlag::Placeholder, true);
+  }
+
+  this->OpenNodes.emplace_back(node);
+  return node;
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::SetRenderable(int renderableIndex)
+{
+  assert(!this->OpenNodes.empty());
+  this->Graph.Renderables[static_cast<std::size_t>(this->OpenNodes.back())] = renderableIndex;
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::SetImporterIndex(int importerIndex)
+{
+  assert(!this->OpenNodes.empty());
+  this->Graph.ImporterIndices[static_cast<std::size_t>(this->OpenNodes.back())] = importerIndex;
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::SetSourceNodeId(int sourceNodeId)
+{
+  assert(!this->OpenNodes.empty());
+  const int node = this->OpenNodes.back();
+  this->Graph.SourceNodeIds[static_cast<std::size_t>(node)] = sourceNodeId;
+
+  const int importerIndex = this->Graph.ImporterIndex(node);
+  if (importerIndex >= 0 && sourceNodeId >= 0)
+  {
+    const std::uint64_t key =
+      (static_cast<std::uint64_t>(importerIndex) << 32) | static_cast<std::uint32_t>(sourceNodeId);
+    this->Graph.SourceIndex.emplace(key, node);
+  }
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::SetFlag(std::uint32_t flag, bool on)
+{
+  assert(!this->OpenNodes.empty());
+  this->Graph.SetFlag(this->OpenNodes.back(), flag, on);
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::EndNode()
+{
+  assert(!this->OpenNodes.empty());
+  const int node = this->OpenNodes.back();
+  this->OpenNodes.pop_back();
+  this->Graph.SubtreeSizes[static_cast<std::size_t>(node)] = this->Graph.NodeCount() - node - 1;
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::Finalize()
+{
+  assert(this->OpenNodes.empty());
+
+  const int count = this->Graph.NodeCount();
+  this->Graph.PathIndex.clear();
+  this->Graph.PathIndex.reserve(static_cast<std::size_t>(count));
+
+  // Same-named siblings get a 1-based occurrence suffix so the path stays a unique key; only
+  // ambiguous names are suffixed, keeping the common case readable. Resolved parent-by-parent so
+  // the whole pass stays O(nodes) — scanning each node's sibling list instead would go quadratic
+  // on the flat trees that unnamed formats produce.
+  std::vector<int> occurrence(static_cast<std::size_t>(count), 0);
+  std::vector<char> suffixed(static_cast<std::size_t>(count), 0);
+  std::unordered_map<std::uint32_t, int> nameCounts;
+  std::unordered_map<std::uint32_t, int> nameSeen;
+  for (int parent = 0; parent < count; parent++)
+  {
+    if (this->Graph.FirstChild(parent) < 0)
+    {
+      continue;
+    }
+
+    nameCounts.clear();
+    for (int child = this->Graph.FirstChild(parent); child >= 0;
+         child = this->Graph.NextSibling(child))
+    {
+      nameCounts[this->Graph.NameIds[static_cast<std::size_t>(child)]]++;
+    }
+
+    nameSeen.clear();
+    for (int child = this->Graph.FirstChild(parent); child >= 0;
+         child = this->Graph.NextSibling(child))
+    {
+      const std::uint32_t nameId = this->Graph.NameIds[static_cast<std::size_t>(child)];
+      if (nameCounts[nameId] > 1)
+      {
+        suffixed[static_cast<std::size_t>(child)] = 1;
+        occurrence[static_cast<std::size_t>(child)] = ++nameSeen[nameId];
+      }
+    }
+  }
+
+  // Pre-order guarantees a parent's path is final before any child needs it.
+  for (int node = 0; node < count; node++)
+  {
+    const int parent = this->Graph.Parent(node);
+    std::string path;
+    if (parent < 0)
+    {
+      path = "/";
+    }
+    else
+    {
+      const std::string& parentPath = this->Graph.Path(parent);
+      path = (parentPath == "/" ? std::string("/") : parentPath + "/") +
+        ::SanitizeG3DPathSegment(this->Graph.Name(node));
+      if (suffixed[static_cast<std::size_t>(node)])
+      {
+        path += "[" + std::to_string(occurrence[static_cast<std::size_t>(node)]) + "]";
+      }
+    }
+
+    this->Graph.PathIds[static_cast<std::size_t>(node)] = this->Graph.Strings.Intern(path);
+    this->Graph.PathIndex.emplace(path, node);
+  }
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+/// Mirrors the label fallback the assembly contract has always used for unnamed nodes.
+bool IsG3DGenericAssemblyLabel(const std::string& label)
+{
+  return label.empty() || label == "<group>" || label == "<object>";
+}
+
+/**
+ * Recursively mirrors one assembly subtree into the builder.
+ *
+ * Node type is inferred from what the assembly can express: a node that maps an actor and has no
+ * children is geometry, anything with children is a grouping. Formats with richer semantics are
+ * expected to drive the builder directly rather than teach this function new tricks.
+ */
+void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assembly,
+  const std::vector<int>& renderableForActor, int importerIndex, int assemblyNodeId)
+{
+  const int childCount = assembly->GetNumberOfChildren(assemblyNodeId);
+  const int flatActorIndex = assembly->GetAttributeOrDefault(assemblyNodeId, "flat_actor_id", -1);
+
+  const char* rawName = assembly->GetNodeName(assemblyNodeId);
+  std::string name = rawName ? rawName : "";
+
+  std::string label = assembly->GetAttributeOrDefault(assemblyNodeId, "label", "");
+  if (IsG3DGenericAssemblyLabel(label))
+  {
+    label.clear();
+  }
+  if (name.empty())
+  {
+    name = label.empty() ? "node" + std::to_string(assemblyNodeId) : label;
+  }
+
+  const G3DNodeType type =
+    childCount > 0 ? G3DNodeType::GROUP : (flatActorIndex >= 0 ? G3DNodeType::MESH : G3DNodeType::OTHER);
+
+  builder.BeginNode(name, label, type);
+  builder.SetImporterIndex(importerIndex);
+  builder.SetSourceNodeId(assemblyNodeId);
+
+  if (flatActorIndex >= 0 && flatActorIndex < static_cast<int>(renderableForActor.size()))
+  {
+    builder.SetRenderable(renderableForActor[static_cast<std::size_t>(flatActorIndex)]);
+  }
+
+  builder.SetFlag(G3DNodeFlag::VisibleSelf,
+    assembly->GetAttributeOrDefault(assemblyNodeId, "g3d_visible", 1) != 0);
+  builder.SetFlag(G3DNodeFlag::CollapsedByDefault,
+    assembly->GetAttributeOrDefault(assemblyNodeId, "g3d_collapsed", 0) != 0);
+
+  for (int childIndex = 0; childIndex < childCount; childIndex++)
+  {
+    IngestG3DAssemblyNode(builder, assembly, renderableForActor, importerIndex,
+      assembly->GetChild(assemblyNodeId, childIndex));
+  }
+
+  builder.EndNode();
+}
+}
+
+//----------------------------------------------------------------------------
+void G3DIngestDataAssemblies(G3DSceneGraph& graph, const std::vector<G3DAssemblySource>& sources)
+{
+  G3DSceneGraphBuilder builder(graph);
+
+  builder.BeginNode("scene", "scene", G3DNodeType::ROOT);
+
+  for (std::size_t sourceIndex = 0; sourceIndex < sources.size(); sourceIndex++)
+  {
+    const G3DAssemblySource& source = sources[sourceIndex];
+    if (source.Assembly == nullptr || source.Importer == nullptr)
+    {
+      continue;
+    }
+
+    const int importerIndex = static_cast<int>(sourceIndex);
+
+    // One sequential walk of the actor collection: vtkCollection is a linked list, so resolving
+    // each flat_actor_id through GetItemAsObject() would make ingest quadratic.
+    std::vector<int> renderableForActor;
+    vtkActorCollection* actorCollection = source.Importer->GetImportedActors();
+    renderableForActor.reserve(static_cast<std::size_t>(actorCollection->GetNumberOfItems()));
+    vtkCollectionSimpleIterator ait;
+    actorCollection->InitTraversal(ait);
+    while (vtkActor* actor = actorCollection->GetNextActor(ait))
+    {
+      renderableForActor.emplace_back(builder.AddRenderable(actor, importerIndex));
+    }
+
+    const int assemblyRoot = source.Assembly->GetRootNode();
+    const char* rootName = source.Assembly->GetNodeName(assemblyRoot);
+    const std::string name = source.Name.empty()
+      ? (rootName ? std::string(rootName) : "file" + std::to_string(importerIndex))
+      : source.Name;
+
+    builder.BeginNode(name, source.Name, G3DNodeType::FILE);
+    builder.SetImporterIndex(importerIndex);
+    builder.SetSourceNodeId(assemblyRoot);
+    builder.SetFlag(G3DNodeFlag::VisibleSelf,
+      source.Assembly->GetAttributeOrDefault(assemblyRoot, "g3d_visible", 1) != 0);
+
+    const int childCount = source.Assembly->GetNumberOfChildren(assemblyRoot);
+    for (int childIndex = 0; childIndex < childCount; childIndex++)
+    {
+      ::IngestG3DAssemblyNode(builder, source.Assembly, renderableForActor, importerIndex,
+        source.Assembly->GetChild(assemblyRoot, childIndex));
+    }
+
+    builder.EndNode();
+  }
+
+  builder.EndNode();
+  builder.Finalize();
+}

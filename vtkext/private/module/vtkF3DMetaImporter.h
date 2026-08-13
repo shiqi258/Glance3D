@@ -7,6 +7,7 @@
 #define vtkF3DMetaImporter_h
 
 #include "F3DColoringInfoHandler.h"
+#include "G3DSceneGraph.h"
 #include "vtkF3DImporter.h"
 
 #include <vtkActor.h>
@@ -233,6 +234,17 @@ public:
    * Return info about a specific importer
    */
   ImporterInfo GetImporterInfo(int index);
+
+  /**
+   * The unified scene graph for the whole scene: one synthetic root holding one node per loaded
+   * file. Built from the importer data assemblies and rebuilt only when one of them changes, so
+   * repeated reads are free.
+   *
+   * This is the representation frontends are meant to consume (via the tree view-model). It carries
+   * stable per-node paths, node types and a direct prop table, none of which the assemblies can
+   * express, and it walks flat arrays instead of a pugixml DOM.
+   */
+  const G3DSceneGraph& GetG3DSceneGraph() const;
 
   /**
    * Return a Glance3D scene tree snapshot built from all importer data assemblies.

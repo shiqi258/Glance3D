@@ -35,6 +35,7 @@
 #include <numeric>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -123,6 +124,42 @@ protected:
 vtkStandardNewMacro(vtkF3DCollapseOnLoadVisitor);
 
 /**
+ * Flatten an importer's actor collection into an index-addressable vector.
+ *
+ * `vtkCollection` is a singly-linked list, so `GetItemAsObject(i)` walks from the head — resolving
+ * every `flat_actor_id` through it turns any whole-tree pass into O(n^2). Every scene-tree pass
+ * below builds this table once (one sequential traversal) and indexes into it instead.
+ */
+std::vector<vtkActor*> BuildG3DActorLookup(vtkImporter* importer)
+{
+  std::vector<vtkActor*> actors;
+  if (importer == nullptr)
+  {
+    return actors;
+  }
+
+  vtkActorCollection* actorCollection = importer->GetImportedActors();
+  actors.reserve(static_cast<size_t>(actorCollection->GetNumberOfItems()));
+
+  vtkCollectionSimpleIterator ait;
+  actorCollection->InitTraversal(ait);
+  while (vtkActor* actor = actorCollection->GetNextActor(ait))
+  {
+    actors.emplace_back(actor);
+  }
+  return actors;
+}
+
+vtkActor* GetG3DActorAt(const std::vector<vtkActor*>& actors, int flatActorIndex)
+{
+  if (flatActorIndex < 0 || flatActorIndex >= static_cast<int>(actors.size()))
+  {
+    return nullptr;
+  }
+  return actors[static_cast<size_t>(flatActorIndex)];
+}
+
+/**
  * Visitor used to set visibility for a Glance3D scene tree subtree.
  */
 class vtkG3DVisibilityDataAssemblyVisitor : public vtkDataAssemblyVisitor
@@ -139,6 +176,7 @@ public:
   void SetImporter(vtkImporter* importer)
   {
     this->Importer = importer;
+    this->Actors = ::BuildG3DActorLookup(importer);
   }
 
 protected:
@@ -155,8 +193,7 @@ protected:
       return;
     }
 
-    vtkActorCollection* actors = this->Importer->GetImportedActors();
-    vtkActor* actor = vtkActor::SafeDownCast(actors->GetItemAsObject(flatActorIndex));
+    vtkActor* actor = ::GetG3DActorAt(this->Actors, flatActorIndex);
     if (!actor)
     {
       return;
@@ -182,6 +219,7 @@ protected:
 private:
   int Visible = 0;
   vtkImporter* Importer = nullptr;
+  std::vector<vtkActor*> Actors;
 };
 vtkStandardNewMacro(vtkG3DVisibilityDataAssemblyVisitor);
 
@@ -356,9 +394,8 @@ void SetG3DSceneTreeAncestorLabelIfGeneric(
   SetG3DSceneTreeNodeLabelIfGeneric(assembly, parentNodeId, label);
 }
 
-void RelabelG3DSceneTreeActorNodes(
-  vtkDataAssembly* assembly, vtkImporter* importer, int nodeId,
-  const std::vector<std::string>& outputNames)
+void RelabelG3DSceneTreeActorNodes(vtkDataAssembly* assembly, const std::vector<vtkActor*>& actors,
+  int nodeId, const std::vector<std::string>& outputNames)
 {
   if (assembly == nullptr)
   {
@@ -369,10 +406,9 @@ void RelabelG3DSceneTreeActorNodes(
   if (flatActorIndex >= 0)
   {
     std::string actorName;
-    if (importer)
+    if (!actors.empty())
     {
-      vtkActorCollection* actors = importer->GetImportedActors();
-      vtkActor* actor = vtkActor::SafeDownCast(actors->GetItemAsObject(flatActorIndex));
+      vtkActor* actor = GetG3DActorAt(actors, flatActorIndex);
       actorName = GetG3DActorFallbackNodeName(actor, flatActorIndex);
       if (actorName == "object" + std::to_string(flatActorIndex))
       {
@@ -393,18 +429,20 @@ void RelabelG3DSceneTreeActorNodes(
   for (int childIndex = 0; childIndex < numberOfChildren; childIndex++)
   {
     RelabelG3DSceneTreeActorNodes(
-      assembly, importer, assembly->GetChild(nodeId, childIndex), outputNames);
+      assembly, actors, assembly->GetChild(nodeId, childIndex), outputNames);
   }
 }
 
-void AddG3DActorFallbackSceneTreeNodes(vtkDataAssembly* assembly, vtkActorCollection* actors)
+void AddG3DActorFallbackSceneTreeNodes(
+  vtkDataAssembly* assembly, const std::vector<vtkActor*>& actors)
 {
-  for (int actorIndex = 0; actorIndex < actors->GetNumberOfItems(); actorIndex++)
+  for (size_t actorIndex = 0; actorIndex < actors.size(); actorIndex++)
   {
-    vtkActor* actor = vtkActor::SafeDownCast(actors->GetItemAsObject(actorIndex));
-    const std::string actorName = GetG3DActorFallbackNodeName(actor, actorIndex);
+    const int flatActorIndex = static_cast<int>(actorIndex);
+    const std::string actorName =
+      GetG3DActorFallbackNodeName(actors[actorIndex], flatActorIndex);
     const int nodeid = assembly->AddNode(actorName.c_str(), assembly->GetRootNode());
-    assembly->SetAttribute(nodeid, "flat_actor_id", actorIndex);
+    assembly->SetAttribute(nodeid, "flat_actor_id", flatActorIndex);
     assembly->SetAttribute(nodeid, "label", actorName.c_str());
   }
 }
@@ -426,6 +464,13 @@ struct vtkF3DMetaImporter::Internals
   vtkTimeStamp UpdateTime;
 
   F3DColoringInfoHandler ColoringInfoHandler;
+
+  // Unified scene graph, rebuilt only when the source assemblies change. The signature mixes every
+  // assembly's MTime, and each mutation of the tree (load, visibility, collapse) writes an
+  // attribute, so it catches them all.
+  G3DSceneGraph SceneGraph;
+  vtkMTimeType SceneGraphSignature = 0;
+  bool SceneGraphValid = false;
 };
 
 //----------------------------------------------------------------------------
@@ -555,40 +600,69 @@ void vtkF3DMetaImporter::SetG3DDataAssemblyNodeVisibility(
 //----------------------------------------------------------------------------
 namespace
 {
-bool AddG3DSceneTreeBoundsForNode(
-  vtkDataAssembly* assembly, vtkImporter* importer, int nodeId, vtkBoundingBox& box)
+/**
+ * Subtree bounds for every node of one assembly, computed bottom-up in a single pass.
+ *
+ * Each node's box is its own actor's bounds merged with its children's already-computed boxes, so
+ * the whole assembly costs O(nodes) instead of re-walking the subtree once per node.
+ */
+using G3DBoundsCache = std::unordered_map<int, std::pair<bool, vtkBoundingBox>>;
+
+const std::pair<bool, vtkBoundingBox>& FillG3DSceneTreeBounds(
+  vtkDataAssembly* assembly, const std::vector<vtkActor*>& actors, int nodeId, G3DBoundsCache& cache)
 {
-  bool hasBounds = false;
-  const int flatActorIndex = assembly->GetAttributeOrDefault(nodeId, "flat_actor_id", -1);
-  if (flatActorIndex >= 0)
+  const auto cached = cache.find(nodeId);
+  if (cached != cache.end())
   {
-    vtkActorCollection* actors = importer->GetImportedActors();
-    vtkActor* actor = vtkActor::SafeDownCast(actors->GetItemAsObject(flatActorIndex));
-    if (actor)
+    return cached->second;
+  }
+
+  bool hasBounds = false;
+  vtkBoundingBox box;
+
+  const int flatActorIndex = assembly->GetAttributeOrDefault(nodeId, "flat_actor_id", -1);
+  vtkActor* actor = GetG3DActorAt(actors, flatActorIndex);
+  if (actor)
+  {
+    const double* bounds = actor->GetBounds();
+    if (bounds != nullptr && vtkMath::AreBoundsInitialized(bounds))
     {
-      const double* bounds = actor->GetBounds();
-      if (bounds != nullptr && vtkMath::AreBoundsInitialized(bounds))
-      {
-        box.AddBounds(bounds);
-        hasBounds = true;
-      }
+      box.AddBounds(bounds);
+      hasBounds = true;
     }
   }
 
   const int numberOfChildren = assembly->GetNumberOfChildren(nodeId);
   for (int childIndex = 0; childIndex < numberOfChildren; childIndex++)
   {
-    hasBounds = AddG3DSceneTreeBoundsForNode(
-                  assembly, importer, assembly->GetChild(nodeId, childIndex), box) ||
-      hasBounds;
+    const std::pair<bool, vtkBoundingBox>& childBounds =
+      FillG3DSceneTreeBounds(assembly, actors, assembly->GetChild(nodeId, childIndex), cache);
+    if (childBounds.first)
+    {
+      box.AddBox(childBounds.second);
+      hasBounds = true;
+    }
   }
 
-  return hasBounds;
+  return cache.emplace(nodeId, std::make_pair(hasBounds, box)).first->second;
 }
 
-vtkF3DMetaImporter::G3DSceneTreeNode BuildG3DSceneTreeNode(
-  vtkDataAssembly* assembly, vtkImporter* importer, int importerIndex, int nodeId,
-  const std::string& parentPath)
+bool AddG3DSceneTreeBoundsForNode(
+  vtkDataAssembly* assembly, const std::vector<vtkActor*>& actors, int nodeId, vtkBoundingBox& box)
+{
+  G3DBoundsCache cache;
+  const std::pair<bool, vtkBoundingBox>& bounds =
+    FillG3DSceneTreeBounds(assembly, actors, nodeId, cache);
+  if (bounds.first)
+  {
+    box.AddBox(bounds.second);
+  }
+  return bounds.first;
+}
+
+vtkF3DMetaImporter::G3DSceneTreeNode BuildG3DSceneTreeNode(vtkDataAssembly* assembly,
+  const std::vector<vtkActor*>& actors, int importerIndex, int nodeId,
+  const std::string& parentPath, G3DBoundsCache& boundsCache)
 {
   nodeId = CollapseG3DSceneTreeSnapshotNode(assembly, nodeId);
 
@@ -600,12 +674,14 @@ vtkF3DMetaImporter::G3DSceneTreeNode BuildG3DSceneTreeNode(
     assembly->GetAttributeOrDefault(nodeId, G3D_COLLAPSED_ATTRIBUTE, 0) != 0;
   node.Path = parentPath.empty() ? "/" + node.Label : parentPath + "/" + node.Label;
 
-  vtkBoundingBox box;
-  node.HasBounds = AddG3DSceneTreeBoundsForNode(assembly, importer, nodeId, box);
+  // Shared cache across the whole snapshot: each assembly node's subtree box is computed once.
+  const std::pair<bool, vtkBoundingBox>& subtreeBounds =
+    FillG3DSceneTreeBounds(assembly, actors, nodeId, boundsCache);
+  node.HasBounds = subtreeBounds.first;
   if (node.HasBounds)
   {
     double bounds[6];
-    box.GetBounds(bounds);
+    subtreeBounds.second.GetBounds(bounds);
     std::copy_n(bounds, 6, node.Bounds.begin());
   }
 
@@ -615,8 +691,8 @@ vtkF3DMetaImporter::G3DSceneTreeNode BuildG3DSceneTreeNode(
   bool allChildrenVisible = numberOfChildren > 0;
   for (int childIndex = 0; childIndex < numberOfChildren; childIndex++)
   {
-    vtkF3DMetaImporter::G3DSceneTreeNode child = BuildG3DSceneTreeNode(
-      assembly, importer, importerIndex, assembly->GetChild(nodeId, childIndex), node.Path);
+    vtkF3DMetaImporter::G3DSceneTreeNode child = BuildG3DSceneTreeNode(assembly, actors,
+      importerIndex, assembly->GetChild(nodeId, childIndex), node.Path, boundsCache);
     anyChildVisible = anyChildVisible || child.Visible || child.PartiallyVisible;
     allChildrenVisible = allChildrenVisible && child.Visible && !child.PartiallyVisible;
     node.Children.emplace_back(std::move(child));
@@ -636,6 +712,35 @@ vtkF3DMetaImporter::G3DSceneTreeNode BuildG3DSceneTreeNode(
 
   return node;
 }
+}
+
+//----------------------------------------------------------------------------
+const G3DSceneGraph& vtkF3DMetaImporter::GetG3DSceneGraph() const
+{
+  vtkMTimeType signature = static_cast<vtkMTimeType>(this->Pimpl->Importers.size());
+  for (const vtkF3DMetaImporter::ImporterInfo& importerInfo : this->Pimpl->Importers)
+  {
+    signature = signature * 1000003u +
+      (importerInfo.DataAssembly ? importerInfo.DataAssembly->GetMTime() : 0);
+  }
+
+  if (this->Pimpl->SceneGraphValid && signature == this->Pimpl->SceneGraphSignature)
+  {
+    return this->Pimpl->SceneGraph;
+  }
+
+  std::vector<G3DAssemblySource> sources;
+  sources.reserve(this->Pimpl->Importers.size());
+  for (const vtkF3DMetaImporter::ImporterInfo& importerInfo : this->Pimpl->Importers)
+  {
+    sources.emplace_back(
+      G3DAssemblySource{ importerInfo.DataAssembly, importerInfo.Importer, importerInfo.Name });
+  }
+
+  G3DIngestDataAssemblies(this->Pimpl->SceneGraph, sources);
+  this->Pimpl->SceneGraphSignature = signature;
+  this->Pimpl->SceneGraphValid = true;
+  return this->Pimpl->SceneGraph;
 }
 
 //----------------------------------------------------------------------------
@@ -660,8 +765,10 @@ vtkF3DMetaImporter::G3DSceneTreeSnapshot vtkF3DMetaImporter::GetG3DSceneTree() c
       continue;
     }
 
-    snapshot.Children.emplace_back(BuildG3DSceneTreeNode(
-      assembly, importer, static_cast<int>(importerIndex), assembly->GetRootNode(), ""));
+    const std::vector<vtkActor*> actors = BuildG3DActorLookup(importer);
+    G3DBoundsCache boundsCache;
+    snapshot.Children.emplace_back(BuildG3DSceneTreeNode(assembly, actors,
+      static_cast<int>(importerIndex), assembly->GetRootNode(), "", boundsCache));
   }
 
   return snapshot;
@@ -753,14 +860,25 @@ bool vtkF3DMetaImporter::GetG3DSceneTreeNodeBounds(const std::string& nodeId, do
     return false;
   }
 
-  vtkBoundingBox box;
-  if (!AddG3DSceneTreeBoundsForNode(
-        importerInfo.DataAssembly, importerInfo.Importer, dataAssemblyNodeId, box))
+  // Served from the unified graph: one linear bottom-up pass over flat arrays, versus re-walking
+  // the pugixml subtree here. The node id still comes from the old assembly-keyed API, so it is
+  // resolved through the graph's source-node index.
+  const G3DSceneGraph& graph = this->GetG3DSceneGraph();
+  const int node = graph.FindBySource(importerIndex, dataAssemblyNodeId);
+  if (node < 0)
   {
     return false;
   }
 
-  box.GetBounds(bounds);
+  std::vector<G3DBounds> nodeBounds;
+  std::vector<bool> hasBounds;
+  graph.ComputeBounds(nodeBounds, hasBounds);
+  if (!hasBounds[static_cast<std::size_t>(node)])
+  {
+    return false;
+  }
+
+  std::copy_n(nodeBounds[static_cast<std::size_t>(node)].data(), 6, bounds);
   return true;
 }
 
@@ -871,6 +989,7 @@ void vtkF3DMetaImporter::CommitToRenderer()
     const auto g3dCommitStart = std::chrono::steady_clock::now();
 
     vtkActorCollection* actorCollection = importer->GetImportedActors();
+    const std::vector<vtkActor*> actorLookup = ::BuildG3DActorLookup(importer);
 
     // Copy the scene hierarchy if it exists and maps renderable actors. Some readers expose an
     // empty/root-only hierarchy; in that case, use the actor fallback so external tree UIs remain
@@ -883,15 +1002,15 @@ void vtkF3DMetaImporter::CommitToRenderer()
     if (!HasG3DSceneTreeActorNode(
           importerInfo.DataAssembly, importerInfo.DataAssembly->GetRootNode()))
     {
-      AddG3DActorFallbackSceneTreeNodes(importerInfo.DataAssembly, actorCollection);
+      AddG3DActorFallbackSceneTreeNodes(importerInfo.DataAssembly, actorLookup);
       F3DLog::Print(F3DLog::Severity::Debug,
         "[G3D] Scene hierarchy for " + importerInfo.Name +
           " did not expose renderable actor nodes; generated actor fallback nodes: " +
-          std::to_string(actorCollection->GetNumberOfItems()));
+          std::to_string(actorLookup.size()));
     }
     else
     {
-      RelabelG3DSceneTreeActorNodes(importerInfo.DataAssembly, importer,
+      RelabelG3DSceneTreeActorNodes(importerInfo.DataAssembly, actorLookup,
         importerInfo.DataAssembly->GetRootNode(), ExtractG3DOutputNames(importer));
     }
 

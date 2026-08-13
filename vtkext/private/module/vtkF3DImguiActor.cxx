@@ -6,6 +6,7 @@
 #include "G3DUIFontBuffer.h"
 #include "F3DStyle.h"
 #include "G3DIcon.h"
+#include "G3DSceneTreeView.h"
 #include "G3DLayout.h"
 #include "G3DLocaleCore.h"
 #include "G3DTextInputContext.h"
@@ -23,8 +24,6 @@
 #include <vtkCommand.h>
 #include <vtkMath.h>
 #include <vtkMatrix4x4.h>
-#include <vtkDataAssembly.h>
-#include <vtkDataAssemblyVisitor.h>
 #include <vtkImageData.h>
 #include <vtkInformation.h>
 #include <vtkObjectFactory.h>
@@ -131,126 +130,58 @@ static std::vector<std::string> SplitBindings(const std::string& s, const char d
 }
 
 /**
- * One flattened, collapse-resolved scene-tree row. The tree is flattened depth-first (skipping the
- * subtrees of collapsed nodes) into a vector once when the assemblies change, then drawn virtually
- * with ImGuiListClipper — so only on-screen rows cost anything and very large scenes stay smooth.
+ * Display label for a scene-tree row.
+ *
+ * Localization is deliberately the presenter's job: the shared view-model reports *that* a node is
+ * an unnamed placeholder and which ordinal it carries, and this turns that into user-facing text.
+ * The core keeps no translated strings, so the web frontend can apply its own wording to the exact
+ * same rows.
  */
-struct SceneTreeRow
+std::string SceneTreeRowLabel(const G3DSceneGraph& graph, const G3DTreeRow& row)
 {
-  int importer = -1;    // importer index
-  int node = -1;        // vtkDataAssembly node id
-  int depth = 0;        // indentation depth
-  int parentIndex = -1; // index of the parent row in the flat list (-1 for an importer root)
-  int placeholder = 0;  // 1 = unnamed <object>, 2 = unnamed <group> (drives sibling numbering)
-  bool hasChildren = false;
-  bool collapsed = false;
-  bool visible = true;
-  std::string label;
-  std::string meta; // child count for groups, empty for leaves
-};
+  if (!row.Has(G3DTreeRowFlag::Placeholder))
+  {
+    return graph.Label(row.Node);
+  }
 
-/**
- * Visitor that flattens one importer's data assembly into the shared row list, depth-first, skipping
- * the subtrees of collapsed nodes (so the flat list is exactly the currently-visible rows). It only
- * builds data — drawing and hit handling happen later over the cached list.
- */
-class vtkF3DSceneTreeFlattener : public vtkDataAssemblyVisitor
+  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
+  std::string label = row.Has(G3DTreeRowFlag::HasChildren) ? locale.Translate("Group")
+                                                           : locale.Translate("Object");
+  if (row.PlaceholderOrdinal > 0)
+  {
+    label += " " + std::to_string(row.PlaceholderOrdinal);
+  }
+  return label;
+}
+
+/// Row icon by what the node *is*, rather than by where it happens to sit in the tree.
+G3DIconId SceneTreeRowIcon(const G3DTreeRow& row)
 {
-public:
-  static vtkF3DSceneTreeFlattener* New();
-  vtkTypeMacro(vtkF3DSceneTreeFlattener, vtkDataAssemblyVisitor);
-
-  void SetOutput(std::vector<SceneTreeRow>* out)
+  switch (row.Type)
   {
-    this->Output = out;
+    case G3DNodeType::FILE:
+      return G3DIconId::Layers;
+    case G3DNodeType::CAMERA:
+      return G3DIconId::Camera;
+    default:
+      break;
   }
 
-  void SetImporterIndex(int index)
+  if (row.Has(G3DTreeRowFlag::HasChildren))
   {
-    this->ImporterId = index;
+    return row.Has(G3DTreeRowFlag::Expanded) ? G3DIconId::FolderOpen : G3DIconId::Folder;
   }
-
-protected:
-  void EndSubTree(int vtkNotUsed(nodeid)) override
-  {
-    --this->Depth;
-  }
-
-  bool GetTraverseSubtree(int vtkNotUsed(nodeid)) override
-  {
-    // Descend into open groups only; deepen the indentation for the children we are about to visit.
-    if (this->CurrentOpen)
-    {
-      ++this->Depth;
-    }
-    return this->CurrentOpen;
-  }
-
-  void Visit(int nodeid) override
-  {
-    const vtkDataAssembly* asm_ = this->GetAssembly();
-    const int childCount = asm_->GetNumberOfChildren(nodeid);
-    const bool hasChildren = childCount > 0;
-    const bool collapsed = asm_->GetAttributeOrDefault(nodeid, "g3d_collapsed", 0) != 0;
-    this->CurrentOpen = hasChildren && !collapsed;
-
-    // Stack of flat-list indices per depth, so each row records its parent's flat index (used later
-    // to highlight the selected node's parent guide column without storing a full ancestor path).
-    if (static_cast<int>(this->PathIndex.size()) <= this->Depth)
-    {
-      this->PathIndex.resize(this->Depth + 1, -1);
-    }
-
-    SceneTreeRow row;
-    row.importer = this->ImporterId;
-    row.node = nodeid;
-    row.depth = this->Depth;
-    row.parentIndex = this->Depth > 0 ? this->PathIndex[this->Depth - 1] : -1;
-    row.hasChildren = hasChildren;
-    row.collapsed = collapsed;
-    row.visible = asm_->GetAttributeOrDefault(nodeid, "g3d_visible", 1) != 0;
-    const char* defaultLabel = hasChildren ? "<group>" : "<object>";
-    row.label = asm_->GetAttributeOrDefault(nodeid, "label", defaultLabel);
-    // The importer's unnamed-node markers are display-localized here (UI layer) — the raw
-    // "<object>"/"<group>" strings stay untouched in the shared core for web/API consumers.
-    if (row.label == "<object>")
-    {
-      row.label = G3DLocaleCore::GetInstance().Translate("Object");
-      row.placeholder = 1;
-    }
-    else if (row.label == "<group>")
-    {
-      row.label = G3DLocaleCore::GetInstance().Translate("Group");
-      row.placeholder = 2;
-    }
-    if (hasChildren)
-    {
-      row.meta = std::to_string(childCount);
-    }
-
-    this->PathIndex[this->Depth] = static_cast<int>(this->Output->size());
-    this->Output->push_back(std::move(row));
-  }
-
-private:
-  std::vector<SceneTreeRow>* Output = nullptr;
-  std::vector<int> PathIndex; // flat-list index of the node at each depth on the current path
-  bool CurrentOpen = false;
-  int Depth = 0;
-  int ImporterId = -1;
-};
-vtkStandardNewMacro(vtkF3DSceneTreeFlattener);
+  return G3DIconId::Cube;
+}
 
 }
 
 struct vtkF3DImguiActor::Internals
 {
-  // Flattened, collapse-resolved scene-tree rows + a signature of the source assemblies. Rebuilt only
-  // when the signature changes (load / expand / collapse / visibility all bump the assembly MTime),
-  // then drawn virtually so large scenes stay O(on-screen rows). See DrawSceneTreeContent.
-  std::vector<SceneTreeRow> SceneTreeFlat;
-  vtkMTimeType SceneTreeSig = 0;
-  bool SceneTreeSigValid = false;
+  // Shared headless view-model: it owns expansion/filter/selection state and hands back the rows
+  // that are actually on screen. Drawing below is virtualized over it, so cost stays O(visible
+  // rows) no matter how large the scene is. See DrawSceneTreeContent.
+  G3DSceneTreeView SceneTreeView;
 
   // Honor one of ImGui's dynamic-font texture requests against a vtkTextureObject. Glyph atlases are
   // created/grown/destroyed on demand (ImGuiBackendFlags_RendererHasTextures), so any character the
@@ -807,143 +738,96 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   vtkF3DMetaImporter* importer = ren->GetMetaImporter();
   assert(importer != nullptr);
 
-  // Rebuild the flattened, collapse-resolved row list only when the assemblies change (load / expand
-  // / collapse / visibility all bump assembly MTime, so this signature catches them all). In steady
-  // state nothing is rebuilt; drawing below is virtualized, so cost is O(on-screen rows).
-  const int importerCount = importer->GetImporterInfoCount();
-  vtkMTimeType sig = static_cast<vtkMTimeType>(importerCount);
-  for (int i = 0; i < importerCount; i++)
-  {
-    sig = sig * 1000003u + importer->GetImporterInfo(i).DataAssembly->GetMTime();
-  }
-  std::vector<SceneTreeRow>& flat = this->Pimpl->SceneTreeFlat;
-  if (!this->Pimpl->SceneTreeSigValid || sig != this->Pimpl->SceneTreeSig)
-  {
-    flat.clear();
-    for (int i = 0; i < importerCount; i++)
-    {
-      vtkF3DMetaImporter::ImporterInfo info = importer->GetImporterInfo(i);
-      vtkNew<::vtkF3DSceneTreeFlattener> flattener;
-      flattener->SetOutput(&flat);
-      flattener->SetImporterIndex(i);
-      info.DataAssembly->Visit(vtkDataAssembly::GetRootNode(), flattener);
-    }
-    // Number repeated unnamed placeholders per parent ("Object 1" / "Object 2"): several bare
-    // "Object" rows under one group are otherwise indistinguishable. Single placeholders keep
-    // the clean bare label.
-    std::map<std::pair<int, int>, int> placeholderTotal;
-    std::map<std::pair<int, int>, int> placeholderSeen;
-    for (const SceneTreeRow& r : flat)
-    {
-      if (r.placeholder != 0)
-      {
-        placeholderTotal[{ r.parentIndex, r.placeholder }]++;
-      }
-    }
-    for (SceneTreeRow& r : flat)
-    {
-      if (r.placeholder != 0 && placeholderTotal[{ r.parentIndex, r.placeholder }] > 1)
-      {
-        r.label += " " + std::to_string(++placeholderSeen[{ r.parentIndex, r.placeholder }]);
-      }
-    }
+  const G3DSceneGraph& graph = importer->GetG3DSceneGraph();
+  G3DSceneTreeView& view = this->Pimpl->SceneTreeView;
+  view.SetGraph(&graph);
+  view.SetSelection(this->SceneTreeSelNode);
 
-    this->Pimpl->SceneTreeSig = sig;
-    this->Pimpl->SceneTreeSigValid = true;
-  }
+  // The selected node's parent, used to light up one indentation guide across its sibling block.
+  const int selectedNode = view.Selection();
+  const int selectedParent = selectedNode > 0 ? graph.Parent(selectedNode) : -1;
+  const int selectedGuide = selectedNode > 0 ? graph.Depth(selectedNode) - 2 : -1;
 
-  // A child window gives the tree its own scroll region — independent of the host window flags, so it
-  // scrolls even inside the docked left bar (which is NoScrollbar). Virtualize over the flat list.
+  // A child window gives the tree its own scroll region — independent of the host window flags, so
+  // it scrolls even inside the docked left bar (which is NoScrollbar). Virtualized over the rows.
+  //
+  // Deep assemblies still push labels past the bar width and lose them to an ellipsis; hovering
+  // reveals the full name, but real horizontal scrolling would need TreeRow to lay out at its
+  // natural width instead of flex-clipping the label, which also affects the inspector rows that
+  // share the widget. Left as its own change rather than smuggled in here.
   G3DWidgets::BeginScrollRegion("##g3d.scenetree");
   G3DWidgets::BeginTree(G3DWidgets::TreeDensity::Compact);
-  G3DWidgets::TreeVirtual(static_cast<int>(flat.size()),
+  G3DWidgets::TreeVirtual(view.RowCount(),
     [&](int i)
     {
-      const SceneTreeRow& rr = flat[i];
+      const G3DTreeRow& rr = view.Row(i);
+      const bool hasChildren = rr.Has(G3DTreeRowFlag::HasChildren);
+      const bool expanded = rr.Has(G3DTreeRowFlag::Expanded);
+      const bool visible = rr.Has(G3DTreeRowFlag::Visible);
 
       G3DWidgets::TreeRowDesc row;
-      row.depth = rr.depth;
-      row.twisty = !rr.hasChildren
+      row.depth = rr.Depth;
+      row.twisty = !hasChildren
         ? G3DWidgets::TreeTwisty::Leaf
-        : (rr.collapsed ? G3DWidgets::TreeTwisty::Collapsed : G3DWidgets::TreeTwisty::Open);
+        : (expanded ? G3DWidgets::TreeTwisty::Open : G3DWidgets::TreeTwisty::Collapsed);
 
-      // Icon by role: root = collection, inner group = folder, leaf = mesh.
-      if (rr.depth == 0)
-      {
-        row.icon = G3DIconId::Layers;
-        row.iconVariant = G3DWidgets::TreeIconVariant::Root;
-      }
-      else if (rr.hasChildren)
-      {
-        row.icon = rr.collapsed ? G3DIconId::Folder : G3DIconId::FolderOpen;
-        row.iconVariant = G3DWidgets::TreeIconVariant::Folder;
-      }
-      else
-      {
-        row.icon = G3DIconId::Cube;
-        row.iconVariant = G3DWidgets::TreeIconVariant::Default;
-      }
+      row.icon = ::SceneTreeRowIcon(rr);
+      row.iconVariant = rr.Type == G3DNodeType::FILE ? G3DWidgets::TreeIconVariant::Root
+        : hasChildren                                ? G3DWidgets::TreeIconVariant::Folder
+                                                     : G3DWidgets::TreeIconVariant::Default;
 
-      row.label = rr.label.c_str();
-      row.meta = rr.meta.empty() ? nullptr : rr.meta.c_str();
-      // styleguide: only the root collection is brightened; inner folders share the muted label color
-      // and are distinguished by their folder icon.
-      row.group = rr.depth == 0;
-      row.hidden = !rr.visible;
+      const std::string label = ::SceneTreeRowLabel(graph, rr);
+      const std::string meta = hasChildren ? std::to_string(rr.ChildCount) : std::string();
+      row.label = label.c_str();
+      row.meta = meta.empty() ? nullptr : meta.c_str();
+      // styleguide: only the file row is brightened; inner folders share the muted label color and
+      // are distinguished by their folder icon.
+      row.group = rr.Type == G3DNodeType::FILE;
+      // A partially visible group reads as shown, not hidden — the eye carries the mixed state.
+      row.hidden = !visible && !rr.Has(G3DTreeRowFlag::Partial);
       row.showVisibility = true;
-      row.visible = rr.visible;
+      row.visible = visible;
 
-      const bool isSelected =
-        this->SceneTreeSelImporter == rr.importer && this->SceneTreeSelNode == rr.node;
+      const bool isSelected = rr.Has(G3DTreeRowFlag::Selected);
       row.selected = isSelected;
       row.focused = isSelected;
-      // Highlight the selected node's parent guide column across its sibling block: a row qualifies if
-      // its ancestor at depth (selDepth-1) is the selected node's parent. Walk parentIndex up — cheap
-      // because only on-screen rows reach here.
-      if (this->SceneTreeSelImporter == rr.importer && this->SceneTreeSelDepth >= 1 &&
-        rr.depth >= this->SceneTreeSelDepth)
+      // Highlight the selected node's parent guide column across its sibling block. Contiguous
+      // subtree ranges make "is this row under the selection's parent" a bounds check.
+      if (selectedParent > 0 && selectedGuide >= 0 && rr.Node > selectedParent &&
+        rr.Node < selectedParent + 1 + graph.SubtreeSize(selectedParent))
       {
-        int a = i;
-        while (a >= 0 && flat[a].depth > this->SceneTreeSelDepth - 1)
-        {
-          a = flat[a].parentIndex;
-        }
-        if (a >= 0 && flat[a].depth == this->SceneTreeSelDepth - 1 &&
-          flat[a].node == this->SceneTreeSelParent)
-        {
-          row.activeGuide = this->SceneTreeSelDepth - 1;
-        }
+        row.activeGuide = selectedGuide;
       }
 
       // imgui-internal id, must be unique per node
-      const int uuid = (rr.importer << 16) + rr.node;
       const G3DWidgets::TreeRowHit hit =
-        G3DWidgets::TreeRow(("##tree_" + std::to_string(uuid)).c_str(), row);
+        G3DWidgets::TreeRow(("##tree_" + std::to_string(rr.Node)).c_str(), row);
 
       switch (hit)
       {
         case G3DWidgets::TreeRowHit::Twisty:
-        {
-          // Toggle collapse; the attribute write bumps the assembly MTime, so the flat list rebuilds
-          // next frame (the collapsed subtree appears/disappears).
-          vtkF3DMetaImporter::ImporterInfo info = importer->GetImporterInfo(rr.importer);
-          info.DataAssembly->SetAttribute(rr.node, "g3d_collapsed", rr.collapsed ? 0 : 1);
+          // Expansion is view state, not scene data: it lives in the view-model and never touches
+          // the importer, so toggling a twisty no longer dirties the scene.
+          view.ToggleExpanded(rr.Node);
           break;
-        }
         case G3DWidgets::TreeRowHit::Visibility:
         {
-          vtkF3DMetaImporter::ImporterInfo info = importer->GetImporterInfo(rr.importer);
-          vtkF3DMetaImporter::SetG3DDataAssemblyNodeVisibility(
-            info.DataAssembly, info.Importer, rr.node, !rr.visible);
-          renWin->GetInteractor()->InvokeEvent(
-            vtkF3DUserEvents::SceneHierarchyChangedEvent, nullptr);
+          // Visibility *is* scene data, and still round-trips through the importer so the renderer
+          // picks it up. Partially visible groups turn fully on, matching every other outliner.
+          const bool turnOn = !visible;
+          const int importerIndex = graph.ImporterIndex(rr.Node);
+          if (importerIndex >= 0)
+          {
+            vtkF3DMetaImporter::ImporterInfo info = importer->GetImporterInfo(importerIndex);
+            vtkF3DMetaImporter::SetG3DDataAssemblyNodeVisibility(
+              info.DataAssembly, info.Importer, graph.SourceNodeId(rr.Node), turnOn);
+            renWin->GetInteractor()->InvokeEvent(
+              vtkF3DUserEvents::SceneHierarchyChangedEvent, nullptr);
+          }
           break;
         }
         case G3DWidgets::TreeRowHit::Row:
-          this->SceneTreeSelImporter = rr.importer;
-          this->SceneTreeSelNode = rr.node;
-          this->SceneTreeSelDepth = rr.depth;
-          this->SceneTreeSelParent = rr.parentIndex >= 0 ? flat[rr.parentIndex].node : -1;
+          this->SceneTreeSelNode = rr.Node;
           break;
         case G3DWidgets::TreeRowHit::None:
         default:

@@ -94,6 +94,8 @@ endforeach()
 set(classes
   F3DLog
   G3DLocaleCore
+  G3DSceneGraph
+  G3DSceneTreeView
   F3DColoringInfoHandler
   vtkF3DCachedLUTTexture
   vtkF3DCachedSpecularTexture
