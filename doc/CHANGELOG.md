@@ -54,6 +54,9 @@ For libf3d users:
 - Added a `interactor.style` option to control interaction style, including `2d` mode
 - Added a `ui.notifications.enable` and `ui.notifications.show_bindings` options to enable/disable notifications and bindings, which shows a widget whenever an interactive bind is pressed
 - Added a `ui.dpi_aware` option to rescale font automatically on HiDPI screens (Windows only)
+- Added a windowed scene tree API (`getSceneTreeInfo`, `getSceneTreeRows`) returning flat rows addressed by stable node paths, along with expansion/filter/selection and visibility/focus operations
+- Added `scene_tree_*` commands and `print_scene_tree`, so the scene hierarchy can be driven from a command script instead of by clicking at fixed coordinates
+- Removed the recursive `getG3DSceneTree()` snapshot API and its `g3d_scene_tree_*` types, replaced by the windowed API above (see the migration guide)
 - Deprecated `interactor.trackball` option in favor of `interactor.style`
 
 For Glance3D packagers:
@@ -71,6 +74,7 @@ For Web viewer users:
 - Removed support for non-stream supporting formats
 - Added .3mf and .dxf support
 - Added .ifc support
+- Added a scene tree to the inspector panel, virtualized so its cost stays proportional to what is on screen; it shares its tree shape, expansion, filtering and visibility roll-up with the desktop viewer
 
 ## v3.4.1
 
