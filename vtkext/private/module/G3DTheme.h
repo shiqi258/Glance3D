@@ -58,6 +58,18 @@ constexpr float IconSm = 14.f;     ///< small icon edge
 constexpr float Border = 1.f;      ///< hairline border / divider thickness
 }
 
+/// Tooltip bubble geometry (px at FontScale 1.0). Mirrors the styleguide `.tip .bubble`
+/// (`padding: 6px 10px`): a hint reads as a compact bubble, tighter than a panel — but never at
+/// zero. A tooltip is a floating layer, so it must NOT inherit the trigger window's padding: the
+/// inspector bar runs at WindowPadding.x = 0 (full-bleed sections), which glued tooltip text to the
+/// bubble edge. G3DWidgets pushes these tokens for every tooltip it opens; callers that need a
+/// different inset pass their own padding to the tooltip helpers.
+namespace Tooltip
+{
+constexpr float PadX = 10.f; ///< horizontal content inset
+constexpr float PadY = 6.f;  ///< vertical content inset
+}
+
 /// Scrollbar geometry (px at FontScale 1.0), following the desktop convention shared by macOS
 /// overlay scrollbars / VS Code / browsers: a thin resting thumb that widens under the pointer.
 ///

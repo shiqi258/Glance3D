@@ -1461,12 +1461,13 @@ void vtkF3DImguiActor::FileNameCopyAffordance(const std::string& fallbackName, b
   {
     if (flashing)
     {
-      ImGui::SetTooltip("%s", loc.Translate("Copied").c_str());
+      G3DWidgets::SetTooltip(loc.Translate("Copied").c_str());
     }
-    else
+    else if (G3DWidgets::BeginTooltip())
     {
-      ImGui::SetTooltip("%s\n%s", target.c_str(),
-        loc.Translate("Click to copy. Right-click for more").c_str());
+      ImGui::TextUnformatted(target.c_str());
+      ImGui::TextUnformatted(loc.Translate("Click to copy. Right-click for more").c_str());
+      G3DWidgets::EndTooltip();
     }
   }
 
@@ -2307,9 +2308,8 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
         // ONE tooltip per row, on the house delay. Every line is conditional, so it says only what
         // the row could not. The band is still the current ImGui item — the slot helpers paint
         // through ImDrawList and submit nothing of their own.
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay))
+        if (G3DWidgets::BeginItemTooltip())
         {
-          ImGui::BeginTooltip();
           if (clipped)
           {
             ImGui::TextUnformatted(a.Name.c_str());
@@ -2330,7 +2330,7 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
             ImGui::TextColored(G3DTheme::TextSubtle(), "%s",
               loc.Translate("Click to color by this array").c_str());
           }
-          ImGui::EndTooltip();
+          G3DWidgets::EndTooltip();
         }
         G3DWidgets::EndTreeRow();
 
@@ -2604,7 +2604,7 @@ void vtkF3DImguiActor::DrawLightingContent()
       ImGui::Dummy(ImVec2(availW, G3DTheme::Size::Control * scale));
       if (!hdri.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
       {
-        ImGui::SetTooltip("%s", hdri.c_str());
+        G3DWidgets::SetTooltip(hdri.c_str());
       }
       G3DWidgets::EndPropRow();
     }
@@ -2830,7 +2830,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
-      ImGui::SetTooltip("%s", loc.Translate("Volume rendering forces coloring").c_str());
+      G3DWidgets::SetTooltip(loc.Translate("Volume rendering forces coloring").c_str());
     }
   }
   G3DWidgets::EndPropRow();
@@ -3278,7 +3278,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
       G3DTheme::TextMuted(), "%s", loc.Translate("Static pose (no duration)").c_str());
     if (ImGui::IsItemHovered())
     {
-      ImGui::SetTooltip("%s",
+      G3DWidgets::SetTooltip(
         loc.Translate("All keyframes are at the same instant, so there is nothing to scrub.")
           .c_str());
     }

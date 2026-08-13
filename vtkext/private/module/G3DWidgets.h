@@ -308,8 +308,45 @@ bool RangeSliderFloat(const char* label, float* lo, float* hi, float vMin, float
 /// Styled single-line text input (focus underline + border highlight). Returns true when edited.
 bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hint = nullptr);
 
+//----------------------------------------------------------------------------
+// Tooltips
+//
+// Always open tooltips through these helpers rather than ImGui::SetTooltip / ImGui::BeginTooltip:
+// an ImGui tooltip is a plain window, so it inherits whatever WindowPadding is pushed around the
+// *trigger* — inside the full-bleed inspector bar (WindowPadding.x = 0) that left the text glued to
+// the bubble edge. Each helper pins the house padding (G3DTheme::Tooltip) for the duration of the
+// tooltip window, and takes an optional per-call override.
+//----------------------------------------------------------------------------
+
+/// Padding sentinel meaning "use the theme default" (G3DTheme::Tooltip::PadX / PadY). Resolved per
+/// axis, so a caller may override only x or only y and leave the other on the default.
+constexpr ImVec2 TooltipThemePadding = ImVec2(-1.f, -1.f);
+
+/// Hover flags every G3D tooltip triggers on — the unified delay, not shared with neighbours (each
+/// item earns its own dwell, so sweeping the pointer across a toolbar does not flash tooltips).
+constexpr ImGuiHoveredFlags TooltipHoveredFlags =
+  ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay;
+
+/// Open a tooltip window with the house padding; submit any widgets, then call EndTooltip().
+/// @p padding is nominal px (scaled here); negative components fall back to the theme default.
+/// Always returns true — the bool mirrors ImGui::BeginTooltip() so call sites read the same.
+bool BeginTooltip(const ImVec2& padding = TooltipThemePadding);
+
+/// BeginTooltip() gated on the last item being hovered on the house delay (TooltipHoveredFlags).
+/// @p extraHoveredFlags is OR-ed in — e.g. ImGuiHoveredFlags_AllowWhenDisabled to explain why a
+/// grayed control is inert. Call EndTooltip() only when this returned true.
+bool BeginItemTooltip(
+  const ImVec2& padding = TooltipThemePadding, ImGuiHoveredFlags extraHoveredFlags = 0);
+
+/// Close a tooltip opened by BeginTooltip() / BeginItemTooltip().
+void EndTooltip();
+
+/// Padded drop-in for ImGui::SetTooltip("%s", text): opens the tooltip unconditionally, for callers
+/// that own the hover test (custom hit boxes, disabled items, flash states).
+void SetTooltip(const char* text, const ImVec2& padding = TooltipThemePadding);
+
 /// Tooltip for the last item, with a unified hover delay.
-void ItemTooltip(const char* text);
+void ItemTooltip(const char* text, const ImVec2& padding = TooltipThemePadding);
 
 /// Draw @p text at @p pos, truncated with a trailing "..." when wider than @p maxW (UTF-8 safe —
 /// never splits a multi-byte glyph). Pure draw helper: does not advance the layout cursor.

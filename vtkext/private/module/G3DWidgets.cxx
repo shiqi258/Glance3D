@@ -482,13 +482,11 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
   if (tooltip && tooltip[0])
   {
     const bool hasKey = shortcut != nullptr && shortcut[0] != '\0';
-    if (hasKey &&
-      ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay))
+    if (hasKey && BeginItemTooltip())
     {
       // Label + a dimmed keycap chip (the keyboard accelerator). The label stays the sole
       // translated string; the key name is locale-independent and drawn as a chip so it reads as
       // a shortcut, not part of the label. Chip is vertically centered on the label text.
-      ImGui::BeginTooltip();
       ImGui::TextUnformatted(tooltip);
       ImGui::SameLine(0.f, G3DTheme::Spacing::Md * s);
       ImDrawList* tdl = ImGui::GetWindowDrawList();
@@ -503,7 +501,7 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round, const ch
         G3DTheme::Size::Border * s);
       tdl->AddText(ImVec2(kc.x + kpx, kc.y), U32(G3DTheme::TextMuted()), shortcut);
       ImGui::Dummy(ImVec2(kts.x + 2.f * kpx, kts.y));
-      ImGui::EndTooltip();
+      EndTooltip();
     }
     else if (!hasKey)
     {
@@ -615,10 +613,9 @@ int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count)
     // Tooltip also for disabled segments (explains WHY it is inert, e.g. "No animation") — same
     // delay convention as ItemTooltip.
     if (it.tooltip && it.tooltip[0] &&
-      ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay |
-        ImGuiHoveredFlags_AllowWhenDisabled))
+      ImGui::IsItemHovered(TooltipHoveredFlags | ImGuiHoveredFlags_AllowWhenDisabled))
     {
-      ImGui::SetTooltip("%s", it.tooltip);
+      SetTooltip(it.tooltip);
     }
     ImGui::PopID();
   }
@@ -2522,11 +2519,61 @@ bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hi
 }
 
 //----------------------------------------------------------------------------
-void ItemTooltip(const char* text)
+// Tooltips
+//----------------------------------------------------------------------------
+namespace
 {
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay))
+// Nominal px -> device px, per axis, with the theme default filling in for negative components.
+ImVec2 ResolveTooltipPadding(const ImVec2& padding)
+{
+  const float s = Scale();
+  return ImVec2((padding.x >= 0.f ? padding.x : G3DTheme::Tooltip::PadX) * s,
+    (padding.y >= 0.f ? padding.y : G3DTheme::Tooltip::PadY) * s);
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+bool BeginTooltip(const ImVec2& padding)
+{
+  // Pushed across Begin..End rather than popped right after Begin: the auto-fit pass that sizes the
+  // bubble around its content runs inside the tooltip window, and this keeps the pair symmetric.
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ResolveTooltipPadding(padding));
+  ImGui::BeginTooltip();
+  return true;
+}
+
+//----------------------------------------------------------------------------
+bool BeginItemTooltip(const ImVec2& padding, ImGuiHoveredFlags extraHoveredFlags)
+{
+  if (!ImGui::IsItemHovered(TooltipHoveredFlags | extraHoveredFlags))
   {
-    ImGui::SetTooltip("%s", text);
+    return false;
+  }
+  return BeginTooltip(padding);
+}
+
+//----------------------------------------------------------------------------
+void EndTooltip()
+{
+  ImGui::EndTooltip();
+  ImGui::PopStyleVar();
+}
+
+//----------------------------------------------------------------------------
+void SetTooltip(const char* text, const ImVec2& padding)
+{
+  // ImGui::SetTooltip opens and closes its own window, so wrapping the call covers it whole.
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ResolveTooltipPadding(padding));
+  ImGui::SetTooltip("%s", text);
+  ImGui::PopStyleVar();
+}
+
+//----------------------------------------------------------------------------
+void ItemTooltip(const char* text, const ImVec2& padding)
+{
+  if (ImGui::IsItemHovered(TooltipHoveredFlags))
+  {
+    SetTooltip(text, padding);
   }
 }
 
@@ -2918,7 +2965,7 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
   // Owned here rather than in the slot helper — see TreeRowLabel.
   if (clipped && r.hovered)
   {
-    ImGui::SetTooltip("%s", desc.label);
+    SetTooltip(desc.label);
   }
   EndTreeRow();
 

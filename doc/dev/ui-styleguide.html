@@ -3431,6 +3431,13 @@
               <g3d-tip text="打开文件…" key="Ctrl+O"><g3d-iconbtn n="folder"></g3d-iconbtn></g3d-tip>
               <span class="note" style="margin: 0">提示可带快捷键 keycap（<code>key</code> 属性）。</span>
             </div>
+            <div class="note">
+              气泡内边距固定 <code>6px 10px</code>（<code>G3DTheme::Tooltip::PadX/PadY</code>）。桌面 ImGui
+              端的 tooltip 是普通窗口，会继承<b>触发处</b>所在窗口的 <code>WindowPadding</code>——检视器为了让
+              分区头通栏把 <code>WindowPadding.x</code> 压成 0，于是里面弹出的提示文字直接贴气泡边。因此桌面端
+              一律走 <code>G3DWidgets::BeginTooltip / SetTooltip / ItemTooltip</code>，由组件自己钉住这份内边距，
+              不用 <code>ImGui::SetTooltip</code>；确有特殊需要的调用方传自己的 padding 覆盖即可。
+            </div>
           </div>
         </section>
 
