@@ -8,7 +8,14 @@
       "inherits": "native",
       "cacheVariables": {
         "//": "Path to the VTK (>= 9.4) install: the folder that contains vtk-config.cmake",
-        "VTK_DIR": "C:/path/to/vtk/install/lib/cmake/vtk"
+        "VTK_DIR": "C:/path/to/vtk/install/lib/cmake/vtk",
+
+        "// occt": "OPTIONAL — STEP / IGES / BREP support. Drop these two lines if you do not have OpenCASCADE (>= 7.8) installed. OpenCASCADE_DIR is the folder containing OpenCASCADEConfig.cmake",
+        "F3D_PLUGIN_BUILD_OCCT": "ON",
+        "OpenCASCADE_DIR": "C:/path/to/opencascade/cmake",
+
+        "// extra dlls": "OPTIONAL (Windows) — semicolon-separated dirs whose DLLs are copied next to the built exe. CMake cannot see a dependency's OWN third-party runtime DLLs through imported targets, so OpenCASCADE needs its tbb / jemalloc / freetype / FreeImage / ffmpeg / openvr dirs listed here or glance3d.exe fails to start with STATUS_DLL_NOT_FOUND",
+        "F3D_EXTRA_RUNTIME_DLL_DIRS": "C:/path/to/occt-3rdparty/tbb-x.y-x64/bin;C:/path/to/occt-3rdparty/jemalloc-vc14-64/bin;C:/path/to/occt-3rdparty/freetype-x.y-x64/bin;C:/path/to/occt-3rdparty/freeimage-x.y-x64/bin;C:/path/to/occt-3rdparty/ffmpeg-x.y-64/bin;C:/path/to/occt-3rdparty/openvr-x.y-64/bin/win64"
       }
     }
   ],

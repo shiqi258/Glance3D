@@ -137,6 +137,12 @@ if(UNIX AND NOT APPLE)
   mark_as_advanced(F3D_LINUX_LINK_FILESYSTEM)
 endif()
 
+if(WIN32)
+  set(F3D_EXTRA_RUNTIME_DLL_DIRS "" CACHE STRING
+    "Extra directories whose DLLs are copied next to the built executable (machine-local; for dependency runtime DLLs that CMake imported targets do not expose)")
+  mark_as_advanced(F3D_EXTRA_RUNTIME_DLL_DIRS)
+endif()
+
 # Force static library when creating a macOS bundle
 cmake_dependent_option(BUILD_SHARED_LIBS "Build f3d with shared libraries" ON "NOT ANDROID" OFF)
 

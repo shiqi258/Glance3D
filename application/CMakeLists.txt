@@ -171,6 +171,20 @@ function(f3d_create_exec target_name)
         $<TARGET_RUNTIME_DLLS:${target_name}>
         $<TARGET_FILE_DIR:${target_name}>
       COMMAND_EXPAND_LISTS)
+
+    # $<TARGET_RUNTIME_DLLS> only follows imported targets, so a dependency's own
+    # third-party runtime DLLs stay invisible to it — OpenCASCADE for instance needs
+    # tbb12/jemalloc/freetype/FreeImage/ffmpeg DLLs that its CMake package never declares,
+    # and the executable fails to load without them. Point this at those directories from a
+    # machine-local preset to keep the build output directly runnable.
+    foreach(_extra_dir IN LISTS F3D_EXTRA_RUNTIME_DLL_DIRS)
+      file(GLOB _extra_dlls "${_extra_dir}/*.dll")
+      if(_extra_dlls)
+        add_custom_command(TARGET ${target_name} POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_extra_dlls} $<TARGET_FILE_DIR:${target_name}>
+          COMMAND_EXPAND_LISTS)
+      endif()
+    endforeach()
   endif()
 endfunction()
 
