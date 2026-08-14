@@ -157,6 +157,17 @@ vtkProp3D* G3DSceneGraph::Prop(int node) const
 }
 
 //----------------------------------------------------------------------------
+vtkProp3D* G3DSceneGraph::FaceProp(int node) const
+{
+  const G3DRenderable* entry = this->RenderableOf(node);
+  if (entry == nullptr || entry->Kind != G3DRenderableKind::PROP_FACE)
+  {
+    return nullptr;
+  }
+  return static_cast<vtkProp3D*>(entry->Object);
+}
+
+//----------------------------------------------------------------------------
 vtkCamera* G3DSceneGraph::Camera(int node) const
 {
   const G3DRenderable* entry = this->RenderableOf(node);
@@ -297,6 +308,7 @@ void G3DSceneGraph::Clear()
   this->Renderables.clear();
   this->ImporterIndices.clear();
   this->SourceNodeIds.clear();
+  this->FaceCounts.clear();
   this->PropertyOffsets.clear();
   this->PropertyKeys.clear();
   this->PropertyValues.clear();
@@ -341,6 +353,26 @@ int G3DSceneGraphBuilder::AddLightRenderable(
 }
 
 //----------------------------------------------------------------------------
+int G3DSceneGraphBuilder::AddFaceRenderable(int propRenderable, int faceId)
+{
+  if (propRenderable < 0 ||
+    propRenderable >= static_cast<int>(this->Graph.RenderableEntries.size()))
+  {
+    return -1;
+  }
+  const G3DRenderable& prop =
+    this->Graph.RenderableEntries[static_cast<std::size_t>(propRenderable)];
+  if (prop.Kind != G3DRenderableKind::PROP)
+  {
+    return -1;
+  }
+
+  this->Graph.RenderableEntries.emplace_back(
+    G3DRenderable{ G3DRenderableKind::PROP_FACE, prop.Object, prop.ImporterIndex, faceId });
+  return static_cast<int>(this->Graph.RenderableEntries.size()) - 1;
+}
+
+//----------------------------------------------------------------------------
 int G3DSceneGraphBuilder::BeginNode(
   const std::string& name, const std::string& label, G3DNodeType type)
 {
@@ -359,6 +391,7 @@ int G3DSceneGraphBuilder::BeginNode(
   this->Graph.Renderables.emplace_back(-1);
   this->Graph.ImporterIndices.emplace_back(parent >= 0 ? this->Graph.ImporterIndex(parent) : -1);
   this->Graph.SourceNodeIds.emplace_back(-1);
+  this->Graph.FaceCounts.emplace_back(0);
 
   if (label.empty())
   {
@@ -403,6 +436,17 @@ void G3DSceneGraphBuilder::SetInstanceTarget(const std::string& productName)
   }
   this->Graph.InstanceTargetIds[static_cast<std::size_t>(this->OpenNodes.back())] =
     this->Graph.Strings.Intern(productName);
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::SetFaceCount(int faceCount)
+{
+  assert(!this->OpenNodes.empty());
+  if (faceCount <= 0)
+  {
+    return;
+  }
+  this->Graph.FaceCounts[static_cast<std::size_t>(this->OpenNodes.back())] = faceCount;
 }
 
 //----------------------------------------------------------------------------
@@ -607,7 +651,8 @@ void IngestG3DNodeProperties(
  * expected to drive the builder directly rather than teach this function new tricks.
  */
 void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assembly,
-  const std::vector<int>& renderableForActor, int importerIndex, int assemblyNodeId)
+  const std::vector<int>& renderableForActor, int importerIndex, int assemblyNodeId,
+  const std::set<int>& faceLevelNodes)
 {
   const int childCount = assembly->GetNumberOfChildren(assemblyNodeId);
   const int flatActorIndex = assembly->GetAttributeOrDefault(assemblyNodeId, "flat_actor_id", -1);
@@ -640,20 +685,46 @@ void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assem
   // Before any child is opened, as AddProperty() requires.
   ::IngestG3DNodeProperties(builder, assembly, assemblyNodeId);
 
+  int propRenderable = -1;
   if (flatActorIndex >= 0 && flatActorIndex < static_cast<int>(renderableForActor.size()))
   {
-    builder.SetRenderable(renderableForActor[static_cast<std::size_t>(flatActorIndex)]);
+    propRenderable = renderableForActor[static_cast<std::size_t>(flatActorIndex)];
+    builder.SetRenderable(propRenderable);
   }
+
+  const int faceCount =
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::FaceCount, 0);
+  builder.SetFaceCount(faceCount);
 
   builder.SetFlag(G3DNodeFlag::VisibleSelf,
     assembly->GetAttributeOrDefault(assemblyNodeId, "g3d_visible", 1) != 0);
   builder.SetFlag(G3DNodeFlag::CollapsedByDefault,
     assembly->GetAttributeOrDefault(assemblyNodeId, "g3d_collapsed", 0) != 0);
 
+  // Faces are built only for the nodes the user opened, and only when there is a prop for them to
+  // narrow. Everything else advertises that it *could* open, which is what puts a twisty on a leaf
+  // that has a B-rep behind it.
+  const bool materializeFaces = faceCount > 0 && propRenderable >= 0 &&
+    faceCount <= G3DMaxMaterializedFaces && faceLevelNodes.count(assemblyNodeId) != 0;
+  builder.SetFlag(G3DNodeFlag::LazyChildren, faceCount > 0 && !materializeFaces);
+
   for (int childIndex = 0; childIndex < childCount; childIndex++)
   {
     IngestG3DAssemblyNode(builder, assembly, renderableForActor, importerIndex,
-      assembly->GetChild(assemblyNodeId, childIndex));
+      assembly->GetChild(assemblyNodeId, childIndex), faceLevelNodes);
+  }
+
+  if (materializeFaces)
+  {
+    for (int faceId = 0; faceId < faceCount; faceId++)
+    {
+      // No label: a face has no name of its own in any format read so far, so the presenters number
+      // it with a localized noun the way they number an unnamed group.
+      builder.BeginNode(G3DFaceNamePrefix + std::to_string(faceId), "", G3DNodeType::FACE);
+      builder.SetImporterIndex(importerIndex);
+      builder.SetRenderable(builder.AddFaceRenderable(propRenderable, faceId));
+      builder.EndNode();
+    }
   }
 
   builder.EndNode();
@@ -761,7 +832,7 @@ void G3DIngestDataAssemblies(G3DSceneGraph& graph, const std::vector<G3DAssembly
     for (int childIndex = 0; childIndex < childCount; childIndex++)
     {
       ::IngestG3DAssemblyNode(builder, source.Assembly, renderableForActor, importerIndex,
-        source.Assembly->GetChild(assemblyRoot, childIndex));
+        source.Assembly->GetChild(assemblyRoot, childIndex), source.FaceLevelNodes);
     }
 
     // Scene elements come after the geometry, never interleaved with it.

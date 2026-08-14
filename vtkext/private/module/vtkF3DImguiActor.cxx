@@ -159,6 +159,9 @@ std::string SceneTreeRowLabel(const G3DSceneGraph& graph, const G3DTreeRow& row)
     case G3DNodeType::LIGHT:
       label = group ? locale.Translate("Lights") : locale.Translate("Light");
       break;
+    case G3DNodeType::FACE:
+      label = locale.Translate("Face");
+      break;
     default:
       label = group ? locale.Translate("Group") : locale.Translate("Object");
       break;
@@ -185,6 +188,8 @@ G3DIconId SceneTreeRowIcon(const G3DTreeRow& row)
       // Before the folder rule below: an occurrence has children, but it is a pointer at a product
       // rather than a container, and in a CAD assembly that is the distinction worth seeing.
       return G3DIconId::Component;
+    case G3DNodeType::FACE:
+      return G3DIconId::Surface;
     default:
       break;
   }
@@ -800,8 +805,12 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
       // What an occurrence points at beats its child count: the count is visible from the twisty,
       // while the product name is the only thing on the row that is not already on screen. The
       // view-model decides when the target is worth showing (see G3DTreeRowFlag::InstanceTarget).
+      // A node still waiting to be opened to face level counts its faces instead of its children --
+      // it has none yet, and how many are behind the twisty is the question the row raises.
       const std::string meta = rr.Has(G3DTreeRowFlag::InstanceTarget)
         ? graph.InstanceTarget(rr.Node)
+        : rr.Has(G3DTreeRowFlag::LazyChildren)
+        ? std::to_string(rr.FaceCount)
         : (hasChildren ? std::to_string(rr.ChildCount) : std::string());
       row.label = label.c_str();
       row.meta = meta.empty() ? nullptr : meta.c_str();
@@ -833,9 +842,10 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
       switch (hit)
       {
         case G3DWidgets::TreeRowHit::Twisty:
-          // Expansion is view state, not scene data: it lives in the view-model and never touches
-          // the importer, so toggling a twisty no longer dirties the scene.
-          view.ToggleExpanded(rr.Node);
+          // Expansion is view state, not scene data — with one exception the renderer owns: a node
+          // whose children are B-rep faces has to have them built before it can open. Going through
+          // that one entry point is what keeps this frontend from having to know which is which.
+          ren->SetG3DSceneTreeExpanded(graph.Path(rr.Node), !expanded);
           break;
         case G3DWidgets::TreeRowHit::Visibility:
         {

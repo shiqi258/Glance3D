@@ -40,8 +40,10 @@ class vtkGridAxesActor3D;
 class vtkImageReader2;
 class vtkPNGReader;
 class vtkOrientationMarkerWidget;
+class vtkDataSetMapper;
 class vtkScalarBarActor;
 class vtkSkybox;
+class vtkThreshold;
 class vtkTextActor;
 
 class vtkF3DRenderer : public vtkOpenGLRenderer
@@ -431,6 +433,16 @@ public:
   G3DSceneTreeView& GetG3DSceneTreeView();
 
   /**
+   * Open or close a scene tree node, building its B-rep faces first if that is what it holds.
+   *
+   * Expansion is otherwise pure view state, but a node whose children are faces has nothing to open
+   * into until the scene builds them, and closing it gives them back. Both frontends go through
+   * here so neither has to know which nodes are of that kind. False when the path is unknown or the
+   * faces were refused (see `vtkF3DMetaImporter::SetG3DSceneTreeFaceLevel`).
+   */
+  bool SetG3DSceneTreeExpanded(const std::string& path, bool expanded);
+
+  /**
    * Mark the coloring as dirty for force update
    */
   void ForceUpdateColoring()
@@ -647,6 +659,15 @@ private:
   void ConfigureActorsProperties();
 
   /**
+   * Draw the B-rep face the scene tree has selected over the part it belongs to.
+   *
+   * Pulled from the view-model each frame rather than pushed on selection: the desktop tree, the
+   * SDK and the commands all move the same selection, and a pull means none of them has to know
+   * that a renderer wants telling. The work is skipped unless the selected face actually changed.
+   */
+  void UpdateG3DFaceHighlight();
+
+  /**
    * Configure the grid
    */
   void ConfigureGridUsingCurrentActors();
@@ -760,6 +781,23 @@ private:
   vtkNew<vtkF3DOpenGLGridMapper> GridMapper;
   vtkNew<vtkSkybox> SkyboxActor;
   vtkNew<vtkF3DUIActor> UIActor;
+
+  ///@{
+  /**
+   * The one B-rep face the scene tree has selected, drawn over the part it belongs to.
+   *
+   * A single reusable actor rather than one per face: only one node is ever selected, and the
+   * highlight is a *view* of geometry that is already in the scene -- it owns no data of its own,
+   * it re-thresholds the part's cells whenever the selection moves.
+   */
+  vtkSmartPointer<vtkThreshold> FaceHighlightThreshold;
+  vtkSmartPointer<vtkDataSetMapper> FaceHighlightMapper;
+  vtkSmartPointer<vtkActor> FaceHighlightActor;
+  /// What the actor currently shows, so an unchanged selection costs a comparison and no filter run.
+  vtkProp3D* FaceHighlightProp = nullptr;
+  int FaceHighlightFaceId = -1;
+  vtkMTimeType FaceHighlightInputTime = 0;
+  ///@}
 
   // Control-panel "push": each frame the renderer viewport is driven to the central rect between the
   // docked bars (full window when the panel is closed). ControlPanelViewport caches the last applied

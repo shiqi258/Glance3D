@@ -370,6 +370,54 @@ int TestG3DSceneTreeView(int, char*[])
     ::Check(!flagged("/model.stp/Solid"), "a node that is no occurrence announces nothing");
   }
 
+  // --- lazy children --------------------------------------------------------------------------
+  // A node whose B-rep faces have not been built has to offer a twisty (that is how they get asked
+  // for) while never reading as open -- expansion state is stored blind by ExpandAll, and a twisty
+  // pointing down at nothing would be a lie.
+  {
+    G3DSceneGraph lazyGraph;
+    {
+      G3DSceneGraphBuilder builder(lazyGraph);
+      builder.BeginNode("scene", "scene", G3DNodeType::ROOT);
+      builder.BeginNode("model.stp", "model.stp", G3DNodeType::FILE);
+      builder.SetImporterIndex(0);
+
+      builder.BeginNode("Solid", "Solid", G3DNodeType::PART);
+      builder.SetFaceCount(11);
+      builder.SetFlag(G3DNodeFlag::LazyChildren, true);
+      builder.EndNode();
+
+      builder.BeginNode("Plain", "Plain", G3DNodeType::MESH);
+      builder.EndNode();
+
+      builder.EndNode();
+      builder.EndNode();
+      builder.Finalize();
+    }
+
+    G3DSceneTreeView lazyView;
+    lazyView.SetGraph(&lazyGraph);
+    lazyView.ExpandAll();
+
+    const auto rowFor = [&](const std::string& path) -> G3DTreeRow
+    {
+      const int row = lazyView.FindRow(lazyGraph.FindByPath(path));
+      return row >= 0 ? lazyView.Row(row) : G3DTreeRow{};
+    };
+
+    const G3DTreeRow solid = rowFor("/model.stp/Solid");
+    ::Check(solid.Has(G3DTreeRowFlag::HasChildren), "an unbuilt B-rep still offers a twisty");
+    ::Check(!solid.Has(G3DTreeRowFlag::Expanded), "...which cannot read as open, even after ExpandAll");
+    ::Check(solid.Has(G3DTreeRowFlag::LazyChildren), "...and says why, so a frontend can ask");
+    ::Check(solid.FaceCount == 11, "the face count reaches the row");
+    ::Check(solid.ChildCount == 0, "with no children built for it");
+    ::Check(lazyView.RowCount() == 3, "and nothing under it is drawn");
+
+    const G3DTreeRow plain = rowFor("/model.stp/Plain");
+    ::Check(!plain.Has(G3DTreeRowFlag::HasChildren), "a plain leaf is still a leaf");
+    ::Check(!plain.Has(G3DTreeRowFlag::LazyChildren), "...with nothing waiting");
+  }
+
   // --- degenerate inputs ----------------------------------------------------------------------
   G3DSceneTreeView unbound;
   ::Check(unbound.RowCount() == 0, "a view with no graph has no rows");

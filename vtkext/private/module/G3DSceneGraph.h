@@ -24,6 +24,7 @@
 
 #include <array>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -97,9 +98,10 @@ private:
 /// What kind of scene object a renderable entry points at.
 enum class G3DRenderableKind : std::uint8_t
 {
-  PROP = 0, ///< A vtkProp3D drawn by the renderer.
-  CAMERA,   ///< A vtkCamera declared by the file.
-  LIGHT,    ///< A vtkLight declared by the file.
+  PROP = 0,  ///< A vtkProp3D drawn by the renderer.
+  CAMERA,    ///< A vtkCamera declared by the file.
+  LIGHT,     ///< A vtkLight declared by the file.
+  PROP_FACE, ///< One B-rep face of a prop: the same object, narrowed to LocalIndex's cells.
 };
 
 /**
@@ -194,6 +196,18 @@ public:
   }
   /// The prop drawn for this node, or nullptr when it has none or points at another kind.
   vtkProp3D* Prop(int node) const;
+  /**
+   * The prop a FACE node names one face of, or nullptr. `RenderableLocalIndex()` is the face id.
+   *
+   * Deliberately not folded into `Prop()`: a face is not a thing that can be shown, hidden or
+   * framed on its own, and everything walking props for bounds or visibility must keep skipping it.
+   */
+  vtkProp3D* FaceProp(int node) const;
+  /// How many B-rep faces this node's mesh came from; 0 when the format kept no correspondence.
+  int FaceCount(int node) const
+  {
+    return this->FaceCounts[static_cast<std::size_t>(node)];
+  }
   /// The file camera this node stands for, or nullptr.
   vtkCamera* Camera(int node) const;
   /// The file light this node stands for, or nullptr.
@@ -279,6 +293,7 @@ private:
   std::vector<int> Renderables;
   std::vector<int> ImporterIndices;
   std::vector<int> SourceNodeIds;
+  std::vector<int> FaceCounts;
 
   /// Node i owns [PropertyOffsets[i], PropertyOffsets[i + 1]) of the two tables below.
   std::vector<int> PropertyOffsets;
@@ -310,6 +325,8 @@ public:
   int AddRenderable(vtkProp3D* prop, int importerIndex);
   int AddCameraRenderable(vtkCamera* camera, int importerIndex, int globalCameraIndex);
   int AddLightRenderable(vtkLight* light, int importerIndex, int globalLightIndex);
+  /// One face of an already-registered prop. Returns -1 if `propRenderable` is not a prop entry.
+  int AddFaceRenderable(int propRenderable, int faceId);
   ///@}
 
   /**
@@ -329,6 +346,8 @@ public:
   void AddProperty(const std::string& key, const std::string& value);
   /// Names the product the node currently open is an occurrence of. See InstanceTarget().
   void SetInstanceTarget(const std::string& productName);
+  /// Records how many B-rep faces the node currently open was tessellated from.
+  void SetFaceCount(int faceCount);
   void SetRenderable(int renderableIndex);
   void SetImporterIndex(int importerIndex);
   void SetSourceNodeId(int sourceNodeId);
@@ -375,11 +394,35 @@ struct G3DAssemblySource
   /// Index of this file's first camera/light in the global flattened order.
   int FirstCameraIndex = 0;
   int FirstLightIndex = 0;
+
+  /**
+   * Assembly nodes to open down to B-rep face level, as the user asked for them.
+   *
+   * Face nodes are built on request rather than always: a part can carry thousands of faces, and a
+   * whole assembly's worth would swamp the tree that has to stay affordable at 100k nodes. They are
+   * materialised into the graph like any other node instead of being projected lazily on expand,
+   * because the graph is rebuilt on every visibility toggle anyway and view state survives it --
+   * so "rebuild with more in it" costs nothing a toggle did not already cost.
+   */
+  std::set<int> FaceLevelNodes;
 };
 
 /// Structural names of the two synthetic sections, also the path segment (eg. "/f3d.glb/@cameras").
 inline constexpr const char* G3DCameraSectionName = "@cameras";
 inline constexpr const char* G3DLightSectionName = "@lights";
+
+/// Structural name prefix of a face node; the suffix is its 0-based face id ("face_12").
+inline constexpr const char* G3DFaceNamePrefix = "face_";
+
+/**
+ * Most faces a node will be opened to.
+ *
+ * A single machined part can reach tens of thousands of faces, and a tree that budgets 100k nodes
+ * for a whole assembly cannot spend them all on one part. Above this the node is left closed and
+ * the refusal is logged and shown, never silently truncated to the first N.
+ */
+inline constexpr int G3DMaxMaterializedFaces = 5000;
+
 void G3DIngestDataAssemblies(
   G3DSceneGraph& graph, const std::vector<G3DAssemblySource>& sources);
 

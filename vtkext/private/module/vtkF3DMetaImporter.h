@@ -229,6 +229,16 @@ public:
    * file camera's pose. False for any other type, so callers can fall back to plain selection.
    */
   bool ActivateG3DSceneTreeNode(const std::string& path);
+  /**
+   * Ask for a node's B-rep faces to be built into the graph, or given back.
+   *
+   * The one mutation that changes the *shape* of the tree rather than what a node says: face nodes
+   * exist only for the parts a user opened, because a whole assembly's faces would swamp a tree
+   * budgeted for 100k nodes. False when the path is unknown, has no B-rep behind it, or carries
+   * more faces than `G3DMaxMaterializedFaces` -- the last case logs why, so a refusal is never
+   * mistaken for an empty part.
+   */
+  bool SetG3DSceneTreeFaceLevel(const std::string& path, bool expanded);
   /// World-space bounds of a node's whole subtree. False when the path is unknown or has no bounds.
   bool GetG3DSceneTreeNodeBounds(const std::string& path, double bounds[6]) const;
   ///@}

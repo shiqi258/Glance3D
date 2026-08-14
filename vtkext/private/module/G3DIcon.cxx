@@ -265,6 +265,19 @@ void DrawComponent(const IconCanvas& c)
   diamond(0.50f, 0.80f, 0.17f);
 }
 
+/**
+ * A quad seen at an angle — one face of a solid.
+ *
+ * Deliberately the same family as the cube glyph a whole part gets, one facet of it: the tree row
+ * it marks sits under exactly that part.
+ */
+void DrawSurface(const IconCanvas& c)
+{
+  ImVec2 quad[5] = { c.P(0.12f, 0.60f), c.P(0.42f, 0.22f), c.P(0.88f, 0.40f), c.P(0.58f, 0.78f),
+    c.P(0.12f, 0.60f) };
+  c.Poly(quad, 5);
+}
+
 void DrawFolder(const IconCanvas& c, bool open)
 {
   if (open)
@@ -505,6 +518,9 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Component:
       DrawComponent(c);
+      break;
+    case G3DIconId::Surface:
+      DrawSurface(c);
       break;
     case G3DIconId::Folder:
       DrawFolder(c, false);

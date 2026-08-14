@@ -83,6 +83,12 @@ paths and node types. Only rows that are actually displayed are listed, so run
 `scene_tree_expand path` / `scene_tree_collapse path`: Open or close one node.
 eg: `scene_tree_expand /f3d.glb/Body`.
 
+A CAD part carries its B-rep faces, and those are *built* rather than merely revealed: expanding
+such a node creates one `face_<n>` child per face (eg. `/cheese.stp/actor_0/face_3`), and collapsing
+it gives them back. Selecting a face node highlights that face in the render. A part with more than
+5000 faces is left closed and says so, rather than filling the tree with them; the row shows how
+many it has either way. `scene_tree_expand_all` never opens faces — only an explicit request does.
+
 `scene_tree_expand_all [depth]`: Open every node, optionally only down to `depth`.
 eg: `scene_tree_expand_all 2`.
 

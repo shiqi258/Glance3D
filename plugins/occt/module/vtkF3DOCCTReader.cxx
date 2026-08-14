@@ -62,8 +62,11 @@
 #include <vtkCellArray.h>
 #include <vtkCellData.h>
 #include <vtkCommand.h>
+#include <vtkDataArray.h>
+#include <vtkDataSet.h>
 #include <vtkDemandDrivenPipeline.h>
 #include <vtkFloatArray.h>
+#include <vtkIdTypeArray.h>
 #include <vtkInformation.h>
 #include <vtkInformationVector.h>
 #include <vtkMatrix4x4.h>
@@ -166,8 +169,16 @@ public:
 #endif
     vtkNew<vtkCellArray> trianglesCells;
     vtkNew<vtkCellArray> linesCells;
+    // Which B-rep face each triangle came from. Written here because this loop is the only place
+    // the correspondence still exists -- after tessellation a mesh is one undifferentiated soup of
+    // triangles, and recovering "these belong to that face" would mean meshing the shape twice.
+    // The cost is one append per cell in a loop that already appends several.
+    vtkNew<vtkIdTypeArray> faceIds;
+    faceIds->SetNumberOfComponents(1);
+    faceIds->SetName(G3DCellArray::FaceId);
 
     int shift = 0;
+    vtkIdType faceCount = 0;
 
 #if F3D_PLUGIN_OCCT_XCAF
     const StyleMap inheritedStyles = this->CollectInheritedStyles(label, shape);
@@ -224,6 +235,9 @@ public:
         std::vector<vtkIdType> polyline(nbV);
         std::iota(polyline.begin(), polyline.end(), shift);
         linesCells->InsertNextCell(polyline.size(), polyline.data());
+        // Cell data follows vtkPolyData's cell order (lines before polys), so the edges take their
+        // slots first; an edge belongs to no single face.
+        faceIds->InsertNextValue(-1);
 
 #if F3D_PLUGIN_OCCT_XCAF
         std::array<unsigned char, 3> rgb = { 0, 0, 0 };
@@ -330,7 +344,9 @@ public:
           std::swap(cell[0], cell[2]);
         }
         trianglesCells->InsertNextCell(3, cell);
+        faceIds->InsertNextValue(faceCount);
       }
+      faceCount++;
 
 #if F3D_PLUGIN_OCCT_XCAF
       std::array<unsigned char, 3> rgb = { 255, 255, 255 };
@@ -371,9 +387,30 @@ public:
 #if F3D_PLUGIN_OCCT_XCAF
     polydata->GetCellData()->SetScalars(colors);
 #endif
+    polydata->GetCellData()->AddArray(faceIds);
 
     polydata->Squeeze();
     return polydata;
+  }
+
+  /**
+   * How many B-rep faces the tessellation of @p dataset came from.
+   *
+   * Read back off the array rather than threaded out of CreateShape: the geometry is cached per
+   * shape and reused by every occurrence of it, so the count has to be recoverable from the data
+   * alone. The range is computed once and cached by VTK, so repeating the question is free.
+   */
+  static int GetG3DFaceCount(vtkDataSet* dataset)
+  {
+    vtkDataArray* faceIds =
+      dataset != nullptr ? dataset->GetCellData()->GetArray(G3DCellArray::FaceId) : nullptr;
+    if (faceIds == nullptr || faceIds->GetNumberOfTuples() == 0)
+    {
+      return 0;
+    }
+    // Ids are dense from 0, so the largest one is the count minus one. An all-edge shape is all -1,
+    // which lands on zero -- "no faces here", exactly right.
+    return static_cast<int>(faceIds->GetRange(0)[1]) + 1;
   }
 
 #if F3D_PLUGIN_OCCT_XCAF
@@ -617,6 +654,8 @@ public:
         vtkInformation* info = mb->GetMetaData(blockId);
         info->Set(vtkMultiBlockDataSet::NAME(), this->GetName(label));
         this->DescribeG3DNode(label, info);
+        vtkG3DNodeMetadata::SetFaceCount(
+          info, vtkInternals::GetG3DFaceCount(transfoFilter->GetOutput()));
       }
     }
     else
@@ -900,6 +939,8 @@ int vtkF3DOCCTReader::RequestData(
       if (polydata && polydata->GetNumberOfCells() > 0)
       {
         output->SetBlock(1, polydata);
+        vtkG3DNodeMetadata::SetFaceCount(
+          output->GetMetaData(static_cast<unsigned int>(1)), vtkInternals::GetG3DFaceCount(polydata));
       }
       return 1;
     }
@@ -1044,6 +1085,8 @@ int vtkF3DOCCTReader::RequestData(
       if (polydata && polydata->GetNumberOfCells() > 0)
       {
         output->SetBlock(iShape, polydata);
+        vtkG3DNodeMetadata::SetFaceCount(output->GetMetaData(static_cast<unsigned int>(iShape)),
+          vtkInternals::GetG3DFaceCount(polydata));
       }
     }
   }

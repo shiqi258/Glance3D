@@ -1340,7 +1340,11 @@ interactor& interactor_impl::initCommands()
         }
         if (row.hasChildren)
         {
-          line += "  (" + std::to_string(row.childCount) + (row.expanded ? ")" : ", collapsed)");
+          // A node whose children have not been built yet counts what is behind the twisty
+          // instead: it has no children, it has faces waiting to become some.
+          const bool pending = row.childCount == 0 && row.faceCount > 0;
+          line += "  (" + std::to_string(pending ? row.faceCount : row.childCount) +
+            (pending ? " faces" : "") + (row.expanded ? ")" : ", collapsed)");
         }
         if (!row.visible)
         {
@@ -1359,10 +1363,13 @@ interactor& interactor_impl::initCommands()
       const std::string path = sceneTreePath(args, "scene_tree_expand");
       if (!this->Internals->Scene.setSceneTreeExpanded(path, true))
       {
-        log::warn("Command: unknown scene tree node: ", path);
+        // Not necessarily unknown: opening a node down to B-rep face level can be refused, and
+        // that refusal says why on its own line just above this one.
+        log::warn("Command: could not expand scene tree node: ", path);
       }
     },
-    command_documentation_t{ "scene_tree_expand path", "expand a scene tree node" });
+    command_documentation_t{ "scene_tree_expand path",
+      "expand a scene tree node, building its B-rep faces if that is what it holds" });
 
   this->addCommand(
     "scene_tree_collapse",

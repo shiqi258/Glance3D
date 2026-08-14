@@ -260,6 +260,23 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
       sce.getSceneTreeNodeProperties("/no/such/node").empty() &&
       sce.getSceneTreeNodeProperties("").empty();
   });
+  // Faces are the one thing expanding a node can *build* rather than merely reveal. A glTF file has
+  // no B-rep behind it, so what has to hold here is that nothing pretends otherwise.
+  test("Glance3D scene tree face level", [&]() {
+    const std::vector<f3d::g3d_tree_row> rows =
+      sce.getSceneTreeRows(0, sce.getSceneTreeInfo().rowCount);
+    const bool noFaces = std::none_of(rows.begin(), rows.end(),
+      [](const f3d::g3d_tree_row& row)
+      { return row.faceCount != 0 || row.type == f3d::g3d_node_type::FACE; });
+    // A leaf of a format with no faces stays a leaf: expanding it is accepted (it is view state)
+    // but grows nothing.
+    const auto leaf = std::find_if(rows.begin(), rows.end(),
+      [](const f3d::g3d_tree_row& row) { return !row.hasChildren; });
+    const int before = sce.getSceneTreeInfo().rowCount;
+    const bool expanded = leaf != rows.end() && sce.setSceneTreeExpanded(leaf->path, true);
+    return noFaces && expanded && sce.getSceneTreeInfo().rowCount == before &&
+      !sce.setSceneTreeExpanded("/no/such/node", true);
+  });
   test("Glance3D scene tree type filter", [&]() {
     const int allRows = sce.getSceneTreeInfo().rowCount;
     sce.setSceneTreeTypeFilter({ f3d::g3d_node_type::FILE, f3d::g3d_node_type::GROUP,

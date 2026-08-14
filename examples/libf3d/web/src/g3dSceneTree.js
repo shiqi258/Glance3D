@@ -44,6 +44,8 @@ const ICONS = {
   component:
     '<path d="M12 2.6 15.4 6 12 9.4 8.6 6Z" /><path d="M6 8.6 9.4 12 6 15.4 2.6 12Z" />' +
     '<path d="M18 8.6 21.4 12 18 15.4 14.6 12Z" /><path d="M12 14.6 15.4 18 12 21.4 8.6 18Z" />',
+  // A quad seen at an angle: one face of a solid. Matches the desktop Surface glyph.
+  surface: '<path d="M2.9 14.4 10.1 5.3 21.1 9.6 13.9 18.7Z" />',
 };
 
 const svg = (name, className) =>
@@ -74,6 +76,8 @@ function rowLabel(row) {
     noun = row.hasChildren ? "Cameras" : "Camera";
   } else if (row.type === "light") {
     noun = row.hasChildren ? "Lights" : "Light";
+  } else if (row.type === "face") {
+    noun = "Face";
   }
   return row.placeholderOrdinal > 0 ? `${noun} ${row.placeholderOrdinal}` : noun;
 }
@@ -93,6 +97,9 @@ function rowIcon(row) {
   // owning what is under it, and in a CAD assembly that is the distinction worth seeing.
   if (row.type === "instance") {
     return { name: "component", variant: row.hasChildren ? "folder" : "" };
+  }
+  if (row.type === "face") {
+    return { name: "surface", variant: "" };
   }
   if (row.hasChildren) {
     return { name: row.expanded ? "folder-open" : "folder", variant: "folder" };
@@ -119,7 +126,12 @@ function rowMarkup(row) {
   // What an occurrence points at beats its child count: the count is visible from the twisty, while
   // the product name is the only thing on the row that is not already on screen. The view-model
   // decides when the target says more than the label, so both frontends show it in the same places.
-  const metaText = row.instanceTarget || (row.hasChildren ? row.childCount : "");
+  // A node still waiting to be opened to face level counts its faces instead of its children: it has
+  // none yet, and how many are behind the twisty is the question the row raises.
+  const pending = row.hasChildren && row.childCount === 0 && row.faceCount > 0;
+  const metaText =
+    row.instanceTarget ||
+    (pending ? row.faceCount : row.hasChildren ? row.childCount : "");
   const meta =
     metaText === ""
       ? ""

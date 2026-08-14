@@ -63,6 +63,7 @@ emscripten::val g3dTreeRowToJSObject(const f3d::g3d_tree_row& row)
   js.set("type", f3d::g3dNodeTypeToString(row.type));
   js.set("depth", row.depth);
   js.set("childCount", row.childCount);
+  js.set("faceCount", row.faceCount);
   js.set("placeholderOrdinal", row.placeholderOrdinal);
   js.set("hasChildren", row.hasChildren);
   js.set("expanded", row.expanded);

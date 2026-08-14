@@ -37,6 +37,8 @@ int PlaceholderKindOf(const G3DSceneGraph& graph, int node)
       return 2 + hasChildren;
     case G3DNodeType::LIGHT:
       return 4 + hasChildren;
+    case G3DNodeType::FACE:
+      return 6;
     default:
       return hasChildren;
   }
@@ -413,16 +415,23 @@ void G3DSceneTreeView::Rebuild() const
       continue;
     }
 
-    const bool hasChildren = graph.FirstChild(node) >= 0;
+    const bool realChildren = graph.FirstChild(node) >= 0;
+    // A node whose children exist but have not been built yet still offers a twisty -- that is the
+    // only way to ask for them. It can never read as open, though: the stored expansion state may
+    // well say "expanded" (ExpandAll says it about everything), and a twisty pointing down at
+    // nothing would be a lie until the children are actually there.
+    const bool lazyChildren = !realChildren && graph.HasFlag(node, G3DNodeFlag::LazyChildren);
+    const bool hasChildren = realChildren || lazyChildren;
     // While filtering, ancestors of a hit stay open regardless of stored expansion state.
     const bool expanded =
-      hasChildren && (this->IsExpanded(node) || (filtering && matched[index] == 0));
+      realChildren && (this->IsExpanded(node) || (filtering && matched[index] == 0));
 
     G3DTreeRow row;
     row.Node = node;
     row.Depth = graph.Depth(node) - 1;
     row.Type = graph.Type(node);
     row.ChildCount = graph.ChildCount(node);
+    row.FaceCount = graph.FaceCount(node);
     row.PlaceholderOrdinal = placeholderOrdinal[index];
     row.Flags = 0u;
     row.Flags |= hasChildren ? G3DTreeRowFlag::HasChildren : 0u;
@@ -432,8 +441,12 @@ void G3DSceneTreeView::Rebuild() const
     row.Flags |= node == selected ? G3DTreeRowFlag::Selected : 0u;
     row.Flags |= (filtering && matched[index] != 0) ? G3DTreeRowFlag::Matched : 0u;
     row.Flags |= graph.HasFlag(node, G3DNodeFlag::Placeholder) ? G3DTreeRowFlag::Placeholder : 0u;
-    row.Flags |= row.Type == G3DNodeType::CAMERA ? 0u : G3DTreeRowFlag::CanToggleVisibility;
+    // Neither a viewpoint nor one face of a solid is a thing that can be shown or hidden on its own.
+    row.Flags |= (row.Type == G3DNodeType::CAMERA || row.Type == G3DNodeType::FACE)
+      ? 0u
+      : G3DTreeRowFlag::CanToggleVisibility;
     row.Flags |= ::G3DAnnouncesInstanceTarget(graph, node) ? G3DTreeRowFlag::InstanceTarget : 0u;
+    row.Flags |= lazyChildren ? G3DTreeRowFlag::LazyChildren : 0u;
 
     this->RowForNode[index] = static_cast<int>(this->Rows.size());
     this->Rows.emplace_back(row);

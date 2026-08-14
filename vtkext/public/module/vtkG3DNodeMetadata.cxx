@@ -1,6 +1,7 @@
 #include "vtkG3DNodeMetadata.h"
 
 #include <vtkInformation.h>
+#include <vtkInformationIntegerKey.h>
 #include <vtkInformationStringKey.h>
 #include <vtkInformationStringVectorKey.h>
 #include <vtkObjectFactory.h>
@@ -9,6 +10,7 @@ vtkStandardNewMacro(vtkG3DNodeMetadata);
 
 vtkInformationKeyMacro(vtkG3DNodeMetadata, NODE_TYPE, String);
 vtkInformationKeyMacro(vtkG3DNodeMetadata, INSTANCE_TARGET, String);
+vtkInformationKeyMacro(vtkG3DNodeMetadata, FACE_COUNT, Integer);
 vtkInformationKeyMacro(vtkG3DNodeMetadata, PROPERTIES, StringVector);
 
 //----------------------------------------------------------------------------
@@ -29,6 +31,18 @@ void vtkG3DNodeMetadata::SetInstanceTarget(vtkInformation* info, const std::stri
     return;
   }
   info->Set(vtkG3DNodeMetadata::INSTANCE_TARGET(), productName);
+}
+
+//----------------------------------------------------------------------------
+void vtkG3DNodeMetadata::SetFaceCount(vtkInformation* info, int count)
+{
+  // Zero means "this node has no B-rep behind it", which is also what an absent key means, so it is
+  // not recorded -- a node should not read as face-capable-but-empty.
+  if (info == nullptr || count <= 0)
+  {
+    return;
+  }
+  info->Set(vtkG3DNodeMetadata::FACE_COUNT(), count);
 }
 
 //----------------------------------------------------------------------------
@@ -68,6 +82,16 @@ std::string vtkG3DNodeMetadata::GetInstanceTarget(vtkInformation* info)
   }
   const char* target = info->Get(vtkG3DNodeMetadata::INSTANCE_TARGET());
   return target ? std::string(target) : std::string();
+}
+
+//----------------------------------------------------------------------------
+int vtkG3DNodeMetadata::GetFaceCount(vtkInformation* info)
+{
+  if (info == nullptr || !info->Has(vtkG3DNodeMetadata::FACE_COUNT()))
+  {
+    return 0;
+  }
+  return info->Get(vtkG3DNodeMetadata::FACE_COUNT());
 }
 
 //----------------------------------------------------------------------------

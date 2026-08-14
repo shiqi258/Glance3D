@@ -47,6 +47,9 @@ inline constexpr std::uint32_t CanToggleVisibility = 1u << 7;
 /// The node is an occurrence of a product whose name adds something the label does not, so a
 /// presenter should show `G3DSceneGraph::InstanceTarget()` alongside the row.
 inline constexpr std::uint32_t InstanceTarget = 1u << 8;
+/// The row offers a twisty for children that do not exist yet (B-rep faces). Opening it is a
+/// request to build them, not a view-state toggle, so it goes through the scene rather than here.
+inline constexpr std::uint32_t LazyChildren = 1u << 9;
 }
 
 /**
@@ -91,6 +94,8 @@ struct G3DTreeRow
   G3DNodeType Type = G3DNodeType::OTHER;
   std::uint32_t Flags = 0;
   int ChildCount = 0;
+  /// B-rep faces behind this node, materialised or not; 0 when the format kept no correspondence.
+  int FaceCount = 0;
   /// 1-based index among same-parent placeholders of the same kind, or -1 when it stands alone.
   int PlaceholderOrdinal = -1;
 

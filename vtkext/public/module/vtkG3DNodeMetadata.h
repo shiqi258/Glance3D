@@ -30,6 +30,7 @@
 /// @endcond
 
 class vtkInformation;
+class vtkInformationIntegerKey;
 class vtkInformationStringKey;
 class vtkInformationStringVectorKey;
 
@@ -57,6 +58,16 @@ public:
   static vtkInformationStringKey* INSTANCE_TARGET();
 
   /**
+   * How many B-rep faces the node's mesh was tessellated from, for readers that kept the
+   * correspondence (see `G3DCellArray::FaceId`).
+   *
+   * Reported separately from the array itself because the tree needs the count before it decides
+   * whether to open a node down to face level, and scanning a million-cell array to learn it on
+   * every rebuild would be a poor trade for a number the reader already had.
+   */
+  static vtkInformationIntegerKey* FACE_COUNT();
+
+  /**
    * Per-node properties as a flat, interleaved key/value list: `[k0, v0, k1, v1, ...]`.
    *
    * Interleaved rather than two parallel keys so a half-written pair is impossible, and ordered
@@ -71,9 +82,11 @@ public:
    */
   static void SetNodeType(vtkInformation* info, const std::string& type);
   static void SetInstanceTarget(vtkInformation* info, const std::string& productName);
+  static void SetFaceCount(vtkInformation* info, int count);
   static void AddProperty(vtkInformation* info, const std::string& key, const std::string& value);
   static std::string GetNodeType(vtkInformation* info);
   static std::string GetInstanceTarget(vtkInformation* info);
+  static int GetFaceCount(vtkInformation* info);
   static std::vector<std::pair<std::string, std::string>> GetProperties(vtkInformation* info);
   ///@}
 
@@ -94,12 +107,33 @@ private:
  * would be normalised away. Numbered pairs are the dull option that has no such edge, and the
  * volume never justifies anything cleverer.
  */
+/**
+ * Cell arrays Glance3D writes for its own bookkeeping.
+ *
+ * Real arrays on the data -- the renderer reads them to extract a subset -- but not data the file
+ * is *about*, so anything offering the user a choice of arrays (colouring, `--verbose` listings)
+ * skips them by name rather than by an ad-hoc list per call site.
+ */
+namespace G3DCellArray
+{
+/// 0-based index of the B-rep face a triangle was tessellated from; -1 for cells that are not
+/// faces (the wire edges). Absent on formats with no B-rep behind the mesh.
+inline constexpr const char* FaceId = "G3DFaceId";
+
+inline bool IsInternal(const std::string& name)
+{
+  return name.rfind("G3D", 0) == 0;
+}
+}
+
 namespace G3DAssemblyAttribute
 {
 /// Node type token, same vocabulary as vtkG3DNodeMetadata::NODE_TYPE().
 inline constexpr const char* NodeType = "g3d_type";
 /// Referenced product name, same meaning as vtkG3DNodeMetadata::INSTANCE_TARGET().
 inline constexpr const char* InstanceTarget = "g3d_instance_of";
+/// Number of B-rep faces behind this node's mesh, same meaning as vtkG3DNodeMetadata::FACE_COUNT().
+inline constexpr const char* FaceCount = "g3d_face_count";
 /// Number of property pairs; pair i is `g3d_prop_k<i>` / `g3d_prop_v<i>`.
 inline constexpr const char* PropertyCount = "g3d_prop_n";
 inline constexpr const char* PropertyKeyPrefix = "g3d_prop_k";

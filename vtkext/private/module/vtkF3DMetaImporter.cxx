@@ -426,6 +426,14 @@ struct vtkF3DMetaImporter::Internals
   G3DSceneGraph SceneGraph;
   vtkMTimeType SceneGraphSignature = 0;
   bool SceneGraphValid = false;
+
+  /**
+   * Nodes whose B-rep faces are wanted, keyed by path because that is what survives a rebuild.
+   *
+   * Resolved to assembly node ids only at build time, against the graph that is about to be
+   * replaced -- the same graph the user was looking at when they asked.
+   */
+  std::set<std::string> FaceLevelPaths;
 };
 
 //----------------------------------------------------------------------------
@@ -556,6 +564,29 @@ void vtkF3DMetaImporter::SetG3DDataAssemblyNodeVisibility(
 }
 
 //----------------------------------------------------------------------------
+namespace
+{
+/**
+ * Resolve a stable graph path down to the (assembly, node id) pair the visibility contract needs.
+ *
+ * The graph is the only thing that knows paths, and every node remembers which assembly node it
+ * came from, so a path lookup plus two array reads replaces the string id parsing this used to do.
+ */
+bool ResolveG3DPathToSource(
+  const G3DSceneGraph& graph, const std::string& path, int& importerIndex, int& sourceNodeId)
+{
+  const int node = graph.FindByPath(path);
+  if (node < 0)
+  {
+    return false;
+  }
+  importerIndex = graph.ImporterIndex(node);
+  sourceNodeId = graph.SourceNodeId(node);
+  return importerIndex >= 0 && sourceNodeId >= 0;
+}
+}
+
+//----------------------------------------------------------------------------
 const G3DSceneGraph& vtkF3DMetaImporter::GetG3DSceneGraph() const
 {
   vtkMTimeType signature = static_cast<vtkMTimeType>(this->Pimpl->Importers.size());
@@ -575,9 +606,31 @@ const G3DSceneGraph& vtkF3DMetaImporter::GetG3DSceneGraph() const
     }
   }
 
+  // Which nodes were opened to face level is part of what the graph *is*, so a change to it has to
+  // dirty the graph exactly as an assembly change does.
+  signature = signature * 1000003u + static_cast<vtkMTimeType>(this->Pimpl->FaceLevelPaths.size());
+  for (const std::string& path : this->Pimpl->FaceLevelPaths)
+  {
+    signature = signature * 1000003u + std::hash<std::string>{}(path);
+  }
+
   if (this->Pimpl->SceneGraphValid && signature == this->Pimpl->SceneGraphSignature)
   {
     return this->Pimpl->SceneGraph;
+  }
+
+  // Resolved against the graph as it stands, before it is rebuilt over: that is the graph whose
+  // paths the request was made against.
+  std::vector<std::set<int>> faceLevelNodes(this->Pimpl->Importers.size());
+  for (const std::string& path : this->Pimpl->FaceLevelPaths)
+  {
+    int importerIndex = -1;
+    int sourceNodeId = -1;
+    if (::ResolveG3DPathToSource(this->Pimpl->SceneGraph, path, importerIndex, sourceNodeId) &&
+      importerIndex >= 0 && importerIndex < static_cast<int>(faceLevelNodes.size()))
+    {
+      faceLevelNodes[static_cast<std::size_t>(importerIndex)].insert(sourceNodeId);
+    }
   }
 
   std::vector<G3DAssemblySource> sources;
@@ -609,6 +662,8 @@ const G3DSceneGraph& vtkF3DMetaImporter::GetG3DSceneGraph() const
       }
     }
 
+    source.FaceLevelNodes = faceLevelNodes[index];
+
     source.FirstCameraIndex = firstCameraIndex;
     source.FirstLightIndex = firstLightIndex;
     firstCameraIndex += static_cast<int>(source.Cameras.size());
@@ -626,25 +681,6 @@ const G3DSceneGraph& vtkF3DMetaImporter::GetG3DSceneGraph() const
 //----------------------------------------------------------------------------
 namespace
 {
-/**
- * Resolve a stable graph path down to the (assembly, node id) pair the visibility contract needs.
- *
- * The graph is the only thing that knows paths, and every node remembers which assembly node it
- * came from, so a path lookup plus two array reads replaces the string id parsing this used to do.
- */
-bool ResolveG3DPathToSource(
-  const G3DSceneGraph& graph, const std::string& path, int& importerIndex, int& sourceNodeId)
-{
-  const int node = graph.FindByPath(path);
-  if (node < 0)
-  {
-    return false;
-  }
-  importerIndex = graph.ImporterIndex(node);
-  sourceNodeId = graph.SourceNodeId(node);
-  return importerIndex >= 0 && sourceNodeId >= 0;
-}
-
 /**
  * Switches every light in a subtree, and reports whether it found any.
  *
@@ -761,6 +797,47 @@ bool vtkF3DMetaImporter::ActivateG3DSceneTreeNode(const std::string& path)
     return false;
   }
   return this->ApplyG3DCamera(static_cast<vtkIdType>(graph.RenderableLocalIndex(node)));
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DMetaImporter::SetG3DSceneTreeFaceLevel(const std::string& path, bool expanded)
+{
+  // Copied first: a caller naming a node with `graph.Path(node)` hands us a reference into the very
+  // string pool the rebuild below discards.
+  const std::string key = path;
+
+  if (!expanded)
+  {
+    // Erasing a path that was never there is not a failure: "make sure this is closed" is a request
+    // a caller should be able to make blind.
+    this->Pimpl->FaceLevelPaths.erase(key);
+    return true;
+  }
+
+  const G3DSceneGraph& graph = this->GetG3DSceneGraph();
+  const int node = graph.FindByPath(key);
+  if (node < 0)
+  {
+    return false;
+  }
+
+  const int faceCount = graph.FaceCount(node);
+  if (faceCount <= 0)
+  {
+    return false;
+  }
+  if (faceCount > G3DMaxMaterializedFaces)
+  {
+    // Said out loud, because a node that quietly stayed shut reads as a node with nothing in it.
+    F3DLog::Print(F3DLog::Severity::Warning,
+      "Scene tree: " + key + " has " + std::to_string(faceCount) + " faces, more than the " +
+        std::to_string(G3DMaxMaterializedFaces) +
+        " a node may be opened to; leaving it closed.");
+    return false;
+  }
+
+  this->Pimpl->FaceLevelPaths.insert(key);
+  return true;
 }
 
 //----------------------------------------------------------------------------

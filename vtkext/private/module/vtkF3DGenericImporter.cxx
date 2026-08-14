@@ -56,6 +56,12 @@ void ForwardG3DNodeMetadata(vtkDataAssembly* assembly, int nodeId, vtkInformatio
       nodeId, G3DAssemblyAttribute::InstanceTarget, instanceTarget.c_str());
   }
 
+  const int faceCount = vtkG3DNodeMetadata::GetFaceCount(blockInfo);
+  if (faceCount > 0)
+  {
+    assembly->SetAttribute(nodeId, G3DAssemblyAttribute::FaceCount, faceCount);
+  }
+
   const std::vector<std::pair<std::string, std::string>> properties =
     vtkG3DNodeMetadata::GetProperties(blockInfo);
   if (properties.empty())

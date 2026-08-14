@@ -2,6 +2,8 @@
 
 #include "F3DLog.h"
 
+#include "vtkG3DNodeMetadata.h"
+
 #include <vtkCellData.h>
 #include <vtkDataArray.h>
 #include <vtkDataSet.h>
@@ -33,7 +35,10 @@ void F3DColoringInfoHandler::UpdateColoringInfo(vtkDataSet* dataset, bool useCel
   for (int i = 0; i < attr->GetNumberOfArrays(); i++)
   {
     vtkDataArray* array = attr->GetArray(i);
-    if (array && array->GetName())
+    // Glance3D's own bookkeeping arrays (a B-rep face index, say) are real data the renderer uses,
+    // but they describe the viewer's structure rather than the model, so they are not something to
+    // offer as a colouring.
+    if (array && array->GetName() && !G3DCellArray::IsInternal(array->GetName()))
     {
       arrayNames.insert(array->GetName());
     }

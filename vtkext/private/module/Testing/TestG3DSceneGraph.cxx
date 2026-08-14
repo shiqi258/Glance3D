@@ -1,5 +1,7 @@
 #include "G3DSceneGraph.h"
 
+#include "vtkG3DNodeMetadata.h"
+
 #include <vtkActor.h>
 #include <vtkCamera.h>
 #include <vtkCubeSource.h>
@@ -65,6 +67,11 @@ public:
     const int deep = this->SceneHierarchy->AddNode("deep", bare);
     this->SceneHierarchy->SetAttribute(deep, "label", "Deep");
     this->SceneHierarchy->SetAttribute(deep, "flat_actor_id", 2);
+    // A B-rep behind the mesh, as a CAD reader reports it: faces exist but no node stands for one
+    // until somebody asks. leafA declares more than the ceiling allows, leafB a workable few.
+    this->SceneHierarchy->SetAttribute(
+      leafA, G3DAssemblyAttribute::FaceCount, G3DMaxMaterializedFaces + 1);
+    this->SceneHierarchy->SetAttribute(leafB, G3DAssemblyAttribute::FaceCount, 3);
 
     for (int i = 0; i < 3; i++)
     {
@@ -468,6 +475,52 @@ int TestG3DSceneGraph(int, char*[])
     ::Check(instanceGraph.InstanceTarget(instanceGraph.FindByPath("/plain")).empty(),
       "an empty product name leaves the node without a target");
     ::Check(instanceGraph.InstanceTarget(0).empty(), "the synthetic root has no target");
+  }
+
+  // --- B-rep faces ----------------------------------------------------------------------------
+  // Faces are built only where asked for, and only up to a ceiling: the invariant is that a node
+  // either carries face children or advertises that it could, never both and never neither.
+  {
+    const int leafA = graph.FindByPath("/model.ext/grp/leaf[1]");
+    const int leafB = graph.FindByPath("/model.ext/grp/leaf[2]");
+    ::Check(graph.FaceCount(leafA) == G3DMaxMaterializedFaces + 1, "the declared count is kept");
+    ::Check(graph.FaceCount(leafB) == 3, "...for each node that declares one");
+    ::Check(graph.FaceCount(file) == 0, "a node with no B-rep behind it counts no faces");
+    ::Check(graph.HasFlag(leafB, G3DNodeFlag::LazyChildren),
+      "an unopened node with faces advertises them");
+    ::Check(graph.ChildCount(leafB) == 0, "...without building any");
+
+    vtkDataAssembly* assembly = importer->GetSceneHierarchy();
+    const int assemblyGroup = assembly->GetChild(vtkDataAssembly::GetRootNode(), 0);
+
+    G3DSceneGraph faceGraph;
+    G3DAssemblySource opened{ assembly, importer, "model.ext" };
+    // Both leaves asked for; only the one under the ceiling gets built.
+    opened.FaceLevelNodes = { assembly->GetChild(assemblyGroup, 0),
+      assembly->GetChild(assemblyGroup, 1) };
+    ::G3DIngestDataAssemblies(faceGraph, { opened });
+
+    const int openedA = faceGraph.FindByPath("/model.ext/grp/leaf[1]");
+    const int openedB = faceGraph.FindByPath("/model.ext/grp/leaf[2]");
+    ::Check(faceGraph.ChildCount(openedB) == 3, "the faces asked for are built");
+    ::Check(faceGraph.ChildCount(openedA) == 0, "a part over the ceiling builds none");
+    ::Check(faceGraph.HasFlag(openedA, G3DNodeFlag::LazyChildren),
+      "...and still says it has them, rather than reading as an empty part");
+    ::Check(!faceGraph.HasFlag(openedB, G3DNodeFlag::LazyChildren),
+      "a built node no longer advertises children it now has");
+
+    const int face1 = faceGraph.FindByPath("/model.ext/grp/leaf[2]/face_1");
+    ::Check(face1 >= 0, "faces are addressed by their 0-based id");
+    ::Check(faceGraph.Type(face1) == G3DNodeType::FACE, "and typed as faces");
+    ::Check(faceGraph.RenderableLocalIndex(face1) == 1, "the renderable carries the face id");
+    ::Check(faceGraph.FaceProp(face1) == faceGraph.Prop(openedB),
+      "a face points at the very prop of the part it belongs to");
+    // The distinction the whole variant exists for: a face is not something to frame or hide.
+    ::Check(faceGraph.Prop(face1) == nullptr, "a face is not a prop of its own");
+    std::vector<G3DBounds> faceBounds;
+    std::vector<bool> faceHas;
+    faceGraph.ComputeBounds(faceBounds, faceHas);
+    ::Check(!faceHas[static_cast<std::size_t>(face1)], "so it contributes no bounds");
   }
 
   // --- empty scene ----------------------------------------------------------------------------

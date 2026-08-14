@@ -174,6 +174,14 @@ export interface Glance3DTreeRow {
   /** Indentation level as drawn; loaded files sit at depth 0. */
   depth: number;
   childCount: number;
+  /**
+   * B-rep faces behind this node, whether or not they have been built into rows yet.
+   *
+   * Non-zero only for CAD formats that kept the correspondence. A node with faces and no children
+   * yet still reports `hasChildren`, because opening it is how the faces get built —
+   * `setSceneTreeExpanded` does that and returns false when there are too many to be worth it.
+   */
+  faceCount: number;
   /** 1-based index among same-parent placeholders of the same kind, or -1 when it stands alone. */
   placeholderOrdinal: number;
   hasChildren: boolean;

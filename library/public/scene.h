@@ -82,6 +82,14 @@ struct F3D_EXPORT g3d_tree_row
   /// Indentation level as drawn; loaded files sit at depth 0.
   int depth = 0;
   int childCount = 0;
+  /**
+   * B-rep faces behind this node, whether or not they have been built into rows yet.
+   *
+   * Non-zero only for CAD formats that kept the correspondence. A node with faces and no children
+   * yet still reports `hasChildren`, because opening it is how the faces get built --
+   * `setSceneTreeExpanded` does that and returns false when there are too many to be worth it.
+   */
+  int faceCount = 0;
   /// 1-based index among same-parent placeholders of the same kind, or -1 when it stands alone.
   int placeholderOrdinal = -1;
   bool hasChildren = false;

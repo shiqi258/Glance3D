@@ -18,6 +18,7 @@
 #include "vtkF3DRenderPass.h"
 #include "vtkF3DSolidBackgroundPass.h"
 #include "vtkF3DUserRenderPass.h"
+#include "vtkG3DNodeMetadata.h"
 
 #include <vtkAxesActor.h>
 #include <vtkBoundingBox.h>
@@ -28,6 +29,8 @@
 #include <vtkCellData.h>
 #include <vtkCornerAnnotation.h>
 #include <vtkCullerCollection.h>
+#include <vtkDataObject.h>
+#include <vtkDataSetMapper.h>
 #include <vtkDiscretizableColorTransferFunction.h>
 #include <vtkFloatArray.h>
 #include <vtkImageData.h>
@@ -67,6 +70,7 @@
 #include <vtkTextActor.h>
 #include <vtkTextProperty.h>
 #include <vtkTextureObject.h>
+#include <vtkThreshold.h>
 #include <vtkToneMappingPass.h>
 #include <vtkTransform.h>
 #include <vtkUniforms.h>
@@ -2209,6 +2213,96 @@ void vtkF3DRenderer::UpdateActors()
   {
     this->ConfigureGridUsingCurrentActors();
   }
+
+  this->UpdateG3DFaceHighlight();
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DRenderer::UpdateG3DFaceHighlight()
+{
+  // The already-bound view, not GetG3DSceneTreeView(): binding builds the scene graph, and a headless
+  // render that never opens a tree should not pay for one just to find out nothing is selected.
+  const G3DSceneGraph* graph = this->SceneTreeView.Graph();
+  if (graph == nullptr)
+  {
+    return;
+  }
+  const int node = this->SceneTreeView.Selection();
+
+  vtkProp3D* prop = node >= 0 ? graph->FaceProp(node) : nullptr;
+  vtkActor* actor = vtkActor::SafeDownCast(prop);
+  vtkMapper* mapper = actor != nullptr ? actor->GetMapper() : nullptr;
+  vtkDataSet* dataset = mapper != nullptr ? mapper->GetInputAsDataSet() : nullptr;
+  const int faceId = dataset != nullptr ? graph->RenderableLocalIndex(node) : -1;
+
+  if (faceId < 0 || actor->GetVisibility() == 0)
+  {
+    // Nothing to show: keep the machinery around (a selection usually moves to another face of the
+    // same part) but take it off screen.
+    if (this->FaceHighlightActor != nullptr && this->FaceHighlightActor->GetVisibility() != 0)
+    {
+      this->FaceHighlightActor->VisibilityOff();
+      // Let go of the part's geometry too: a cleared scene should not stay alive because the last
+      // thing selected before it went away was one of its faces.
+      this->FaceHighlightThreshold->SetInputData(nullptr);
+      this->FaceHighlightProp = nullptr;
+      this->FaceHighlightFaceId = -1;
+      this->FaceHighlightInputTime = 0;
+    }
+    return;
+  }
+
+  if (this->FaceHighlightActor == nullptr)
+  {
+    this->FaceHighlightThreshold = vtkSmartPointer<vtkThreshold>::New();
+    this->FaceHighlightThreshold->SetInputArrayToProcess(
+      0, 0, 0, vtkDataObject::FIELD_ASSOCIATION_CELLS, G3DCellArray::FaceId);
+
+    this->FaceHighlightMapper = vtkSmartPointer<vtkDataSetMapper>::New();
+    this->FaceHighlightMapper->SetInputConnection(this->FaceHighlightThreshold->GetOutputPort());
+    this->FaceHighlightMapper->ScalarVisibilityOff();
+    // The highlight sits exactly on the surface it highlights, so without an offset it z-fights the
+    // very triangles it is drawn from.
+    this->FaceHighlightMapper->SetResolveCoincidentTopologyToPolygonOffset();
+    this->FaceHighlightMapper->SetRelativeCoincidentTopologyPolygonOffsetParameters(-4.0, -4.0);
+
+    this->FaceHighlightActor = vtkSmartPointer<vtkActor>::New();
+    this->FaceHighlightActor->SetMapper(this->FaceHighlightMapper);
+    this->FaceHighlightActor->PickableOff();
+    // Unlit and warm: a selection mark has to read the same from every angle, and must not be
+    // mistaken for the model's own colour under whatever lighting the scene happens to have.
+    this->FaceHighlightActor->GetProperty()->LightingOff();
+    this->FaceHighlightActor->GetProperty()->SetColor(1.0, 0.62, 0.16);
+    this->AddActor(this->FaceHighlightActor);
+  }
+
+  // Re-thresholding a million-cell part every frame would be a real cost, and the answer only moves
+  // when the selection does -- or when the part itself does, which an animation makes happen.
+  const vtkMTimeType inputTime = dataset->GetMTime();
+  if (this->FaceHighlightProp != prop || this->FaceHighlightFaceId != faceId ||
+    this->FaceHighlightInputTime != inputTime)
+  {
+    this->FaceHighlightThreshold->SetInputData(dataset);
+    this->FaceHighlightThreshold->SetThresholdFunction(vtkThreshold::THRESHOLD_BETWEEN);
+    this->FaceHighlightThreshold->SetLowerThreshold(static_cast<double>(faceId));
+    this->FaceHighlightThreshold->SetUpperThreshold(static_cast<double>(faceId));
+    this->FaceHighlightProp = prop;
+    this->FaceHighlightFaceId = faceId;
+    this->FaceHighlightInputTime = inputTime;
+  }
+
+  // The part's own placement, copied rather than shared: the actor may be re-posed by an animation
+  // and the highlight has to follow it, but it must not become a second owner of that matrix.
+  vtkNew<vtkMatrix4x4> placement;
+  placement->DeepCopy(actor->GetMatrix());
+  this->FaceHighlightActor->SetUserMatrix(placement);
+  this->FaceHighlightActor->VisibilityOn();
+
+  // Pulled through now rather than left to the mapper: the culler asks the actor for its bounds
+  // before anything renders, and an actor whose mapper has never executed answers with uninitialized
+  // bounds and is culled -- so a freshly selected face would go missing for exactly the one frame a
+  // headless `--output` run gets. A no-op once nothing upstream has changed.
+  this->FaceHighlightThreshold->Update();
 }
 
 //----------------------------------------------------------------------------
@@ -2358,6 +2452,44 @@ G3DSceneTreeView& vtkF3DRenderer::GetG3DSceneTreeView()
   this->SceneTreeView.SetGraph(
     this->Importer ? &this->Importer->GetG3DSceneGraph() : nullptr);
   return this->SceneTreeView;
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DRenderer::SetG3DSceneTreeExpanded(const std::string& path, bool expanded)
+{
+  // Copied before anything can rebuild: a caller is very likely handing us a reference into the
+  // graph's own string pool (`graph.Path(node)` is the obvious way to name a node), and a rebuild
+  // throws that pool away underneath it.
+  const std::string key = path;
+
+  const G3DSceneGraph* graph = this->GetG3DSceneTreeView().Graph();
+  int node = graph != nullptr ? graph->FindByPath(key) : -1;
+  if (node < 0)
+  {
+    return false;
+  }
+
+  // Faces are not view state: they are nodes that must be built before they can be shown, and given
+  // back when they are not. Only the request happens here; the rebuild that follows is the scene's,
+  // and it moves node indices, so the path is resolved again on the other side of it.
+  const bool waiting = graph->HasFlag(node, G3DNodeFlag::LazyChildren);
+  const bool built = !waiting && graph->FaceCount(node) > 0;
+  if (this->Importer != nullptr && (expanded ? waiting : built))
+  {
+    if (!this->Importer->SetG3DSceneTreeFaceLevel(key, expanded))
+    {
+      return false;
+    }
+    graph = this->GetG3DSceneTreeView().Graph();
+    node = graph != nullptr ? graph->FindByPath(key) : -1;
+    if (node < 0)
+    {
+      return false;
+    }
+  }
+
+  this->SceneTreeView.SetExpanded(node, expanded);
+  return true;
 }
 
 //----------------------------------------------------------------------------

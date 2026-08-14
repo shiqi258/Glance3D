@@ -106,6 +106,7 @@ g3d_tree_row ConvertG3DTreeRow(const G3DSceneGraph& graph, const G3DTreeRow& sou
   row.type = ConvertG3DNodeType(source.Type);
   row.depth = source.Depth;
   row.childCount = source.ChildCount;
+  row.faceCount = source.FaceCount;
   row.placeholderOrdinal = source.PlaceholderOrdinal;
   row.hasChildren = source.Has(G3DTreeRowFlag::HasChildren);
   row.expanded = source.Has(G3DTreeRowFlag::Expanded);
@@ -1337,15 +1338,9 @@ bool scene_impl::setSceneTreeExpanded(const std::string& path, bool expanded)
     return false;
   }
 
-  G3DSceneTreeView& view = renderer->GetG3DSceneTreeView();
-  const G3DSceneGraph* graph = view.Graph();
-  const int node = graph ? graph->FindByPath(path) : -1;
-  if (node < 0)
-  {
-    return false;
-  }
-  view.SetExpanded(node, expanded);
-  return true;
+  // Through the renderer rather than straight at the view-model: a node whose children are B-rep
+  // faces has to have them built before it can open, and that is not view state.
+  return renderer->SetG3DSceneTreeExpanded(path, expanded);
 }
 
 //----------------------------------------------------------------------------
