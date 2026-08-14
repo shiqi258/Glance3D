@@ -8,6 +8,7 @@
 vtkStandardNewMacro(vtkG3DNodeMetadata);
 
 vtkInformationKeyMacro(vtkG3DNodeMetadata, NODE_TYPE, String);
+vtkInformationKeyMacro(vtkG3DNodeMetadata, INSTANCE_TARGET, String);
 vtkInformationKeyMacro(vtkG3DNodeMetadata, PROPERTIES, StringVector);
 
 //----------------------------------------------------------------------------
@@ -18,6 +19,16 @@ void vtkG3DNodeMetadata::SetNodeType(vtkInformation* info, const std::string& ty
     return;
   }
   info->Set(vtkG3DNodeMetadata::NODE_TYPE(), type);
+}
+
+//----------------------------------------------------------------------------
+void vtkG3DNodeMetadata::SetInstanceTarget(vtkInformation* info, const std::string& productName)
+{
+  if (info == nullptr || productName.empty())
+  {
+    return;
+  }
+  info->Set(vtkG3DNodeMetadata::INSTANCE_TARGET(), productName);
 }
 
 //----------------------------------------------------------------------------
@@ -46,6 +57,17 @@ std::string vtkG3DNodeMetadata::GetNodeType(vtkInformation* info)
   }
   const char* type = info->Get(vtkG3DNodeMetadata::NODE_TYPE());
   return type ? std::string(type) : std::string();
+}
+
+//----------------------------------------------------------------------------
+std::string vtkG3DNodeMetadata::GetInstanceTarget(vtkInformation* info)
+{
+  if (info == nullptr || !info->Has(vtkG3DNodeMetadata::INSTANCE_TARGET()))
+  {
+    return {};
+  }
+  const char* target = info->Get(vtkG3DNodeMetadata::INSTANCE_TARGET());
+  return target ? std::string(target) : std::string();
 }
 
 //----------------------------------------------------------------------------

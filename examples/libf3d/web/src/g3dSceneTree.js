@@ -40,6 +40,10 @@ const ICONS = {
     '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" /><circle cx="12" cy="12" r="2.6" />' +
     '<line x1="4" y1="4" x2="20" y2="20" />',
   search: '<circle cx="11" cy="11" r="6" /><line x1="20" y1="20" x2="16" y2="16" />',
+  // Four diamonds in a diamond: one product, many occurrences. Matches the desktop Component glyph.
+  component:
+    '<path d="M12 2.6 15.4 6 12 9.4 8.6 6Z" /><path d="M6 8.6 9.4 12 6 15.4 2.6 12Z" />' +
+    '<path d="M18 8.6 21.4 12 18 15.4 14.6 12Z" /><path d="M12 14.6 15.4 18 12 21.4 8.6 18Z" />',
 };
 
 const svg = (name, className) =>
@@ -85,6 +89,11 @@ function rowIcon(row) {
   if (row.type === "light") {
     return { name: "light", variant: "light" };
   }
+  // Before the folder rule: an occurrence has children, but it points at a product rather than
+  // owning what is under it, and in a CAD assembly that is the distinction worth seeing.
+  if (row.type === "instance") {
+    return { name: "component", variant: row.hasChildren ? "folder" : "" };
+  }
   if (row.hasChildren) {
     return { name: row.expanded ? "folder-open" : "folder", variant: "folder" };
   }
@@ -107,9 +116,14 @@ function rowMarkup(row) {
     `icon tree-ticon${icon.variant ? ` ${icon.variant}` : ""}`,
   );
 
-  const meta = row.hasChildren
-    ? `<span class="tree-meta">${row.childCount}</span>`
-    : "";
+  // What an occurrence points at beats its child count: the count is visible from the twisty, while
+  // the product name is the only thing on the row that is not already on screen. The view-model
+  // decides when the target says more than the label, so both frontends show it in the same places.
+  const metaText = row.instanceTarget || (row.hasChildren ? row.childCount : "");
+  const meta =
+    metaText === ""
+      ? ""
+      : `<span class="tree-meta">${escapeHtml(metaText)}</span>`;
 
   // A partially visible group reads as shown, not hidden — the eye carries the mixed state.
   // Cameras get no eye at all: the view-model decides that, so both frontends agree without each
@@ -127,8 +141,14 @@ function rowMarkup(row) {
   if (!row.visible && !row.partiallyVisible) classes.push("hidden");
   if (row.type === "file") classes.push("group");
 
+  // Carried on the element so the selection callback can hand the panel what it already fetched,
+  // rather than asking the core a second time for a fact that arrived with the row.
+  const target = row.instanceTarget
+    ? ` data-instance-target="${escapeHtml(row.instanceTarget)}"`
+    : "";
+
   return (
-    `<div class="${classes.join(" ")}" data-depth="${row.depth}" ` +
+    `<div class="${classes.join(" ")}" data-depth="${row.depth}"${target} ` +
     `data-path="${escapeHtml(row.path)}" title="${escapeHtml(row.path)}">` +
     `${rails}${twisty}${ticon}` +
     `<span class="tree-label">${escapeHtml(rowLabel(row))}</span>` +
@@ -141,8 +161,9 @@ function rowMarkup(row) {
  *
  * @param {HTMLElement} hostEl container the tree owns entirely
  * @param {object} engine the libf3d engine instance (Module.engineInstance)
- * @param {{onSelect?: (path: string) => void}} [callbacks] notified when the selection changes, so a
- *   sibling panel can follow it without the tree having to know that panel exists
+ * @param {{onSelect?: (path: string, row: {instanceTarget: string}) => void}} [callbacks] notified
+ *   when the selection changes, so a sibling panel can follow it without the tree having to know
+ *   that panel exists
  * @returns {{refresh: () => void, isSupported: () => boolean}}
  */
 export function initG3DSceneTree(hostEl, engine, callbacks = {}) {
@@ -260,7 +281,9 @@ export function initG3DSceneTree(hostEl, engine, callbacks = {}) {
       // same single-click behaviour a viewpoint list has. Returns false for anything else, which
       // leaves the click as a plain selection.
       scene().activateSceneTreeNode(path);
-      callbacks.onSelect?.(path);
+      callbacks.onSelect?.(path, {
+        instanceTarget: rowEl.dataset.instanceTarget ?? "",
+      });
     }
     refresh();
   });

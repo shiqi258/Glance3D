@@ -245,6 +245,26 @@ void DrawCube(const IconCanvas& c)
   c.dl->AddLine(ctr, lr, c.color, c.th);
 }
 
+/**
+ * Four diamonds arranged in a diamond — the component mark.
+ *
+ * An occurrence is not a container of its own: the product exists once and appears many times, and
+ * a repeated element says that where a folder would claim the node owns what is under it.
+ */
+void DrawComponent(const IconCanvas& c)
+{
+  const auto diamond = [&c](float cx, float cy, float r)
+  {
+    ImVec2 pts[5] = { c.P(cx, cy - r), c.P(cx + r, cy), c.P(cx, cy + r), c.P(cx - r, cy),
+      c.P(cx, cy - r) };
+    c.Poly(pts, 5);
+  };
+  diamond(0.50f, 0.20f, 0.17f);
+  diamond(0.20f, 0.50f, 0.17f);
+  diamond(0.80f, 0.50f, 0.17f);
+  diamond(0.50f, 0.80f, 0.17f);
+}
+
 void DrawFolder(const IconCanvas& c, bool open)
 {
   if (open)
@@ -482,6 +502,9 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Cube:
       DrawCube(c);
+      break;
+    case G3DIconId::Component:
+      DrawComponent(c);
       break;
     case G3DIconId::Folder:
       DrawFolder(c, false);

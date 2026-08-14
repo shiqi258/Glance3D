@@ -1334,6 +1334,10 @@ interactor& interactor_impl::initCommands()
         {
           line += "  \"" + row.label + "\"";
         }
+        if (!row.instanceTarget.empty())
+        {
+          line += "  -> " + row.instanceTarget;
+        }
         if (row.hasChildren)
         {
           line += "  (" + std::to_string(row.childCount) + (row.expanded ? ")" : ", collapsed)");

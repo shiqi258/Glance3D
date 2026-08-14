@@ -78,6 +78,9 @@ inline constexpr std::uint32_t LazyChildren = 1u << 3;
 class G3DStringPool
 {
 public:
+  /// Id of "no string". Out of range on purpose, so Get() resolves it to the empty string.
+  static constexpr std::uint32_t None = ~0u;
+
   std::uint32_t Intern(const std::string& value);
   const std::string& Get(std::uint32_t id) const;
   std::size_t Size() const
@@ -174,6 +177,14 @@ public:
   const std::string& Label(int node) const;
   /// Structural, non-localized name used to build the path. Never empty.
   const std::string& Name(int node) const;
+  /**
+   * For an INSTANCE node, the name of the product it is an occurrence of. Empty otherwise.
+   *
+   * A name and not a node index: a format may expand the same product once per occurrence -- XCAF
+   * does, which is why an assembly tree is made of instances rather than of shared subtrees -- so
+   * there is no single "the" target node to point at.
+   */
+  const std::string& InstanceTarget(int node) const;
   /// Stable key, eg. "/f3d.glb/Body/Bolt[3]". Survives reloads; safe to persist or deep-link.
   const std::string& Path(int node) const;
   /// Index into Renderables, or -1.
@@ -264,6 +275,7 @@ private:
   std::vector<std::uint32_t> LabelIds;
   std::vector<std::uint32_t> NameIds;
   std::vector<std::uint32_t> PathIds;
+  std::vector<std::uint32_t> InstanceTargetIds;
   std::vector<int> Renderables;
   std::vector<int> ImporterIndices;
   std::vector<int> SourceNodeIds;
@@ -315,6 +327,8 @@ public:
    * than silently attached to the wrong node.
    */
   void AddProperty(const std::string& key, const std::string& value);
+  /// Names the product the node currently open is an occurrence of. See InstanceTarget().
+  void SetInstanceTarget(const std::string& productName);
   void SetRenderable(int renderableIndex);
   void SetImporterIndex(int importerIndex);
   void SetSourceNodeId(int sourceNodeId);

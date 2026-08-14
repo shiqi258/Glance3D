@@ -56,6 +56,7 @@ emscripten::val g3dTreeRowToJSObject(const f3d::g3d_tree_row& row)
   emscripten::val js = emscripten::val::object();
   js.set("path", row.path);
   js.set("label", row.label);
+  js.set("instanceTarget", row.instanceTarget);
   // Node types cross the boundary as strings: readable in the devtools console, and stable against
   // values being inserted into the enumeration later. The spelling comes from libf3d rather than a
   // copy here, so a name printed by `print_scene_tree` is the one JS sees.

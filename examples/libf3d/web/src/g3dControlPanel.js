@@ -30,7 +30,7 @@ export function initG3DControlPanel(engine) {
   const sceneTree = initG3DSceneTree(
     document.querySelector("#g3d-scene-tree"),
     engine,
-    { onSelect: (path) => renderNodeProperties(path) },
+    { onSelect: (path, row) => renderNodeProperties(path, row) },
   );
   const dataInfoEl = document.querySelector("#g3d-data-info");
   const nodePropsEl = document.querySelector("#g3d-node-properties");
@@ -61,7 +61,7 @@ export function initG3DControlPanel(engine) {
    * "Layer" or "Volume" means anything. Nothing is drawn when the node carries none, so a viewer of
    * a plain mesh never grows an empty group — same rule the desktop inspector applies.
    */
-  const renderNodeProperties = (path) => {
+  const renderNodeProperties = (path, row = {}) => {
     if (!nodePropsEl) {
       return;
     }
@@ -80,11 +80,17 @@ export function initG3DControlPanel(engine) {
     } catch {
       return;
     }
-    if (properties.length === 0) {
+    const instanceTarget = row.instanceTarget ?? "";
+    if (properties.length === 0 && !instanceTarget) {
       return;
     }
 
     nodePropsEl.append(el("p", "g3d-data-info__section", "Properties"));
+    // Leads the group: what a node is an occurrence *of* frames every attribute that follows, since
+    // those belong to the product rather than to the occurrence.
+    if (instanceTarget) {
+      nodePropsEl.append(infoRow("Instance of", instanceTarget));
+    }
     for (const property of properties) {
       // Names come from the file, not from a catalog: they are the format's own vocabulary.
       nodePropsEl.append(infoRow(property.key, property.value));

@@ -566,7 +566,9 @@ void TreeRowIcon(G3DIconId icon, TreeIconVariant variant = TreeIconVariant::Defa
 bool TreeRowLabel(const char* text, bool group = false, bool dim = false);
 /// Right-aligned metadata (e.g. child count). Place after the label. @p px draws at an explicit
 /// pixel size (styleguide .tree-meta is 11px overline); 0 = the ambient font size.
-void TreeRowMeta(const char* text, float px = 0.f);
+/// Trailing value cell (a child count, an instance's product). Returns true when it had to be
+/// ellipsized to keep the label readable, so a caller can reveal it on hover.
+bool TreeRowMeta(const char* text, float px = 0.f);
 /// Trailing icon action button (right-aligned, reveals on row hover). @p on tints it with the accent.
 /// Returns true when clicked. @p id unique within the row.
 bool TreeRowAction(const char* id, G3DIconId icon, bool on = false);

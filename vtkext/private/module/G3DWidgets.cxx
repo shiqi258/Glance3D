@@ -2877,11 +2877,11 @@ bool TreeRowLabel(const char* text, bool group, bool dim)
 }
 
 //----------------------------------------------------------------------------
-void TreeRowMeta(const char* text, float px)
+bool TreeRowMeta(const char* text, float px)
 {
   if (gRowStack.empty() || !text || !text[0])
   {
-    return;
+    return false;
   }
   // Counts are data — mono digits align down the tree edge.
   const DataFontScope dataFont;
@@ -2892,12 +2892,37 @@ void TreeRowMeta(const char* text, float px)
   // CalcTextSizeA does not, and this width right-aligns the cell — mixing them would nudge every
   // ambient-size meta cell by up to a pixel.
   const ImVec2 ts = px > 0.f ? CalcTextSized(text, fs) : ImGui::CalcTextSize(text);
-  const float x = f.rightX - ts.x;
   ImVec4 col = G3DTheme::Text();
   col.w *= 0.42f; // text-subtle
   ImDrawList* dl = ImGui::GetWindowDrawList();
-  DrawTextSized(dl, ImVec2(x, cy - ts.y * 0.5f), U32(col), text, fs);
+
+  // The label is the row's identity, so the trailing cell may take at most a slice of the space the
+  // two share. A count never comes close; a name does (an instance names the product it points at),
+  // and without a ceiling one long value would ellipsize a whole column of names down to a letter.
+  const float budget = std::max(0.f, (f.rightX - f.contentX) * 0.40f);
+  if (px > 0.f || ts.x <= budget)
+  {
+    const float x = std::max(f.contentX, f.rightX - ts.x);
+    DrawTextSized(dl, ImVec2(x, cy - ts.y * 0.5f), U32(col), text, fs);
+    f.rightX = x - G3DTheme::Spacing::Sm * f.scale;
+    return false;
+  }
+
+  // Below a few characters the cell carries no information — "P..." is not a product name — so it is
+  // dropped entirely and the label takes the row back. The clipped result is still reported, which
+  // is what puts the value in the row's hover tooltip instead of losing it.
+  const float cell = ImGui::CalcTextSize("0").x; // mono here: one glyph is one column
+  if (budget < cell * 6.f)
+  {
+    return true;
+  }
+
+  const float x = f.rightX - budget;
+  dl->PushClipRect(ImVec2(x, f.p0.y), ImVec2(f.rightX, f.p0.y + f.rowH), true);
+  TextEllipsis(dl, ImVec2(x, cy - ts.y * 0.5f), budget, U32(col), text);
+  dl->PopClipRect();
   f.rightX = x - G3DTheme::Spacing::Sm * f.scale;
+  return true;
 }
 
 //----------------------------------------------------------------------------
@@ -2956,16 +2981,21 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
   {
     eyeClicked = TreeRowAction("##vis", desc.visible ? G3DIconId::Eye : G3DIconId::EyeOff, !desc.visible);
   }
-  if (desc.meta)
-  {
-    TreeRowMeta(desc.meta);
-  }
+  const bool metaClipped = desc.meta ? TreeRowMeta(desc.meta) : false;
   const bool clipped = TreeRowLabel(desc.label, desc.group, desc.hidden);
   // When the name had to be ellipsized, reveal it in full on hover (VS Code / file-explorer pattern).
   // Owned here rather than in the slot helper — see TreeRowLabel.
-  if (clipped && r.hovered)
+  if ((clipped || metaClipped) && r.hovered)
   {
-    SetTooltip(desc.label);
+    // A clipped trailing value earns the same reveal as a clipped name, and it only reads as
+    // belonging to this row when the name comes with it.
+    std::string full = desc.label ? desc.label : "";
+    if (metaClipped)
+    {
+      full += "  \xe2\x80\x94  "; // em dash
+      full += desc.meta;
+    }
+    SetTooltip(full.c_str());
   }
   EndTreeRow();
 

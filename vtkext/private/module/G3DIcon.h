@@ -36,6 +36,7 @@ enum class G3DIconId
   Home, ///< house silhouette (reset / home view — the default camera framing)
   Camera,
   Cube,
+  Component,  ///< four diamonds in a diamond (an instance: one product, many occurrences)
   Folder,     ///< closed folder (tree group)
   FolderOpen, ///< open folder (expanded tree group)
   Layers,     ///< stacked layers (scene collection / root)

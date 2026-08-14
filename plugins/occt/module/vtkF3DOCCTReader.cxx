@@ -643,6 +643,12 @@ public:
           TDF_Label ref;
           this->ShapeTool->GetReferredShape(child, ref);
 
+          // What this occurrence is an occurrence *of*. Worth reporting even though XCAF usually
+          // names a component after its product, because the two are free to differ (a component
+          // named "Bolt_3" of a product named "M6x20" is the case a reviewer needs to see), and
+          // because it is the only thing that tells an occurrence apart from a plain group.
+          vtkG3DNodeMetadata::SetInstanceTarget(info, this->GetName(ref));
+
           // Properties live on the referred product, not on the occurrence that points at it, so
           // an instance would otherwise show nothing at all.
           this->AddG3DNodeProperties(ref, info);

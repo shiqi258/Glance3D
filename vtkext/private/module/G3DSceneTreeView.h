@@ -44,7 +44,20 @@ inline constexpr std::uint32_t Placeholder = 1u << 6;
 /// a viewpoint is not part of the picture. Decided here so both frontends agree without each
 /// re-deriving the rule from the node type.
 inline constexpr std::uint32_t CanToggleVisibility = 1u << 7;
+/// The node is an occurrence of a product whose name adds something the label does not, so a
+/// presenter should show `G3DSceneGraph::InstanceTarget()` alongside the row.
+inline constexpr std::uint32_t InstanceTarget = 1u << 8;
 }
+
+/**
+ * Whether a node's instance target is worth putting on screen.
+ *
+ * An occurrence whose product carries its own name -- the common case in STEP -- would only repeat
+ * the label back at the user, in a tree row and in a property panel alike. Declared next to the
+ * view-model rather than inside it because the property panels ask the same question about the
+ * selected node, and the answer must not depend on which of the two asked.
+ */
+bool G3DAnnouncesInstanceTarget(const G3DSceneGraph& graph, int node);
 
 struct G3DTreeFilter
 {

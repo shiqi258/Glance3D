@@ -49,7 +49,7 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 
   test("empty Glance3D scene tree", [&]() {
     const f3d::g3d_tree_info info = sce.getSceneTreeInfo();
-    return info.schemaVersion == 2 && info.rowCount == 0 && info.selectedPath.empty() &&
+    return info.schemaVersion == 3 && info.rowCount == 0 && info.selectedPath.empty() &&
       info.canVisibility && info.canSolo && info.canFocus &&
       sce.getSceneTreeRows(0, 10).empty();
   });
@@ -105,7 +105,7 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
   test("Glance3D scene tree after load", [&]() {
     const f3d::g3d_tree_info info = sce.getSceneTreeInfo();
     const std::vector<f3d::g3d_tree_row> rows = sce.getSceneTreeRows(0, info.rowCount);
-    return info.schemaVersion == 2 && info.rowCount > 0 && info.nodeCount > info.rowCount &&
+    return info.schemaVersion == 3 && info.rowCount > 0 && info.nodeCount > info.rowCount &&
       rows.size() == static_cast<std::size_t>(info.rowCount) && !rows[0].path.empty() &&
       rows[0].path[0] == '/' && !rows[0].label.empty() && rows[0].depth == 0 &&
       rows[0].type == f3d::g3d_node_type::FILE && rows[0].hasChildren && rows[0].childCount > 0 &&

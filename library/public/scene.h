@@ -70,6 +70,14 @@ struct F3D_EXPORT g3d_tree_row
   std::string path;
   /// Display text. Empty when the file named nothing -- see `placeholder`.
   std::string label;
+  /**
+   * For an occurrence (`type == INSTANCE`), the product it is an occurrence of.
+   *
+   * Set only when it adds something the label does not -- an occurrence named after its own
+   * product, the common STEP case, would just repeat itself. The view-model applies that rule so
+   * every frontend shows the target in the same places.
+   */
+  std::string instanceTarget;
   g3d_node_type type = g3d_node_type::OTHER;
   /// Indentation level as drawn; loaded files sit at depth 0.
   int depth = 0;
@@ -112,7 +120,7 @@ struct F3D_EXPORT g3d_node_property
  */
 struct F3D_EXPORT g3d_tree_info
 {
-  int schemaVersion = 2;
+  int schemaVersion = 3;
   /// Number of rows currently displayable, ie. after expansion and filtering.
   int rowCount = 0;
   /// Total number of nodes in the scene, whether displayed or not.

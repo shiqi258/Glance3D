@@ -327,6 +327,49 @@ int TestG3DSceneTreeView(int, char*[])
     ::Check(elementView.RowCount() == 7, "clearing the type filter restores every row");
   }
 
+  // --- instance targets -----------------------------------------------------------------------
+  // Whether an occurrence announces its product is a display rule, and it is decided here so the
+  // desktop meta column and the web one cannot disagree: announce it only when it says something
+  // the label does not.
+  {
+    G3DSceneGraph instanceGraph;
+    {
+      G3DSceneGraphBuilder builder(instanceGraph);
+      builder.BeginNode("scene", "scene", G3DNodeType::ROOT);
+      builder.BeginNode("model.stp", "model.stp", G3DNodeType::FILE);
+      builder.SetImporterIndex(0);
+
+      builder.BeginNode("Bolt_3", "Bolt_3", G3DNodeType::INSTANCE);
+      builder.SetInstanceTarget("M6x20");
+      builder.EndNode();
+
+      builder.BeginNode("Part01", "Part01", G3DNodeType::INSTANCE);
+      builder.SetInstanceTarget("Part01"); // STEP's common case: component named after its product
+      builder.EndNode();
+
+      builder.BeginNode("Solid", "Solid", G3DNodeType::PART);
+      builder.EndNode();
+
+      builder.EndNode();
+      builder.EndNode();
+      builder.Finalize();
+    }
+
+    G3DSceneTreeView instanceView;
+    instanceView.SetGraph(&instanceGraph);
+    instanceView.ExpandAll();
+
+    const auto flagged = [&](const std::string& path)
+    {
+      const int row = instanceView.FindRow(instanceGraph.FindByPath(path));
+      return row >= 0 && instanceView.Row(row).Has(G3DTreeRowFlag::InstanceTarget);
+    };
+
+    ::Check(flagged("/model.stp/Bolt_3"), "a product named unlike the occurrence is announced");
+    ::Check(!flagged("/model.stp/Part01"), "a product named like the occurrence is not repeated");
+    ::Check(!flagged("/model.stp/Solid"), "a node that is no occurrence announces nothing");
+  }
+
   // --- degenerate inputs ----------------------------------------------------------------------
   G3DSceneTreeView unbound;
   ::Check(unbound.RowCount() == 0, "a view with no graph has no rows");

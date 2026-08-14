@@ -162,6 +162,14 @@ export interface Glance3DTreeRow {
   path: string;
   /** Display text. Empty when the file named nothing — see `placeholder`. */
   label: string;
+  /**
+   * For an occurrence (`type === "instance"`), the product it is an occurrence of; empty otherwise.
+   *
+   * Set only when it adds something the label does not — an occurrence named after its own product,
+   * the common STEP case, would just repeat itself. The view-model applies that rule, so every
+   * frontend shows the target in the same places.
+   */
+  instanceTarget: string;
   type: Glance3DNodeType;
   /** Indentation level as drawn; loaded files sit at depth 0. */
   depth: number;
@@ -198,7 +206,7 @@ export interface Glance3DNodeProperty {
 }
 
 export interface Glance3DTreeInfo {
-  schemaVersion: 2;
+  schemaVersion: 3;
   /** Number of rows currently displayable, ie. after expansion and filtering. */
   rowCount: number;
   /** Total number of nodes in the scene, whether displayed or not. */

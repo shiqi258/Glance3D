@@ -44,6 +44,17 @@ int PlaceholderKindOf(const G3DSceneGraph& graph, int node)
 }
 
 //----------------------------------------------------------------------------
+bool G3DAnnouncesInstanceTarget(const G3DSceneGraph& graph, int node)
+{
+  if (node < 0 || node >= graph.NodeCount())
+  {
+    return false;
+  }
+  const std::string& target = graph.InstanceTarget(node);
+  return !target.empty() && target != graph.Label(node);
+}
+
+//----------------------------------------------------------------------------
 void G3DSceneTreeView::SetGraph(const G3DSceneGraph* graph)
 {
   if (this->SourceGraph != graph)
@@ -422,6 +433,7 @@ void G3DSceneTreeView::Rebuild() const
     row.Flags |= (filtering && matched[index] != 0) ? G3DTreeRowFlag::Matched : 0u;
     row.Flags |= graph.HasFlag(node, G3DNodeFlag::Placeholder) ? G3DTreeRowFlag::Placeholder : 0u;
     row.Flags |= row.Type == G3DNodeType::CAMERA ? 0u : G3DTreeRowFlag::CanToggleVisibility;
+    row.Flags |= ::G3DAnnouncesInstanceTarget(graph, node) ? G3DTreeRowFlag::InstanceTarget : 0u;
 
     this->RowForNode[index] = static_cast<int>(this->Rows.size());
     this->Rows.emplace_back(row);

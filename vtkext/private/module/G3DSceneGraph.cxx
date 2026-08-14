@@ -123,6 +123,12 @@ const std::string& G3DSceneGraph::Name(int node) const
 }
 
 //----------------------------------------------------------------------------
+const std::string& G3DSceneGraph::InstanceTarget(int node) const
+{
+  return this->Strings.Get(this->InstanceTargetIds[static_cast<std::size_t>(node)]);
+}
+
+//----------------------------------------------------------------------------
 const std::string& G3DSceneGraph::Path(int node) const
 {
   return this->Strings.Get(this->PathIds[static_cast<std::size_t>(node)]);
@@ -287,6 +293,7 @@ void G3DSceneGraph::Clear()
   this->LabelIds.clear();
   this->NameIds.clear();
   this->PathIds.clear();
+  this->InstanceTargetIds.clear();
   this->Renderables.clear();
   this->ImporterIndices.clear();
   this->SourceNodeIds.clear();
@@ -348,6 +355,7 @@ int G3DSceneGraphBuilder::BeginNode(
   this->Graph.LabelIds.emplace_back(this->Graph.Strings.Intern(label));
   this->Graph.NameIds.emplace_back(this->Graph.Strings.Intern(name));
   this->Graph.PathIds.emplace_back(0);
+  this->Graph.InstanceTargetIds.emplace_back(G3DStringPool::None);
   this->Graph.Renderables.emplace_back(-1);
   this->Graph.ImporterIndices.emplace_back(parent >= 0 ? this->Graph.ImporterIndex(parent) : -1);
   this->Graph.SourceNodeIds.emplace_back(-1);
@@ -383,6 +391,18 @@ void G3DSceneGraphBuilder::AddProperty(const std::string& key, const std::string
   this->PropertyNodes.emplace_back(node);
   this->Graph.PropertyKeys.emplace_back(this->Graph.Strings.Intern(key));
   this->Graph.PropertyValues.emplace_back(this->Graph.Strings.Intern(value));
+}
+
+//----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::SetInstanceTarget(const std::string& productName)
+{
+  assert(!this->OpenNodes.empty());
+  if (productName.empty())
+  {
+    return;
+  }
+  this->Graph.InstanceTargetIds[static_cast<std::size_t>(this->OpenNodes.back())] =
+    this->Graph.Strings.Intern(productName);
 }
 
 //----------------------------------------------------------------------------
@@ -615,6 +635,8 @@ void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assem
   builder.BeginNode(name, label, type);
   builder.SetImporterIndex(importerIndex);
   builder.SetSourceNodeId(assemblyNodeId);
+  builder.SetInstanceTarget(assembly->GetAttributeOrDefault(
+    assemblyNodeId, G3DAssemblyAttribute::InstanceTarget, ""));
   // Before any child is opened, as AddProperty() requires.
   ::IngestG3DNodeProperties(builder, assembly, assemblyNodeId);
 

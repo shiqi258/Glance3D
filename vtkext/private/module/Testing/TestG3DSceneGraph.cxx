@@ -440,6 +440,36 @@ int TestG3DSceneGraph(int, char*[])
       "a node with children can still be declared a part");
   }
 
+  // --- instance targets -----------------------------------------------------------------------
+  // The target is stored per node like a label, so what has to hold is that it stays with the node
+  // that declared it: an unset node must read empty rather than borrow a neighbour's.
+  {
+    G3DSceneGraph instanceGraph;
+    G3DSceneGraphBuilder builder(instanceGraph);
+    builder.BeginNode("scene", "scene", G3DNodeType::ROOT);
+
+    builder.BeginNode("occurrence", "Bolt_3", G3DNodeType::INSTANCE);
+    builder.SetInstanceTarget("M6x20");
+    builder.BeginNode("body", "Body", G3DNodeType::MESH);
+    builder.EndNode();
+    builder.EndNode();
+
+    builder.BeginNode("plain", "Plain", G3DNodeType::PART);
+    builder.SetInstanceTarget(""); // an empty product name is "no target", not a stored blank
+    builder.EndNode();
+
+    builder.EndNode();
+    builder.Finalize();
+
+    const int occurrence = instanceGraph.FindByPath("/occurrence");
+    ::Check(instanceGraph.InstanceTarget(occurrence) == "M6x20", "the declared product is kept");
+    ::Check(instanceGraph.InstanceTarget(instanceGraph.FindByPath("/occurrence/body")).empty(),
+      "a child does not inherit its parent's target");
+    ::Check(instanceGraph.InstanceTarget(instanceGraph.FindByPath("/plain")).empty(),
+      "an empty product name leaves the node without a target");
+    ::Check(instanceGraph.InstanceTarget(0).empty(), "the synthetic root has no target");
+  }
+
   // --- empty scene ----------------------------------------------------------------------------
   G3DSceneGraph empty;
   ::G3DIngestDataAssemblies(empty, {});

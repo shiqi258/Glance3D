@@ -21,7 +21,7 @@ const settings = {
     const info = scene.getSceneTreeInfo();
 
     utils.assert(
-      info.schemaVersion === 2,
+      info.schemaVersion === 3,
       "Glance3D scene tree schema should be version 2",
     );
 

@@ -317,6 +317,15 @@
   font-size: var(--fs-overline);
   font-family: var(--mono);
   color: var(--text-subtle);
+  /* The label is the row's identity, so the trailing cell takes at most a slice of the row. A count
+     never comes close; a name does (an instance names the product it points at), and without a
+     ceiling one long value would ellipsize a whole column of names down to a letter. The desktop
+     applies the same 40% and additionally drops a cell too narrow to read, which CSS cannot measure;
+     here the row's title attribute is the fallback. */
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tree-row.group {
   color: var(--text);

@@ -14,6 +14,7 @@ For Glance3D users:
 - Added a `--notifications` option and interactive bind (`Ctrl+K`) to enable/disable notifications, which shows a widget whenever an interactive bind is pressed
 - Added a `--dpi-aware` option to rescale font automatically on HiDPI screens (Windows only)
 - Added CAD semantics to the scene tree for STEP/IGES/XBF files: assemblies, parts and instances are labelled as such, and each carries the colour, layer, material and validation properties (volume, area, centroid) the file declared
+- Added the product an assembly occurrence points at: instance rows get their own glyph and name their target, both in the tree and in the property panel
 - Added a `webifc` plugin to add support for .ifc files
 - Added a `pdal` plugin to add support for many point cloud formats, including .las and .laz
 - Added support for jumping to keyframes using `jump_to_keyframe` command
@@ -63,6 +64,7 @@ For libf3d users:
 - Added `setSceneTreeTypeFilter` and the `scene_tree_type_filter` command to show only chosen node types, plus `g3dNodeTypeToString`/`g3dNodeTypeFromString` for their names
 - Added `canToggleVisibility` to `g3d_tree_row`; hiding a light node switches the light off, and cameras have no visibility
 - Added `getSceneTreeNodeProperties` and the `scene_tree_properties` command, exposing the per-node facts a format carries; readers declare them with the new `vtkG3DNodeMetadata` information keys
+- Added `instanceTarget` to `g3d_tree_row`, naming the product an occurrence points at (`g3d_tree_info.schemaVersion` is now 3); readers declare it with `vtkG3DNodeMetadata::INSTANCE_TARGET()`
 - Fixed cameras and lights declared by a file being dropped instead of reaching the renderer, which also made `--camera-index` have no effect
 - Deprecated `interactor.trackball` option in favor of `interactor.style`
 

@@ -47,6 +47,16 @@ public:
   static vtkInformationStringKey* NODE_TYPE();
 
   /**
+   * Name of the product an occurrence points at, for a node of type "instance".
+   *
+   * Structural rather than a plain property: the tree acts on it (a row shows what it is an
+   * occurrence *of*), so it must not be found by matching a display string in the property bag.
+   * A name and not a path, because a format is free to expand the same product into as many
+   * subtrees as it has occurrences -- XCAF does -- leaving no single node to point at.
+   */
+  static vtkInformationStringKey* INSTANCE_TARGET();
+
+  /**
    * Per-node properties as a flat, interleaved key/value list: `[k0, v0, k1, v1, ...]`.
    *
    * Interleaved rather than two parallel keys so a half-written pair is impossible, and ordered
@@ -60,8 +70,10 @@ public:
    * `AddProperty` appends one pair; an empty key is ignored.
    */
   static void SetNodeType(vtkInformation* info, const std::string& type);
+  static void SetInstanceTarget(vtkInformation* info, const std::string& productName);
   static void AddProperty(vtkInformation* info, const std::string& key, const std::string& value);
   static std::string GetNodeType(vtkInformation* info);
+  static std::string GetInstanceTarget(vtkInformation* info);
   static std::vector<std::pair<std::string, std::string>> GetProperties(vtkInformation* info);
   ///@}
 
@@ -86,6 +98,8 @@ namespace G3DAssemblyAttribute
 {
 /// Node type token, same vocabulary as vtkG3DNodeMetadata::NODE_TYPE().
 inline constexpr const char* NodeType = "g3d_type";
+/// Referenced product name, same meaning as vtkG3DNodeMetadata::INSTANCE_TARGET().
+inline constexpr const char* InstanceTarget = "g3d_instance_of";
 /// Number of property pairs; pair i is `g3d_prop_k<i>` / `g3d_prop_v<i>`.
 inline constexpr const char* PropertyCount = "g3d_prop_n";
 inline constexpr const char* PropertyKeyPrefix = "g3d_prop_k";

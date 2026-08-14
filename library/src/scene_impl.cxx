@@ -115,6 +115,10 @@ g3d_tree_row ConvertG3DTreeRow(const G3DSceneGraph& graph, const G3DTreeRow& sou
   row.selected = source.Has(G3DTreeRowFlag::Selected);
   row.matched = source.Has(G3DTreeRowFlag::Matched);
   row.canToggleVisibility = source.Has(G3DTreeRowFlag::CanToggleVisibility);
+  if (source.Has(G3DTreeRowFlag::InstanceTarget))
+  {
+    row.instanceTarget = graph.InstanceTarget(source.Node);
+  }
   return row;
 }
 

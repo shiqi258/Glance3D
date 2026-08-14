@@ -181,6 +181,10 @@ G3DIconId SceneTreeRowIcon(const G3DTreeRow& row)
       return G3DIconId::Camera;
     case G3DNodeType::LIGHT:
       return G3DIconId::Light;
+    case G3DNodeType::INSTANCE:
+      // Before the folder rule below: an occurrence has children, but it is a pointer at a product
+      // rather than a container, and in a CAD assembly that is the distinction worth seeing.
+      return G3DIconId::Component;
     default:
       break;
   }
@@ -793,7 +797,12 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
                                                       : G3DWidgets::TreeIconVariant::Default;
 
       const std::string label = ::SceneTreeRowLabel(graph, rr);
-      const std::string meta = hasChildren ? std::to_string(rr.ChildCount) : std::string();
+      // What an occurrence points at beats its child count: the count is visible from the twisty,
+      // while the product name is the only thing on the row that is not already on screen. The
+      // view-model decides when the target is worth showing (see G3DTreeRowFlag::InstanceTarget).
+      const std::string meta = rr.Has(G3DTreeRowFlag::InstanceTarget)
+        ? graph.InstanceTarget(rr.Node)
+        : (hasChildren ? std::to_string(rr.ChildCount) : std::string());
       row.label = label.c_str();
       row.meta = meta.empty() ? nullptr : meta.c_str();
       // styleguide: only the file row is brightened; inner folders share the muted label color and
@@ -2134,7 +2143,16 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     const G3DSceneGraph* graph = view.Graph();
     const int selected = view.Selection();
     const int propertyCount = (graph != nullptr && selected >= 0) ? graph->PropertyCount(selected) : 0;
-    if (propertyCount > 0)
+    // The product an occurrence points at is Glance3D's own vocabulary rather than the format's, so
+    // unlike the pairs below it is localized -- and it leads the section, because what a node *is*
+    // an occurrence of frames every attribute that follows (they are the product's, not the
+    // occurrence's). Shown on the same condition the tree row uses, so the panel and the row cannot
+    // disagree about whether this node has a target worth naming.
+    const std::string instanceTarget =
+      (graph != nullptr && ::G3DAnnouncesInstanceTarget(*graph, selected))
+      ? graph->InstanceTarget(selected)
+      : std::string();
+    if (propertyCount > 0 || !instanceTarget.empty())
     {
       static bool propsOpen = true;
       const std::string title = loc.Translate("Properties");
@@ -2142,10 +2160,15 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
       d.title = title.c_str();
       d.variant = G3DWidgets::CollapseVariant::Flat;
       d.open = &propsOpen;
-      const std::string count = std::to_string(propertyCount);
+      const std::string count =
+        std::to_string(propertyCount + (instanceTarget.empty() ? 0 : 1));
       d.count = count.c_str();
       if (G3DWidgets::BeginCollapse("g3d.sec.properties", d).open)
       {
+        if (!instanceTarget.empty())
+        {
+          G3DWidgets::StatRow(loc.Translate("Instance of").c_str(), instanceTarget.c_str());
+        }
         for (int index = 0; index < propertyCount; index++)
         {
           // Names come from the file, not from a translation catalog: they are the format's own
