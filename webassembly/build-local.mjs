@@ -197,6 +197,13 @@ const TYPE_SUBSTITUTIONS = [
     replacement: "$1getSceneTreeRows(begin: number, count: number): Glance3DTreeRow[];",
   },
   {
+    name: "Scene.getSceneTreeNodeProperties",
+    // embind types a std::string parameter as its own EmbindString union, kept here so the
+    // signature still accepts everything the binding really accepts.
+    pattern: /^(\s*)getSceneTreeNodeProperties\(_0: EmbindString\): any;$/m,
+    replacement: "$1getSceneTreeNodeProperties(path: EmbindString): Glance3DNodeProperty[];",
+  },
+  {
     name: "Scene.setSceneTreeTypeFilter",
     pattern: /^(\s*)setSceneTreeTypeFilter\(_0: any\): void;$/m,
     replacement: "$1setSceneTreeTypeFilter(types: Glance3DNodeType[]): void;",
@@ -239,6 +246,8 @@ const REQUIRED_TYPE_SYMBOLS = [
   "getSceneTreeRows(begin: number, count: number): Glance3DTreeRow[];",
   "getSceneTreeInfo(): Glance3DTreeInfo;",
   "setSceneTreeTypeFilter(types: Glance3DNodeType[]): void;",
+  "getSceneTreeNodeProperties(path: EmbindString): Glance3DNodeProperty[];",
+  "Glance3DNodeProperty",
   "activateSceneTreeNode",
   "getG3DDataInfo(): Glance3DDataInfo;",
 ];

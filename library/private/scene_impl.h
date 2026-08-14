@@ -59,6 +59,8 @@ public:
   g3d_data_info getG3DDataInfo() const override;
   g3d_tree_info getSceneTreeInfo() const override;
   std::vector<g3d_tree_row> getSceneTreeRows(int begin, int count) const override;
+  std::vector<g3d_node_property> getSceneTreeNodeProperties(
+    const std::string& path) const override;
   bool setSceneTreeExpanded(const std::string& path, bool expanded) override;
   scene& expandSceneTree(int maxDepth = -1) override;
   scene& collapseSceneTree() override;

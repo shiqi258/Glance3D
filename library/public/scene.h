@@ -93,6 +93,20 @@ struct F3D_EXPORT g3d_tree_row
 };
 
 /**
+ * @struct g3d_node_property
+ * @brief One name/value fact a format attached to a scene tree node.
+ *
+ * Whatever the source format thought was worth carrying: a STEP product's colour and layer, its
+ * computed volume, a referenced instance's target. Values are strings because that is what a
+ * property panel shows and what stays meaningful across formats that disagree about types.
+ */
+struct F3D_EXPORT g3d_node_property
+{
+  std::string key;
+  std::string value;
+};
+
+/**
  * @struct g3d_tree_info
  * @brief Scene tree metadata, queried separately from the rows themselves.
  */
@@ -410,6 +424,16 @@ public:
    */
   [[nodiscard]] virtual g3d_tree_info getSceneTreeInfo() const = 0;
   [[nodiscard]] virtual std::vector<g3d_tree_row> getSceneTreeRows(int begin, int count) const = 0;
+
+  /**
+   * Properties a format attached to one node, in the order it declared them.
+   *
+   * Deliberately not part of a row: rows are fetched every time the tree scrolls, while properties
+   * are read once when a node is selected. Empty for an unknown path or a node that carries none,
+   * which is every node of a format that describes nothing beyond geometry.
+   */
+  [[nodiscard]] virtual std::vector<g3d_node_property> getSceneTreeNodeProperties(
+    const std::string& path) const = 0;
   ///@}
 
   ///@{

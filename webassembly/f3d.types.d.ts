@@ -186,6 +186,17 @@ export interface Glance3DTreeRow {
   canToggleVisibility: boolean;
 }
 
+/**
+ * One name/value fact a format attached to a node.
+ *
+ * Fetched per selected node rather than carried on every row: rows are re-fetched on every scroll,
+ * properties are read once when the selection changes.
+ */
+export interface Glance3DNodeProperty {
+  key: string;
+  value: string;
+}
+
 export interface Glance3DTreeInfo {
   schemaVersion: 2;
   /** Number of rows currently displayable, ie. after expansion and filtering. */

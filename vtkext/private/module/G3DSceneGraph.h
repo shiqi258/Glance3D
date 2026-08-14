@@ -198,6 +198,17 @@ public:
   }
   ///@}
 
+  /**
+   * Per-node properties a format chose to carry (a STEP product's colour, layer, volume, ...).
+   *
+   * Stored as one contiguous run per node in a flat table rather than a map: nodes with properties
+   * are a minority, the runs are tiny, and a scene of 100k nodes should not pay for 100k hash
+   * buckets. Read on selection, never per frame, so a copy at the call site costs nothing.
+   */
+  int PropertyCount(int node) const;
+  const std::string& PropertyKey(int node, int index) const;
+  const std::string& PropertyValue(int node, int index) const;
+
   /// Resolve a path back to a node index, or -1 if unknown.
   int FindByPath(const std::string& path) const;
 
@@ -257,6 +268,11 @@ private:
   std::vector<int> ImporterIndices;
   std::vector<int> SourceNodeIds;
 
+  /// Node i owns [PropertyOffsets[i], PropertyOffsets[i + 1]) of the two tables below.
+  std::vector<int> PropertyOffsets;
+  std::vector<std::uint32_t> PropertyKeys;
+  std::vector<std::uint32_t> PropertyValues;
+
   std::vector<G3DRenderable> RenderableEntries;
   G3DStringPool Strings;
   std::unordered_map<std::string, int> PathIndex;
@@ -290,6 +306,15 @@ public:
    * @param label display text; empty marks the node as a placeholder
    */
   int BeginNode(const std::string& name, const std::string& label, G3DNodeType type);
+  /**
+   * Attaches one property to the node currently open.
+   *
+   * Must be called before that node's first child is opened. Honouring that keeps every property
+   * run in node order as it is appended, which is what lets Finalize() build the offset table in a
+   * single pass with no sorting and no vector-of-vectors. Out-of-order calls are dropped rather
+   * than silently attached to the wrong node.
+   */
+  void AddProperty(const std::string& key, const std::string& value);
   void SetRenderable(int renderableIndex);
   void SetImporterIndex(int importerIndex);
   void SetSourceNodeId(int sourceNodeId);
@@ -302,6 +327,8 @@ public:
 private:
   G3DSceneGraph& Graph;
   std::vector<int> OpenNodes;
+  /// Node each appended property belongs to, parallel to the graph's key/value tables.
+  std::vector<int> PropertyNodes;
 };
 
 /**

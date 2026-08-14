@@ -1,5 +1,7 @@
 #include "G3DSceneGraph.h"
 
+#include "vtkG3DNodeMetadata.h"
+
 #include <vtkActor.h>
 #include <vtkActorCollection.h>
 #include <vtkBoundingBox.h>
@@ -13,6 +15,7 @@
 #include <algorithm>
 #include <cassert>
 #include <map>
+#include <optional>
 
 namespace
 {
@@ -177,6 +180,39 @@ int G3DSceneGraph::RenderableLocalIndex(int node) const
 }
 
 //----------------------------------------------------------------------------
+int G3DSceneGraph::PropertyCount(int node) const
+{
+  const std::size_t index = static_cast<std::size_t>(node);
+  if (index + 1 >= this->PropertyOffsets.size())
+  {
+    return 0;
+  }
+  return this->PropertyOffsets[index + 1] - this->PropertyOffsets[index];
+}
+
+//----------------------------------------------------------------------------
+const std::string& G3DSceneGraph::PropertyKey(int node, int index) const
+{
+  if (index < 0 || index >= this->PropertyCount(node))
+  {
+    return ::EmptyString;
+  }
+  const int offset = this->PropertyOffsets[static_cast<std::size_t>(node)] + index;
+  return this->Strings.Get(this->PropertyKeys[static_cast<std::size_t>(offset)]);
+}
+
+//----------------------------------------------------------------------------
+const std::string& G3DSceneGraph::PropertyValue(int node, int index) const
+{
+  if (index < 0 || index >= this->PropertyCount(node))
+  {
+    return ::EmptyString;
+  }
+  const int offset = this->PropertyOffsets[static_cast<std::size_t>(node)] + index;
+  return this->Strings.Get(this->PropertyValues[static_cast<std::size_t>(offset)]);
+}
+
+//----------------------------------------------------------------------------
 int G3DSceneGraph::FindByPath(const std::string& path) const
 {
   const auto found = this->PathIndex.find(path);
@@ -254,6 +290,9 @@ void G3DSceneGraph::Clear()
   this->Renderables.clear();
   this->ImporterIndices.clear();
   this->SourceNodeIds.clear();
+  this->PropertyOffsets.clear();
+  this->PropertyKeys.clear();
+  this->PropertyValues.clear();
   this->RenderableEntries.clear();
   this->Strings.Clear();
   this->PathIndex.clear();
@@ -323,6 +362,30 @@ int G3DSceneGraphBuilder::BeginNode(
 }
 
 //----------------------------------------------------------------------------
+void G3DSceneGraphBuilder::AddProperty(const std::string& key, const std::string& value)
+{
+  assert(!this->OpenNodes.empty());
+  if (key.empty())
+  {
+    return;
+  }
+
+  const int node = this->OpenNodes.back();
+  // The contract is "before this node's first child", which is exactly the condition that keeps
+  // appends in node order. Violating it would put a property in the wrong run once Finalize()
+  // slices the tables by node, so it is refused rather than misfiled.
+  assert(this->PropertyNodes.empty() || this->PropertyNodes.back() <= node);
+  if (!this->PropertyNodes.empty() && this->PropertyNodes.back() > node)
+  {
+    return;
+  }
+
+  this->PropertyNodes.emplace_back(node);
+  this->Graph.PropertyKeys.emplace_back(this->Graph.Strings.Intern(key));
+  this->Graph.PropertyValues.emplace_back(this->Graph.Strings.Intern(value));
+}
+
+//----------------------------------------------------------------------------
 void G3DSceneGraphBuilder::SetRenderable(int renderableIndex)
 {
   assert(!this->OpenNodes.empty());
@@ -376,6 +439,22 @@ void G3DSceneGraphBuilder::Finalize()
   const int count = this->Graph.NodeCount();
   this->Graph.PathIndex.clear();
   this->Graph.PathIndex.reserve(static_cast<std::size_t>(count));
+
+  // Property runs: appends were kept in node order by AddProperty's contract, so counting sort is
+  // unnecessary -- one forward sweep filling each node's start offset is enough.
+  this->Graph.PropertyOffsets.assign(static_cast<std::size_t>(count) + 1, 0);
+  {
+    std::size_t appended = 0;
+    for (int node = 0; node < count; node++)
+    {
+      this->Graph.PropertyOffsets[static_cast<std::size_t>(node)] = static_cast<int>(appended);
+      while (appended < this->PropertyNodes.size() && this->PropertyNodes[appended] == node)
+      {
+        appended++;
+      }
+    }
+    this->Graph.PropertyOffsets[static_cast<std::size_t>(count)] = static_cast<int>(appended);
+  }
 
   // Same-named siblings get a 1-based occurrence suffix so the path stays a unique key; only
   // ambiguous names are suffixed, keeping the common case readable. Resolved parent-by-parent so
@@ -447,6 +526,60 @@ bool IsG3DGenericAssemblyLabel(const std::string& label)
 }
 
 /**
+ * Node type a reader declared, or nullopt when it said nothing.
+ *
+ * Kept as its own step rather than folded into the shape heuristic below: a format that knows it
+ * produced an assembly should win over "it has children, call it a group", and a format that says
+ * nothing must land on exactly the behaviour it had before this channel existed.
+ */
+std::optional<G3DNodeType> DeclaredG3DNodeType(vtkDataAssembly* assembly, int assemblyNodeId)
+{
+  const std::string token =
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::NodeType, "");
+  if (token.empty())
+  {
+    return std::nullopt;
+  }
+
+  // Same vocabulary libf3d prints and parses; kept as a local table because the core cannot depend
+  // on the public library. A token nobody recognises is ignored rather than mapped to OTHER, which
+  // would silently downgrade a node a newer reader described.
+  static const std::unordered_map<std::string, G3DNodeType> tokens = {
+    { "root", G3DNodeType::ROOT }, { "file", G3DNodeType::FILE }, { "group", G3DNodeType::GROUP },
+    { "assembly", G3DNodeType::ASSEMBLY }, { "part", G3DNodeType::PART },
+    { "instance", G3DNodeType::INSTANCE }, { "face", G3DNodeType::FACE },
+    { "mesh", G3DNodeType::MESH }, { "point_cloud", G3DNodeType::POINT_CLOUD },
+    { "volume", G3DNodeType::VOLUME }, { "camera", G3DNodeType::CAMERA },
+    { "light", G3DNodeType::LIGHT }, { "skeleton", G3DNodeType::SKELETON },
+    { "joint", G3DNodeType::JOINT }, { "other", G3DNodeType::OTHER }
+  };
+
+  const auto found = tokens.find(token);
+  return found != tokens.end() ? std::optional<G3DNodeType>(found->second) : std::nullopt;
+}
+
+/// Copies the numbered property pairs a reader left on the assembly onto the node being built.
+void IngestG3DNodeProperties(
+  G3DSceneGraphBuilder& builder, vtkDataAssembly* assembly, int assemblyNodeId)
+{
+  const int count =
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::PropertyCount, 0);
+  for (int index = 0; index < count; index++)
+  {
+    const std::string suffix = std::to_string(index);
+    const std::string key = assembly->GetAttributeOrDefault(
+      assemblyNodeId, (G3DAssemblyAttribute::PropertyKeyPrefix + suffix).c_str(), "");
+    if (key.empty())
+    {
+      continue;
+    }
+    builder.AddProperty(key,
+      assembly->GetAttributeOrDefault(
+        assemblyNodeId, (G3DAssemblyAttribute::PropertyValuePrefix + suffix).c_str(), ""));
+  }
+}
+
+/**
  * Recursively mirrors one assembly subtree into the builder.
  *
  * Node type is inferred from what the assembly can express: a node that maps an actor and has no
@@ -472,12 +605,18 @@ void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assem
     name = label.empty() ? "node" + std::to_string(assemblyNodeId) : label;
   }
 
-  const G3DNodeType type =
-    childCount > 0 ? G3DNodeType::GROUP : (flatActorIndex >= 0 ? G3DNodeType::MESH : G3DNodeType::OTHER);
+  // A reader that described the node wins; otherwise fall back to the shape heuristic, which is
+  // all the assembly contract can express on its own.
+  const G3DNodeType type = ::DeclaredG3DNodeType(assembly, assemblyNodeId)
+                             .value_or(childCount > 0
+                                 ? G3DNodeType::GROUP
+                                 : (flatActorIndex >= 0 ? G3DNodeType::MESH : G3DNodeType::OTHER));
 
   builder.BeginNode(name, label, type);
   builder.SetImporterIndex(importerIndex);
   builder.SetSourceNodeId(assemblyNodeId);
+  // Before any child is opened, as AddProperty() requires.
+  ::IngestG3DNodeProperties(builder, assembly, assemblyNodeId);
 
   if (flatActorIndex >= 0 && flatActorIndex < static_cast<int>(renderableForActor.size()))
   {

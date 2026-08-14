@@ -1,11 +1,18 @@
 #include "G3DSceneGraph.h"
 #include "vtkF3DGenericImporter.h"
 #include "vtkF3DMetaImporter.h"
+#include "vtkG3DNodeMetadata.h"
 
+#include <vtkCompositeDataSet.h>
 #include <vtkDataAssembly.h>
+#include <vtkInformation.h>
+#include <vtkMultiBlockDataSet.h>
 #include <vtkNew.h>
+#include <vtkPoints.h>
+#include <vtkPolyData.h>
 #include <vtkRenderWindow.h>
 #include <vtkRenderer.h>
+#include <vtkTrivialProducer.h>
 #include <vtkXMLMultiBlockDataReader.h>
 
 #include <iostream>
@@ -165,6 +172,74 @@ int TestG3DSceneGraphFromFile(int argc, char* argv[])
   ::Check(!rebuilt.HasFlag(rebuiltNode, G3DNodeFlag::VisibleSelf),
     "assembly visibility change is picked up by the rebuilt graph");
   ::Check(rebuilt.NodeCount() == graph.NodeCount(), "rebuild preserves the node count");
+
+  // --- reader-declared node metadata ----------------------------------------------------------
+  // The whole channel end to end: a reader stamps node metadata on its block metadata, the generic
+  // importer copies it onto the data assembly, and the graph reads it back. Driven with a synthetic
+  // producer so the plumbing is covered before any format actually fills it.
+  {
+    vtkNew<vtkPolyData> leafData;
+    vtkNew<vtkPoints> points;
+    points->InsertNextPoint(0.0, 0.0, 0.0);
+    leafData->SetPoints(points);
+
+    vtkNew<vtkMultiBlockDataSet> subAssembly;
+    subAssembly->SetBlock(0, leafData);
+    vtkInformation* leafInfo = subAssembly->GetMetaData(0u);
+    leafInfo->Set(vtkCompositeDataSet::NAME(), "Bolt");
+    vtkG3DNodeMetadata::SetNodeType(leafInfo, "part");
+    vtkG3DNodeMetadata::AddProperty(leafInfo, "Color", "#ff0000");
+    vtkG3DNodeMetadata::AddProperty(leafInfo, "Layer", "Steel");
+
+    vtkNew<vtkMultiBlockDataSet> rootBlock;
+    rootBlock->SetBlock(0, subAssembly);
+    vtkInformation* assemblyInfo = rootBlock->GetMetaData(0u);
+    assemblyInfo->Set(vtkCompositeDataSet::NAME(), "Bracket");
+    vtkG3DNodeMetadata::SetNodeType(assemblyInfo, "assembly");
+    vtkG3DNodeMetadata::AddProperty(assemblyInfo, "Volume", "12.5");
+
+    vtkNew<vtkTrivialProducer> producer;
+    producer->SetOutput(rootBlock);
+
+    vtkNew<vtkRenderWindow> metaWindow;
+    vtkNew<vtkRenderer> metaRenderer;
+    metaWindow->AddRenderer(metaRenderer);
+
+    vtkNew<vtkF3DGenericImporter> metadataImporter;
+    metadataImporter->SetInternalReader(producer);
+    vtkNew<vtkF3DMetaImporter> metadataMeta;
+    metadataMeta->SetRenderWindow(metaWindow);
+    metadataMeta->AddImporter({ "meta.ext", metadataImporter });
+    if (!metadataMeta->Update())
+    {
+      std::cerr << "Failed to update the metadata meta importer" << std::endl;
+      return EXIT_FAILURE;
+    }
+
+    const G3DSceneGraph& metaGraph = metadataMeta->GetG3DSceneGraph();
+    const int bracket = metaGraph.FindByPath("/meta.ext/Bracket");
+    ::Check(bracket > 0, "declared assembly node exists");
+    // A declared type beats the shape heuristic, which would have called this one a plain group.
+    ::Check(metaGraph.Type(bracket) == G3DNodeType::ASSEMBLY, "declared type wins over tree shape");
+    ::Check(metaGraph.PropertyCount(bracket) == 1, "assembly property count");
+    ::Check(metaGraph.PropertyKey(bracket, 0) == "Volume", "assembly property key");
+    ::Check(metaGraph.PropertyValue(bracket, 0) == "12.5", "assembly property value");
+
+    // A leaf dataset gets no node of its own: the importer's generated actor node *is* the leaf, so
+    // that is where the reader's metadata has to land (its structural name is the actor index, its
+    // label the block name).
+    const int bolt = metaGraph.FirstChild(bracket);
+    ::Check(bolt > 0 && metaGraph.Label(bolt) == "Bolt", "declared part node exists");
+    ::Check(metaGraph.Prop(bolt) != nullptr, "the part node is the one carrying the actor");
+    ::Check(metaGraph.Type(bolt) == G3DNodeType::PART, "leaf declared type survives too");
+    ::Check(metaGraph.PropertyCount(bolt) == 2, "leaf property count");
+    ::Check(metaGraph.PropertyKey(bolt, 1) == "Layer" &&
+        metaGraph.PropertyValue(bolt, 1) == "Steel",
+      "leaf properties keep their declared order");
+    // Properties are per-node, never inherited: a sibling of the part must stay empty.
+    ::Check(metaGraph.PropertyCount(metaGraph.FindByPath("/meta.ext")) == 0,
+      "the file node inherits nothing from its children");
+  }
 
   return gFailed ? EXIT_FAILURE : EXIT_SUCCESS;
 }

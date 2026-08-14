@@ -98,6 +98,10 @@ stored expansion state. No argument clears the filter.
 argument shows every type again. eg: `scene_tree_type_filter mesh group file` hides the camera and
 light sections.
 
+`scene_tree_properties path`: Print the properties the format attached to a node, if any (a STEP
+product's colour and layer, a computed volume, ...). Formats that describe nothing beyond geometry
+report none. eg: `scene_tree_properties /part.stp/Bracket`.
+
 `scene_tree_select path`: Select a node. An empty path clears the selection.
 
 `scene_tree_activate path`: Use a node. A camera node moves the view onto that camera, which is how

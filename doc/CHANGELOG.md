@@ -61,6 +61,7 @@ For libf3d users:
 - Added `activateSceneTreeNode` to use a node — a camera node moves the view onto that camera — plus the `scene_tree_activate` command
 - Added `setSceneTreeTypeFilter` and the `scene_tree_type_filter` command to show only chosen node types, plus `g3dNodeTypeToString`/`g3dNodeTypeFromString` for their names
 - Added `canToggleVisibility` to `g3d_tree_row`; hiding a light node switches the light off, and cameras have no visibility
+- Added `getSceneTreeNodeProperties` and the `scene_tree_properties` command, exposing the per-node facts a format carries; readers declare them with the new `vtkG3DNodeMetadata` information keys
 - Fixed cameras and lights declared by a file being dropped instead of reaching the renderer, which also made `--camera-index` have no effect
 - Deprecated `interactor.trackball` option in favor of `interactor.style`
 

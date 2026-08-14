@@ -13,6 +13,7 @@
 class vtkAlgorithm;
 class vtkDataObject;
 class vtkImageData;
+class vtkInformation;
 class vtkMultiBlockDataSet;
 class vtkPartitionedDataSet;
 class vtkPartitionedDataSetCollection;
@@ -132,9 +133,12 @@ private:
 
   /**
    * Create an actor for a single dataset block
+   *
+   * @p blockInfo is the block's composite metadata, if any: a reader may have stamped Glance3D node
+   * metadata on it (see vtkG3DNodeMetadata), which is forwarded onto the new assembly node.
    */
-  void CreateActorForBlock(
-    int nodeid, vtkDataSet* block, vtkRenderer* ren, const std::string& blockName = "");
+  void CreateActorForBlock(int nodeid, vtkDataSet* block, vtkRenderer* ren,
+    const std::string& blockName = "", vtkInformation* blockInfo = nullptr);
 
   /**
    * Import blocks from a vtkMultiBlockDataSet with proper name extraction

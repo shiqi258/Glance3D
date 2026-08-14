@@ -252,6 +252,14 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     return sce.activateSceneTreeNode(camera->path) && !sce.activateSceneTreeNode(mesh->path) &&
       !sce.activateSceneTreeNode("/no/such/node");
   });
+  // Properties are a channel, not a promise: a format that describes nothing beyond geometry has to
+  // come back empty rather than throw, and an unknown path must not be mistaken for one.
+  test("Glance3D scene tree node properties", [&]() {
+    const std::string filePath = sce.getSceneTreeRows(0, 1)[0].path;
+    return sce.getSceneTreeNodeProperties(filePath).empty() &&
+      sce.getSceneTreeNodeProperties("/no/such/node").empty() &&
+      sce.getSceneTreeNodeProperties("").empty();
+  });
   test("Glance3D scene tree type filter", [&]() {
     const int allRows = sce.getSceneTreeInfo().rowCount;
     sce.setSceneTreeTypeFilter({ f3d::g3d_node_type::FILE, f3d::g3d_node_type::GROUP,

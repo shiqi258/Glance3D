@@ -2,6 +2,7 @@
 
 #include "F3DLog.h"
 #include "vtkF3DPostProcessFilter.h"
+#include "vtkG3DNodeMetadata.h"
 
 #include <vtkActor.h>
 #include <vtkCompositeDataIterator.h>
@@ -25,6 +26,49 @@
 #include <cassert>
 #include <numeric>
 #include <sstream>
+
+namespace
+{
+/**
+ * Copies a reader's Glance3D node metadata from block metadata onto the assembly node built for it.
+ *
+ * This is the whole hand-off: readers can only speak through the data object they return, and the
+ * assembly is what the scene graph reads. Formats that say nothing land here as a no-op, which is
+ * every format that existed before this channel did.
+ */
+void ForwardG3DNodeMetadata(vtkDataAssembly* assembly, int nodeId, vtkInformation* blockInfo)
+{
+  if (assembly == nullptr || blockInfo == nullptr)
+  {
+    return;
+  }
+
+  const std::string nodeType = vtkG3DNodeMetadata::GetNodeType(blockInfo);
+  if (!nodeType.empty())
+  {
+    assembly->SetAttribute(nodeId, G3DAssemblyAttribute::NodeType, nodeType.c_str());
+  }
+
+  const std::vector<std::pair<std::string, std::string>> properties =
+    vtkG3DNodeMetadata::GetProperties(blockInfo);
+  if (properties.empty())
+  {
+    return;
+  }
+
+  assembly->SetAttribute(
+    nodeId, G3DAssemblyAttribute::PropertyCount, static_cast<int>(properties.size()));
+  for (std::size_t index = 0; index < properties.size(); index++)
+  {
+    const std::string suffix = std::to_string(index);
+    assembly->SetAttribute(nodeId,
+      (G3DAssemblyAttribute::PropertyKeyPrefix + suffix).c_str(), properties[index].first.c_str());
+    assembly->SetAttribute(nodeId,
+      (G3DAssemblyAttribute::PropertyValuePrefix + suffix).c_str(),
+      properties[index].second.c_str());
+  }
+}
+}
 
 struct vtkF3DGenericImporter::Internals
 {
@@ -158,8 +202,8 @@ bool vtkF3DGenericImporter::GetTemporalInformation([[maybe_unused]] vtkIdType an
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DGenericImporter::CreateActorForBlock(
-  int nodeid, vtkDataSet* block, vtkRenderer* ren, const std::string& blockName)
+void vtkF3DGenericImporter::CreateActorForBlock(int nodeid, vtkDataSet* block, vtkRenderer* ren,
+  const std::string& blockName, vtkInformation* blockInfo)
 {
   this->Pimpl->Blocks.emplace_back();
   Internals::BlockData& bd = this->Pimpl->Blocks.back();
@@ -176,6 +220,8 @@ void vtkF3DGenericImporter::CreateActorForBlock(
   {
     this->SceneHierarchy->SetAttribute(childNodeId, "label", blockName.c_str());
   }
+
+  ::ForwardG3DNodeMetadata(this->SceneHierarchy, childNodeId, blockInfo);
 
   bd.Mapper->SetInputConnection(bd.PostPro->GetOutputPort(0));
   bd.Mapper->ScalarVisibilityOff();
@@ -486,10 +532,11 @@ void vtkF3DGenericImporter::ImportMultiBlock(int nodeid, vtkMultiBlockDataSet* m
     }
 
     std::string blockName = "Block_" + std::to_string(i);
+    vtkInformation* blockInfo = mb->HasMetaData(i) ? mb->GetMetaData(i) : nullptr;
 
-    if (mb->HasMetaData(i))
+    if (blockInfo)
     {
-      const char* name = mb->GetMetaData(i)->Get(vtkCompositeDataSet::NAME());
+      const char* name = blockInfo->Get(vtkCompositeDataSet::NAME());
       if (name)
       {
         blockName = name;
@@ -505,6 +552,7 @@ void vtkF3DGenericImporter::ImportMultiBlock(int nodeid, vtkMultiBlockDataSet* m
       int childNodeId = this->SceneHierarchy->AddNode(
         vtkDataAssembly::MakeValidNodeName(blockName.c_str()).c_str(), nodeid);
       this->SceneHierarchy->SetAttribute(childNodeId, "label", blockName.c_str());
+      ::ForwardG3DNodeMetadata(this->SceneHierarchy, childNodeId, blockInfo);
 
       this->ImportMultiBlock(childNodeId, childMB, ren);
     }
@@ -513,6 +561,7 @@ void vtkF3DGenericImporter::ImportMultiBlock(int nodeid, vtkMultiBlockDataSet* m
       int childNodeId = this->SceneHierarchy->AddNode(
         vtkDataAssembly::MakeValidNodeName(blockName.c_str()).c_str(), nodeid);
       this->SceneHierarchy->SetAttribute(childNodeId, "label", blockName.c_str());
+      ::ForwardG3DNodeMetadata(this->SceneHierarchy, childNodeId, blockInfo);
 
       auto iter = vtkSmartPointer<vtkCompositeDataIterator>::Take(childComposite->NewIterator());
       iter->SkipEmptyNodesOn();
@@ -524,23 +573,25 @@ void vtkF3DGenericImporter::ImportMultiBlock(int nodeid, vtkMultiBlockDataSet* m
         {
 
           std::string subName = "Object_" + std::to_string(subIdx);
+          vtkInformation* subInfo =
+            iter->HasCurrentMetaData() ? iter->GetCurrentMetaData() : nullptr;
 
-          if (iter->HasCurrentMetaData())
+          if (subInfo)
           {
-            const char* name = iter->GetCurrentMetaData()->Get(vtkCompositeDataSet::NAME());
+            const char* name = subInfo->Get(vtkCompositeDataSet::NAME());
             if (name)
             {
               subName = name;
             }
           }
 
-          this->CreateActorForBlock(childNodeId, subDs, ren, subName);
+          this->CreateActorForBlock(childNodeId, subDs, ren, subName, subInfo);
         }
       }
     }
     else if (ds)
     {
-      this->CreateActorForBlock(nodeid, ds, ren, blockName);
+      this->CreateActorForBlock(nodeid, ds, ren, blockName, blockInfo);
     }
   }
 }

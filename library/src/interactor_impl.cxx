@@ -1411,6 +1411,28 @@ interactor& interactor_impl::initCommands()
     command_documentation_t{ "scene_tree_filter [query]", "filter the scene tree, empty to clear" });
 
   this->addCommand(
+    "scene_tree_properties",
+    [&](const std::vector<std::string>& args)
+    {
+      const std::string path = sceneTreePath(args, "scene_tree_properties");
+      const std::vector<g3d_node_property> properties =
+        this->Internals->Scene.getSceneTreeNodeProperties(path);
+      if (properties.empty())
+      {
+        log::print(log::VerboseLevel::INFO, "No properties for scene tree node: " + path);
+        return;
+      }
+      log::print(log::VerboseLevel::INFO,
+        "Properties of " + path + " (" + std::to_string(properties.size()) + "):");
+      for (const g3d_node_property& property : properties)
+      {
+        log::print(log::VerboseLevel::INFO, "  " + property.key + ": " + property.value);
+      }
+    },
+    command_documentation_t{ "scene_tree_properties path",
+      "print the properties a format attached to a scene tree node" });
+
+  this->addCommand(
     "scene_tree_type_filter",
     [&](const std::vector<std::string>& args)
     {

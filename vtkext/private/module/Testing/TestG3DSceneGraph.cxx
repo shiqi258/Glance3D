@@ -389,6 +389,57 @@ int TestG3DSceneGraph(int, char*[])
   ::Check(graph.FindByPath("/model.ext/@cameras") == -1, "no camera section without cameras");
   ::Check(graph.FindByPath("/model.ext/@lights") == -1, "no light section without lights");
 
+  // --- node properties ------------------------------------------------------------------------
+  // Properties are sparse: most nodes carry none, so the run table has to stay correct for the
+  // empty case as well as for the nodes that do.
+  ::Check(graph.PropertyCount(file) == 0, "a format that says nothing attaches no properties");
+  ::Check(graph.PropertyKey(file, 0).empty(), "reading past an empty run yields nothing");
+  ::Check(graph.PropertyValue(file, -1).empty(), "a negative index yields nothing");
+
+  {
+    G3DSceneGraph propertyGraph;
+    G3DSceneGraphBuilder builder(propertyGraph);
+    builder.BeginNode("scene", "scene", G3DNodeType::ROOT);
+
+    builder.BeginNode("first", "First", G3DNodeType::PART);
+    builder.AddProperty("Color", "#ff0000");
+    builder.AddProperty("Layer", "Steel");
+    builder.AddProperty("", "dropped"); // an unnamed property could never be shown or looked up
+    builder.BeginNode("child", "Child", G3DNodeType::MESH);
+    builder.EndNode();
+    builder.EndNode();
+
+    builder.BeginNode("bare", "Bare", G3DNodeType::PART);
+    builder.EndNode();
+
+    builder.BeginNode("last", "Last", G3DNodeType::PART);
+    builder.AddProperty("Volume", "12.5");
+    builder.EndNode();
+
+    builder.EndNode();
+    builder.Finalize();
+
+    const int first = propertyGraph.FindByPath("/first");
+    const int child = propertyGraph.FindByPath("/first/child");
+    const int bare = propertyGraph.FindByPath("/bare");
+    const int last = propertyGraph.FindByPath("/last");
+
+    ::Check(propertyGraph.PropertyCount(first) == 2, "the unnamed property is dropped, not stored");
+    ::Check(propertyGraph.PropertyKey(first, 0) == "Color", "declaration order is preserved");
+    ::Check(propertyGraph.PropertyValue(first, 0) == "#ff0000", "first value");
+    ::Check(propertyGraph.PropertyKey(first, 1) == "Layer", "second key");
+    // The run table is what could go wrong: a node between two property-carrying nodes must read
+    // as empty rather than borrowing a neighbour's run.
+    ::Check(propertyGraph.PropertyCount(child) == 0, "a child inherits nothing");
+    ::Check(propertyGraph.PropertyCount(bare) == 0, "a node between two runs stays empty");
+    ::Check(propertyGraph.PropertyCount(last) == 1, "the last run is bounded correctly");
+    ::Check(propertyGraph.PropertyKey(last, 0) == "Volume", "last node key");
+
+    // A declared type wins over the shape heuristic, which is the point of the channel.
+    ::Check(propertyGraph.Type(first) == G3DNodeType::PART,
+      "a node with children can still be declared a part");
+  }
+
   // --- empty scene ----------------------------------------------------------------------------
   G3DSceneGraph empty;
   ::G3DIngestDataAssemblies(empty, {});

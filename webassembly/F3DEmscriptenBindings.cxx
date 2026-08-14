@@ -91,6 +91,20 @@ emscripten::val g3dTreeRowsToJSArray(const std::vector<f3d::g3d_tree_row>& rows)
   return js;
 }
 
+/// Properties as a plain array of {key, value}, mirroring the order the format declared them in.
+emscripten::val g3dNodePropertiesToJSArray(const std::vector<f3d::g3d_node_property>& properties)
+{
+  emscripten::val js = emscripten::val::array();
+  for (const f3d::g3d_node_property& property : properties)
+  {
+    emscripten::val entry = emscripten::val::object();
+    entry.set("key", property.key);
+    entry.set("value", property.value);
+    js.call<void>("push", entry);
+  }
+  return js;
+}
+
 emscripten::val g3dTreeInfoToJSObject(const f3d::g3d_tree_info& info)
 {
   emscripten::val js = emscripten::val::object();
@@ -293,6 +307,9 @@ EMSCRIPTEN_BINDINGS(f3d)
     .function(
       "getSceneTreeRows", +[](f3d::scene& scene, int begin, int count)
       { return g3dTreeRowsToJSArray(scene.getSceneTreeRows(begin, count)); })
+    .function(
+      "getSceneTreeNodeProperties", +[](f3d::scene& scene, const std::string& path)
+      { return g3dNodePropertiesToJSArray(scene.getSceneTreeNodeProperties(path)); })
     .function("setSceneTreeExpanded", &f3d::scene::setSceneTreeExpanded)
     .function(
       "expandSceneTree", +[](f3d::scene& scene, int maxDepth) { scene.expandSceneTree(maxDepth); })

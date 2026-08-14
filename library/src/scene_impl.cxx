@@ -1303,6 +1303,28 @@ std::vector<g3d_tree_row> scene_impl::getSceneTreeRows(int begin, int count) con
 }
 
 //----------------------------------------------------------------------------
+std::vector<g3d_node_property> scene_impl::getSceneTreeNodeProperties(
+  const std::string& path) const
+{
+  std::vector<g3d_node_property> properties;
+  const G3DSceneGraph& graph = this->Internals->MetaImporter->GetG3DSceneGraph();
+  const int node = graph.FindByPath(path);
+  if (node < 0)
+  {
+    return properties;
+  }
+
+  const int count = graph.PropertyCount(node);
+  properties.reserve(static_cast<std::size_t>(count));
+  for (int index = 0; index < count; index++)
+  {
+    properties.emplace_back(
+      g3d_node_property{ graph.PropertyKey(node, index), graph.PropertyValue(node, index) });
+  }
+  return properties;
+}
+
+//----------------------------------------------------------------------------
 bool scene_impl::setSceneTreeExpanded(const std::string& path, bool expanded)
 {
   vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();

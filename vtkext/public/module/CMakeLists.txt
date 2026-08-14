@@ -25,6 +25,7 @@ set(classes
   vtkF3DFaceVaryingPointDispatcher
   vtkF3DGLTFImporter
   vtkF3DImporter
+  vtkG3DNodeMetadata
   )
 
 # Needs https://gitlab.kitware.com/vtk/vtk/-/merge_requests/10675
