@@ -247,6 +247,86 @@ int TestG3DSceneTreeView(int, char*[])
   ::Check(view.Selection() == rebuilt.FindByPath("/model.ext/Body/Bolt"),
     "selection survives a graph rebuild");
 
+  // --- scene elements -------------------------------------------------------------------------
+  // Element rows differ from geometry rows in two ways the frontends must not each re-derive: a
+  // camera offers no eye, and the placeholder noun depends on the type as well as on having
+  // children (so a section reads "Cameras" while its rows read "Camera 1", "Camera 2").
+  {
+    G3DSceneGraph elementGraph;
+    {
+      G3DSceneGraphBuilder builder(elementGraph);
+      builder.BeginNode("scene", "scene", G3DNodeType::ROOT);
+      builder.BeginNode("model.ext", "model.ext", G3DNodeType::FILE);
+      builder.SetImporterIndex(0);
+      builder.BeginNode("Mesh", "Mesh", G3DNodeType::MESH);
+      builder.EndNode();
+
+      builder.BeginNode("@cameras", "", G3DNodeType::CAMERA);
+      builder.BeginNode("camera_0", "", G3DNodeType::CAMERA);
+      builder.EndNode();
+      builder.BeginNode("camera_1", "", G3DNodeType::CAMERA);
+      builder.EndNode();
+      builder.EndNode();
+
+      builder.BeginNode("@lights", "", G3DNodeType::LIGHT);
+      builder.BeginNode("light_0", "", G3DNodeType::LIGHT);
+      builder.SetFlag(G3DNodeFlag::VisibleSelf, false);
+      builder.EndNode();
+      builder.EndNode();
+
+      builder.EndNode();
+      builder.EndNode();
+      builder.Finalize();
+    }
+
+    G3DSceneTreeView elementView;
+    elementView.SetGraph(&elementGraph);
+    elementView.ExpandAll();
+
+    const auto rowFor = [&](const std::string& path) -> G3DTreeRow
+    {
+      const int row = elementView.FindRow(elementGraph.FindByPath(path));
+      return row >= 0 ? elementView.Row(row) : G3DTreeRow{};
+    };
+
+    const G3DTreeRow cameraSection = rowFor("/model.ext/@cameras");
+    const G3DTreeRow camera0 = rowFor("/model.ext/@cameras/camera_0");
+    const G3DTreeRow lightSection = rowFor("/model.ext/@lights");
+    const G3DTreeRow light0 = rowFor("/model.ext/@lights/light_0");
+    const G3DTreeRow mesh = rowFor("/model.ext/Mesh");
+
+    ::Check(!cameraSection.Has(G3DTreeRowFlag::CanToggleVisibility),
+      "a camera section offers no eye");
+    ::Check(!camera0.Has(G3DTreeRowFlag::CanToggleVisibility), "a camera offers no eye");
+    ::Check(lightSection.Has(G3DTreeRowFlag::CanToggleVisibility), "a light section offers an eye");
+    ::Check(mesh.Has(G3DTreeRowFlag::CanToggleVisibility), "geometry offers an eye");
+
+    // The two sections are both unnamed children of the file, but they must not be numbered as one
+    // series -- "Cameras" and "Lights" are different nouns, not "Group 1" and "Group 2".
+    ::Check(cameraSection.PlaceholderOrdinal == -1, "a lone camera section is not numbered");
+    ::Check(lightSection.PlaceholderOrdinal == -1, "a lone light section is not numbered");
+    ::Check(camera0.PlaceholderOrdinal == 1, "repeated unnamed cameras are numbered");
+    ::Check(rowFor("/model.ext/@cameras/camera_1").PlaceholderOrdinal == 2, "...in order");
+    ::Check(light0.PlaceholderOrdinal == -1, "a lone unnamed light is not numbered");
+
+    // A switched-off light rolls up like any other hidden node.
+    ::Check(!light0.Has(G3DTreeRowFlag::Visible), "an off light reads as hidden");
+    ::Check(!lightSection.Has(G3DTreeRowFlag::Visible), "its section is hidden with it");
+    ::Check(rowFor("/model.ext").Has(G3DTreeRowFlag::Partial), "the file reads as partial");
+
+    // Filtering by type is what lets a reviewer put the elements away again.
+    G3DTreeFilter geometryOnly;
+    geometryOnly.TypeMask = (1u << static_cast<std::uint32_t>(G3DNodeType::FILE)) |
+      (1u << static_cast<std::uint32_t>(G3DNodeType::MESH));
+    elementView.SetFilter(geometryOnly);
+    ::Check(elementView.RowCount() == 2, "type filter keeps only the file and its mesh");
+    ::Check(::HasRow(elementView, "/model.ext/Mesh"), "the mesh survives the type filter");
+    ::Check(!::HasRow(elementView, "/model.ext/@cameras"), "the camera section is filtered out");
+    elementView.SetFilter(G3DTreeFilter{});
+    // file + mesh + camera section + 2 cameras + light section + 1 light
+    ::Check(elementView.RowCount() == 7, "clearing the type filter restores every row");
+  }
+
   // --- degenerate inputs ----------------------------------------------------------------------
   G3DSceneTreeView unbound;
   ::Check(unbound.RowCount() == 0, "a view with no graph has no rows");

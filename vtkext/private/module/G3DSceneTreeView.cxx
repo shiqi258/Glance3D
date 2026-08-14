@@ -21,10 +21,25 @@ bool ContainsCaseInsensitive(const std::string& haystack, const std::string& low
   return ::ToLowerAscii(haystack).find(loweredNeedle) != std::string::npos;
 }
 
-/// Placeholder rows are numbered per parent and per kind, so "Object 1 / Group 1" can coexist.
+/**
+ * Placeholder rows are numbered per parent and per kind, so "Object 1 / Group 1" can coexist.
+ *
+ * The kind is whatever changes the noun a presenter will substitute: having children (group vs
+ * object) and, for scene elements, the element itself. Geometry types deliberately share one kind,
+ * which is the numbering every existing tree already shows.
+ */
 int PlaceholderKindOf(const G3DSceneGraph& graph, int node)
 {
-  return graph.FirstChild(node) >= 0 ? 1 : 0;
+  const int hasChildren = graph.FirstChild(node) >= 0 ? 1 : 0;
+  switch (graph.Type(node))
+  {
+    case G3DNodeType::CAMERA:
+      return 2 + hasChildren;
+    case G3DNodeType::LIGHT:
+      return 4 + hasChildren;
+    default:
+      return hasChildren;
+  }
 }
 }
 
@@ -406,6 +421,7 @@ void G3DSceneTreeView::Rebuild() const
     row.Flags |= node == selected ? G3DTreeRowFlag::Selected : 0u;
     row.Flags |= (filtering && matched[index] != 0) ? G3DTreeRowFlag::Matched : 0u;
     row.Flags |= graph.HasFlag(node, G3DNodeFlag::Placeholder) ? G3DTreeRowFlag::Placeholder : 0u;
+    row.Flags |= row.Type == G3DNodeType::CAMERA ? 0u : G3DTreeRowFlag::CanToggleVisibility;
 
     this->RowForNode[index] = static_cast<int>(this->Rows.size());
     this->Rows.emplace_back(row);

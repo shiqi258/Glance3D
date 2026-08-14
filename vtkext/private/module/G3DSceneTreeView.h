@@ -40,6 +40,10 @@ inline constexpr std::uint32_t Selected = 1u << 4;
 inline constexpr std::uint32_t Matched = 1u << 5;
 /// The file named nothing; the presenter substitutes a localized noun and the ordinal below.
 inline constexpr std::uint32_t Placeholder = 1u << 6;
+/// The node has something to show or hide, so a presenter should offer the eye. Cameras do not:
+/// a viewpoint is not part of the picture. Decided here so both frontends agree without each
+/// re-deriving the rule from the node type.
+inline constexpr std::uint32_t CanToggleVisibility = 1u << 7;
 }
 
 struct G3DTreeFilter

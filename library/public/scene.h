@@ -10,7 +10,9 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 /// @endcond
 
@@ -43,6 +45,18 @@ enum class F3D_EXPORT g3d_node_type : unsigned char
 };
 
 /**
+ * Stable lowercase token for a node type ("assembly", "point_cloud", ...).
+ *
+ * One spelling shared by the commands, the logs and the JS bindings, so a type name a user reads in
+ * `print_scene_tree` is the one they can type back into a filter.
+ */
+[[nodiscard]] F3D_EXPORT std::string g3dNodeTypeToString(g3d_node_type type);
+
+/// Parse a token produced by `g3dNodeTypeToString`. Empty when the token is not a node type.
+[[nodiscard]] F3D_EXPORT std::optional<g3d_node_type> g3dNodeTypeFromString(
+  std::string_view name);
+
+/**
  * @struct g3d_tree_row
  * @brief One on-screen row of the scene tree, as the view-model resolved it.
  *
@@ -66,6 +80,9 @@ struct F3D_EXPORT g3d_tree_row
   bool expanded = false;
   /// Effective visibility: the node's own toggle AND every ancestor's.
   bool visible = true;
+  /// The node has something to show or hide. False for cameras: a viewpoint is not part of the
+  /// picture, so a frontend should not offer an eye for it.
+  bool canToggleVisibility = true;
   /// Visible, but not all of the subtree is -- the tri-state an eye icon shows as mixed.
   bool partiallyVisible = false;
   /// The label was synthesised; frontends substitute a localized noun plus `placeholderOrdinal`.
@@ -411,6 +428,13 @@ public:
   virtual scene& collapseSceneTree() = 0;
   /// Case-insensitive substring match on labels; matching nodes are revealed inside closed subtrees.
   virtual scene& setSceneTreeFilter(const std::string& query, bool onlyVisible = false) = 0;
+  /**
+   * Restrict the tree to the listed node types; an empty list shows every type again.
+   *
+   * Separate from the query filter because it answers a different question ("hide the cameras and
+   * lights while I read the assembly") and is usually driven by toggles rather than by typing.
+   */
+  virtual scene& setSceneTreeTypeFilter(const std::vector<g3d_node_type>& types) = 0;
   virtual bool setSceneTreeSelection(const std::string& path) = 0;
   ///@}
 
@@ -426,6 +450,12 @@ public:
   virtual bool setOnlySceneTreeNodeVisible(const std::string& path) = 0;
   virtual scene& resetSceneTreeVisibility() = 0;
   virtual bool focusSceneTreeNode(const std::string& path) = 0;
+  /**
+   * "Use" a node, whatever that means for its type. A camera node moves the view onto that camera,
+   * which is how a file's own viewpoints become reachable without guessing a `--camera-index`.
+   * Returns false for a node with no such action, so a frontend can fall back to plain selection.
+   */
+  virtual bool activateSceneTreeNode(const std::string& path) = 0;
   ///@}
 
 protected:

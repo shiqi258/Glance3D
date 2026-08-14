@@ -63,11 +63,13 @@ public:
   scene& expandSceneTree(int maxDepth = -1) override;
   scene& collapseSceneTree() override;
   scene& setSceneTreeFilter(const std::string& query, bool onlyVisible = false) override;
+  scene& setSceneTreeTypeFilter(const std::vector<g3d_node_type>& types) override;
   bool setSceneTreeSelection(const std::string& path) override;
   bool setSceneTreeNodeVisibility(const std::string& path, bool visible) override;
   bool setOnlySceneTreeNodeVisible(const std::string& path) override;
   scene& resetSceneTreeVisibility() override;
   bool focusSceneTreeNode(const std::string& path) override;
+  bool activateSceneTreeNode(const std::string& path) override;
   ///@}
 
   /**

@@ -51,52 +51,15 @@ emscripten::val pairToJSArray(const std::pair<U, V>& p)
   return jsArray;
 }
 
-/// Node types cross the boundary as strings: readable in the devtools console, and stable against
-/// values being inserted into the enumeration later.
-const char* g3dNodeTypeToString(f3d::g3d_node_type type)
-{
-  switch (type)
-  {
-    case f3d::g3d_node_type::ROOT:
-      return "root";
-    case f3d::g3d_node_type::FILE:
-      return "file";
-    case f3d::g3d_node_type::GROUP:
-      return "group";
-    case f3d::g3d_node_type::ASSEMBLY:
-      return "assembly";
-    case f3d::g3d_node_type::PART:
-      return "part";
-    case f3d::g3d_node_type::INSTANCE:
-      return "instance";
-    case f3d::g3d_node_type::FACE:
-      return "face";
-    case f3d::g3d_node_type::MESH:
-      return "mesh";
-    case f3d::g3d_node_type::POINT_CLOUD:
-      return "pointCloud";
-    case f3d::g3d_node_type::VOLUME:
-      return "volume";
-    case f3d::g3d_node_type::CAMERA:
-      return "camera";
-    case f3d::g3d_node_type::LIGHT:
-      return "light";
-    case f3d::g3d_node_type::SKELETON:
-      return "skeleton";
-    case f3d::g3d_node_type::JOINT:
-      return "joint";
-    case f3d::g3d_node_type::OTHER:
-      return "other";
-  }
-  return "other";
-}
-
 emscripten::val g3dTreeRowToJSObject(const f3d::g3d_tree_row& row)
 {
   emscripten::val js = emscripten::val::object();
   js.set("path", row.path);
   js.set("label", row.label);
-  js.set("type", g3dNodeTypeToString(row.type));
+  // Node types cross the boundary as strings: readable in the devtools console, and stable against
+  // values being inserted into the enumeration later. The spelling comes from libf3d rather than a
+  // copy here, so a name printed by `print_scene_tree` is the one JS sees.
+  js.set("type", f3d::g3dNodeTypeToString(row.type));
   js.set("depth", row.depth);
   js.set("childCount", row.childCount);
   js.set("placeholderOrdinal", row.placeholderOrdinal);
@@ -107,6 +70,7 @@ emscripten::val g3dTreeRowToJSObject(const f3d::g3d_tree_row& row)
   js.set("placeholder", row.placeholder);
   js.set("selected", row.selected);
   js.set("matched", row.matched);
+  js.set("canToggleVisibility", row.canToggleVisibility);
   return js;
 }
 
@@ -336,12 +300,34 @@ EMSCRIPTEN_BINDINGS(f3d)
     .function(
       "setSceneTreeFilter", +[](f3d::scene& scene, const std::string& query, bool onlyVisible)
       { scene.setSceneTreeFilter(query, onlyVisible); })
+    .function(
+      "setSceneTreeTypeFilter",
+      +[](f3d::scene& scene, const emscripten::val& types)
+      {
+        // Takes the same type tokens the rows carry, so a frontend can filter with values it read
+        // off a row instead of learning a second vocabulary.
+        std::vector<f3d::g3d_node_type> parsed;
+        const unsigned length = types.isUndefined() || types.isNull()
+          ? 0u
+          : types["length"].as<unsigned>();
+        for (unsigned index = 0; index < length; index++)
+        {
+          const std::optional<f3d::g3d_node_type> type =
+            f3d::g3dNodeTypeFromString(types[index].as<std::string>());
+          if (type.has_value())
+          {
+            parsed.emplace_back(type.value());
+          }
+        }
+        scene.setSceneTreeTypeFilter(parsed);
+      })
     .function("setSceneTreeSelection", &f3d::scene::setSceneTreeSelection)
     .function("setSceneTreeNodeVisibility", &f3d::scene::setSceneTreeNodeVisibility)
     .function("setOnlySceneTreeNodeVisible", &f3d::scene::setOnlySceneTreeNodeVisible)
     .function("resetSceneTreeVisibility", &f3d::scene::resetSceneTreeVisibility,
       emscripten::return_value_policy::reference())
-    .function("focusSceneTreeNode", &f3d::scene::focusSceneTreeNode);
+    .function("focusSceneTreeNode", &f3d::scene::focusSceneTreeNode)
+    .function("activateSceneTreeNode", &f3d::scene::activateSceneTreeNode);
 
   // f3d::image
   emscripten::enum_<f3d::image::SaveFormat>("ImageSaveFormat")

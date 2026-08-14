@@ -142,7 +142,7 @@ export type Glance3DNodeType =
   | "instance"
   | "face"
   | "mesh"
-  | "pointCloud"
+  | "point_cloud"
   | "volume"
   | "camera"
   | "light"
@@ -179,6 +179,11 @@ export interface Glance3DTreeRow {
   selected: boolean;
   /** Matches the active filter query, as opposed to being kept only to lead to a match. */
   matched: boolean;
+  /**
+   * The node has something to show or hide. False for cameras: a viewpoint is not part of the
+   * picture, so do not offer an eye for it.
+   */
+  canToggleVisibility: boolean;
 }
 
 export interface Glance3DTreeInfo {

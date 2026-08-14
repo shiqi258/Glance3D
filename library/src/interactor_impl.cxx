@@ -1329,6 +1329,7 @@ interactor& interactor_impl::initCommands()
       {
         std::string line(static_cast<std::size_t>(row.depth) * 2, ' ');
         line += row.path;
+        line += "  <" + g3dNodeTypeToString(row.type) + ">";
         if (!row.label.empty())
         {
           line += "  \"" + row.label + "\"";
@@ -1408,6 +1409,40 @@ interactor& interactor_impl::initCommands()
       this->Internals->Scene.setSceneTreeFilter(args.empty() ? std::string() : args[0]);
     },
     command_documentation_t{ "scene_tree_filter [query]", "filter the scene tree, empty to clear" });
+
+  this->addCommand(
+    "scene_tree_type_filter",
+    [&](const std::vector<std::string>& args)
+    {
+      // No argument shows every type again, mirroring how scene_tree_filter clears its query.
+      std::vector<g3d_node_type> types;
+      types.reserve(args.size());
+      for (const std::string& name : args)
+      {
+        const std::optional<g3d_node_type> type = g3dNodeTypeFromString(name);
+        if (!type.has_value())
+        {
+          throw interactor::invalid_args_exception("Command: unknown scene tree node type: " + name);
+        }
+        types.emplace_back(type.value());
+      }
+      this->Internals->Scene.setSceneTreeTypeFilter(types);
+    },
+    command_documentation_t{ "scene_tree_type_filter [type...]",
+      "show only the listed node types (eg. mesh camera), no argument to show all" });
+
+  this->addCommand(
+    "scene_tree_activate",
+    [&](const std::vector<std::string>& args)
+    {
+      const std::string path = sceneTreePath(args, "scene_tree_activate");
+      if (!this->Internals->Scene.activateSceneTreeNode(path))
+      {
+        log::warn("Command: scene tree node cannot be activated: ", path);
+      }
+    },
+    command_documentation_t{ "scene_tree_activate path",
+      "use a scene tree node: a camera node moves the view onto that camera" });
 
   this->addCommand(
     "scene_tree_select",

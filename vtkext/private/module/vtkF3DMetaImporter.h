@@ -224,6 +224,11 @@ public:
   bool SetG3DSceneTreeNodeVisibility(const std::string& path, bool visible);
   bool SetOnlyG3DSceneTreeNodeVisible(const std::string& path);
   void ResetG3DSceneTreeVisibility();
+  /**
+   * "Use" a node. Only camera nodes have a meaning today: the renderer's active camera takes the
+   * file camera's pose. False for any other type, so callers can fall back to plain selection.
+   */
+  bool ActivateG3DSceneTreeNode(const std::string& path);
   /// World-space bounds of a node's whole subtree. False when the path is unknown or has no bounds.
   bool GetG3DSceneTreeNodeBounds(const std::string& path, double bounds[6]) const;
   ///@}

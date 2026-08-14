@@ -144,9 +144,25 @@ std::string SceneTreeRowLabel(const G3DSceneGraph& graph, const G3DTreeRow& row)
     return graph.Label(row.Node);
   }
 
+  // The noun follows the node type, and the plural marks the section holding the elements -- which
+  // is also how the "Cameras" and "Lights" section headers get their text without the core ever
+  // holding a translated string. Written as literal Translate() calls so scripts/check-locales.mjs
+  // can still see every key.
   G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
-  std::string label = row.Has(G3DTreeRowFlag::HasChildren) ? locale.Translate("Group")
-                                                           : locale.Translate("Object");
+  const bool group = row.Has(G3DTreeRowFlag::HasChildren);
+  std::string label;
+  switch (row.Type)
+  {
+    case G3DNodeType::CAMERA:
+      label = group ? locale.Translate("Cameras") : locale.Translate("Camera");
+      break;
+    case G3DNodeType::LIGHT:
+      label = group ? locale.Translate("Lights") : locale.Translate("Light");
+      break;
+    default:
+      label = group ? locale.Translate("Group") : locale.Translate("Object");
+      break;
+  }
   if (row.PlaceholderOrdinal > 0)
   {
     label += " " + std::to_string(row.PlaceholderOrdinal);
@@ -163,6 +179,8 @@ G3DIconId SceneTreeRowIcon(const G3DTreeRow& row)
       return G3DIconId::Layers;
     case G3DNodeType::CAMERA:
       return G3DIconId::Camera;
+    case G3DNodeType::LIGHT:
+      return G3DIconId::Light;
     default:
       break;
   }
@@ -769,9 +787,10 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
         : (expanded ? G3DWidgets::TreeTwisty::Open : G3DWidgets::TreeTwisty::Collapsed);
 
       row.icon = ::SceneTreeRowIcon(rr);
-      row.iconVariant = rr.Type == G3DNodeType::FILE ? G3DWidgets::TreeIconVariant::Root
-        : hasChildren                                ? G3DWidgets::TreeIconVariant::Folder
-                                                     : G3DWidgets::TreeIconVariant::Default;
+      row.iconVariant = rr.Type == G3DNodeType::FILE  ? G3DWidgets::TreeIconVariant::Root
+        : rr.Type == G3DNodeType::LIGHT               ? G3DWidgets::TreeIconVariant::Light
+        : hasChildren                                 ? G3DWidgets::TreeIconVariant::Folder
+                                                      : G3DWidgets::TreeIconVariant::Default;
 
       const std::string label = ::SceneTreeRowLabel(graph, rr);
       const std::string meta = hasChildren ? std::to_string(rr.ChildCount) : std::string();
@@ -782,7 +801,9 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
       row.group = rr.Type == G3DNodeType::FILE;
       // A partially visible group reads as shown, not hidden — the eye carries the mixed state.
       row.hidden = !visible && !rr.Has(G3DTreeRowFlag::Partial);
-      row.showVisibility = true;
+      // Cameras get no eye: a viewpoint is not part of the picture. The view-model decides this so
+      // the web tree does not have to re-derive the same rule.
+      row.showVisibility = rr.Has(G3DTreeRowFlag::CanToggleVisibility);
       row.visible = visible;
 
       const bool isSelected = rr.Has(G3DTreeRowFlag::Selected);
@@ -811,13 +832,10 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
         {
           // Visibility *is* scene data, and still round-trips through the importer so the renderer
           // picks it up. Partially visible groups turn fully on, matching every other outliner.
-          const bool turnOn = !visible;
-          const int importerIndex = graph.ImporterIndex(rr.Node);
-          if (importerIndex >= 0)
+          // Going through the path-keyed entry point is what routes a light row to its switch
+          // instead of to an assembly attribute it does not have.
+          if (importer->SetG3DSceneTreeNodeVisibility(graph.Path(rr.Node), !visible))
           {
-            vtkF3DMetaImporter::ImporterInfo info = importer->GetImporterInfo(importerIndex);
-            vtkF3DMetaImporter::SetG3DDataAssemblyNodeVisibility(
-              info.DataAssembly, info.Importer, graph.SourceNodeId(rr.Node), turnOn);
             renWin->GetInteractor()->InvokeEvent(
               vtkF3DUserEvents::SceneHierarchyChangedEvent, nullptr);
           }
@@ -825,6 +843,13 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
         }
         case G3DWidgets::TreeRowHit::Row:
           view.SetSelection(rr.Node);
+          // A camera node's only purpose is to be looked through, so selecting one activates it --
+          // the same reason a viewpoint list in a review tool applies on click rather than hiding
+          // the action behind a second control. Sections (which have children) are left alone.
+          if (rr.Type == G3DNodeType::CAMERA && !hasChildren)
+          {
+            importer->ActivateG3DSceneTreeNode(graph.Path(rr.Node));
+          }
           break;
         case G3DWidgets::TreeRowHit::None:
         default:

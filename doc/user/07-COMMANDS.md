@@ -73,9 +73,12 @@ by its **path**, a stable key built from the structural names in the file, with 
 same-named siblings — for example `/f3d.glb/Body/Bolt[3]`. A path survives a reload and is unique
 across a multi-file scene, so unlike pixel coordinates it does not move when the tree is restyled.
 
+Besides the geometry, a file's own cameras and lights appear as two collapsed sections under it,
+`@cameras` and `@lights` — for example `/Cameras.gltf/@cameras/camera_0`.
+
 `print_scene_tree`: A specific command to print the currently shown rows together with their node
-paths. Only rows that are actually displayed are listed, so run `scene_tree_expand_all` first to see
-every path. No argument.
+paths and node types. Only rows that are actually displayed are listed, so run
+`scene_tree_expand_all` first to see every path. No argument.
 
 `scene_tree_expand path` / `scene_tree_collapse path`: Open or close one node.
 eg: `scene_tree_expand /f3d.glb/Body`.
@@ -89,9 +92,20 @@ eg: `scene_tree_expand_all 2`.
 the ancestors that lead to them. Matches inside closed subtrees are revealed without changing the
 stored expansion state. No argument clears the filter.
 
+`scene_tree_type_filter [type...]`: Keep only the listed node types, using the names
+`print_scene_tree` shows in angle brackets (`root`, `file`, `group`, `assembly`, `part`, `instance`,
+`face`, `mesh`, `point_cloud`, `volume`, `camera`, `light`, `skeleton`, `joint`, `other`). No
+argument shows every type again. eg: `scene_tree_type_filter mesh group file` hides the camera and
+light sections.
+
 `scene_tree_select path`: Select a node. An empty path clears the selection.
 
-`scene_tree_visibility path bool`: Show or hide a node and all of its descendants.
+`scene_tree_activate path`: Use a node. A camera node moves the view onto that camera, which is how
+a file's own viewpoints are reached without guessing a `--camera-index`. Anything else warns.
+eg: `scene_tree_activate /Cameras.gltf/@cameras/camera_1`.
+
+`scene_tree_visibility path bool`: Show or hide a node and all of its descendants. On a light node
+this switches the light off, which is its equivalent of being hidden. Cameras have no visibility.
 eg: `scene_tree_visibility /f3d.glb/Body false`.
 
 `scene_tree_solo path`: Hide everything except the provided subtree.

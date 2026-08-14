@@ -3,8 +3,10 @@
 #include <vtkActor.h>
 #include <vtkActorCollection.h>
 #include <vtkBoundingBox.h>
+#include <vtkCamera.h>
 #include <vtkDataAssembly.h>
 #include <vtkImporter.h>
+#include <vtkLight.h>
 #include <vtkMath.h>
 #include <vtkProp3D.h>
 
@@ -124,14 +126,54 @@ const std::string& G3DSceneGraph::Path(int node) const
 }
 
 //----------------------------------------------------------------------------
-vtkProp3D* G3DSceneGraph::Prop(int node) const
+const G3DRenderable* G3DSceneGraph::RenderableOf(int node) const
 {
   const int renderable = this->Renderable(node);
   if (renderable < 0 || renderable >= static_cast<int>(this->RenderableEntries.size()))
   {
     return nullptr;
   }
-  return this->RenderableEntries[static_cast<std::size_t>(renderable)].Prop;
+  return &this->RenderableEntries[static_cast<std::size_t>(renderable)];
+}
+
+//----------------------------------------------------------------------------
+vtkProp3D* G3DSceneGraph::Prop(int node) const
+{
+  const G3DRenderable* entry = this->RenderableOf(node);
+  if (entry == nullptr || entry->Kind != G3DRenderableKind::PROP)
+  {
+    return nullptr;
+  }
+  return static_cast<vtkProp3D*>(entry->Object);
+}
+
+//----------------------------------------------------------------------------
+vtkCamera* G3DSceneGraph::Camera(int node) const
+{
+  const G3DRenderable* entry = this->RenderableOf(node);
+  if (entry == nullptr || entry->Kind != G3DRenderableKind::CAMERA)
+  {
+    return nullptr;
+  }
+  return static_cast<vtkCamera*>(entry->Object);
+}
+
+//----------------------------------------------------------------------------
+vtkLight* G3DSceneGraph::Light(int node) const
+{
+  const G3DRenderable* entry = this->RenderableOf(node);
+  if (entry == nullptr || entry->Kind != G3DRenderableKind::LIGHT)
+  {
+    return nullptr;
+  }
+  return static_cast<vtkLight*>(entry->Object);
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraph::RenderableLocalIndex(int node) const
+{
+  const G3DRenderable* entry = this->RenderableOf(node);
+  return entry ? entry->LocalIndex : -1;
 }
 
 //----------------------------------------------------------------------------
@@ -229,7 +271,26 @@ G3DSceneGraphBuilder::G3DSceneGraphBuilder(G3DSceneGraph& graph)
 //----------------------------------------------------------------------------
 int G3DSceneGraphBuilder::AddRenderable(vtkProp3D* prop, int importerIndex)
 {
-  this->Graph.RenderableEntries.emplace_back(G3DRenderable{ prop, importerIndex });
+  this->Graph.RenderableEntries.emplace_back(
+    G3DRenderable{ G3DRenderableKind::PROP, prop, importerIndex, -1 });
+  return static_cast<int>(this->Graph.RenderableEntries.size()) - 1;
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraphBuilder::AddCameraRenderable(
+  vtkCamera* camera, int importerIndex, int globalCameraIndex)
+{
+  this->Graph.RenderableEntries.emplace_back(
+    G3DRenderable{ G3DRenderableKind::CAMERA, camera, importerIndex, globalCameraIndex });
+  return static_cast<int>(this->Graph.RenderableEntries.size()) - 1;
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneGraphBuilder::AddLightRenderable(
+  vtkLight* light, int importerIndex, int globalLightIndex)
+{
+  this->Graph.RenderableEntries.emplace_back(
+    G3DRenderable{ G3DRenderableKind::LIGHT, light, importerIndex, globalLightIndex });
   return static_cast<int>(this->Graph.RenderableEntries.size()) - 1;
 }
 
@@ -436,6 +497,62 @@ void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assem
 
   builder.EndNode();
 }
+
+/**
+ * Appends a file's cameras or lights as one collapsed section under its FILE node.
+ *
+ * The section node itself carries the element type with children, which is how a presenter tells
+ * "the Cameras group" from "a camera": both are unnamed, so both go through the placeholder path
+ * and the presenter picks the plural or singular noun in its own language.
+ */
+struct G3DSceneElementSection
+{
+  const char* SectionName = "";
+  /// Structural name prefix for an unnamed element, eg. "camera_" -> "camera_0".
+  const char* ElementPrefix = "";
+  G3DNodeType Type = G3DNodeType::OTHER;
+  int ImporterIndex = -1;
+  int Count = 0;
+  int FirstGlobalIndex = 0;
+  /// Display names, may be shorter than Count or absent; an empty entry means "the file named it
+  /// nothing", which turns the node into a placeholder the presenter numbers in its own language.
+  const std::vector<std::string>* Names = nullptr;
+};
+
+template<typename AddRenderableFn, typename IsVisibleFn>
+void AppendG3DSceneElementSection(G3DSceneGraphBuilder& builder,
+  const G3DSceneElementSection& section, const AddRenderableFn& addRenderable,
+  const IsVisibleFn& isVisible)
+{
+  if (section.Count <= 0)
+  {
+    return;
+  }
+
+  builder.BeginNode(section.SectionName, "", section.Type);
+  builder.SetImporterIndex(section.ImporterIndex);
+  builder.SetFlag(G3DNodeFlag::CollapsedByDefault, true);
+
+  for (int local = 0; local < section.Count; local++)
+  {
+    const std::string label = (section.Names != nullptr &&
+                                local < static_cast<int>(section.Names->size()))
+      ? (*section.Names)[static_cast<std::size_t>(local)]
+      : std::string();
+    // The path must stay stable and unique even when the file names nothing, so the structural name
+    // falls back to the index rather than to the (localized, possibly duplicated) display label.
+    const std::string name =
+      label.empty() ? section.ElementPrefix + std::to_string(local) : label;
+
+    builder.BeginNode(name, label, section.Type);
+    builder.SetImporterIndex(section.ImporterIndex);
+    builder.SetRenderable(addRenderable(local, section.FirstGlobalIndex + local));
+    builder.SetFlag(G3DNodeFlag::VisibleSelf, isVisible(local));
+    builder.EndNode();
+  }
+
+  builder.EndNode();
+}
 }
 
 //----------------------------------------------------------------------------
@@ -485,6 +602,42 @@ void G3DIngestDataAssemblies(G3DSceneGraph& graph, const std::vector<G3DAssembly
       ::IngestG3DAssemblyNode(builder, source.Assembly, renderableForActor, importerIndex,
         source.Assembly->GetChild(assemblyRoot, childIndex));
     }
+
+    // Scene elements come after the geometry, never interleaved with it.
+    ::G3DSceneElementSection cameraSection;
+    cameraSection.SectionName = G3DCameraSectionName;
+    cameraSection.ElementPrefix = "camera_";
+    cameraSection.Type = G3DNodeType::CAMERA;
+    cameraSection.ImporterIndex = importerIndex;
+    cameraSection.Count = static_cast<int>(source.Cameras.size());
+    cameraSection.FirstGlobalIndex = source.FirstCameraIndex;
+    cameraSection.Names = &source.CameraNames;
+    ::AppendG3DSceneElementSection(
+      builder, cameraSection,
+      [&](int local, int global) {
+        return builder.AddCameraRenderable(
+          source.Cameras[static_cast<std::size_t>(local)], importerIndex, global);
+      },
+      [](int) { return true; });
+
+    ::G3DSceneElementSection lightSection;
+    lightSection.SectionName = G3DLightSectionName;
+    lightSection.ElementPrefix = "light_";
+    lightSection.Type = G3DNodeType::LIGHT;
+    lightSection.ImporterIndex = importerIndex;
+    lightSection.Count = static_cast<int>(source.Lights.size());
+    lightSection.FirstGlobalIndex = source.FirstLightIndex;
+    ::AppendG3DSceneElementSection(
+      builder, lightSection,
+      [&](int local, int global) {
+        return builder.AddLightRenderable(
+          source.Lights[static_cast<std::size_t>(local)], importerIndex, global);
+      },
+      [&](int local)
+      {
+        vtkLight* light = source.Lights[static_cast<std::size_t>(local)];
+        return light != nullptr && light->GetSwitch() != 0;
+      });
 
     builder.EndNode();
   }

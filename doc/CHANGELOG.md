@@ -57,6 +57,11 @@ For libf3d users:
 - Added a windowed scene tree API (`getSceneTreeInfo`, `getSceneTreeRows`) returning flat rows addressed by stable node paths, along with expansion/filter/selection and visibility/focus operations
 - Added `scene_tree_*` commands and `print_scene_tree`, so the scene hierarchy can be driven from a command script instead of by clicking at fixed coordinates
 - Removed the recursive `getG3DSceneTree()` snapshot API and its `g3d_scene_tree_*` types, replaced by the windowed API above (see the migration guide)
+- Added the cameras and lights a file declares to the scene tree, as two collapsed sections under their file (`/model.glb/@cameras`, `/model.glb/@lights`)
+- Added `activateSceneTreeNode` to use a node — a camera node moves the view onto that camera — plus the `scene_tree_activate` command
+- Added `setSceneTreeTypeFilter` and the `scene_tree_type_filter` command to show only chosen node types, plus `g3dNodeTypeToString`/`g3dNodeTypeFromString` for their names
+- Added `canToggleVisibility` to `g3d_tree_row`; hiding a light node switches the light off, and cameras have no visibility
+- Fixed cameras and lights declared by a file being dropped instead of reaching the renderer, which also made `--camera-index` have no effect
 - Deprecated `interactor.trackball` option in favor of `interactor.style`
 
 For Glance3D packagers:
@@ -75,6 +80,7 @@ For Web viewer users:
 - Added .3mf and .dxf support
 - Added .ifc support
 - Added a scene tree to the inspector panel, virtualized so its cost stays proportional to what is on screen; it shares its tree shape, expansion, filtering and visibility roll-up with the desktop viewer
+- Added the file's own cameras and lights to that tree: clicking a camera row moves the view onto it, and a light row's eye switches the light
 
 ## v3.4.1
 

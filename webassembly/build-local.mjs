@@ -197,6 +197,11 @@ const TYPE_SUBSTITUTIONS = [
     replacement: "$1getSceneTreeRows(begin: number, count: number): Glance3DTreeRow[];",
   },
   {
+    name: "Scene.setSceneTreeTypeFilter",
+    pattern: /^(\s*)setSceneTreeTypeFilter\(_0: any\): void;$/m,
+    replacement: "$1setSceneTreeTypeFilter(types: Glance3DNodeType[]): void;",
+  },
+  {
     name: "Engine.getReadersInfo",
     pattern: /^(\s*)getReadersInfo\(\): any;$/m,
     replacement: "$1getReadersInfo(): Glance3DReaderInfo[];",
@@ -233,6 +238,8 @@ const REQUIRED_TYPE_SYMBOLS = [
   "Glance3DNodeType",
   "getSceneTreeRows(begin: number, count: number): Glance3DTreeRow[];",
   "getSceneTreeInfo(): Glance3DTreeInfo;",
+  "setSceneTreeTypeFilter(types: Glance3DNodeType[]): void;",
+  "activateSceneTreeNode",
   "getG3DDataInfo(): Glance3DDataInfo;",
 ];
 

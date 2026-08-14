@@ -28,8 +28,11 @@
 #include <unordered_map>
 #include <vector>
 
+class vtkCamera;
 class vtkDataAssembly;
 class vtkImporter;
+class vtkLight;
+class vtkObject;
 class vtkProp3D;
 
 /**
@@ -88,11 +91,29 @@ private:
   std::unordered_map<std::string, std::uint32_t> Index;
 };
 
-/// A renderable this graph can point at. Several nodes may share one (instancing, later).
+/// What kind of scene object a renderable entry points at.
+enum class G3DRenderableKind : std::uint8_t
+{
+  PROP = 0, ///< A vtkProp3D drawn by the renderer.
+  CAMERA,   ///< A vtkCamera declared by the file.
+  LIGHT,    ///< A vtkLight declared by the file.
+};
+
+/**
+ * A scene object a node can point at. Several nodes may share one (instancing, later).
+ *
+ * Deliberately a tagged variant rather than three parallel tables: nodes keep storing one index, so
+ * adding a kind costs nothing on the node side. The B-rep face nodes get another kind the same way.
+ */
 struct G3DRenderable
 {
-  vtkProp3D* Prop = nullptr;
+  G3DRenderableKind Kind = G3DRenderableKind::PROP;
+  /// vtkProp3D / vtkCamera / vtkLight, per Kind. Borrowed: the importer and renderer own these.
+  vtkObject* Object = nullptr;
   int ImporterIndex = -1;
+  /// Index among objects of this kind, flattened across files in load order. -1 for props, whose
+  /// identity is the pointer itself.
+  int LocalIndex = -1;
 };
 
 /// Axis-aligned bounds, xmin/xmax/ymin/ymax/zmin/zmax, matching VTK's ordering.
@@ -160,7 +181,16 @@ public:
   {
     return this->Renderables[static_cast<std::size_t>(node)];
   }
+  /// The prop drawn for this node, or nullptr when it has none or points at another kind.
   vtkProp3D* Prop(int node) const;
+  /// The file camera this node stands for, or nullptr.
+  vtkCamera* Camera(int node) const;
+  /// The file light this node stands for, or nullptr.
+  vtkLight* Light(int node) const;
+  /// Index among same-kind objects (the global camera index, for one), or -1.
+  int RenderableLocalIndex(int node) const;
+  /// The raw entry, or nullptr when the node points at nothing.
+  const G3DRenderable* RenderableOf(int node) const;
   /// Which loaded file this node belongs to, or -1 for the synthetic root.
   int ImporterIndex(int node) const
   {
@@ -247,8 +277,12 @@ class G3DSceneGraphBuilder
 public:
   explicit G3DSceneGraphBuilder(G3DSceneGraph& graph);
 
-  /// Registers a renderable and returns its index, for SetRenderable().
+  ///@{
+  /// Registers a scene object and returns its renderable index, for SetRenderable().
   int AddRenderable(vtkProp3D* prop, int importerIndex);
+  int AddCameraRenderable(vtkCamera* camera, int importerIndex, int globalCameraIndex);
+  int AddLightRenderable(vtkLight* light, int importerIndex, int globalLightIndex);
+  ///@}
 
   /**
    * Opens a node.
@@ -286,7 +320,25 @@ struct G3DAssemblySource
   vtkDataAssembly* Assembly = nullptr;
   vtkImporter* Importer = nullptr;
   std::string Name;
+
+  /**
+   * Cameras and lights this file declared, in the order the flattened global index uses.
+   *
+   * They become two sections appended after the file's geometry rather than nodes spliced into the
+   * assembly hierarchy: a reviewer scanning a CAD tree should not have to step over viewpoints, and
+   * a section can be collapsed or filtered away wholesale. Empty vectors emit no section at all.
+   */
+  std::vector<vtkCamera*> Cameras;
+  std::vector<std::string> CameraNames; ///< Parallel to Cameras; an empty name means "unnamed".
+  std::vector<vtkLight*> Lights;
+  /// Index of this file's first camera/light in the global flattened order.
+  int FirstCameraIndex = 0;
+  int FirstLightIndex = 0;
 };
+
+/// Structural names of the two synthetic sections, also the path segment (eg. "/f3d.glb/@cameras").
+inline constexpr const char* G3DCameraSectionName = "@cameras";
+inline constexpr const char* G3DLightSectionName = "@lights";
 void G3DIngestDataAssemblies(
   G3DSceneGraph& graph, const std::vector<G3DAssemblySource>& sources);
 

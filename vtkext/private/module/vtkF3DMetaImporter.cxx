@@ -402,11 +402,17 @@ struct vtkF3DMetaImporter::Internals
   std::vector<vtkF3DMetaImporter::ImporterInfo> Importers;
   std::optional<vtkIdType> CameraIndex;
 
-  // Cameras and lights declared by the loaded files, flattened across importers in the same order
-  // GetNumberOfCameras()/GetCameraName() use -- a global index must mean the same thing everywhere,
-  // or the scene tree ends up naming one camera and activating another.
-  std::vector<vtkSmartPointer<vtkCamera>> ImportedCameras;
-  std::vector<vtkSmartPointer<vtkLight>> ImportedLights;
+  // Cameras and lights declared by the loaded files, grouped per importer because the scene tree
+  // hangs them under their own file, and flattened in importer order because a global camera index
+  // must mean the same thing here as in GetNumberOfCameras()/GetCameraName() -- otherwise the tree
+  // ends up naming one camera and activating another.
+  struct FileSceneElements
+  {
+    std::vector<vtkSmartPointer<vtkCamera>> Cameras;
+    std::vector<std::string> CameraNames;
+    std::vector<vtkSmartPointer<vtkLight>> Lights;
+  };
+  std::vector<FileSceneElements> SceneElements; ///< Parallel to Importers.
 
   vtkBoundingBox GeometryBoundingBox;
   vtkTimeStamp ColoringInfoTime;
@@ -448,8 +454,7 @@ void vtkF3DMetaImporter::Clear()
   this->Pimpl->Importers.clear();
   // The renderer drops its own light list in vtkF3DRenderer::Initialize(); this only forgets the
   // bookkeeping that maps a global index back to a file camera/light.
-  this->Pimpl->ImportedCameras.clear();
-  this->Pimpl->ImportedLights.clear();
+  this->Pimpl->SceneElements.clear();
   this->Pimpl->GeometryBoundingBox.Reset();
   this->ActorCollection->RemoveAllItems();
   this->Pimpl->ColoringActorsAndMappers.clear();
@@ -559,6 +564,16 @@ const G3DSceneGraph& vtkF3DMetaImporter::GetG3DSceneGraph() const
     signature = signature * 1000003u +
       (importerInfo.DataAssembly ? importerInfo.DataAssembly->GetMTime() : 0);
   }
+  // Light nodes mirror vtkLight::GetSwitch(), which no assembly records: without the lights in the
+  // signature, switching one off would leave the tree showing it as still on until something else
+  // happened to dirty the graph.
+  for (const Internals::FileSceneElements& elements : this->Pimpl->SceneElements)
+  {
+    for (const vtkSmartPointer<vtkLight>& light : elements.Lights)
+    {
+      signature = signature * 1000003u + (light ? light->GetMTime() : 0);
+    }
+  }
 
   if (this->Pimpl->SceneGraphValid && signature == this->Pimpl->SceneGraphSignature)
   {
@@ -567,10 +582,39 @@ const G3DSceneGraph& vtkF3DMetaImporter::GetG3DSceneGraph() const
 
   std::vector<G3DAssemblySource> sources;
   sources.reserve(this->Pimpl->Importers.size());
-  for (const vtkF3DMetaImporter::ImporterInfo& importerInfo : this->Pimpl->Importers)
+  int firstCameraIndex = 0;
+  int firstLightIndex = 0;
+  for (std::size_t index = 0; index < this->Pimpl->Importers.size(); index++)
   {
-    sources.emplace_back(
-      G3DAssemblySource{ importerInfo.DataAssembly, importerInfo.Importer, importerInfo.Name });
+    const vtkF3DMetaImporter::ImporterInfo& importerInfo = this->Pimpl->Importers[index];
+
+    G3DAssemblySource source;
+    source.Assembly = importerInfo.DataAssembly;
+    source.Importer = importerInfo.Importer;
+    source.Name = importerInfo.Name;
+
+    if (index < this->Pimpl->SceneElements.size())
+    {
+      const Internals::FileSceneElements& elements = this->Pimpl->SceneElements[index];
+      source.Cameras.reserve(elements.Cameras.size());
+      for (const vtkSmartPointer<vtkCamera>& camera : elements.Cameras)
+      {
+        source.Cameras.emplace_back(camera);
+      }
+      source.CameraNames = elements.CameraNames;
+      source.Lights.reserve(elements.Lights.size());
+      for (const vtkSmartPointer<vtkLight>& light : elements.Lights)
+      {
+        source.Lights.emplace_back(light);
+      }
+    }
+
+    source.FirstCameraIndex = firstCameraIndex;
+    source.FirstLightIndex = firstLightIndex;
+    firstCameraIndex += static_cast<int>(source.Cameras.size());
+    firstLightIndex += static_cast<int>(source.Lights.size());
+
+    sources.emplace_back(std::move(source));
   }
 
   G3DIngestDataAssemblies(this->Pimpl->SceneGraph, sources);
@@ -600,14 +644,58 @@ bool ResolveG3DPathToSource(
   sourceNodeId = graph.SourceNodeId(node);
   return importerIndex >= 0 && sourceNodeId >= 0;
 }
+
+/**
+ * Switches every light in a subtree, and reports whether it found any.
+ *
+ * A subtree is a contiguous index range in DFS pre-order, so this covers both a single light node
+ * and the whole "@lights" section with the same loop.
+ */
+bool SwitchG3DLightSubtree(const G3DSceneGraph& graph, int node, bool on)
+{
+  bool touched = false;
+  const int end = node + 1 + graph.SubtreeSize(node);
+  for (int current = node; current < end; current++)
+  {
+    if (vtkLight* light = graph.Light(current))
+    {
+      light->SetSwitch(on ? 1 : 0);
+      touched = true;
+    }
+  }
+  return touched;
+}
 }
 
 //----------------------------------------------------------------------------
 bool vtkF3DMetaImporter::SetG3DSceneTreeNodeVisibility(const std::string& path, bool visible)
 {
+  const G3DSceneGraph& graph = this->GetG3DSceneGraph();
+  const int node = graph.FindByPath(path);
+  if (node < 0)
+  {
+    return false;
+  }
+
+  // Lights are scene elements, not geometry: their "visibility" is the light switch, and they have
+  // no assembly node to write an attribute onto. Cameras have no visibility at all.
+  if (graph.Type(node) == G3DNodeType::LIGHT)
+  {
+    if (!::SwitchG3DLightSubtree(graph, node, visible))
+    {
+      return false;
+    }
+    this->Pimpl->UpdateTime.Modified();
+    return true;
+  }
+  if (graph.Type(node) == G3DNodeType::CAMERA)
+  {
+    return false;
+  }
+
   int importerIndex = -1;
   int sourceNodeId = -1;
-  if (!::ResolveG3DPathToSource(this->GetG3DSceneGraph(), path, importerIndex, sourceNodeId) ||
+  if (!::ResolveG3DPathToSource(graph, path, importerIndex, sourceNodeId) ||
     importerIndex >= static_cast<int>(this->Pimpl->Importers.size()))
   {
     return false;
@@ -654,6 +742,25 @@ void vtkF3DMetaImporter::ResetG3DSceneTreeVisibility()
       importerInfo.DataAssembly->GetRootNode(), true);
   }
   this->Pimpl->UpdateTime.Modified();
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DMetaImporter::ActivateG3DSceneTreeNode(const std::string& path)
+{
+  const G3DSceneGraph& graph = this->GetG3DSceneGraph();
+  const int node = graph.FindByPath(path);
+  if (node < 0)
+  {
+    return false;
+  }
+
+  // Only cameras have an "activate" meaning today. Other types return false rather than silently
+  // doing nothing else, so a caller can fall back (the UI falls back to plain selection).
+  if (graph.Camera(node) == nullptr)
+  {
+    return false;
+  }
+  return this->ApplyG3DCamera(static_cast<vtkIdType>(graph.RenderableLocalIndex(node)));
 }
 
 //----------------------------------------------------------------------------
@@ -775,8 +882,12 @@ void vtkF3DMetaImporter::CommitToRenderer()
   this->Renderer = this->RenderWindow->GetRenderers()->GetFirstRenderer();
   assert(this->Renderer);
 
-  for (auto& importerInfo : this->Pimpl->Importers)
+  this->Pimpl->SceneElements.resize(this->Pimpl->Importers.size());
+
+  for (std::size_t importerIndex = 0; importerIndex < this->Pimpl->Importers.size(); importerIndex++)
   {
+    vtkF3DMetaImporter::ImporterInfo& importerInfo = this->Pimpl->Importers[importerIndex];
+
     // Already committed to the renderer by a previous Update()
     if (importerInfo.Updated)
     {
@@ -793,15 +904,21 @@ void vtkF3DMetaImporter::CommitToRenderer()
     // ImportCameras()/ImportLights() wrote onto a renderer that is gone by now -- which is why file
     // cameras and lights used to vanish entirely (and why --camera-index silently did nothing).
     // Actors are re-homed below; these two collections are the rest of that same handover.
-    //
-    // Importers are appended and committed in order, so appending here keeps the flattened index
-    // identical to the one GetNumberOfCameras()/GetCameraName() walk.
+    Internals::FileSceneElements& elements = this->Pimpl->SceneElements[importerIndex];
+    elements.Cameras.clear();
+    elements.CameraNames.clear();
+    elements.Lights.clear();
+
     vtkCollection* importedCameras = importer->GetImportedCameras();
     vtkCollectionSimpleIterator cit;
     importedCameras->InitTraversal(cit);
     while (vtkObject* cameraObject = importedCameras->GetNextItemAsObject(cit))
     {
-      this->Pimpl->ImportedCameras.emplace_back(vtkCamera::SafeDownCast(cameraObject));
+      const vtkIdType localIndex = static_cast<vtkIdType>(elements.Cameras.size());
+      elements.Cameras.emplace_back(vtkCamera::SafeDownCast(cameraObject));
+      // The importer's own name, not GetCameraName()'s "unnamed_N" fallback: an empty name is how
+      // the tree learns to substitute a localized noun instead of showing a synthetic identifier.
+      elements.CameraNames.emplace_back(importer->GetCameraName(localIndex));
     }
 
     vtkLightCollection* importedLights = importer->GetImportedLights();
@@ -810,7 +927,7 @@ void vtkF3DMetaImporter::CommitToRenderer()
     while (vtkLight* light = importedLights->GetNextLight(lit))
     {
       this->Renderer->AddLight(light);
-      this->Pimpl->ImportedLights.emplace_back(light);
+      elements.Lights.emplace_back(light);
     }
 
     if (importedCameras->GetNumberOfItems() > 0 || importedLights->GetNumberOfItems() > 0)
@@ -1240,17 +1357,29 @@ void vtkF3DMetaImporter::SetCameraIndex(std::optional<vtkIdType> camIndex)
 //----------------------------------------------------------------------------
 vtkIdType vtkF3DMetaImporter::GetG3DCameraCount() const
 {
-  return static_cast<vtkIdType>(this->Pimpl->ImportedCameras.size());
+  vtkIdType total = 0;
+  for (const Internals::FileSceneElements& elements : this->Pimpl->SceneElements)
+  {
+    total += static_cast<vtkIdType>(elements.Cameras.size());
+  }
+  return total;
 }
 
 //----------------------------------------------------------------------------
 vtkCamera* vtkF3DMetaImporter::GetG3DCamera(vtkIdType camIndex) const
 {
-  if (camIndex < 0 || camIndex >= this->GetG3DCameraCount())
+  // Walks files the same way GetCameraName() does, which is what keeps the two in step.
+  vtkIdType localIndex = camIndex;
+  for (const Internals::FileSceneElements& elements : this->Pimpl->SceneElements)
   {
-    return nullptr;
+    const vtkIdType count = static_cast<vtkIdType>(elements.Cameras.size());
+    if (localIndex >= 0 && localIndex < count)
+    {
+      return elements.Cameras[static_cast<std::size_t>(localIndex)];
+    }
+    localIndex -= count;
   }
-  return this->Pimpl->ImportedCameras[static_cast<std::size_t>(camIndex)];
+  return nullptr;
 }
 
 //----------------------------------------------------------------------------

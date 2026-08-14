@@ -114,7 +114,92 @@ g3d_tree_row ConvertG3DTreeRow(const G3DSceneGraph& graph, const G3DTreeRow& sou
   row.placeholder = source.Has(G3DTreeRowFlag::Placeholder);
   row.selected = source.Has(G3DTreeRowFlag::Selected);
   row.matched = source.Has(G3DTreeRowFlag::Matched);
+  row.canToggleVisibility = source.Has(G3DTreeRowFlag::CanToggleVisibility);
   return row;
+}
+
+/**
+ * The one place a node type gets a user-facing spelling.
+ *
+ * A switch rather than a table so that adding an enum value fails to compile here instead of
+ * silently producing a wrong or missing name. The reverse lookup below walks this same function,
+ * which is what stops the two directions from drifting apart.
+ */
+constexpr std::string_view G3DNodeTypeToken(g3d_node_type type)
+{
+  switch (type)
+  {
+    case g3d_node_type::ROOT:
+      return "root";
+    case g3d_node_type::FILE:
+      return "file";
+    case g3d_node_type::GROUP:
+      return "group";
+    case g3d_node_type::ASSEMBLY:
+      return "assembly";
+    case g3d_node_type::PART:
+      return "part";
+    case g3d_node_type::INSTANCE:
+      return "instance";
+    case g3d_node_type::FACE:
+      return "face";
+    case g3d_node_type::MESH:
+      return "mesh";
+    case g3d_node_type::POINT_CLOUD:
+      return "point_cloud";
+    case g3d_node_type::VOLUME:
+      return "volume";
+    case g3d_node_type::CAMERA:
+      return "camera";
+    case g3d_node_type::LIGHT:
+      return "light";
+    case g3d_node_type::SKELETON:
+      return "skeleton";
+    case g3d_node_type::JOINT:
+      return "joint";
+    case g3d_node_type::OTHER:
+      return "other";
+  }
+  return "other";
+}
+
+/// Inverse of ConvertG3DNodeType, for the type filter. A switch so a new type cannot be forgotten.
+G3DNodeType ConvertToG3DNodeType(g3d_node_type type)
+{
+  switch (type)
+  {
+    case g3d_node_type::ROOT:
+      return G3DNodeType::ROOT;
+    case g3d_node_type::FILE:
+      return G3DNodeType::FILE;
+    case g3d_node_type::GROUP:
+      return G3DNodeType::GROUP;
+    case g3d_node_type::ASSEMBLY:
+      return G3DNodeType::ASSEMBLY;
+    case g3d_node_type::PART:
+      return G3DNodeType::PART;
+    case g3d_node_type::INSTANCE:
+      return G3DNodeType::INSTANCE;
+    case g3d_node_type::FACE:
+      return G3DNodeType::FACE;
+    case g3d_node_type::MESH:
+      return G3DNodeType::MESH;
+    case g3d_node_type::POINT_CLOUD:
+      return G3DNodeType::POINT_CLOUD;
+    case g3d_node_type::VOLUME:
+      return G3DNodeType::VOLUME;
+    case g3d_node_type::CAMERA:
+      return G3DNodeType::CAMERA;
+    case g3d_node_type::LIGHT:
+      return G3DNodeType::LIGHT;
+    case g3d_node_type::SKELETON:
+      return G3DNodeType::SKELETON;
+    case g3d_node_type::JOINT:
+      return G3DNodeType::JOINT;
+    case g3d_node_type::OTHER:
+      return G3DNodeType::OTHER;
+  }
+  return G3DNodeType::OTHER;
 }
 }
 
@@ -1265,10 +1350,38 @@ scene& scene_impl::setSceneTreeFilter(const std::string& query, bool onlyVisible
   vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
   if (renderer != nullptr)
   {
-    G3DTreeFilter filter;
+    G3DSceneTreeView& view = renderer->GetG3DSceneTreeView();
+    // Only this half of the filter: typing in the search box must not silently re-show the node
+    // types the user had switched off, and vice versa.
+    G3DTreeFilter filter = view.Filter();
     filter.Query = query;
     filter.OnlyVisible = onlyVisible;
-    renderer->GetG3DSceneTreeView().SetFilter(filter);
+    view.SetFilter(filter);
+  }
+  return *this;
+}
+
+//----------------------------------------------------------------------------
+scene& scene_impl::setSceneTreeTypeFilter(const std::vector<g3d_node_type>& types)
+{
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer != nullptr)
+  {
+    G3DSceneTreeView& view = renderer->GetG3DSceneTreeView();
+    G3DTreeFilter filter = view.Filter();
+    if (types.empty())
+    {
+      filter.TypeMask = ~0u;
+    }
+    else
+    {
+      filter.TypeMask = 0u;
+      for (const g3d_node_type type : types)
+      {
+        filter.TypeMask |= 1u << static_cast<std::uint32_t>(ConvertToG3DNodeType(type));
+      }
+    }
+    view.SetFilter(filter);
   }
   return *this;
 }
@@ -1322,6 +1435,17 @@ scene& scene_impl::resetSceneTreeVisibility()
   this->Internals->MetaImporter->ResetG3DSceneTreeVisibility();
   this->Internals->Window.UpdateActorsVisibility();
   return *this;
+}
+
+//----------------------------------------------------------------------------
+bool scene_impl::activateSceneTreeNode(const std::string& path)
+{
+  if (!this->Internals->MetaImporter->ActivateG3DSceneTreeNode(path))
+  {
+    return false;
+  }
+  this->Internals->Window.render();
+  return true;
 }
 
 //----------------------------------------------------------------------------
@@ -1385,5 +1509,30 @@ void scene_impl::SetInteractor(interactor_impl* interactor)
 void scene_impl::PrintImporterDescription(log::VerboseLevel level)
 {
   scene_impl::internals::DisplayImporterDescription(level, this->Internals->MetaImporter);
+}
+}
+
+namespace f3d
+{
+//----------------------------------------------------------------------------
+std::string g3dNodeTypeToString(g3d_node_type type)
+{
+  return std::string(detail::G3DNodeTypeToken(type));
+}
+
+//----------------------------------------------------------------------------
+std::optional<g3d_node_type> g3dNodeTypeFromString(std::string_view name)
+{
+  // Walks the same spelling function rather than a second table, so the two directions cannot
+  // disagree about what "point_cloud" means.
+  for (unsigned char value = 0; value <= static_cast<unsigned char>(g3d_node_type::OTHER); value++)
+  {
+    const g3d_node_type type = static_cast<g3d_node_type>(value);
+    if (detail::G3DNodeTypeToken(type) == name)
+    {
+      return type;
+    }
+  }
+  return std::nullopt;
 }
 }

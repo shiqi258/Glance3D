@@ -63,7 +63,14 @@ function rowLabel(row) {
   if (!row.placeholder) {
     return row.label;
   }
-  const noun = row.hasChildren ? "Group" : "Object";
+  // The noun follows the node type, and the plural names the section holding the elements — the
+  // same rule the desktop applies, only with English literals instead of a translation lookup.
+  let noun = row.hasChildren ? "Group" : "Object";
+  if (row.type === "camera") {
+    noun = row.hasChildren ? "Cameras" : "Camera";
+  } else if (row.type === "light") {
+    noun = row.hasChildren ? "Lights" : "Light";
+  }
   return row.placeholderOrdinal > 0 ? `${noun} ${row.placeholderOrdinal}` : noun;
 }
 
@@ -105,10 +112,13 @@ function rowMarkup(row) {
     : "";
 
   // A partially visible group reads as shown, not hidden — the eye carries the mixed state.
+  // Cameras get no eye at all: the view-model decides that, so both frontends agree without each
+  // re-deriving it from the node type.
   const eye = row.visible || row.partiallyVisible ? "eye" : "eyeoff";
-  const actions =
-    `<span class="tree-actions"><button class="tree-act vis${row.visible ? "" : " on"}" ` +
-    `data-hit="visibility" title="Visibility">${svg(eye, "icon")}</button></span>`;
+  const actions = row.canToggleVisibility
+    ? `<span class="tree-actions"><button class="tree-act vis${row.visible ? "" : " on"}" ` +
+      `data-hit="visibility" title="Visibility">${svg(eye, "icon")}</button></span>`
+    : "";
 
   const classes = ["tree-row"];
   if (!row.expanded && row.hasChildren) classes.push("collapsed");
@@ -244,6 +254,10 @@ export function initG3DSceneTree(hostEl, engine) {
       scene().setSceneTreeNodeVisibility(path, !partial);
     } else {
       scene().setSceneTreeSelection(path);
+      // A camera node's only purpose is to be looked through, so selecting one activates it — the
+      // same single-click behaviour a viewpoint list has. Returns false for anything else, which
+      // leaves the click as a plain selection.
+      scene().activateSceneTreeNode(path);
     }
     refresh();
   });

@@ -1,9 +1,11 @@
 #include "G3DSceneGraph.h"
 
 #include <vtkActor.h>
+#include <vtkCamera.h>
 #include <vtkCubeSource.h>
 #include <vtkDataAssembly.h>
 #include <vtkImporter.h>
+#include <vtkLight.h>
 #include <vtkNew.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkRenderer.h>
@@ -312,6 +314,80 @@ int TestG3DSceneGraph(int, char*[])
   ::Check(deepGraph.SubtreeSize(0) == deepCount, "deep root covers the whole chain");
   ::Check(deepGraph.Depth(deepCount) == deepCount, "deepest node depth");
   ::Check(deepGraph.NextSibling(deepCount) == -1, "chain tail has no sibling");
+
+  // --- scene element sections -----------------------------------------------------------------
+  // Cameras and lights hang under their own file, after the geometry, and only when the file has
+  // any -- a viewer of a plain mesh should not grow two empty folders.
+  {
+    vtkNew<vtkCamera> namedCamera;
+    vtkNew<vtkCamera> unnamedCamera;
+    vtkNew<vtkLight> onLight;
+    vtkNew<vtkLight> offLight;
+    offLight->SwitchOff();
+
+    G3DAssemblySource withElements{ importer->GetSceneHierarchy(), importer, "model.ext" };
+    withElements.Cameras = { namedCamera, unnamedCamera };
+    withElements.CameraNames = { "Hero", "" };
+    withElements.Lights = { onLight, offLight };
+
+    G3DSceneGraph elementGraph;
+    ::G3DIngestDataAssemblies(elementGraph, { withElements });
+
+    const int cameraSection = elementGraph.FindByPath("/model.ext/@cameras");
+    const int lightSection = elementGraph.FindByPath("/model.ext/@lights");
+    ::Check(cameraSection > 0, "camera section exists");
+    ::Check(lightSection > 0, "light section exists");
+    ::Check(elementGraph.Type(cameraSection) == G3DNodeType::CAMERA, "camera section type");
+    ::Check(elementGraph.Type(lightSection) == G3DNodeType::LIGHT, "light section type");
+    ::Check(elementGraph.HasFlag(cameraSection, G3DNodeFlag::CollapsedByDefault),
+      "element sections start closed");
+    ::Check(elementGraph.HasFlag(cameraSection, G3DNodeFlag::Placeholder),
+      "an unnamed section lets the presenter supply the noun");
+
+    // Sections come last so they never interrupt the assembly a reviewer is reading.
+    const int file = elementGraph.FindByPath("/model.ext");
+    ::Check(elementGraph.NextSibling(cameraSection) == lightSection, "cameras precede lights");
+    ::Check(elementGraph.NextSibling(lightSection) == -1, "lights are the last file child");
+    ::Check(elementGraph.Parent(cameraSection) == file, "sections hang under their file");
+
+    // A named camera keeps its name in the path; an unnamed one falls back to its index rather
+    // than to a label, which is what keeps the path stable and unique.
+    const int hero = elementGraph.FindByPath("/model.ext/@cameras/Hero");
+    const int anon = elementGraph.FindByPath("/model.ext/@cameras/camera_1");
+    ::Check(hero > 0 && anon > 0, "camera paths");
+    ::Check(elementGraph.Label(hero) == "Hero", "named camera keeps its label");
+    ::Check(elementGraph.HasFlag(anon, G3DNodeFlag::Placeholder), "unnamed camera is a placeholder");
+    ::Check(elementGraph.Camera(hero) == namedCamera, "camera node resolves to its camera");
+    ::Check(elementGraph.Prop(hero) == nullptr, "a camera node is not a prop");
+    ::Check(elementGraph.RenderableLocalIndex(anon) == 1, "camera local index is the global one");
+
+    const int light0 = elementGraph.FindByPath("/model.ext/@lights/light_0");
+    const int light1 = elementGraph.FindByPath("/model.ext/@lights/light_1");
+    ::Check(elementGraph.Light(light0) == onLight, "light node resolves to its light");
+    ::Check(elementGraph.HasFlag(light0, G3DNodeFlag::VisibleSelf), "a lit light reads as visible");
+    ::Check(!elementGraph.HasFlag(light1, G3DNodeFlag::VisibleSelf),
+      "a switched-off light reads as hidden");
+
+    // Element nodes are synthetic: they have no assembly node behind them, which is exactly why
+    // the visibility write path has to dispatch on type instead of resolving a source id.
+    ::Check(elementGraph.SourceNodeId(cameraSection) == -1, "sections have no source node");
+    ::Check(elementGraph.ImporterIndex(light0) == 0, "element nodes still know their file");
+
+    // Bounds must ignore elements entirely: a camera sitting far from the model would otherwise
+    // blow up the framing of the file it belongs to.
+    std::vector<G3DBounds> elementBounds;
+    std::vector<bool> elementHas;
+    elementGraph.ComputeBounds(elementBounds, elementHas);
+    ::Check(!elementHas[static_cast<std::size_t>(cameraSection)], "sections contribute no bounds");
+    G3DBounds reference{};
+    ::Check(::ReferenceSubtreeBounds(elementGraph, file, reference), "file still has bounds");
+    ::Check(elementBounds[static_cast<std::size_t>(file)] == reference,
+      "file bounds are unchanged by the element sections");
+  }
+
+  // A file with no cameras or lights grows no sections at all.
+  ::Check(graph.FindByPath("/model.ext/@cameras") == -1, "no camera section without cameras");
+  ::Check(graph.FindByPath("/model.ext/@lights") == -1, "no light section without lights");
 
   // --- empty scene ----------------------------------------------------------------------------
   G3DSceneGraph empty;

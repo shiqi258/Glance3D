@@ -125,6 +125,10 @@
   "Click to color by this array": "点击按此数组着色",
   "Object": "对象",
   "Group": "组",
+  "Camera": "相机",
+  "Cameras": "相机",
+  "Light": "灯光",
+  "Lights": "灯光",
 
   "Search...": "搜索…",
   "Description": "描述",
