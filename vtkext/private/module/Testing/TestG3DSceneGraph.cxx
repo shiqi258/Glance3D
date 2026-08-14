@@ -37,8 +37,9 @@ void Check(bool condition, const std::string& what)
  *     grp (Group)
  *       leafA (Alpha) *0
  *       leafB (Alpha) *1      <- same label AND same node name as leafA, for path disambiguation
- *     bare                    <- no label at all, exercises the placeholder path
+ *     object9                 <- generated structural name, no label: the placeholder path
  *       deep (Deep) *2
+ *       Bolt                  <- structural name only: the file named it, so it is shown
  */
 class AssemblyImporter : public vtkImporter
 {
@@ -62,11 +63,16 @@ public:
     this->SceneHierarchy->SetAttribute(leafB, "label", "Alpha");
     this->SceneHierarchy->SetAttribute(leafB, "flat_actor_id", 1);
 
-    const int bare = this->SceneHierarchy->AddNode("bare", vtkDataAssembly::GetRootNode());
+    // An importer numbers the nodes a file left anonymous, so a generated name is what "unnamed"
+    // actually looks like on the wire -- and is the only thing that may not become a display label.
+    const int bare = this->SceneHierarchy->AddNode("object9", vtkDataAssembly::GetRootNode());
 
     const int deep = this->SceneHierarchy->AddNode("deep", bare);
     this->SceneHierarchy->SetAttribute(deep, "label", "Deep");
     this->SceneHierarchy->SetAttribute(deep, "flat_actor_id", 2);
+
+    // A structural name and nothing else, which is all VTK's glTF importer ever wrote.
+    this->SceneHierarchy->AddNode("Bolt", bare);
     // A B-rep behind the mesh, as a CAD reader reports it: faces exist but no node stands for one
     // until somebody asks. leafA declares more than the ceiling allows, leafB a workable few.
     this->SceneHierarchy->SetAttribute(
@@ -133,11 +139,11 @@ int TestG3DSceneGraph(int, char*[])
     graph, { G3DAssemblySource{ importer->GetSceneHierarchy(), importer, "model.ext" } });
 
   // --- topology -------------------------------------------------------------------------------
-  // root + file + grp + leafA + leafB + bare + deep
-  ::Check(graph.NodeCount() == 7, "node count");
+  // root + file + grp + leafA + leafB + object9 + deep + Bolt
+  ::Check(graph.NodeCount() == 8, "node count");
   ::Check(graph.Type(0) == G3DNodeType::ROOT, "node 0 is the synthetic root");
   ::Check(graph.Parent(0) == -1, "root has no parent");
-  ::Check(graph.SubtreeSize(0) == 6, "root subtree covers every other node");
+  ::Check(graph.SubtreeSize(0) == 7, "root subtree covers every other node");
 
   // DFS pre-order invariant: a subtree is a contiguous range, and every node inside it descends
   // from the node that opens it.
@@ -198,10 +204,16 @@ int TestG3DSceneGraph(int, char*[])
 
   // --- labels and placeholders ----------------------------------------------------------------
   const int bare = graph.NextSibling(group);
-  ::Check(graph.Label(bare).empty(), "an unlabelled assembly node has no label");
-  ::Check(graph.HasFlag(bare, G3DNodeFlag::Placeholder), "an unlabelled node is a placeholder");
+  ::Check(graph.Label(bare).empty(), "a generated structural name is not a label");
+  ::Check(graph.HasFlag(bare, G3DNodeFlag::Placeholder), "a generated-name node is a placeholder");
   ::Check(!graph.HasFlag(group, G3DNodeFlag::Placeholder), "a labelled node is not a placeholder");
-  ::Check(graph.Name(bare) == "bare", "structural name survives even without a label");
+  ::Check(graph.Name(bare) == "object9", "structural name survives even without a label");
+
+  // The other half of that rule: a name the file actually gave is shown even when the importer
+  // wrote no label at all, which is the only thing VTK's glTF importer ever produces.
+  const int named = graph.NextSibling(graph.FirstChild(bare));
+  ::Check(graph.Label(named) == "Bolt", "a file-given structural name becomes the label");
+  ::Check(!graph.HasFlag(named, G3DNodeFlag::Placeholder), "a named node is not a placeholder");
 
   // --- renderables ----------------------------------------------------------------------------
   ::Check(graph.RenderableTable().size() == 3, "one renderable per imported actor");
@@ -253,7 +265,7 @@ int TestG3DSceneGraph(int, char*[])
       G3DAssemblySource{ second->GetSceneHierarchy(), second, "b.ext" } });
 
   ::Check(multi.ChildCount(0) == 2, "one file node per loaded file");
-  ::Check(multi.NodeCount() == 13, "both files land in a single graph");
+  ::Check(multi.NodeCount() == 15, "both files land in a single graph");
   // Identical files must still produce distinct keys — this is what per-assembly ids never gave.
   ::Check(multi.FindByPath("/a.ext/grp/leaf[1]") != multi.FindByPath("/b.ext/grp/leaf[1]"),
     "same-shaped files keep distinct paths");

@@ -29,6 +29,7 @@
 #include <vector>
 /// @endcond
 
+class vtkDataAssembly;
 class vtkInformation;
 class vtkInformationIntegerKey;
 class vtkInformationStringKey;
@@ -90,6 +91,59 @@ public:
   static std::vector<std::pair<std::string, std::string>> GetProperties(vtkInformation* info);
   ///@}
 
+  ///@{
+  /**
+   * The same channel, for an importer that builds its own `vtkDataAssembly`.
+   *
+   * A reader speaks through the data object it returns, so the keys above are the only thing it can
+   * stamp; a *scene* reader (glTF, USD, ...) has no composite dataset at all and hands over an
+   * assembly directly. Both ends of that fork write the same attributes, so they get one set of
+   * writers rather than each importer re-spelling the attribute names -- which is what let `label`
+   * and `flat_actor_id` drift into bare literals at twenty call sites.
+   *
+   * Empty or absent values are dropped rather than written blank, matching the information-key
+   * writers: an absent attribute and a blank one must not read differently downstream.
+   */
+  static void SetAssemblyLabel(vtkDataAssembly* assembly, int nodeId, const std::string& label);
+  static void SetAssemblyNodeType(vtkDataAssembly* assembly, int nodeId, const std::string& type);
+  static void SetAssemblyInstanceTarget(
+    vtkDataAssembly* assembly, int nodeId, const std::string& productName);
+  static void SetAssemblyFaceCount(vtkDataAssembly* assembly, int nodeId, int count);
+  /// Appends one property pair, keeping the numbered-pair bookkeeping in one place.
+  static void AddAssemblyProperty(
+    vtkDataAssembly* assembly, int nodeId, const std::string& key, const std::string& value);
+  /// Index of this node's actor in the importer's `GetImportedActors()` collection.
+  static void SetAssemblyFlatActorId(vtkDataAssembly* assembly, int nodeId, int flatActorId);
+  /**
+   * Marks the node as being the file's camera / light number `localIndex`, counted within this
+   * importer in `GetImportedCameras()` / `GetImportedLights()` order.
+   *
+   * This is what lets a viewpoint stay where the file put it instead of only appearing in the
+   * fallback section: the node keeps its place in the hierarchy and still points at the same
+   * `vtkCamera` the section would have pointed at.
+   */
+  static void SetAssemblyCameraIndex(vtkDataAssembly* assembly, int nodeId, int localIndex);
+  static void SetAssemblyLightIndex(vtkDataAssembly* assembly, int nodeId, int localIndex);
+  /// Copies everything a reader stamped on block metadata onto an assembly node.
+  static void ForwardToAssembly(vtkDataAssembly* assembly, int nodeId, vtkInformation* blockInfo);
+  ///@}
+
+  /**
+   * Whether a structural node name was invented by an importer rather than read from the file.
+   *
+   * Structural names have to exist for every node -- they are what a path is built from -- so an
+   * importer numbers the ones the file left anonymous. Those numbers are fine as identity and
+   * useless as display text, and the tree is better off numbering a placeholder in the user's own
+   * language than showing `object7`. Anything that is *not* on this list is treated as the file's
+   * own word and may be shown.
+   *
+   * Only prefixes that can actually reach the display fallback are listed. `Block_<n>` and
+   * `Object_<n>` are conspicuously absent: the generic importer emits those as block names, which
+   * always arrive as a label and never as a bare structural name -- and `Object_<n>` is a real mesh
+   * name in a great many glTF exports, so matching it here would hide names the file did give.
+   */
+  static bool IsGeneratedNodeName(const std::string& name);
+
 protected:
   vtkG3DNodeMetadata() = default;
   ~vtkG3DNodeMetadata() override = default;
@@ -99,14 +153,6 @@ private:
   void operator=(const vtkG3DNodeMetadata&) = delete;
 };
 
-/**
- * Attribute names carrying the same information on a `vtkDataAssembly`.
- *
- * The assembly is the hand-off between the importers and the scene graph, and its attributes are
- * XML attributes: they cannot hold a control character to separate a packed list, and a newline
- * would be normalised away. Numbered pairs are the dull option that has no such edge, and the
- * volume never justifies anything cleverer.
- */
 /**
  * Cell arrays Glance3D writes for its own bookkeeping.
  *
@@ -126,8 +172,40 @@ inline bool IsInternal(const std::string& name)
 }
 }
 
+/**
+ * Attribute names carrying the same information on a `vtkDataAssembly`.
+ *
+ * The assembly is the hand-off between the importers and the scene graph, and its attributes are
+ * XML attributes: they cannot hold a control character to separate a packed list, and a newline
+ * would be normalised away. Numbered pairs are the dull option that has no such edge, and the
+ * volume never justifies anything cleverer.
+ *
+ * Every attribute the hand-off uses is named here, including the four that predate this namespace
+ * and were spelled as literals wherever they were needed. A name with no single definition is a
+ * name that gets misspelled, and `label` in particular is read by exactly one place and written by
+ * six -- none of which the compiler could have connected.
+ */
 namespace G3DAssemblyAttribute
 {
+/// Display text. Absent means the file named nothing, which turns the node into a placeholder.
+inline constexpr const char* Label = "label";
+/// Index of the node's actor in the importer's `GetImportedActors()` collection; absent for groups.
+inline constexpr const char* FlatActorId = "flat_actor_id";
+/// The node's own visibility toggle, 0 or 1. Absent reads as visible.
+inline constexpr const char* Visible = "g3d_visible";
+/// Whether the node starts closed in the tree, 0 or 1. Absent reads as open.
+inline constexpr const char* Collapsed = "g3d_collapsed";
+/// The file's camera / light this node stands for, counted within its importer. Absent for neither.
+inline constexpr const char* CameraIndex = "g3d_camera_index";
+inline constexpr const char* LightIndex = "g3d_light_index";
+/**
+ * Set when the node stands for something Glance3D added rather than something the file contains
+ * (a skeleton's line drawing, say).
+ *
+ * Such a node's structural name is ours, not the file's, so it must not be promoted to a display
+ * label the way a file-given name is: the frontend names it in the user's own language instead.
+ */
+inline constexpr const char* Synthetic = "g3d_synthetic";
 /// Node type token, same vocabulary as vtkG3DNodeMetadata::NODE_TYPE().
 inline constexpr const char* NodeType = "g3d_type";
 /// Referenced product name, same meaning as vtkG3DNodeMetadata::INSTANCE_TARGET().

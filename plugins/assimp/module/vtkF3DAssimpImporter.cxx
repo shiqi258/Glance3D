@@ -825,6 +825,18 @@ public:
       actor->SetUserMatrix(mat);
       actor->SetProperty(this->Properties[this->Scene->mMeshes[node->mMeshes[i]]->mMaterialIndex]);
 
+      // The actor's own name is the only identity this importer passes downstream: it builds no
+      // scene hierarchy, so its actors reach the tree through the flat fallback, which reads
+      // exactly this. Without it every row of an FBX or DAE file reads "object7".
+      const std::string nodeName = node->mName.C_Str();
+      if (!nodeName.empty())
+      {
+        const std::string meshName = this->Scene->mMeshes[node->mMeshes[i]]->mName.C_Str();
+        actor->SetObjectName(node->mNumMeshes > 1 && !meshName.empty()
+            ? nodeName + "/" + meshName
+            : nodeName);
+      }
+
       vtkPolyData* surface = vtkPolyDataMapper::SafeDownCast(actor->GetMapper())->GetInput();
       nPoints += surface->GetNumberOfPoints();
       nCells += surface->GetNumberOfCells();

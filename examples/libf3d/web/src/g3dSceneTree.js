@@ -46,6 +46,15 @@ const ICONS = {
     '<path d="M18 8.6 21.4 12 18 15.4 14.6 12Z" /><path d="M12 14.6 15.4 18 12 21.4 8.6 18Z" />',
   // A quad seen at an angle: one face of a solid. Matches the desktop Surface glyph.
   surface: '<path d="M2.9 14.4 10.1 5.3 21.1 9.6 13.9 18.7Z" />',
+  // Sockets joined by shafts, as every 3D tool draws a rig. Branching marks the armature root, a
+  // single shaft one bone in it. Matches the desktop Skeleton / Joint glyphs.
+  skeleton:
+    '<path d="M5.3 19.7 9.6 11.5 17.8 6.7" /><path d="M9.6 11.5 17.3 17.3" />' +
+    '<circle cx="5.3" cy="19.7" r="2.2" /><circle cx="9.6" cy="11.5" r="2.2" />' +
+    '<circle cx="17.8" cy="6.7" r="2.2" /><circle cx="17.3" cy="17.3" r="2.2" />',
+  joint:
+    '<path d="M6.7 17.8 17.3 6.7" /><circle cx="6.7" cy="17.8" r="2.6" />' +
+    '<circle cx="17.3" cy="6.7" r="2.6" />',
 };
 
 const svg = (name, className) =>
@@ -78,6 +87,10 @@ function rowLabel(row) {
     noun = row.hasChildren ? "Lights" : "Light";
   } else if (row.type === "face") {
     noun = "Face";
+  } else if (row.type === "skeleton") {
+    noun = "Skeleton";
+  } else if (row.type === "joint") {
+    noun = "Joint";
   }
   return row.placeholderOrdinal > 0 ? `${noun} ${row.placeholderOrdinal}` : noun;
 }
@@ -100,6 +113,10 @@ function rowIcon(row) {
   }
   if (row.type === "face") {
     return { name: "surface", variant: "" };
+  }
+  // Also before the folder rule: a bone chain is a rig, not a container.
+  if (row.type === "skeleton" || row.type === "joint") {
+    return { name: row.type, variant: "" };
   }
   if (row.hasChildren) {
     return { name: row.expanded ? "folder-open" : "folder", variant: "folder" };

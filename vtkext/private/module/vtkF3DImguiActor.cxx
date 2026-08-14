@@ -162,6 +162,12 @@ std::string SceneTreeRowLabel(const G3DSceneGraph& graph, const G3DTreeRow& row)
     case G3DNodeType::FACE:
       label = locale.Translate("Face");
       break;
+    case G3DNodeType::SKELETON:
+      label = locale.Translate("Skeleton");
+      break;
+    case G3DNodeType::JOINT:
+      label = locale.Translate("Joint");
+      break;
     default:
       label = group ? locale.Translate("Group") : locale.Translate("Object");
       break;
@@ -190,6 +196,11 @@ G3DIconId SceneTreeRowIcon(const G3DTreeRow& row)
       return G3DIconId::Component;
     case G3DNodeType::FACE:
       return G3DIconId::Surface;
+    case G3DNodeType::SKELETON:
+    case G3DNodeType::JOINT:
+      // Also before the folder rule: a bone chain is a rig, not a container, and a row of folders
+      // is exactly what made a skeleton unreadable in the tree before it had a glyph of its own.
+      return row.Type == G3DNodeType::SKELETON ? G3DIconId::Skeleton : G3DIconId::Joint;
     default:
       break;
   }

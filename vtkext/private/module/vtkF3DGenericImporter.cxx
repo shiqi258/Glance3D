@@ -27,62 +27,6 @@
 #include <numeric>
 #include <sstream>
 
-namespace
-{
-/**
- * Copies a reader's Glance3D node metadata from block metadata onto the assembly node built for it.
- *
- * This is the whole hand-off: readers can only speak through the data object they return, and the
- * assembly is what the scene graph reads. Formats that say nothing land here as a no-op, which is
- * every format that existed before this channel did.
- */
-void ForwardG3DNodeMetadata(vtkDataAssembly* assembly, int nodeId, vtkInformation* blockInfo)
-{
-  if (assembly == nullptr || blockInfo == nullptr)
-  {
-    return;
-  }
-
-  const std::string nodeType = vtkG3DNodeMetadata::GetNodeType(blockInfo);
-  if (!nodeType.empty())
-  {
-    assembly->SetAttribute(nodeId, G3DAssemblyAttribute::NodeType, nodeType.c_str());
-  }
-
-  const std::string instanceTarget = vtkG3DNodeMetadata::GetInstanceTarget(blockInfo);
-  if (!instanceTarget.empty())
-  {
-    assembly->SetAttribute(
-      nodeId, G3DAssemblyAttribute::InstanceTarget, instanceTarget.c_str());
-  }
-
-  const int faceCount = vtkG3DNodeMetadata::GetFaceCount(blockInfo);
-  if (faceCount > 0)
-  {
-    assembly->SetAttribute(nodeId, G3DAssemblyAttribute::FaceCount, faceCount);
-  }
-
-  const std::vector<std::pair<std::string, std::string>> properties =
-    vtkG3DNodeMetadata::GetProperties(blockInfo);
-  if (properties.empty())
-  {
-    return;
-  }
-
-  assembly->SetAttribute(
-    nodeId, G3DAssemblyAttribute::PropertyCount, static_cast<int>(properties.size()));
-  for (std::size_t index = 0; index < properties.size(); index++)
-  {
-    const std::string suffix = std::to_string(index);
-    assembly->SetAttribute(nodeId,
-      (G3DAssemblyAttribute::PropertyKeyPrefix + suffix).c_str(), properties[index].first.c_str());
-    assembly->SetAttribute(nodeId,
-      (G3DAssemblyAttribute::PropertyValuePrefix + suffix).c_str(),
-      properties[index].second.c_str());
-  }
-}
-}
-
 struct vtkF3DGenericImporter::Internals
 {
   // Data structure for each block in a composite dataset
@@ -227,14 +171,9 @@ void vtkF3DGenericImporter::CreateActorForBlock(int nodeid, vtkDataSet* block, v
   std::string actorName = "actor_" + std::to_string(actorId);
 
   const int childNodeId = this->SceneHierarchy->AddNode(actorName.c_str(), nodeid);
-  this->SceneHierarchy->SetAttribute(childNodeId, "flat_actor_id", actorId);
-
-  if (!blockName.empty())
-  {
-    this->SceneHierarchy->SetAttribute(childNodeId, "label", blockName.c_str());
-  }
-
-  ::ForwardG3DNodeMetadata(this->SceneHierarchy, childNodeId, blockInfo);
+  vtkG3DNodeMetadata::SetAssemblyFlatActorId(this->SceneHierarchy, childNodeId, actorId);
+  vtkG3DNodeMetadata::SetAssemblyLabel(this->SceneHierarchy, childNodeId, blockName);
+  vtkG3DNodeMetadata::ForwardToAssembly(this->SceneHierarchy, childNodeId, blockInfo);
 
   bd.Mapper->SetInputConnection(bd.PostPro->GetOutputPort(0));
   bd.Mapper->ScalarVisibilityOff();
@@ -258,7 +197,8 @@ void vtkF3DGenericImporter::ImportActors(vtkRenderer* ren)
   assert(this->Pimpl->Reader);
 
   this->SceneHierarchy = vtkSmartPointer<vtkDataAssembly>::New();
-  this->SceneHierarchy->SetAttribute(vtkDataAssembly::GetRootNode(), "label", "root");
+  vtkG3DNodeMetadata::SetAssemblyLabel(
+    this->SceneHierarchy, vtkDataAssembly::GetRootNode(), "root");
 
   // Clear any previous blocks
   this->Pimpl->Blocks.clear();
@@ -511,7 +451,8 @@ std::string vtkF3DGenericImporter::GetBlockName(vtkIdType actorIndex)
 {
   // select the path to the leaf with the correct actor index, excluding the root
   const std::string xpath =
-    "//*[@flat_actor_id='" + std::to_string(actorIndex) + "']/ancestor-or-self::*[parent::*]";
+    std::string("//*[@") + G3DAssemblyAttribute::FlatActorId + "='" +
+    std::to_string(actorIndex) + "']/ancestor-or-self::*[parent::*]";
 
   const std::vector<int> nodes = this->SceneHierarchy->SelectNodes({ xpath });
 
@@ -523,7 +464,8 @@ std::string vtkF3DGenericImporter::GetBlockName(vtkIdType actorIndex)
       {
         result += "/";
       }
-      return result + this->SceneHierarchy->GetAttributeOrDefault(nodeid, "label", "node");
+      return result +
+        this->SceneHierarchy->GetAttributeOrDefault(nodeid, G3DAssemblyAttribute::Label, "node");
     });
 }
 
@@ -564,8 +506,8 @@ void vtkF3DGenericImporter::ImportMultiBlock(int nodeid, vtkMultiBlockDataSet* m
     {
       int childNodeId = this->SceneHierarchy->AddNode(
         vtkDataAssembly::MakeValidNodeName(blockName.c_str()).c_str(), nodeid);
-      this->SceneHierarchy->SetAttribute(childNodeId, "label", blockName.c_str());
-      ::ForwardG3DNodeMetadata(this->SceneHierarchy, childNodeId, blockInfo);
+      vtkG3DNodeMetadata::SetAssemblyLabel(this->SceneHierarchy, childNodeId, blockName);
+      vtkG3DNodeMetadata::ForwardToAssembly(this->SceneHierarchy, childNodeId, blockInfo);
 
       this->ImportMultiBlock(childNodeId, childMB, ren);
     }
@@ -573,8 +515,8 @@ void vtkF3DGenericImporter::ImportMultiBlock(int nodeid, vtkMultiBlockDataSet* m
     {
       int childNodeId = this->SceneHierarchy->AddNode(
         vtkDataAssembly::MakeValidNodeName(blockName.c_str()).c_str(), nodeid);
-      this->SceneHierarchy->SetAttribute(childNodeId, "label", blockName.c_str());
-      ::ForwardG3DNodeMetadata(this->SceneHierarchy, childNodeId, blockInfo);
+      vtkG3DNodeMetadata::SetAssemblyLabel(this->SceneHierarchy, childNodeId, blockName);
+      vtkG3DNodeMetadata::ForwardToAssembly(this->SceneHierarchy, childNodeId, blockInfo);
 
       auto iter = vtkSmartPointer<vtkCompositeDataIterator>::Take(childComposite->NewIterator());
       iter->SkipEmptyNodesOn();

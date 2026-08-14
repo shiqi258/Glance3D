@@ -1,4 +1,5 @@
 set(test_sources
+  TestG3DGLTFSceneTree.cxx
   TestG3DLocaleFormat.cxx
   TestG3DSceneGraph.cxx
   TestG3DSceneGraphFromFile.cxx

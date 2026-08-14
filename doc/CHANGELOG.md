@@ -33,6 +33,16 @@ For Glance3D users:
 - Improved temporal anti aliasing performance and correctness
 - Improved shell completions by reworking the whole CLI option system
 - Improved alembic animation performance
+- Fixed glTF scene trees showing the wrong names: nodes are now labelled with the name the file
+  gave them (spaces and non-latin scripts included) instead of a numbered placeholder, siblings keep
+  the file's order instead of being reversed, and a geometry row no longer takes another mesh's name
+- Added rig semantics to the scene tree for glTF: a skin's joints and skeleton root are labelled as
+  such, and each skeleton gets one row that shows or hides its line drawing. The duplicate armature
+  actors VTK creates -- one per skinned mesh -- are collapsed to one per skin
+- Added the cameras and lights a glTF file declares as nodes where the file placed them, instead of
+  only in the `@cameras` / `@lights` sections, which now collect just what the hierarchy could not
+- Changed how much of a scene tree opens on load: it now follows the size of the tree rather than
+  whether its nodes carry names, so a large hierarchy stays readable and a small one stays fully open
 - Fixed documentation issues
 - Fixed a potential segfault when parsing colors in options
 - Fixed a crash with certain .vrml files
@@ -68,6 +78,10 @@ For libf3d users:
 - Added `instanceTarget` to `g3d_tree_row`, naming the product an occurrence points at (`g3d_tree_info.schemaVersion` is now 3); readers declare it with `vtkG3DNodeMetadata::INSTANCE_TARGET()`
 - Added `faceCount` to `g3d_tree_row`: a node with B-rep faces reports `hasChildren` before any exist, and `setSceneTreeExpanded` builds them (returning false past a 5000-face ceiling); readers declare them with `vtkG3DNodeMetadata::FACE_COUNT()` and a per-cell `G3DFaceId` array
 - Fixed cameras and lights declared by a file being dropped instead of reaching the renderer, which also made `--camera-index` have no effect
+- Added `skeleton` and `joint` node types to the scene tree, emitted by the glTF importer for a skin's skeleton root and its joints
+- Changed the `@cameras` / `@lights` sections to a fallback: an element the hierarchy already carries is no longer listed there as well, so no object gets two rows
+- Added assembly-side writers to `vtkG3DNodeMetadata` (`SetAssemblyLabel`, `SetAssemblyNodeType`, `SetAssemblyFlatActorId`, `SetAssemblyCameraIndex`/`LightIndex`, `AddAssemblyProperty`, `ForwardToAssembly`), so an importer that builds its own `vtkDataAssembly` uses the same channel a reader does; every attribute the hand-off uses is now named in `G3DAssemblyAttribute`
+- Fixed scene-tree labels being derived from `GetOutputsDescription()` text indexed by actor id, which mislabelled a node whenever an importer added an actor it wrote no line for; a label now comes from the node itself
 - Deprecated `interactor.trackball` option in favor of `interactor.style`
 
 For Glance3D packagers:

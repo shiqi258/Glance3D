@@ -644,6 +644,64 @@ void IngestG3DNodeProperties(
 }
 
 /**
+ * What one file's walk needs to carry, and what it reports back.
+ *
+ * A struct rather than more parameters because the walk now has to *accumulate* something -- which
+ * cameras and lights the hierarchy already accounted for -- and threading an out-parameter through
+ * a recursion next to five in-parameters reads worse than naming the whole thing once.
+ */
+struct G3DIngestContext
+{
+  const G3DAssemblySource* Source = nullptr;
+  int ImporterIndex = -1;
+  std::vector<int> RenderableForActor;
+  /// Local indices bound to a node in the hierarchy; the fallback sections skip exactly these.
+  std::set<int> PlacedCameras;
+  std::set<int> PlacedLights;
+};
+
+/**
+ * Binds the node to the file camera or light it declares, if it declares one.
+ *
+ * Returns whether the node should be visible, or nullopt to leave that to the assembly attribute:
+ * a light is shown or hidden by its own switch, which is the renderer's state and not something the
+ * assembly ever knew about.
+ */
+std::optional<bool> BindG3DSceneElement(G3DSceneGraphBuilder& builder, vtkDataAssembly* assembly,
+  G3DIngestContext& context, int assemblyNodeId)
+{
+  if (context.Source == nullptr)
+  {
+    return std::nullopt;
+  }
+
+  const int cameraIndex =
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::CameraIndex, -1);
+  if (cameraIndex >= 0 && cameraIndex < static_cast<int>(context.Source->Cameras.size()))
+  {
+    builder.SetRenderable(
+      builder.AddCameraRenderable(context.Source->Cameras[static_cast<std::size_t>(cameraIndex)],
+        context.ImporterIndex, context.Source->FirstCameraIndex + cameraIndex));
+    context.PlacedCameras.insert(cameraIndex);
+    return std::nullopt;
+  }
+
+  const int lightIndex =
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::LightIndex, -1);
+  if (lightIndex >= 0 && lightIndex < static_cast<int>(context.Source->Lights.size()))
+  {
+    vtkLight* light = context.Source->Lights[static_cast<std::size_t>(lightIndex)];
+    builder.SetRenderable(builder.AddLightRenderable(
+      light, context.ImporterIndex, context.Source->FirstLightIndex + lightIndex));
+    context.PlacedLights.insert(lightIndex);
+    // A light's visibility is its switch, exactly as the fallback section reads it.
+    return light != nullptr && light->GetSwitch() != 0;
+  }
+
+  return std::nullopt;
+}
+
+/**
  * Recursively mirrors one assembly subtree into the builder.
  *
  * Node type is inferred from what the assembly can express: a node that maps an actor and has no
@@ -651,19 +709,33 @@ void IngestG3DNodeProperties(
  * expected to drive the builder directly rather than teach this function new tricks.
  */
 void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assembly,
-  const std::vector<int>& renderableForActor, int importerIndex, int assemblyNodeId,
-  const std::set<int>& faceLevelNodes)
+  G3DIngestContext& context, int assemblyNodeId, const std::set<int>& faceLevelNodes)
 {
+  const std::vector<int>& renderableForActor = context.RenderableForActor;
+  const int importerIndex = context.ImporterIndex;
   const int childCount = assembly->GetNumberOfChildren(assemblyNodeId);
-  const int flatActorIndex = assembly->GetAttributeOrDefault(assemblyNodeId, "flat_actor_id", -1);
+  const int flatActorIndex =
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::FlatActorId, -1);
 
   const char* rawName = assembly->GetNodeName(assemblyNodeId);
   std::string name = rawName ? rawName : "";
 
-  std::string label = assembly->GetAttributeOrDefault(assemblyNodeId, "label", "");
+  std::string label =
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::Label, "");
   if (IsG3DGenericAssemblyLabel(label))
   {
     label.clear();
+  }
+  // An importer that only writes structural names still read those names out of the file, and a
+  // name the file gave beats a placeholder the user cannot recognise. Skipped for the numbered
+  // names an importer invents for anonymous nodes, and for nodes Glance3D added itself: both carry
+  // no more meaning than the placeholder would -- and unlike it, cannot be localized by the
+  // frontend.
+  const bool synthetic =
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::Synthetic, 0) != 0;
+  if (label.empty() && !synthetic && !vtkG3DNodeMetadata::IsGeneratedNodeName(name))
+  {
+    label = name;
   }
   if (name.empty())
   {
@@ -686,10 +758,18 @@ void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assem
   ::IngestG3DNodeProperties(builder, assembly, assemblyNodeId);
 
   int propRenderable = -1;
+  std::optional<bool> elementVisible;
   if (flatActorIndex >= 0 && flatActorIndex < static_cast<int>(renderableForActor.size()))
   {
     propRenderable = renderableForActor[static_cast<std::size_t>(flatActorIndex)];
     builder.SetRenderable(propRenderable);
+  }
+  else
+  {
+    // A viewpoint or a lamp the file hung on this node. Bound to the very same object the fallback
+    // section would have pointed at, so activating either row moves the same camera -- and so the
+    // section can leave out what the hierarchy already placed instead of listing it twice.
+    elementVisible = ::BindG3DSceneElement(builder, assembly, context, assemblyNodeId);
   }
 
   const int faceCount =
@@ -697,9 +777,10 @@ void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assem
   builder.SetFaceCount(faceCount);
 
   builder.SetFlag(G3DNodeFlag::VisibleSelf,
-    assembly->GetAttributeOrDefault(assemblyNodeId, "g3d_visible", 1) != 0);
+    elementVisible.value_or(
+      assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::Visible, 1) != 0));
   builder.SetFlag(G3DNodeFlag::CollapsedByDefault,
-    assembly->GetAttributeOrDefault(assemblyNodeId, "g3d_collapsed", 0) != 0);
+    assembly->GetAttributeOrDefault(assemblyNodeId, G3DAssemblyAttribute::Collapsed, 0) != 0);
 
   // Faces are built only for the nodes the user opened, and only when there is a prop for them to
   // narrow. Everything else advertises that it *could* open, which is what puts a twisty on a leaf
@@ -710,8 +791,8 @@ void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assem
 
   for (int childIndex = 0; childIndex < childCount; childIndex++)
   {
-    IngestG3DAssemblyNode(builder, assembly, renderableForActor, importerIndex,
-      assembly->GetChild(assemblyNodeId, childIndex), faceLevelNodes);
+    IngestG3DAssemblyNode(
+      builder, assembly, context, assembly->GetChild(assemblyNodeId, childIndex), faceLevelNodes);
   }
 
   if (materializeFaces)
@@ -733,6 +814,12 @@ void IngestG3DAssemblyNode(G3DSceneGraphBuilder& builder, vtkDataAssembly* assem
 /**
  * Appends a file's cameras or lights as one collapsed section under its FILE node.
  *
+ * A fallback, not a catalogue: it exists for formats whose viewpoints reach the renderer without
+ * ever reaching the hierarchy, where the alternative is a camera addressable only by guessing
+ * `--camera-index`. An element the hierarchy already placed is left out, because a thing the file
+ * models as a node belongs in the tree once -- which is what every scene editor does, and what
+ * keeps selection meaningful when two rows would otherwise point at one object.
+ *
  * The section node itself carries the element type with children, which is how a presenter tells
  * "the Cameras group" from "a camera": both are unnamed, so both go through the placeholder path
  * and the presenter picks the plural or singular noun in its own language.
@@ -749,6 +836,8 @@ struct G3DSceneElementSection
   /// Display names, may be shorter than Count or absent; an empty entry means "the file named it
   /// nothing", which turns the node into a placeholder the presenter numbers in its own language.
   const std::vector<std::string>* Names = nullptr;
+  /// Local indices the hierarchy already carries, which this section skips.
+  const std::set<int>* Placed = nullptr;
 };
 
 template<typename AddRenderableFn, typename IsVisibleFn>
@@ -756,7 +845,15 @@ void AppendG3DSceneElementSection(G3DSceneGraphBuilder& builder,
   const G3DSceneElementSection& section, const AddRenderableFn& addRenderable,
   const IsVisibleFn& isVisible)
 {
-  if (section.Count <= 0)
+  const auto placed = [&](int local)
+  { return section.Placed != nullptr && section.Placed->count(local) != 0; };
+
+  int remaining = 0;
+  for (int local = 0; local < section.Count; local++)
+  {
+    remaining += placed(local) ? 0 : 1;
+  }
+  if (remaining <= 0)
   {
     return;
   }
@@ -767,6 +864,11 @@ void AppendG3DSceneElementSection(G3DSceneGraphBuilder& builder,
 
   for (int local = 0; local < section.Count; local++)
   {
+    if (placed(local))
+    {
+      continue;
+    }
+
     const std::string label = (section.Names != nullptr &&
                                 local < static_cast<int>(section.Names->size()))
       ? (*section.Names)[static_cast<std::size_t>(local)]
@@ -806,14 +908,17 @@ void G3DIngestDataAssemblies(G3DSceneGraph& graph, const std::vector<G3DAssembly
 
     // One sequential walk of the actor collection: vtkCollection is a linked list, so resolving
     // each flat_actor_id through GetItemAsObject() would make ingest quadratic.
-    std::vector<int> renderableForActor;
+    ::G3DIngestContext context;
+    context.Source = &source;
+    context.ImporterIndex = importerIndex;
     vtkActorCollection* actorCollection = source.Importer->GetImportedActors();
-    renderableForActor.reserve(static_cast<std::size_t>(actorCollection->GetNumberOfItems()));
+    context.RenderableForActor.reserve(
+      static_cast<std::size_t>(actorCollection->GetNumberOfItems()));
     vtkCollectionSimpleIterator ait;
     actorCollection->InitTraversal(ait);
     while (vtkActor* actor = actorCollection->GetNextActor(ait))
     {
-      renderableForActor.emplace_back(builder.AddRenderable(actor, importerIndex));
+      context.RenderableForActor.emplace_back(builder.AddRenderable(actor, importerIndex));
     }
 
     const int assemblyRoot = source.Assembly->GetRootNode();
@@ -826,12 +931,12 @@ void G3DIngestDataAssemblies(G3DSceneGraph& graph, const std::vector<G3DAssembly
     builder.SetImporterIndex(importerIndex);
     builder.SetSourceNodeId(assemblyRoot);
     builder.SetFlag(G3DNodeFlag::VisibleSelf,
-      source.Assembly->GetAttributeOrDefault(assemblyRoot, "g3d_visible", 1) != 0);
+      source.Assembly->GetAttributeOrDefault(assemblyRoot, G3DAssemblyAttribute::Visible, 1) != 0);
 
     const int childCount = source.Assembly->GetNumberOfChildren(assemblyRoot);
     for (int childIndex = 0; childIndex < childCount; childIndex++)
     {
-      ::IngestG3DAssemblyNode(builder, source.Assembly, renderableForActor, importerIndex,
+      ::IngestG3DAssemblyNode(builder, source.Assembly, context,
         source.Assembly->GetChild(assemblyRoot, childIndex), source.FaceLevelNodes);
     }
 
@@ -844,6 +949,7 @@ void G3DIngestDataAssemblies(G3DSceneGraph& graph, const std::vector<G3DAssembly
     cameraSection.Count = static_cast<int>(source.Cameras.size());
     cameraSection.FirstGlobalIndex = source.FirstCameraIndex;
     cameraSection.Names = &source.CameraNames;
+    cameraSection.Placed = &context.PlacedCameras;
     ::AppendG3DSceneElementSection(
       builder, cameraSection,
       [&](int local, int global) {
@@ -859,6 +965,7 @@ void G3DIngestDataAssemblies(G3DSceneGraph& graph, const std::vector<G3DAssembly
     lightSection.ImporterIndex = importerIndex;
     lightSection.Count = static_cast<int>(source.Lights.size());
     lightSection.FirstGlobalIndex = source.FirstLightIndex;
+    lightSection.Placed = &context.PlacedLights;
     ::AppendG3DSceneElementSection(
       builder, lightSection,
       [&](int local, int global) {
@@ -876,4 +983,51 @@ void G3DIngestDataAssemblies(G3DSceneGraph& graph, const std::vector<G3DAssembly
 
   builder.EndNode();
   builder.Finalize();
+
+  ::G3DApplyDefaultCollapse(graph);
+}
+
+//----------------------------------------------------------------------------
+void G3DApplyDefaultCollapse(G3DSceneGraph& graph)
+{
+  const int nodeCount = graph.NodeCount();
+  if (nodeCount == 0)
+  {
+    return;
+  }
+
+  int maxDepth = 0;
+  for (int node = 0; node < nodeCount; node++)
+  {
+    maxDepth = std::max(maxDepth, graph.Depth(node));
+  }
+
+  std::vector<int> nodesAtDepth(static_cast<std::size_t>(maxDepth) + 1, 0);
+  for (int node = 0; node < nodeCount; node++)
+  {
+    nodesAtDepth[static_cast<std::size_t>(graph.Depth(node))]++;
+  }
+
+  // Rows begin at depth 1: the synthetic root is never a row of its own. Depth 1 -- one row per
+  // loaded file -- is always shown, however many files there are; refusing to open the scene at all
+  // would be worse than exceeding the budget.
+  int openDepth = 1;
+  int rows = maxDepth >= 1 ? nodesAtDepth[1] : 0;
+  while (openDepth < maxDepth &&
+    rows + nodesAtDepth[static_cast<std::size_t>(openDepth) + 1] <= G3DDefaultExpandRowBudget)
+  {
+    openDepth++;
+    rows += nodesAtDepth[static_cast<std::size_t>(openDepth)];
+  }
+
+  for (int node = 0; node < nodeCount; node++)
+  {
+    // A node an importer asked to be closed stays closed; nothing here reopens anything.
+    if (graph.FirstChild(node) < 0 || graph.HasFlag(node, G3DNodeFlag::CollapsedByDefault) ||
+      graph.Depth(node) < openDepth || graph.SubtreeSize(node) <= G3DSmallSubtreeRows)
+    {
+      continue;
+    }
+    graph.SetFlag(node, G3DNodeFlag::CollapsedByDefault, true);
+  }
 }

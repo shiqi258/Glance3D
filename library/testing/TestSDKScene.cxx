@@ -207,9 +207,10 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
     return !f3d::g3dNodeTypeFromString("not_a_type").has_value() &&
       f3d::g3dNodeTypeToString(f3d::g3d_node_type::POINT_CLOUD) == "point_cloud";
   });
-  // The file carries a camera, which is the whole reason the section exists: it turns a viewpoint
-  // that used to be reachable only by guessing --camera-index into an addressable node.
-  test("Glance3D scene tree camera section", [&]() {
+  // The file carries a camera, and glTF models it as a node, so it belongs in the hierarchy where
+  // the file put it -- once. The `@cameras` section is the fallback for formats whose viewpoints
+  // reach the renderer without reaching the tree, and must stay out of the way when it is not one.
+  test("Glance3D scene tree camera in place", [&]() {
     sce.resetSceneTreeVisibility();
     sce.expandSceneTree();
     const std::vector<f3d::g3d_tree_row> rows =
@@ -217,24 +218,28 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 
     const auto camera = std::find_if(rows.begin(), rows.end(), [](const f3d::g3d_tree_row& row)
       { return row.type == f3d::g3d_node_type::CAMERA && !row.hasChildren; });
-    const auto section = std::find_if(rows.begin(), rows.end(), [](const f3d::g3d_tree_row& row)
-      { return row.type == f3d::g3d_node_type::CAMERA && row.hasChildren; });
-    if (camera == rows.end() || section == rows.end())
+    if (camera == rows.end())
     {
       return false;
     }
 
-    // Sections sit under their own file and after the geometry, so the path is file-qualified.
-    const bool underFile = section->path.find("/@cameras") != std::string::npos && section->depth > 0;
+    // Placed by the hierarchy, so no fallback section is emitted and the camera is not listed twice.
+    const bool noSection = std::none_of(rows.begin(), rows.end(),
+      [](const f3d::g3d_tree_row& row)
+      {
+        return row.path.find("/@cameras") != std::string::npos ||
+          (row.type == f3d::g3d_node_type::CAMERA && row.hasChildren);
+      });
+    const bool underFile = camera->depth > 0 && camera->path.find('/', 1) != std::string::npos;
     // A camera has nothing to show or hide; the geometry rows still do.
-    const bool noEye = !camera->canToggleVisibility && !section->canToggleVisibility;
+    const bool noEye = !camera->canToggleVisibility;
     const bool geometryHasEye = std::all_of(rows.begin(), rows.end(),
       [](const f3d::g3d_tree_row& row) {
         return row.type == f3d::g3d_node_type::CAMERA || row.canToggleVisibility;
       });
     // Visibility must refuse a camera rather than pretend to have hidden it.
     const bool refusesVisibility = !sce.setSceneTreeNodeVisibility(camera->path, false);
-    return underFile && noEye && geometryHasEye && refusesVisibility;
+    return noSection && underFile && noEye && geometryHasEye && refusesVisibility;
   });
   test("Glance3D scene tree activation", [&]() {
     const std::vector<f3d::g3d_tree_row> rows =

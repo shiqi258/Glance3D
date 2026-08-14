@@ -38,6 +38,8 @@ enum class G3DIconId
   Cube,
   Component,  ///< four diamonds in a diamond (an instance: one product, many occurrences)
   Surface,    ///< a quad seen at an angle (one B-rep face of a solid)
+  Skeleton,   ///< a three-bone chain (an armature root)
+  Joint,      ///< one bone: two sockets and the shaft between them
   Folder,     ///< closed folder (tree group)
   FolderOpen, ///< open folder (expanded tree group)
   Layers,     ///< stacked layers (scene collection / root)

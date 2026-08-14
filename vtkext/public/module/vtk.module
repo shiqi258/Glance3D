@@ -3,6 +3,7 @@ NAME
 DESCRIPTION
   A VTK module that is shared and usable by both libf3d and plugins
 DEPENDS
+  VTK::CommonDataModel
   VTK::CommonExecutionModel
   VTK::IOImport
   VTK::IOCore

@@ -266,6 +266,32 @@ void DrawComponent(const IconCanvas& c)
 }
 
 /**
+ * A rig, drawn the way every 3D tool draws one: sockets joined by shafts.
+ *
+ * `Skeleton` branches, `Joint` does not — which is exactly the difference between the row that owns
+ * a whole armature and the row that is one bone in it, and reads at 16px without needing colour.
+ */
+void DrawBones(const IconCanvas& c, bool branching)
+{
+  const float socket = 0.11f;
+  if (branching)
+  {
+    c.Line(0.22f, 0.82f, 0.40f, 0.48f);
+    c.Line(0.40f, 0.48f, 0.74f, 0.28f);
+    c.Line(0.40f, 0.48f, 0.72f, 0.72f);
+    c.Dot(0.22f, 0.82f, socket);
+    c.Ring(0.40f, 0.48f, socket);
+    c.Dot(0.74f, 0.28f, socket);
+    c.Dot(0.72f, 0.72f, socket);
+    return;
+  }
+
+  c.Line(0.28f, 0.74f, 0.72f, 0.28f);
+  c.Ring(0.28f, 0.74f, socket);
+  c.Dot(0.72f, 0.28f, socket);
+}
+
+/**
  * A quad seen at an angle — one face of a solid.
  *
  * Deliberately the same family as the cube glyph a whole part gets, one facet of it: the tree row
@@ -521,6 +547,12 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Surface:
       DrawSurface(c);
+      break;
+    case G3DIconId::Skeleton:
+      DrawBones(c, true);
+      break;
+    case G3DIconId::Joint:
+      DrawBones(c, false);
       break;
     case G3DIconId::Folder:
       DrawFolder(c, false);

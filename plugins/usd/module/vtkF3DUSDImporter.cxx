@@ -1,6 +1,7 @@
 #include "vtkF3DUSDImporter.h"
 
 #include "vtkF3DFaceVaryingPointDispatcher.h"
+#include "vtkG3DNodeMetadata.h"
 
 #include <vtkActor.h>
 #include <vtkActorCollection.h>
@@ -233,7 +234,7 @@ public:
     std::string nodeName = vtkDataAssembly::MakeValidNodeName(name.c_str());
 
     int nodeId = hierarchy->AddNode(nodeName.c_str(), parentNodeId);
-    hierarchy->SetAttribute(nodeId, "label", name.c_str());
+    vtkG3DNodeMetadata::SetAssemblyLabel(hierarchy, nodeId, name);
     this->NodeIdMap[pathStr] = nodeId;
 
     return nodeId;
@@ -259,7 +260,7 @@ public:
 
       // Create hierarchy node for this actor
       int nodeId = this->GetOrCreateHierarchyNode(hierarchy, actorPath, prim.GetName().GetString());
-      hierarchy->SetAttribute(nodeId, "flat_actor_id", actorIndex);
+      vtkG3DNodeMetadata::SetAssemblyFlatActorId(hierarchy, nodeId, actorIndex);
 
       // get associated material/shader
       pxr::UsdShadeMaterial material =
@@ -1760,7 +1761,8 @@ void vtkF3DUSDImporter::ImportActors(vtkRenderer* renderer)
 {
   // Initialize the scene hierarchy
   this->SceneHierarchy = vtkSmartPointer<vtkDataAssembly>::New();
-  this->SceneHierarchy->SetAttribute(vtkDataAssembly::GetRootNode(), "label", "root");
+  vtkG3DNodeMetadata::SetAssemblyLabel(
+    this->SceneHierarchy, vtkDataAssembly::GetRootNode(), "root");
 
 #if VTK_VERSION_NUMBER >= VTK_VERSION_CHECK(9, 4, 20241219)
   const bool armature = this->GetImportArmature();

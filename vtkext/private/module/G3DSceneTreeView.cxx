@@ -39,6 +39,10 @@ int PlaceholderKindOf(const G3DSceneGraph& graph, int node)
       return 4 + hasChildren;
     case G3DNodeType::FACE:
       return 6;
+    case G3DNodeType::SKELETON:
+      return 7;
+    case G3DNodeType::JOINT:
+      return 8;
     default:
       return hasChildren;
   }

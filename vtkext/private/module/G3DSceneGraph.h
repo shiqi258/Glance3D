@@ -384,9 +384,13 @@ struct G3DAssemblySource
   /**
    * Cameras and lights this file declared, in the order the flattened global index uses.
    *
-   * They become two sections appended after the file's geometry rather than nodes spliced into the
-   * assembly hierarchy: a reviewer scanning a CAD tree should not have to step over viewpoints, and
-   * a section can be collapsed or filtered away wholesale. Empty vectors emit no section at all.
+   * An importer that knows where the file put them says so per node (`g3d_camera_index` /
+   * `g3d_light_index`), and those stay in the hierarchy: a thing the format models as a node belongs
+   * in the tree exactly once, which is what every scene editor does and what keeps a selection
+   * meaningful. Whatever is left over -- formats that hand their viewpoints straight to the renderer
+   * -- is collected into two collapsed sections appended after the file's geometry, so a camera is
+   * still addressable instead of reachable only by guessing `--camera-index`. Nothing left over
+   * emits no section at all.
    */
   std::vector<vtkCamera*> Cameras;
   std::vector<std::string> CameraNames; ///< Parallel to Cameras; an empty name means "unnamed".
@@ -422,6 +426,28 @@ inline constexpr const char* G3DFaceNamePrefix = "face_";
  * the refusal is logged and shown, never silently truncated to the first N.
  */
 inline constexpr int G3DMaxMaterializedFaces = 5000;
+
+///@{
+/**
+ * How much of a freshly loaded tree opens by default.
+ *
+ * A tree is opened breadth-first until the next whole level would push it past the row budget, and
+ * everything below that is left closed. Depth is the right axis for this: a wrapper chain like
+ * `Sketchfab_model > root > GLTF_SceneRootNode` costs one row per level and opens straight through
+ * to the first real branching point, while a rig with a hundred bones per limb stops at the limbs.
+ *
+ * A subtree no larger than the second number opens whatever its depth, so one small branch is not
+ * held closed just because a sibling branch is enormous.
+ *
+ * This replaces a heuristic that collapsed a subtree when its children carried no labels -- which
+ * only ever worked because the labels were being lost, and stops firing the moment they are not.
+ */
+inline constexpr int G3DDefaultExpandRowBudget = 200;
+inline constexpr int G3DSmallSubtreeRows = 20;
+///@}
+
+/// Marks the nodes a freshly loaded tree should start closed. Call once the graph is built.
+void G3DApplyDefaultCollapse(G3DSceneGraph& graph);
 
 void G3DIngestDataAssemblies(
   G3DSceneGraph& graph, const std::vector<G3DAssemblySource>& sources);

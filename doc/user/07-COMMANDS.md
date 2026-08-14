@@ -73,8 +73,15 @@ by its **path**, a stable key built from the structural names in the file, with 
 same-named siblings — for example `/f3d.glb/Body/Bolt[3]`. A path survives a reload and is unique
 across a multi-file scene, so unlike pixel coordinates it does not move when the tree is restyled.
 
-Besides the geometry, a file's own cameras and lights appear as two collapsed sections under it,
-`@cameras` and `@lights` — for example `/Cameras.gltf/@cameras/camera_0`.
+A file's own cameras and lights sit where the file put them, as ordinary nodes of type `camera` or
+`light` — for example `/Cameras.gltf/node1`. Formats that hand their viewpoints to the renderer
+without ever placing them in a hierarchy get them collected instead into two collapsed sections
+under the file, `@cameras` and `@lights` (`/model.ext/@cameras/camera_0`); a section only lists what
+the hierarchy did not already carry, so nothing appears twice.
+
+A rig is described too: the nodes a skin lists as joints have type `joint`, its skeleton root has
+type `skeleton`, and one extra `_armature` row under that root switches the skeleton's own line
+drawing on and off.
 
 `print_scene_tree`: A specific command to print the currently shown rows together with their node
 paths and node types. Only rows that are actually displayed are listed, so run
@@ -101,8 +108,8 @@ stored expansion state. No argument clears the filter.
 `scene_tree_type_filter [type...]`: Keep only the listed node types, using the names
 `print_scene_tree` shows in angle brackets (`root`, `file`, `group`, `assembly`, `part`, `instance`,
 `face`, `mesh`, `point_cloud`, `volume`, `camera`, `light`, `skeleton`, `joint`, `other`). No
-argument shows every type again. eg: `scene_tree_type_filter mesh group file` hides the camera and
-light sections.
+argument shows every type again. eg: `scene_tree_type_filter mesh group file` hides cameras, lights
+and the rig.
 
 `scene_tree_properties path`: Print the properties the format attached to a node, if any (a STEP
 product's colour and layer, a computed volume, ...). Formats that describe nothing beyond geometry
@@ -112,7 +119,7 @@ report none. eg: `scene_tree_properties /part.stp/Bracket`.
 
 `scene_tree_activate path`: Use a node. A camera node moves the view onto that camera, which is how
 a file's own viewpoints are reached without guessing a `--camera-index`. Anything else warns.
-eg: `scene_tree_activate /Cameras.gltf/@cameras/camera_1`.
+eg: `scene_tree_activate /Cameras.gltf/node2`.
 
 `scene_tree_visibility path bool`: Show or hide a node and all of its descendants. On a light node
 this switches the light off, which is its equivalent of being hidden. Cameras have no visibility.
