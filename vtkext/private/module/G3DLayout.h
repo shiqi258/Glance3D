@@ -139,11 +139,14 @@ inline Result Compute(const Rect& work, const Sizes& s, float frac, float scale 
 /// panel width.
 inline constexpr float BAR_TOP_H = 44.f;
 inline constexpr float BAR_BOTTOM_H = 40.f;
-// Scene tree default: preview scenes are mostly 2–5 shallow nodes, so the tree opens narrow and
-// gives the pixels to the model; users drag it wider for deep assemblies (drag floor is the
-// splitter's 180, ceiling is MaxSideWidth). Deliberately narrower than the inspector, whose
-// two-column prop rows need the width.
-inline constexpr float BAR_LEFT_W = 200.f;
+// Both side bars open at the same width: the tree is a first-class panel, not a strip beside the
+// inspector, and a symmetric frame is what a docked editor layout reads as. The number is also the
+// floor of what the CONTENT needs — a node name sits behind (depth * 16px) of indent rails, so a
+// narrower bar loses the deep names of the very files this viewer targets (glTF node chains, STEP
+// assemblies down to B-rep faces). Never take it below MIN_SIDE_CONTENT_W, which is the same
+// "still readable, not '...'" budget expressed as a cap floor. Users still drag either bar (floor
+// is the splitter's 180, ceiling is MaxSideWidth).
+inline constexpr float BAR_LEFT_W = 300.f;
 inline constexpr float BAR_RIGHT_W = 300.f;
 
 /// Build the (scale-multiplied) fully-open bar sizes for the layout solver.

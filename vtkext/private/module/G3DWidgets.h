@@ -350,8 +350,17 @@ void ItemTooltip(const char* text, const ImVec2& padding = TooltipThemePadding);
 
 /// Draw @p text at @p pos, truncated with a trailing "..." when wider than @p maxW (UTF-8 safe —
 /// never splits a multi-byte glyph). Pure draw helper: does not advance the layout cursor.
-/// @return true when the text had to be truncated — the caller may reveal the full string on hover.
-bool TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text);
+///
+/// @p dropWhenUnreadable governs the degenerate end of the budget, where not even one glyph plus
+/// the "..." fits: off (the default) the bare "..." is still drawn, on nothing is drawn at all.
+/// Opt in for a cell whose value is the ellipsis-free string or nothing — a deeply indented tree
+/// name, where a stranded ".." says less than blank space does. Leave it off wherever the mere
+/// presence of text is information (a control's current value must not read as empty).
+///
+/// @return true when the text had to be truncated — INCLUDING when it was dropped entirely, so a
+/// caller keyed on this still reveals the full string on hover.
+bool TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text,
+  bool dropWhenUnreadable = false);
 
 /// Draw @p text at an explicit pixel size — the design system's 11px overline / badge sizes, below
 /// the base UI font (ImGui scales the glyphs to it). @p mono uses the DATA font. Pure draw helper:

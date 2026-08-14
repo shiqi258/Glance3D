@@ -2582,11 +2582,16 @@ void ItemTooltip(const char* text, const ImVec2& padding)
 //----------------------------------------------------------------------------
 namespace
 {
-// Per-tree state (density / indentation), pushed by BeginTree.
+// Per-tree state (density / indentation), pushed by BeginTree. The indent policy lives here, one
+// copy per TREE — never per row: rails are drawn row by row and only read as continuous guide lines
+// because every row agrees on where column i sits. Two rows on different policies would zig-zag.
 struct TreeFrame
 {
-  float rowH;   // row height (scaled px)
-  float indent; // indentation per depth level (scaled px)
+  float rowH;      // row height (scaled px)
+  float indent;    // full indentation step, and the twisty column width (scaled px)
+  float indentMin; // step past fullLevels (scaled px)
+  float indentMax; // ceiling for the whole indent column (scaled px)
+  int fullLevels;  // levels drawn at the full step
 };
 std::vector<TreeFrame> gTreeStack;
 
@@ -2654,6 +2659,53 @@ float TreeRowHeight(TreeDensity density, float scale)
   }
 }
 
+namespace
+{
+// Indent policy (nominal px / level counts; scaled at use). A row spends its width on two things
+// that both matter — how deep the node is, and what the node is CALLED — and past a handful of
+// levels the depth is already told by the guide rails while the name is the only thing not shown
+// anywhere else on screen. So the step shrinks after kIndentFullLevels, and the column as a whole
+// stops at a share of the row: a deep row keeps moving right, just never far enough to push its own
+// name out of the panel. Uncapped indent is what let a STEP assembly opened down to its B-rep faces
+// render rows with no name on them at all.
+//
+// kIndentMin must stay >= 8: below that a column's guide rail crosses into the chevron glyph of the
+// row indented under it. 8 is also what VS Code gives an entire tree.
+constexpr float kIndentMin = G3DTheme::Spacing::Sm;
+constexpr int kIndentFullLevels = 4;
+constexpr int kIndentFloorLevels = 2;   // the ceiling never falls below this many full steps
+constexpr float kIndentMaxRatio = 0.4f; // ceiling as a share of the tree's content width
+
+/// Cumulative x offset of indent column @p level, relative to the row's content rail. MUST be the
+/// only way any consumer (twisty x, guide rails, twisty hit box) turns a level into an offset — a
+/// second formula anywhere and the rails stop lining up with the chevrons they descend from. Pure
+/// in the COLUMN INDEX, never in the row's own depth: that is what keeps one column at one x across
+/// every row, and a run of per-row hairlines reading as a single unbroken guide.
+float IndentOffset(const TreeFrame& tf, int level)
+{
+  const int d = std::max(level, 0);
+  const int full = std::min(d, tf.fullLevels);
+  const float raw =
+    static_cast<float>(full) * tf.indent + static_cast<float>(d - full) * tf.indentMin;
+  return std::min(raw, tf.indentMax);
+}
+
+/// The active tree's policy, or the library default for a row drawn outside any BeginTree() scope
+/// (the inspector's array list does exactly that — at depth 0, where the policy is inert, but the
+/// twisty column width still comes from here). The fallbacks are the values those call sites used
+/// before the policy existed, so such rows are unchanged.
+TreeFrame ActiveTreeFrame()
+{
+  if (!gTreeStack.empty())
+  {
+    return gTreeStack.back();
+  }
+  const float s = Scale();
+  return TreeFrame{ 22.f * s, G3DTheme::Spacing::Lg * s, kIndentMin * s, FLT_MAX,
+    kIndentFullLevels };
+}
+}
+
 //----------------------------------------------------------------------------
 void BeginTree(TreeDensity density)
 {
@@ -2661,7 +2713,17 @@ void BeginTree(TreeDensity density)
   // Rows stack flush (zero inter-row gap) so each row consumes exactly its row height — required for
   // ImGuiListClipper virtualization (TreeVirtual) to position rows correctly and for contiguous rails.
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.f));
-  gTreeStack.push_back({ TreeRowHeight(density, s), G3DTheme::Spacing::Lg * s });
+  TreeFrame tf;
+  tf.rowH = TreeRowHeight(density, s);
+  tf.indent = G3DTheme::Spacing::Lg * s;
+  tf.indentMin = kIndentMin * s;
+  tf.fullLevels = kIndentFullLevels;
+  // Resolved ONCE per tree rather than per row: all rows share the tree's content width, so
+  // measuring it here measures it for all of them, and they cannot disagree about column i. A bar
+  // the user drags narrower re-solves it on the next frame.
+  tf.indentMax = std::max(static_cast<float>(kIndentFloorLevels) * tf.indent,
+    std::max(0.f, ImGui::GetContentRegionAvail().x) * kIndentMaxRatio);
+  gTreeStack.push_back(tf);
 }
 
 //----------------------------------------------------------------------------
@@ -2681,9 +2743,9 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   ImGui::PushID(id);
 
   const float s = Scale();
-  const float densityH = gTreeStack.empty() ? 22.f * s : gTreeStack.back().rowH;
-  const float rowH = chrome.height > 0.f ? chrome.height : densityH;
-  const float indent = gTreeStack.empty() ? G3DTheme::Spacing::Lg * s : gTreeStack.back().indent;
+  const TreeFrame tf = ActiveTreeFrame();
+  const float rowH = chrome.height > 0.f ? chrome.height : tf.rowH;
+  const float indent = tf.indent;
   // Content-rail mode drops the twisty/indent column: a flat list has no hierarchy to reserve for.
   const float twistyW = chrome.contentRail ? 0.f : indent;
   // Two origins: `rail` is where content lines up (the caller's content edge), `p0` is where the
@@ -2714,7 +2776,10 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   }
 
   const float cy = p0.y + rowH * 0.5f;
-  const float twX = rail.x + chrome.depth * indent;
+  // The twisty COLUMN keeps its full width past the decay (twistyW above): the chevron is a click
+  // target, and shrinking targets with depth would make deep nodes the hardest ones to expand.
+  // Only the offset that gets there grows more slowly.
+  const float twX = rail.x + IndentOffset(tf, chrome.depth);
 
   // Route the click: twisty region toggles expand, the rest selects.
   res.hovered = hovered;
@@ -2764,15 +2829,37 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
       U32(G3DTheme::Accent()), 1.f * s);
   }
 
-  // Indentation rails (continuing guide lines), one per depth column.
+  // Indentation rails (continuing guide lines), one per depth column. A rail hangs from the CHEVRON
+  // CENTER of the ancestor that owns the column — with a uniform step that happened to be the same
+  // expression as "column midpoint", but once the step decays it is not, and only the TWISTY half
+  // width keeps the line under the chevron it descends from.
+  const float railHalf = indent * 0.5f;
+  float prevX = -FLT_MAX;
+  float activeX = -FLT_MAX;
   for (int i = 0; i < chrome.depth; ++i)
   {
-    const float rx = rail.x + i * indent + indent * 0.5f;
+    const float rx = rail.x + IndentOffset(tf, i) + railHalf;
     const bool active = i == chrome.activeGuide;
+    // Past the ceiling successive columns land on the same x. Drawing them all would stack N
+    // translucent hairlines into one opaque line whose extra weight encodes nothing.
+    if (!active && rx <= prevX + 0.5f)
+    {
+      continue;
+    }
+    prevX = std::max(prevX, rx);
+    if (active)
+    {
+      activeX = rx; // held back so a coincident neutral rail cannot paint over the highlight
+      continue;
+    }
+    dl->AddLine(ImVec2(rx, p0.y), ImVec2(rx, p0.y + rowH), U32(G3DTheme::Border()), 1.f * s);
+  }
+  if (activeX > -FLT_MAX)
+  {
     // Active rail stays neutral (VS Code): accent on the guide would stack a third blue indicator
     // onto the selected row's edge bar + soft fill.
-    const ImVec4 col = active ? G3DTheme::BorderStrong() : G3DTheme::Border();
-    dl->AddLine(ImVec2(rx, p0.y), ImVec2(rx, p0.y + rowH), U32(col), 1.f * s);
+    dl->AddLine(
+      ImVec2(activeX, p0.y), ImVec2(activeX, p0.y + rowH), U32(G3DTheme::BorderStrong()), 1.f * s);
   }
 
   // Twisty chevron (down when open, right when collapsed; nothing for a leaf). styleguide twisty is
@@ -2866,9 +2953,13 @@ bool TreeRowLabel(const char* text, bool group, bool dim)
 
   // Truncation (UTF-8 safe, styleguide text-overflow: ellipsis) lives in TextEllipsis so the "..."
   // policy has one home. The clip rect stays: it guards the glyph that straddles the budget.
+  // dropWhenUnreadable: past a certain depth the rails leave a budget too small for even one glyph,
+  // and a name shorn to ".." is worse than nothing — it looks like the row IS "..". Blank plus the
+  // hover tooltip (the caller's, driven by this return) is the honest state.
   ImDrawList* dl = ImGui::GetWindowDrawList();
   dl->PushClipRect(ImVec2(f.contentX, f.p0.y), ImVec2(f.contentX + avail, f.p0.y + f.rowH), true);
-  const bool clipped = TextEllipsis(dl, ImVec2(f.contentX, cy - ts.y * 0.5f), avail, U32(col), text);
+  const bool clipped =
+    TextEllipsis(dl, ImVec2(f.contentX, cy - ts.y * 0.5f), avail, U32(col), text, true);
   dl->PopClipRect();
   f.contentX += std::min(ts.x, avail);
   // The caller owns the "reveal the full name on hover" tooltip: a headless row must not emit one
@@ -3416,7 +3507,8 @@ void DrawColorChip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, const ImV
 // Text with a trailing "..." when it does not fit in @p maxW (styleguide `text-overflow: ellipsis`;
 // ASCII dots — the U+2026 glyph is not guaranteed in the atlas for non-CJK languages).
 // Returns whether it had to truncate, so a caller can reveal the full string on hover.
-bool DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text)
+bool DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text,
+  bool dropWhenUnreadable = false)
 {
   if (ImGui::CalcTextSize(text).x <= maxW)
   {
@@ -3424,6 +3516,16 @@ bool DrawTextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, 
     return false;
   }
   const float ellW = ImGui::CalcTextSize("...").x;
+  // Degenerate budget: not even one glyph survives in front of the "...". The loop below would
+  // then walk `end` all the way back and emit a bare "...", which the caller's clip rect shears
+  // into a stranded ".." — a mark that carries no information and reads as a rendering fault.
+  // Opt-in callers drop it instead; the true return keeps their hover tooltip on, so the name is
+  // still reachable. Mirrors the budget guard TreeRowMeta applies to its own cell, one notch more
+  // permissive because a label is the row's identity and one visible glyph still narrows it down.
+  if (dropWhenUnreadable && maxW < ellW + ImGui::CalcTextSize("W").x)
+  {
+    return true;
+  }
   const char* end = text + std::strlen(text);
   while (end > text && ImGui::CalcTextSize(text, end).x + ellW > maxW)
   {
@@ -3557,10 +3659,11 @@ void DrawDashedRect(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float r,
 } // namespace
 
 //----------------------------------------------------------------------------
-bool TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text)
+bool TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text,
+  bool dropWhenUnreadable)
 {
   // Public face of the internal helper (kept file-local so its "..." policy has one home).
-  return DrawTextEllipsis(dl, pos, maxW, col, text);
+  return DrawTextEllipsis(dl, pos, maxW, col, text, dropWhenUnreadable);
 }
 
 //----------------------------------------------------------------------------

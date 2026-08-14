@@ -786,10 +786,12 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   // A child window gives the tree its own scroll region — independent of the host window flags, so
   // it scrolls even inside the docked left bar (which is NoScrollbar). Virtualized over the rows.
   //
-  // Deep assemblies still push labels past the bar width and lose them to an ellipsis; hovering
-  // reveals the full name, but real horizontal scrolling would need TreeRow to lay out at its
-  // natural width instead of flex-clipping the label, which also affects the inspector rows that
-  // share the widget. Left as its own change rather than smuggled in here.
+  // Deep assemblies used to walk their labels clean off the bar; the indent column now decays and
+  // then stops (G3DWidgets' tree indent policy), so a name keeps a readable share of the row at any
+  // depth. What is still missing is real HORIZONTAL SCROLLING, for the case where the name is long
+  // rather than deep: it would need TreeRow to lay out at its natural width instead of flex-clipping
+  // the label, which also affects the inspector rows that share the widget. Left as its own change
+  // rather than smuggled in here — until then a clipped name is revealed by hovering it.
   G3DWidgets::BeginScrollRegion("##g3d.scenetree");
   G3DWidgets::BeginTree(G3DWidgets::TreeDensity::Compact);
   G3DWidgets::TreeVirtual(view.RowCount(),
