@@ -13,6 +13,7 @@ For Glance3D users:
 - Added a `--normal-glyphs` option to show normals as arrow glyphs
 - Added a `--notifications` option and interactive bind (`Ctrl+K`) to enable/disable notifications, which shows a widget whenever an interactive bind is pressed
 - Added a `--dpi-aware` option to rescale font automatically on HiDPI screens (Windows only)
+- Added CAD semantics to the scene tree for STEP/IGES/XBF files: assemblies, parts and instances are labelled as such, and each carries the colour, layer, material and validation properties (volume, area, centroid) the file declared
 - Added a `webifc` plugin to add support for .ifc files
 - Added a `pdal` plugin to add support for many point cloud formats, including .las and .laz
 - Added support for jumping to keyframes using `jump_to_keyframe` command
@@ -82,6 +83,7 @@ For Web viewer users:
 - Added .ifc support
 - Added a scene tree to the inspector panel, virtualized so its cost stays proportional to what is on screen; it shares its tree shape, expansion, filtering and visibility roll-up with the desktop viewer
 - Added the file's own cameras and lights to that tree: clicking a camera row moves the view onto it, and a light row's eye switches the light
+- Added a properties group that follows the tree selection, showing whatever the format attached to that node
 
 ## v3.4.1
 

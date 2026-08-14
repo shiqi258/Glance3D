@@ -2125,6 +2125,39 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
     G3DWidgets::EndCollapse();
   }
 
+  // --- Properties: whatever the format attached to the node selected in the scene tree. Follows
+  // the selection rather than the whole scene, because that is the only scope at which "Layer" or
+  // "Volume" means anything. The section appears only for formats that carry any, so a viewer of a
+  // plain mesh never grows an empty card.
+  {
+    const G3DSceneTreeView& view = ren->GetG3DSceneTreeView();
+    const G3DSceneGraph* graph = view.Graph();
+    const int selected = view.Selection();
+    const int propertyCount = (graph != nullptr && selected >= 0) ? graph->PropertyCount(selected) : 0;
+    if (propertyCount > 0)
+    {
+      static bool propsOpen = true;
+      const std::string title = loc.Translate("Properties");
+      G3DWidgets::CollapseDesc d;
+      d.title = title.c_str();
+      d.variant = G3DWidgets::CollapseVariant::Flat;
+      d.open = &propsOpen;
+      const std::string count = std::to_string(propertyCount);
+      d.count = count.c_str();
+      if (G3DWidgets::BeginCollapse("g3d.sec.properties", d).open)
+      {
+        for (int index = 0; index < propertyCount; index++)
+        {
+          // Names come from the file, not from a translation catalog: they are the format's own
+          // vocabulary and translating half of them would read worse than leaving them alone.
+          G3DWidgets::StatRow(graph->PropertyKey(selected, index).c_str(),
+            graph->PropertyValue(selected, index).c_str());
+        }
+      }
+      G3DWidgets::EndCollapse();
+    }
+  }
+
   // --- Arrays: one selectable row per scalar array. The row IS the coloring selector (the Coloring
   // group deliberately has no array dropdown), so it is a real tree-family list row: a single
   // rectangle is the hover band, the hit target and the content extent at once — the row cannot

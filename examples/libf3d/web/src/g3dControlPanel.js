@@ -30,8 +30,10 @@ export function initG3DControlPanel(engine) {
   const sceneTree = initG3DSceneTree(
     document.querySelector("#g3d-scene-tree"),
     engine,
+    { onSelect: (path) => renderNodeProperties(path) },
   );
   const dataInfoEl = document.querySelector("#g3d-data-info");
+  const nodePropsEl = document.querySelector("#g3d-node-properties");
   const controlsEl = document.querySelector("#g3d-controls");
   const coloringEl = document.querySelector("#g3d-coloring");
   const timelineEl = document.querySelector("#g3d-timeline");
@@ -52,6 +54,43 @@ export function initG3DControlPanel(engine) {
     row.append(el("span", "g3d-data-info__key", key), el("span", "g3d-data-info__val", value));
     return row;
   };
+  /**
+   * Properties the format attached to the node selected in the scene tree.
+   *
+   * Follows the selection rather than the whole scene, because that is the only scope at which
+   * "Layer" or "Volume" means anything. Nothing is drawn when the node carries none, so a viewer of
+   * a plain mesh never grows an empty group — same rule the desktop inspector applies.
+   */
+  const renderNodeProperties = (path) => {
+    if (!nodePropsEl) {
+      return;
+    }
+    nodePropsEl.replaceChildren();
+    if (!path || typeof engine.getScene !== "function") {
+      return;
+    }
+    const scene = engine.getScene();
+    if (!scene || typeof scene.getSceneTreeNodeProperties !== "function") {
+      return; // stale wasm: leave the group empty
+    }
+
+    let properties = [];
+    try {
+      properties = scene.getSceneTreeNodeProperties(path) || [];
+    } catch {
+      return;
+    }
+    if (properties.length === 0) {
+      return;
+    }
+
+    nodePropsEl.append(el("p", "g3d-data-info__section", "Properties"));
+    for (const property of properties) {
+      // Names come from the file, not from a catalog: they are the format's own vocabulary.
+      nodePropsEl.append(infoRow(property.key, property.value));
+    }
+  };
+
   const renderDataInfo = () => {
     if (!dataInfoEl || typeof engine.getScene !== "function") {
       return;
@@ -561,6 +600,8 @@ export function initG3DControlPanel(engine) {
   // this after a successful load). Decoupled via a window event so the presenter stays standalone.
   window.addEventListener("g3d:scene-loaded", () => {
     if (isOpen()) {
+      // A new scene invalidates the old selection, so its properties must go with it.
+      renderNodeProperties("");
       renderDataInfo();
       renderColoring();
       renderControls();

@@ -141,9 +141,11 @@ function rowMarkup(row) {
  *
  * @param {HTMLElement} hostEl container the tree owns entirely
  * @param {object} engine the libf3d engine instance (Module.engineInstance)
+ * @param {{onSelect?: (path: string) => void}} [callbacks] notified when the selection changes, so a
+ *   sibling panel can follow it without the tree having to know that panel exists
  * @returns {{refresh: () => void, isSupported: () => boolean}}
  */
-export function initG3DSceneTree(hostEl, engine) {
+export function initG3DSceneTree(hostEl, engine, callbacks = {}) {
   const noop = { refresh: () => {}, isSupported: () => false };
   if (!hostEl || !engine || typeof engine.getScene !== "function") {
     return noop;
@@ -258,6 +260,7 @@ export function initG3DSceneTree(hostEl, engine) {
       // same single-click behaviour a viewpoint list has. Returns false for anything else, which
       // leaves the click as a plain selection.
       scene().activateSceneTreeNode(path);
+      callbacks.onSelect?.(path);
     }
     refresh();
   });

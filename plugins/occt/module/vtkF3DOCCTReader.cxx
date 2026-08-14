@@ -31,14 +31,23 @@
 #include <IGESCAFControl_Reader.hxx>
 #include <STEPCAFControl_Reader.hxx>
 #include <Standard_Version.hxx>
+#include <TCollection_HAsciiString.hxx>
+#include <TColStd_HSequenceOfExtendedString.hxx>
 #include <TDF_ChildIterator.hxx>
 #include <TDataStd_Name.hxx>
 #include <TDocStd_Application.hxx>
 #include <TDocStd_Document.hxx>
 #include <XCAFApp_Application.hxx>
+#include <XCAFDoc_Area.hxx>
+#include <XCAFDoc_Centroid.hxx>
+#include <XCAFDoc_ColorTool.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_LayerTool.hxx>
 #include <XCAFDoc_Location.hxx>
+#include <XCAFDoc_Material.hxx>
+#include <XCAFDoc_MaterialTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDoc_Volume.hxx>
 #include <XCAFPrs.hxx>
 #include <XCAFPrs_IndexedDataMapOfShapeStyle.hxx>
 #include <XCAFPrs_Style.hxx>
@@ -47,6 +56,8 @@
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
+
+#include "vtkG3DNodeMetadata.h"
 
 #include <vtkCellArray.h>
 #include <vtkCellData.h>
@@ -70,11 +81,56 @@
 #include <vtksys/SystemTools.hxx>
 
 #include <array>
+#include <cmath>
+#include <iomanip>
 #include <numeric>
+#include <sstream>
 #include <unordered_map>
 #include <vector>
 
 vtkCxxSetSmartPointerMacro(vtkF3DOCCTReader, Stream, vtkResourceStream);
+
+#if F3D_PLUGIN_OCCT_XCAF
+namespace
+{
+std::string ToUtf8(const TCollection_ExtendedString& value)
+{
+  std::vector<char> buffer(static_cast<std::size_t>(value.LengthOfCString()) + 1, '\0');
+  // ToUTF8CString takes its pointer by reference and advances it, so it needs a named lvalue.
+  char* cursor = buffer.data();
+  value.ToUTF8CString(cursor);
+  return std::string(buffer.data());
+}
+
+/**
+ * A number as a property panel should read it.
+ *
+ * Six significant digits, trailing zeros trimmed: a volume of 12.5 should not read "12.500000", and
+ * a CAD value should not lose meaning to the default six *decimal* places when it is large.
+ */
+std::string FormatNumber(double value)
+{
+  std::ostringstream stream;
+  stream << std::defaultfloat << std::setprecision(6) << value;
+  return stream.str();
+}
+
+///@{
+/**
+ * Validation properties (volume, area, centroid) the CAD system computed and stored in the file.
+ *
+ * Off by default in OCCT; reading them is what lets the property panel show a part's real numbers
+ * instead of nothing. Only STEP carries them — IGES has no equivalent, hence the empty overload
+ * rather than a runtime check.
+ */
+void EnableG3DPropsMode(STEPCAFControl_Reader& reader)
+{
+  reader.SetPropsMode(true);
+}
+void EnableG3DPropsMode(IGESCAFControl_Reader&) {}
+///@}
+}
+#endif
 
 class vtkF3DOCCTReader::vtkInternals
 {
@@ -414,6 +470,133 @@ public:
   };
 
   //----------------------------------------------------------------------------
+  /**
+   * What the XCAF document says a label is, in Glance3D's vocabulary.
+   *
+   * The distinctions are already load-bearing in AddLabel below (a reference is followed, a simple
+   * top-level shape is tessellated); this only reports them outward, so the tree can show an
+   * assembly as an assembly instead of guessing "it has children, call it a group".
+   */
+  std::string GetG3DNodeType(const TDF_Label& label) const
+  {
+    if (this->ShapeTool->IsReference(label))
+    {
+      return "instance";
+    }
+    if (this->ShapeTool->IsAssembly(label))
+    {
+      return "assembly";
+    }
+    if (this->ShapeTool->IsSimpleShape(label))
+    {
+      return "part";
+    }
+    return {};
+  }
+
+  /**
+   * Attaches whatever the XCAF document knows about a product beyond its name and geometry.
+   *
+   * Everything here is already in the document -- colour, layer and material because the reader
+   * asks for them, the validation properties because PropsMode is on -- and none of it had any way
+   * to reach the viewer before. Absent facts are simply not added: a property panel showing "Layer:
+   * (none)" for every part of every file would be worse than showing nothing.
+   */
+  void AddG3DNodeProperties(const TDF_Label& label, vtkInformation* info) const
+  {
+    if (info == nullptr || label.IsNull())
+    {
+      return;
+    }
+
+    if (!this->ColorTool.IsNull())
+    {
+      // Surface colour is what a reviewer sees; the generic colour is the fallback the format uses
+      // when it did not distinguish surface from curve.
+      Quantity_Color color;
+      const bool hasColor = this->ColorTool->GetColor(label, XCAFDoc_ColorSurf, color) ||
+        this->ColorTool->GetColor(label, XCAFDoc_ColorGen, color);
+      if (hasColor)
+      {
+        double rgb[3];
+        color.Values(rgb[0], rgb[1], rgb[2], Quantity_TOC_sRGB);
+        std::ostringstream hex;
+        hex << '#' << std::hex << std::setfill('0');
+        for (const double channel : rgb)
+        {
+          hex << std::setw(2) << static_cast<int>(std::lround(255.0 * channel));
+        }
+        vtkG3DNodeMetadata::AddProperty(info, "Color", hex.str());
+      }
+    }
+
+    if (!this->LayerTool.IsNull())
+    {
+      Handle(TColStd_HSequenceOfExtendedString) layers = this->LayerTool->GetLayers(label);
+      if (!layers.IsNull() && layers->Length() > 0)
+      {
+        std::string joined;
+        for (Standard_Integer i = 1; i <= layers->Length(); i++)
+        {
+          if (!joined.empty())
+          {
+            joined += ", ";
+          }
+          joined += ::ToUtf8(layers->Value(i));
+        }
+        vtkG3DNodeMetadata::AddProperty(info, "Layer", joined);
+      }
+    }
+
+    if (!this->MaterialTool.IsNull())
+    {
+      Handle(TCollection_HAsciiString) name;
+      Handle(TCollection_HAsciiString) description;
+      Standard_Real density = 0.0;
+      Handle(TCollection_HAsciiString) densityName;
+      Handle(TCollection_HAsciiString) densityValueType;
+      if (this->MaterialTool->GetMaterial(
+            label, name, description, density, densityName, densityValueType))
+      {
+        if (!name.IsNull() && name->Length() > 0)
+        {
+          vtkG3DNodeMetadata::AddProperty(info, "Material", name->ToCString());
+        }
+        if (density > 0.0)
+        {
+          vtkG3DNodeMetadata::AddProperty(info, "Density", ::FormatNumber(density));
+        }
+      }
+    }
+
+    // Validation properties: present only when the file carried them and PropsMode read them.
+    Standard_Real volume = 0.0;
+    if (XCAFDoc_Volume::Get(label, volume))
+    {
+      vtkG3DNodeMetadata::AddProperty(info, "Volume", ::FormatNumber(volume));
+    }
+    Standard_Real area = 0.0;
+    if (XCAFDoc_Area::Get(label, area))
+    {
+      vtkG3DNodeMetadata::AddProperty(info, "Area", ::FormatNumber(area));
+    }
+    gp_Pnt centroid;
+    if (XCAFDoc_Centroid::Get(label, centroid))
+    {
+      vtkG3DNodeMetadata::AddProperty(info, "Centroid",
+        ::FormatNumber(centroid.X()) + ", " + ::FormatNumber(centroid.Y()) + ", " +
+          ::FormatNumber(centroid.Z()));
+    }
+  }
+
+  /// Stamps the node type and properties a label carries onto the block metadata built for it.
+  void DescribeG3DNode(const TDF_Label& label, vtkInformation* info) const
+  {
+    vtkG3DNodeMetadata::SetNodeType(info, this->GetG3DNodeType(label));
+    this->AddG3DNodeProperties(label, info);
+  }
+
+  //----------------------------------------------------------------------------
   void AddLabel(const TDF_Label& label, vtkMatrix4x4* position, vtkMultiBlockDataSet* mb)
   {
     if (this->ShapeTool->IsSimpleShape(label) && this->ShapeTool->IsTopLevel(label))
@@ -433,6 +616,7 @@ public:
 
         vtkInformation* info = mb->GetMetaData(blockId);
         info->Set(vtkMultiBlockDataSet::NAME(), this->GetName(label));
+        this->DescribeG3DNode(label, info);
       }
     }
     else
@@ -452,11 +636,16 @@ public:
 
         vtkInformation* info = mb->GetMetaData(blockId);
         info->Set(vtkMultiBlockDataSet::NAME(), this->GetName(child));
+        this->DescribeG3DNode(child, info);
 
         if (this->ShapeTool->IsReference(child))
         {
           TDF_Label ref;
           this->ShapeTool->GetReferredShape(child, ref);
+
+          // Properties live on the referred product, not on the occurrence that points at it, so
+          // an instance would otherwise show nothing at all.
+          this->AddG3DNodeProperties(ref, info);
 
           vtkNew<vtkMatrix4x4> refMat;
           this->GetLocation(ref, refMat);
@@ -539,6 +728,10 @@ public:
 
   std::unordered_map<int, vtkSmartPointer<vtkPolyData>> ShapeMap;
   Handle(XCAFDoc_ShapeTool) ShapeTool;
+  // Held alongside ShapeTool so per-label property lookups do not re-resolve them for every node.
+  Handle(XCAFDoc_ColorTool) ColorTool;
+  Handle(XCAFDoc_LayerTool) LayerTool;
+  Handle(XCAFDoc_MaterialTool) MaterialTool;
 #endif
 
   vtkF3DOCCTReader* Parent;
@@ -597,6 +790,7 @@ bool TransferToDocument(vtkF3DOCCTReader* that, T& reader, Handle(TDocStd_Docume
   reader.SetColorMode(true);
   reader.SetNameMode(true);
   reader.SetLayerMode(true);
+  ::EnableG3DPropsMode(reader);
 
   IFSelect_ReturnStatus ret;
   vtkResourceStream* stream = that->GetStream();
@@ -763,6 +957,9 @@ int vtkF3DOCCTReader::RequestData(
   }
 
   this->Internals->ShapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
+  this->Internals->ColorTool = XCAFDoc_DocumentTool::ColorTool(doc->Main());
+  this->Internals->LayerTool = XCAFDoc_DocumentTool::LayerTool(doc->Main());
+  this->Internals->MaterialTool = XCAFDoc_DocumentTool::MaterialTool(doc->Main());
 
   NCollection_Sequence<TDF_Label> topLevelShapes;
 
