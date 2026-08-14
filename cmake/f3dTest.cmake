@@ -228,7 +228,16 @@ function(f3d_test)
     set_tests_properties(f3d::${F3D_TEST_NAME} PROPERTIES WORKING_DIRECTORY "${F3D_TEST_WORKING_DIR}")
   endif()
 
-  set(f3d_test_env_vars ${F3D_TEST_ENV})
+  # REGEXP assertions are written against the English messages, but the interface language
+  # otherwise follows the system locale, so on a translated machine they get matched against the
+  # translation instead (e.g. "使用点数组 Normals 着色，模长") and fail for no real reason. Pin
+  # English for text-asserting tests only, so image baselines keep whatever language they were
+  # hung in. Listed before F3D_TEST_ENV so an individual test can still override it.
+  set(f3d_test_env_vars)
+  if(F3D_TEST_REGEXP OR F3D_TEST_REGEXP_FAIL)
+    list(APPEND f3d_test_env_vars "G3D_LANG=en")
+  endif()
+  list(APPEND f3d_test_env_vars ${F3D_TEST_ENV})
   list(APPEND f3d_test_env_vars "CTEST_F3D_PROGRESS_BAR=1")
   if (F3D_TEST_UI)
     list(APPEND f3d_test_env_vars "CTEST_F3D_CONSOLE_BADGE=1")
