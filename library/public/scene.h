@@ -476,6 +476,21 @@ public:
    */
   virtual scene& setSceneTreeTypeFilter(const std::vector<g3d_node_type>& types) = 0;
   virtual bool setSceneTreeSelection(const std::string& path) = 0;
+  /**
+   * Restrict the tree to one subtree, whose node becomes the single top-level row at depth 0.
+   *
+   * Indentation cannot express unbounded depth: a side panel is a few hundred pixels wide and a
+   * rigged glTF is dozens of levels deep, so past a point every row is drawn at its parent's
+   * indent whatever the step. Scoping is the way out -- the same nodes under the same paths,
+   * measured from somewhere closer -- and it is what a frontend offers instead of asking the user
+   * to read structure that is not on screen.
+   *
+   * An empty path shows the whole scene again, the same way it clears a selection. Returns false
+   * for an unknown path. The scope is remembered by path, so it survives a scene rebuild and comes
+   * back with the file; `getSceneTreeScope` returns empty when nothing is scoped.
+   */
+  virtual bool setSceneTreeScope(const std::string& path) = 0;
+  [[nodiscard]] virtual std::string getSceneTreeScope() const = 0;
   ///@}
 
   ///@{

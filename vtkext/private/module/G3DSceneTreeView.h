@@ -133,6 +133,30 @@ public:
 
   void SetSelection(int node);
   int Selection() const;
+
+  /**
+   * Restricts the tree to one subtree, which becomes the top-level row at depth 0.
+   *
+   * The answer to a depth no panel can draw. Indentation has a hard ceiling -- a side bar is 240 to
+   * 300px and a rig is twenty-seven levels deep, so past a point every row is drawn at its parent's
+   * x no matter how the step is tuned -- and the only way to give a deep node room is to stop
+   * counting from the scene root. Scoping is that: same nodes, same paths, same everything the rest
+   * of the API addresses them by, measured from somewhere closer.
+   *
+   * Pass -1 (or a node with no path) to show the whole scene again. Kept here rather than in a
+   * frontend so the desktop tree and the web tree cannot disagree about what "depth" means.
+   *
+   * Scoping to a node also opens it: it is normally one the load-time collapse closed, and arriving
+   * at a single shut row would make the gesture look like it failed.
+   */
+  void SetScope(int node);
+  /// Scope root as a node, or -1 for the whole scene -- including when the scoped node is gone.
+  int Scope() const;
+  /// Path form, which survives a graph rebuild that a node id does not. Empty means no scope.
+  const std::string& ScopePath() const
+  {
+    return this->ScopedPath;
+  }
   ///@}
 
   ///@{
@@ -157,6 +181,7 @@ private:
   const G3DSceneGraph* SourceGraph = nullptr;
   G3DTreeFilter ActiveFilter;
   std::string SelectedPath;
+  std::string ScopedPath;
 
   /// Explicit user overrides only; nodes absent from here follow their load-time default.
   std::unordered_map<std::string, bool> ExpandOverrides;

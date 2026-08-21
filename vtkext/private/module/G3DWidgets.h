@@ -567,6 +567,10 @@ struct TreeRowResult
   bool rowClicked = false;    ///< the row body was clicked (use for selection)
   bool twistyClicked = false; ///< the expand/collapse twisty was toggled
   bool hovered = false;       ///< the row is hovered (drives trailing-action reveal, etc.)
+  /// The row body was double-clicked. Reported on the second PRESS (ImGui's own double-click
+  /// timing), and never for the twisty column -- opening a node twice is not a gesture, and a
+  /// caller that acts on both would fire its double-click action every time someone toggled fast.
+  bool rowDoubleClicked = false;
 };
 
 /// Begin a row: paints the chrome, hit-tests the twisty and the row body, places the ImGui cursor at
@@ -595,9 +599,10 @@ bool TreeRowAction(const char* id, G3DIconId icon, bool on = false);
 enum class TreeRowHit
 {
   None,
-  Row,        ///< row body (select)
-  Twisty,     ///< expand/collapse
-  Visibility, ///< the eye action
+  Row,            ///< row body (select)
+  RowDoubleClick, ///< row body, double-clicked (the trailing actions and the twisty are excluded)
+  Twisty,         ///< expand/collapse
+  Visibility,     ///< the eye action
 };
 
 /// Convenience full row description (icon + label + optional meta + optional eye).

@@ -2611,6 +2611,7 @@ struct TreeRowFrame
   bool selected;   // row is selected (keeps trailing actions revealed)
   bool pressed;    // the row hit item was clicked this frame
   ImVec2 mouse;    // mouse position at the click (for routing twisty/action clicks)
+  bool actionHovered; // pointer is over one of the trailing actions (they own the gesture, not the row)
 };
 std::vector<TreeRowFrame> gRowStack;
 
@@ -2813,11 +2814,11 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
 
   // Route the click: twisty region toggles expand, the rest selects.
   res.hovered = hovered;
+  const ImVec2 mousePos = ImGui::GetIO().MousePos;
+  const bool inTwisty = chrome.twisty != TreeTwisty::Leaf && !chrome.contentRail &&
+    mousePos.x >= twX && mousePos.x <= twX + twistyW;
   if (pressed && !chrome.disabled)
   {
-    const ImVec2 mp = ImGui::GetIO().MousePos;
-    const bool inTwisty = chrome.twisty != TreeTwisty::Leaf && !chrome.contentRail &&
-      mp.x >= twX && mp.x <= twX + twistyW;
     if (inTwisty)
     {
       res.twistyClicked = true;
@@ -2827,6 +2828,10 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
       res.rowClicked = true;
     }
   }
+  // Reported from the same hit box as the single click, minus the twisty: opening and closing a node
+  // quickly is a common thing to do and must not also mean "and do the double-click action".
+  res.rowDoubleClicked = hovered && !chrome.disabled && !inTwisty &&
+    ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
 
   ImDrawList* dl = ImGui::GetWindowDrawList();
   AAGuard aa(dl);
@@ -2939,7 +2944,8 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   f.hovered = hovered;
   f.selected = chrome.selected;
   f.pressed = pressed && !chrome.disabled;
-  f.mouse = ImGui::GetIO().MousePos;
+  f.mouse = mousePos;
+  f.actionHovered = false;
   gRowStack.push_back(f);
 
   // The row's InvisibleButton already advanced the ImGui cursor by exactly one row height (zero item
@@ -3085,6 +3091,8 @@ bool TreeRowAction(const char* id, G3DIconId icon, bool on)
   const ImVec2 mp = ImGui::GetIO().MousePos;
   const bool localHover = mp.x >= c0.x && mp.x <= c1.x && mp.y >= c0.y && mp.y <= c1.y;
   const bool clicked = f.pressed && mp.x >= c0.x && mp.x <= c1.x;
+  // An action owns every gesture aimed at it, including the ones the row also listens for.
+  f.actionHovered = f.actionHovered || localHover;
 
   if (reveal > 0.02f)
   {
@@ -3151,6 +3159,8 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc, bool* outHovered)
     }
     SetTooltip(full.c_str());
   }
+  // Read before EndTreeRow pops the frame the actions wrote it into.
+  const bool actionHovered = !gRowStack.empty() && gRowStack.back().actionHovered;
   EndTreeRow();
 
   // Eye takes priority over the row body (matches the styleguide stopPropagation on actions).
@@ -3161,6 +3171,10 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc, bool* outHovered)
   if (r.twistyClicked)
   {
     return TreeRowHit::Twisty;
+  }
+  if (r.rowDoubleClicked && !actionHovered)
+  {
+    return TreeRowHit::RowDoubleClick;
   }
   if (r.rowClicked)
   {

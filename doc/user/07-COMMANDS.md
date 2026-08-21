@@ -111,6 +111,12 @@ stored expansion state. No argument clears the filter.
 argument shows every type again. eg: `scene_tree_type_filter mesh group file` hides cameras, lights
 and the rig.
 
+`scene_tree_scope [path]`: Show only the subtree at `path`, which becomes the single top-level row.
+Depth is measured from it, so a node buried twenty levels down gets the indentation of a top-level
+one -- the way to read a hierarchy deeper than a panel can indent. Paths, selection, visibility and
+filtering all keep working on the whole scene; only what is drawn changes. No argument shows the
+whole scene again. eg: `scene_tree_scope /f3d.glb/Body`.
+
 `scene_tree_properties path`: Print the properties the format attached to a node, if any (a STEP
 product's colour and layer, a computed volume, ...). Formats that describe nothing beyond geometry
 report none, and neither half of a pair is ever blank: an object the file declared but never named

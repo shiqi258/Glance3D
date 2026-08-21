@@ -846,6 +846,54 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   // the bar never offered any of it. On a rig twenty-seven levels deep, typing three letters is the
   // difference between finding a part and giving up on the tree; it is also the answer to a depth
   // the indent column cannot draw, which no amount of drawing was going to fix.
+  // --- breadcrumb: where the scope put us, and the way back ------------------------------------
+  // Only when scoped, so an unscoped tree pays nothing for it. Two buttons rather than a clickable
+  // chain of names: at 240px a chain of `ValveBiped.Bip01_*` segments is unreadable long before it
+  // is clickable, and "up one" plus "all the way out" is what the gesture actually needs. The chain
+  // itself is still available, spelled out, on hover.
+  const int scopeNode = view.Scope();
+  if (scopeNode > 0)
+  {
+    const float scale = static_cast<float>(this->FontScale);
+    const float btn = G3DTheme::Size::Control * scale;
+    const float gap = G3DTheme::Spacing::Xs * scale;
+
+    if (G3DWidgets::IconButton("##g3d.scenetree.scopeup", G3DIconId::ChevronLeft, btn, false,
+          loc.Translate("Up one level").c_str()))
+    {
+      const int parent = graph.Parent(scopeNode);
+      view.SetScope(parent > 0 ? parent : -1);
+    }
+    ImGui::SameLine(0.f, gap);
+    if (G3DWidgets::IconButton("##g3d.scenetree.scopeclear", G3DIconId::Layers, btn, false,
+          loc.Translate("Show the whole scene").c_str()))
+    {
+      view.SetScope(-1);
+    }
+    ImGui::SameLine(0.f, gap);
+
+    const std::string scopeLabel = graph.Label(scopeNode);
+    const float labelW = std::max(0.f, ImGui::GetContentRegionAvail().x);
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float lineH = ImGui::GetTextLineHeight();
+    const bool clipped = G3DWidgets::TextEllipsis(ImGui::GetWindowDrawList(),
+      ImVec2(at.x, at.y + (btn - lineH) * 0.5f), labelW,
+      ImGui::GetColorU32(G3DTheme::TextMuted()), scopeLabel.c_str(), true);
+    ImGui::Dummy(ImVec2(labelW, btn));
+    if (ImGui::IsItemHovered())
+    {
+      std::string full = scopeLabel;
+      const std::string trail = ::SceneTreeAncestorTrail(graph, scopeNode, 4);
+      if (!trail.empty())
+      {
+        full = trail + " \xe2\x80\xba " + full;
+      }
+      (void)clipped;
+      G3DWidgets::SetTooltip(full.c_str());
+    }
+    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
+  }
+
   //
   // Chrome it earns rather than chrome it always has: below a panel's worth of nodes the whole tree
   // is on screen and a search field would only take a row away from it. Gated on the node COUNT, not
@@ -1015,6 +1063,15 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
           }
           break;
         }
+        case G3DWidgets::TreeRowHit::RowDoubleClick:
+          // Going INTO a subtree, which is the only way to read a hierarchy deeper than the panel
+          // can indent. A leaf has no inside, so a double click on one is left to mean nothing
+          // rather than re-rooting the tree onto a single row.
+          if (hasChildren)
+          {
+            view.SetScope(rr.Node);
+          }
+          break;
         case G3DWidgets::TreeRowHit::Row:
           view.SetSelection(rr.Node);
           // A camera node's only purpose is to be looked through, so selecting one activates it --

@@ -195,6 +195,12 @@ endif()
 f3d_test(NAME TestSceneHierarchyNonGLTF DATA cow.vtp ARGS --scene-hierarchy UI)
 f3d_test(NAME TestSceneHierarchyMultipleFiles DATA cow.vtp suzanne.obj ARGS --scene-hierarchy --multi-file-mode=all --opacity=0.3 UI)
 f3d_test(NAME TestSceneHierarchyMultiBlock DATA mb.vtm ARGS --scene-hierarchy UI)
+# Scoping is the answer to a tree deeper than a panel can indent, so what has to hold is the shape of
+# the result, not its pixels: one top-level row, its own path unchanged, its children one level in.
+# Asserted on the printed tree rather than on a baseline -- a recording of clicks at fixed pixels is
+# exactly what a layout change breaks.
+f3d_test(NAME TestCommandScriptSceneTreeScope SCRIPT DATA vtk-dasm-test.glb NO_BASELINE
+  REGEXP "Scene tree: 5 rows shown of 53 nodes")
 
 ## Glance3D control panel (docked editor chrome)
 f3d_test(NAME TestG3DControlPanel DATA f3d.glb ARGS -Dui.control_panel=true RESOLUTION 1000,600 UI)

@@ -1422,6 +1422,25 @@ interactor& interactor_impl::initCommands()
     command_documentation_t{ "scene_tree_filter [query]", "filter the scene tree, empty to clear" });
 
   this->addCommand(
+    "scene_tree_scope",
+    [&](const std::vector<std::string>& args)
+    {
+      // No argument shows the whole scene again, the same way an empty query clears a filter.
+      if (args.size() > 1)
+      {
+        throw interactor::invalid_args_exception(
+          "Command: scene_tree_scope is expecting 0 or 1 arguments");
+      }
+      const std::string path = args.empty() ? std::string() : args[0];
+      if (!this->Internals->Scene.setSceneTreeScope(path))
+      {
+        log::warn("Command: could not scope the scene tree to: ", path);
+      }
+    },
+    command_documentation_t{ "scene_tree_scope [path]",
+      "show only one subtree, measuring depth from it; empty shows the whole scene" });
+
+  this->addCommand(
     "scene_tree_properties",
     [&](const std::vector<std::string>& args)
     {

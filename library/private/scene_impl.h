@@ -67,6 +67,8 @@ public:
   scene& setSceneTreeFilter(const std::string& query, bool onlyVisible = false) override;
   scene& setSceneTreeTypeFilter(const std::vector<g3d_node_type>& types) override;
   bool setSceneTreeSelection(const std::string& path) override;
+  bool setSceneTreeScope(const std::string& path) override;
+  std::string getSceneTreeScope() const override;
   bool setSceneTreeNodeVisibility(const std::string& path, bool visible) override;
   bool setOnlySceneTreeNodeVisible(const std::string& path) override;
   scene& resetSceneTreeVisibility() override;

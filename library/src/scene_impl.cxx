@@ -1429,6 +1429,34 @@ bool scene_impl::setSceneTreeSelection(const std::string& path)
 }
 
 //----------------------------------------------------------------------------
+bool scene_impl::setSceneTreeScope(const std::string& path)
+{
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  if (renderer == nullptr)
+  {
+    return false;
+  }
+
+  G3DSceneTreeView& view = renderer->GetG3DSceneTreeView();
+  const G3DSceneGraph* graph = view.Graph();
+  // An empty path is the documented way to show the whole scene again, not a lookup failure.
+  const int node = path.empty() ? -1 : (graph ? graph->FindByPath(path) : -1);
+  if (node < 0 && !path.empty())
+  {
+    return false;
+  }
+  view.SetScope(node);
+  return true;
+}
+
+//----------------------------------------------------------------------------
+std::string scene_impl::getSceneTreeScope() const
+{
+  vtkF3DRenderer* renderer = this->Internals->Window.GetRenderer();
+  return renderer != nullptr ? renderer->GetG3DSceneTreeView().ScopePath() : std::string();
+}
+
+//----------------------------------------------------------------------------
 bool scene_impl::setSceneTreeNodeVisibility(const std::string& path, bool visible)
 {
   const bool updated = this->Internals->MetaImporter->SetG3DSceneTreeNodeVisibility(path, visible);

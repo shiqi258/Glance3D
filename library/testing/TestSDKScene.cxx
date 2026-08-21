@@ -171,12 +171,36 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
       sce.setSceneTreeSelection("") && sce.getSceneTreeInfo().selectedPath.empty();
     return selected && rowSelected && cleared;
   });
+  // Scoping re-roots what is drawn without touching what anything is called: the scoped node becomes
+  // the only top-level row, and its own path is unchanged -- which is what lets every other
+  // path-keyed call keep working across a scope change.
+  test("Glance3D scene tree scope", [&]() {
+    const std::string filePath = sce.getSceneTreeRows(0, 1)[0].path;
+    sce.expandSceneTree();
+    const int fullCount = sce.getSceneTreeInfo().rowCount;
+    const std::vector<f3d::g3d_tree_row> all = sce.getSceneTreeRows(0, fullCount);
+    const auto inner = std::find_if(all.begin(), all.end(),
+      [](const f3d::g3d_tree_row& row) { return row.depth > 0 && row.hasChildren; });
+    const std::string path = inner != all.end() ? inner->path : filePath;
+
+    const bool scoped = sce.setSceneTreeScope(path) && sce.getSceneTreeScope() == path;
+    const std::vector<f3d::g3d_tree_row> top = sce.getSceneTreeRows(0, 1);
+    const bool rerooted = top.size() == 1 && top[0].path == path && top[0].depth == 0;
+    const bool narrowed = sce.getSceneTreeInfo().rowCount <= fullCount;
+    const bool cleared = sce.setSceneTreeScope("") && sce.getSceneTreeScope().empty() &&
+      sce.getSceneTreeInfo().rowCount == fullCount;
+
+    // Leave the view as this test found it: one expanded top-level file.
+    sce.collapseSceneTree();
+    sce.setSceneTreeExpanded(filePath, true);
+    return scoped && rerooted && narrowed && cleared;
+  });
   // Every path-keyed entry point has to reject an unknown key rather than act on some other node.
   test("Glance3D scene tree invalid path", [&]() {
     const std::string bogus = "/no/such/node";
     return !sce.setSceneTreeExpanded(bogus, true) && !sce.setSceneTreeSelection(bogus) &&
       !sce.setSceneTreeNodeVisibility(bogus, false) && !sce.setOnlySceneTreeNodeVisible(bogus) &&
-      !sce.focusSceneTreeNode(bogus);
+      !sce.focusSceneTreeNode(bogus) && !sce.setSceneTreeScope(bogus);
   });
   test("Glance3D scene tree visibility toggle", [&]() {
     const std::string filePath = sce.getSceneTreeRows(0, 1)[0].path;

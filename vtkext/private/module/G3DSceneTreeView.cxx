@@ -203,6 +203,34 @@ int G3DSceneTreeView::Selection() const
 }
 
 //----------------------------------------------------------------------------
+void G3DSceneTreeView::SetScope(int node)
+{
+  const std::string path = this->PathOf(node);
+  if (this->ScopedPath != path)
+  {
+    this->ScopedPath = path;
+    this->Invalidate();
+  }
+  // Entering a subtree means wanting to see inside it. A node deep enough to be worth scoping to is
+  // usually one the load-time collapse closed, and landing on a single closed row would make the
+  // gesture read as broken.
+  if (node > 0)
+  {
+    this->SetExpanded(node, true);
+  }
+}
+
+//----------------------------------------------------------------------------
+int G3DSceneTreeView::Scope() const
+{
+  if (this->SourceGraph == nullptr || this->ScopedPath.empty())
+  {
+    return -1;
+  }
+  return this->SourceGraph->FindByPath(this->ScopedPath);
+}
+
+//----------------------------------------------------------------------------
 int G3DSceneTreeView::RowCount() const
 {
   this->Rebuild();
@@ -401,12 +429,26 @@ void G3DSceneTreeView::Rebuild() const
   const int selected = this->Selection();
   this->Rows.reserve(nodeCount);
 
+  // A scope re-roots the walk and re-bases the depth, so the scoped node lands at depth 0 exactly
+  // where a file row would. A scope whose node no longer resolves (the file was replaced by one
+  // that does not contain it) silently shows the whole scene rather than nothing -- the path is
+  // kept, so reloading the same file puts the user back where they were.
+  const int scopeRoot = this->Scope();
+  const int depthBase = scopeRoot > 0 ? graph.Depth(scopeRoot) : 1;
+
   std::vector<int> stack;
-  for (int child = graph.FirstChild(0); child >= 0; child = graph.NextSibling(child))
+  if (scopeRoot > 0)
   {
-    stack.emplace_back(child);
+    stack.emplace_back(scopeRoot);
   }
-  std::reverse(stack.begin(), stack.end());
+  else
+  {
+    for (int child = graph.FirstChild(0); child >= 0; child = graph.NextSibling(child))
+    {
+      stack.emplace_back(child);
+    }
+    std::reverse(stack.begin(), stack.end());
+  }
 
   while (!stack.empty())
   {
@@ -432,7 +474,7 @@ void G3DSceneTreeView::Rebuild() const
 
     G3DTreeRow row;
     row.Node = node;
-    row.Depth = graph.Depth(node) - 1;
+    row.Depth = graph.Depth(node) - depthBase;
     row.Type = graph.Type(node);
     row.ChildCount = graph.ChildCount(node);
     row.FaceCount = graph.FaceCount(node);

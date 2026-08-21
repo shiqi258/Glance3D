@@ -1,0 +1,5 @@
+# Scoping re-roots what the tree draws: the scoped node becomes the only top-level row, drawn at
+# depth 0, and everything outside its subtree is out of view. Paths do not change, which is what
+# keeps the rest of the command surface addressing the same nodes.
+scene_tree_scope /vtk-dasm-test.glb/groupnode
+print_scene_tree

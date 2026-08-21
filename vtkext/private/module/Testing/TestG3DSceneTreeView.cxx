@@ -215,6 +215,47 @@ int TestG3DSceneTreeView(int, char*[])
   ::Check(view.Row(view.FindRow(nut)).Has(G3DTreeRowFlag::Selected), "the selected row is flagged");
   ::Check(!view.Row(view.FindRow(bolt)).Has(G3DTreeRowFlag::Selected), "only one row is selected");
 
+  // --- scope ----------------------------------------------------------------------------------
+  // Indentation cannot express unbounded depth, so a frontend has to be able to re-root instead.
+  // What has to hold: the scoped node becomes the only depth-0 row, everything outside it is gone,
+  // depth is measured from it, and none of the paths change -- the rest of the API still addresses
+  // the same nodes the same way.
+  {
+    const int body = graph.FindByPath("/model.ext/Body");
+    view.SetScope(body);
+    ::Check(view.Scope() == body, "scope round-trips");
+    ::Check(view.ScopePath() == "/model.ext/Body", "scope is remembered by path");
+    ::Check(view.RowCount() == 3, "a scoped tree holds only that subtree");
+    ::Check(view.Row(0).Node == body && view.Row(0).Depth == 0,
+      "the scoped node is the one top-level row");
+    ::Check(view.Row(1).Depth == 1 && view.Row(2).Depth == 1,
+      "depth is measured from the scope, not from the scene root");
+    ::Check(view.FindRow(graph.FindByPath("/model.ext/Trim")) == -1,
+      "a node outside the scope has no row");
+    ::Check(graph.Path(view.Row(1).Node) == "/model.ext/Body/Bolt",
+      "scoping does not renumber or rename anything");
+
+    // A subtree the load-time collapse had closed would otherwise arrive as a single shut row.
+    const int trim = graph.FindByPath("/model.ext/Trim");
+    view.SetScope(trim);
+    ::Check(view.RowCount() == 2, "scoping into a collapsed node opens it");
+
+    // Orthogonal to filtering: the filter applies within whatever is in view.
+    view.SetFilter(G3DTreeFilter{ "clip", ~0u, false });
+    ::Check(view.RowCount() == 2, "a filter inside the scope keeps the match and its ancestor");
+    view.SetFilter(G3DTreeFilter{ "bolt", ~0u, false });
+    ::Check(view.RowCount() == 0, "a match outside the scope is still out of view");
+    view.SetFilter(G3DTreeFilter{});
+
+    view.SetScope(-1);
+    // Scoping into Trim opened it, and that override outlives the scope. Put it back so the later
+    // sections still test what they were written to test.
+    view.SetExpanded(trim, false);
+    ::Check(view.Scope() == -1 && view.ScopePath().empty(), "-1 clears the scope");
+    ::Check(view.Row(0).Depth == 0 && view.Row(0).Node == graph.FindByPath("/model.ext"),
+      "clearing the scope puts the file back at depth 0");
+  }
+
   // --- row windowing --------------------------------------------------------------------------
   std::vector<G3DTreeRow> window;
   view.GetRows(1, 3, window);

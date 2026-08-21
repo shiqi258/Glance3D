@@ -19,6 +19,7 @@ For Glance3D users:
 - Fixed scene tree node properties showing a blank value for an object the file declared but never named: such an object is now reported by its index, as in `Mesh: #12`
 - Fixed the scene tree drawing a deeply nested node exactly like a shallower one once the indent column reached its ceiling: the chain a row hangs under is now marked on the ancestor rows themselves, the folded indent column is drawn as a bundle rather than a single rail, and hovering such a row reports its level and its nearest ancestors
 - Added a search field and expand-all / collapse-all buttons to the scene tree panel, shown once a scene has more nodes than fit on screen; a match inside a closed subtree is revealed without disturbing what was open
+- Added scene tree scoping: double-clicking a node makes it the top-level row and measures depth from it, with a breadcrumb to step back out, which is how a hierarchy deeper than a panel can indent becomes readable
 - Added a `webifc` plugin to add support for .ifc files
 - Added a `pdal` plugin to add support for many point cloud formats, including .las and .laz
 - Added support for jumping to keyframes using `jump_to_keyframe` command
@@ -71,6 +72,7 @@ For libf3d users:
 - Added a `ui.notifications.enable` and `ui.notifications.show_bindings` options to enable/disable notifications and bindings, which shows a widget whenever an interactive bind is pressed
 - Added a `ui.dpi_aware` option to rescale font automatically on HiDPI screens (Windows only)
 - Added a windowed scene tree API (`getSceneTreeInfo`, `getSceneTreeRows`) returning flat rows addressed by stable node paths, along with expansion/filter/selection and visibility/focus operations
+- Added `setSceneTreeScope` / `getSceneTreeScope` and a `scene_tree_scope` command to restrict the tree to one subtree, which becomes the depth-0 row; paths are unchanged, so every other path-keyed call keeps working across a scope change
 - Added `scene_tree_*` commands and `print_scene_tree`, so the scene hierarchy can be driven from a command script instead of by clicking at fixed coordinates
 - Removed the recursive `getG3DSceneTree()` snapshot API and its `g3d_scene_tree_*` types, replaced by the windowed API above (see the migration guide)
 - Added the cameras and lights a file declares to the scene tree, as two collapsed sections under their file (`/model.glb/@cameras`, `/model.glb/@lights`)
