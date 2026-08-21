@@ -132,6 +132,7 @@
   "Face": "面",
   "Skeleton": "骨架",
   "Joint": "关节",
+  "Level {n, number}": "第 {n, number} 层",
   "Properties": "属性",
   "Instance of": "引用产品",
 

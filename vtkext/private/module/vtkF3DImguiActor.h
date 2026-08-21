@@ -299,6 +299,17 @@ private:
   bool PrevCtrlRight = false;
   bool PrevCtrlInit = false;
   bool ViewportDirtyOneShot = false;
+
+  /**
+   * Scene tree node the pointer was over on the PREVIOUS frame, or -1.
+   *
+   * The one piece of tree state this actor keeps, and deliberately not in G3DSceneTreeView: hover is
+   * presentation, frame-local, and must not survive into the view state the SDK and the web tree
+   * share. It has to be remembered across frames because a row is not known to be hovered until it
+   * has been drawn, by which point its ancestors -- the rows that want to light up -- are already
+   * on screen. One frame of lag, invisible because moving the mouse is what redraws.
+   */
+  int SceneTreeHoveredNode = -1;
   ///@}
 };
 

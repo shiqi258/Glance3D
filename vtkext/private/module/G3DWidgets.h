@@ -533,6 +533,15 @@ struct TreeRowChrome
   bool disabled = false;                ///< not interactive, dimmed
   int activeGuide = -1;                 ///< indent rail column to highlight (selection guide), -1 none
 
+  /// This row is an ancestor of whatever the tree is currently focused on (selected or hovered).
+  ///
+  /// Drawn as a dimmed copy of the selection's edge bar. Exists because `activeGuide` cannot carry
+  /// this once the indent column saturates: past the ceiling every column shares one x, so
+  /// highlighting "the selection's parent column" highlights a line that a dozen other depths also
+  /// sit on. Marking the ancestor ROWS says the same thing in a channel that does not run out of
+  /// horizontal room, which is the only channel left at depth 20 in a 240px bar.
+  bool ancestorOfFocus = false;
+
   /// Explicit row height in scaled px. 0 = the active BeginTree() density (22px outside any
   /// BeginTree scope) — see TreeRowHeight(). Rows of a non-uniform height are NOT usable under
   /// TreeVirtual(): its clipper positions every row at the density height.
@@ -609,12 +618,31 @@ struct TreeRowDesc
   bool showVisibility = false; ///< include the eye/eyeoff action
   bool visible = true;         ///< eye state when showVisibility
   int activeGuide = -1;        ///< indent rail column to highlight, -1 none
+  bool ancestorOfFocus = false; ///< see TreeRowChrome::ancestorOfFocus
+
+  /// Extra lines for the hover tooltip, under the label. Set it and the tooltip appears whether or
+  /// not the label had to be ellipsized.
+  ///
+  /// Supplied by the caller rather than composed here because what is worth saying about a row is
+  /// domain knowledge (a scene node says how deep it sits and what it hangs under) and because the
+  /// wording has to be translated, which the widget layer has no business deciding for it.
+  const char* tooltipDetail = nullptr;
 };
 
 /// Draw the common row in one call (built on BeginTreeRow + slot helpers). Returns the click hit.
 /// This is the outliner row: it deliberately does not expose TreeRowChrome::height / contentRail /
 /// bleed — compose those with BeginTreeRow() + the slot helpers.
-TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc);
+/// @p outHovered, when given, reports whether the pointer is over the row BODY this frame (the
+/// trailing eye action is its own item and does not count). A caller that reacts to the hovered row
+/// while drawing the rows themselves has to remember it across frames -- the row is not known to be
+/// hovered until it has been drawn, by which point everything above it is already on screen.
+TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc, bool* outHovered = nullptr);
+
+/// First indent column the active tree can no longer move to the right, or INT_MAX when its indent
+/// column never caps (the default outside any BeginTree scope). A row deeper than this is drawn at
+/// the same x as its parent, so a caller that wants depth to remain answerable has to say it some
+/// other way -- a tooltip, a trailing cell -- for exactly those rows.
+int TreeIndentSaturationLevel();
 
 /// Virtualized tree body for large node counts: only the rows currently visible in the scroll region
 /// are emitted (wraps ImGuiListClipper using the row height of the active BeginTree density), so a

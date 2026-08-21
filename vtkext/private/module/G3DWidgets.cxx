@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cfloat>
+#include <climits>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -2592,6 +2593,7 @@ struct TreeFrame
   float indentMin; // step past fullLevels (scaled px)
   float indentMax; // ceiling for the whole indent column (scaled px)
   int fullLevels;  // levels drawn at the full step
+  int satLevel;    // first column that no longer moves right; INT_MAX when the column never caps
 };
 std::vector<TreeFrame> gTreeStack;
 
@@ -2690,6 +2692,30 @@ float IndentOffset(const TreeFrame& tf, int level)
   return std::min(raw, tf.indentMax);
 }
 
+/**
+ * The first indent column that has stopped moving right, or INT_MAX if the column never caps.
+ *
+ * Walked rather than derived by inverting the step formula: IndentOffset() is the only thing allowed
+ * to turn a level into an offset, and a second expression here would be free to drift from it. The
+ * 0.5f is deliberately the same epsilon the rail loop dedupes with, so "this column is folded" and
+ * "this rail landed on the previous one" can never disagree.
+ */
+int IndentSaturationLevel(const TreeFrame& tf)
+{
+  if (tf.indentMax >= FLT_MAX || tf.indentMin <= 0.f)
+  {
+    return INT_MAX;
+  }
+  for (int level = 1; level < 4096; ++level)
+  {
+    if (IndentOffset(tf, level) <= IndentOffset(tf, level - 1) + 0.5f)
+    {
+      return level;
+    }
+  }
+  return INT_MAX;
+}
+
 /// The active tree's policy, or the library default for a row drawn outside any BeginTree() scope
 /// (the inspector's array list does exactly that — at depth 0, where the policy is inert, but the
 /// twisty column width still comes from here). The fallbacks are the values those call sites used
@@ -2702,7 +2728,7 @@ TreeFrame ActiveTreeFrame()
   }
   const float s = Scale();
   return TreeFrame{ 22.f * s, G3DTheme::Spacing::Lg * s, kIndentMin * s, FLT_MAX,
-    kIndentFullLevels };
+    kIndentFullLevels, INT_MAX };
 }
 }
 
@@ -2723,6 +2749,10 @@ void BeginTree(TreeDensity density)
   // the user drags narrower re-solves it on the next frame.
   tf.indentMax = std::max(static_cast<float>(kIndentFloorLevels) * tf.indent,
     std::max(0.f, ImGui::GetContentRegionAvail().x) * kIndentMaxRatio);
+  // Resolved here for the same reason indentMax is, and never per row: the walk is cheap but not
+  // free, and every row of one tree must agree on where the fold starts or the marker would appear
+  // at different depths on different rows.
+  tf.satLevel = IndentSaturationLevel(tf);
   gTreeStack.push_back(tf);
 }
 
@@ -2822,11 +2852,18 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   {
     dl->AddRectFilled(p0, ImVec2(p0.x + width, p0.y + rowH), U32(fill), radius);
   }
-  // Left accent bar marks the selected row.
-  if (chrome.selected)
+  // Left accent bar marks the selected row, and a dimmer one every row the selection hangs under.
+  // Same bar, same column, less of it: the chain reads as one gesture, and "which of these is the
+  // selection" stays unambiguous because only one of them is at full strength.
+  if (chrome.selected || chrome.ancestorOfFocus)
   {
+    ImVec4 bar = G3DTheme::Accent();
+    if (!chrome.selected)
+    {
+      bar.w *= 0.40f;
+    }
     dl->AddRectFilled(ImVec2(p0.x, p0.y + 3.f * s), ImVec2(p0.x + 2.f * s, p0.y + rowH - 3.f * s),
-      U32(G3DTheme::Accent()), 1.f * s);
+      U32(bar), 1.f * s);
   }
 
   // Indentation rails (continuing guide lines), one per depth column. A rail hangs from the CHEVRON
@@ -2836,14 +2873,18 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   const float railHalf = indent * 0.5f;
   float prevX = -FLT_MAX;
   float activeX = -FLT_MAX;
+  float foldedX = -FLT_MAX;
   for (int i = 0; i < chrome.depth; ++i)
   {
     const float rx = rail.x + IndentOffset(tf, i) + railHalf;
     const bool active = i == chrome.activeGuide;
     // Past the ceiling successive columns land on the same x. Drawing them all would stack N
-    // translucent hairlines into one opaque line whose extra weight encodes nothing.
+    // translucent hairlines into one opaque line whose extra weight encodes nothing -- but dropping
+    // them silently is what made a row twenty levels down draw exactly like one twelve levels down.
+    // The column is remembered instead, and marked once below.
     if (!active && rx <= prevX + 0.5f)
     {
+      foldedX = rx;
       continue;
     }
     prevX = std::max(prevX, rx);
@@ -2853,6 +2894,15 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
       continue;
     }
     dl->AddLine(ImVec2(rx, p0.y), ImVec2(rx, p0.y + rowH), U32(G3DTheme::Border()), 1.f * s);
+  }
+  if (foldedX > -FLT_MAX)
+  {
+    // A second hairline just left of the folded column: the pattern, not the weight, is the signal
+    // -- a doubled rail reads as "more columns live here than the width could separate", which is
+    // exactly what happened. Drawn to the LEFT because the folded column sits on the row's own
+    // chevron centre once the ceiling is reached, and a line to the right would cross the glyph.
+    dl->AddLine(ImVec2(foldedX - 3.f * s, p0.y), ImVec2(foldedX - 3.f * s, p0.y + rowH),
+      U32(G3DTheme::BorderStrong()), 1.f * s);
   }
   if (activeX > -FLT_MAX)
   {
@@ -3053,7 +3103,7 @@ bool TreeRowAction(const char* id, G3DIconId icon, bool on)
 }
 
 //----------------------------------------------------------------------------
-TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
+TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc, bool* outHovered)
 {
   TreeRowChrome chrome;
   chrome.depth = desc.depth;
@@ -3062,8 +3112,13 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
   chrome.focused = desc.focused;
   chrome.disabled = desc.disabled;
   chrome.activeGuide = desc.activeGuide;
+  chrome.ancestorOfFocus = desc.ancestorOfFocus;
 
   const TreeRowResult r = BeginTreeRow(id, chrome);
+  if (outHovered != nullptr)
+  {
+    *outHovered = r.hovered;
+  }
   TreeRowIcon(desc.icon, desc.iconVariant, desc.hidden);
   // Reserve the right-aligned cells (eye rightmost, then meta) before the label so the label clips
   // to the remaining space — matching the styleguide flex layout (label flex:1, trailing flex:none).
@@ -3076,7 +3131,7 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
   const bool clipped = TreeRowLabel(desc.label, desc.group, desc.hidden);
   // When the name had to be ellipsized, reveal it in full on hover (VS Code / file-explorer pattern).
   // Owned here rather than in the slot helper — see TreeRowLabel.
-  if ((clipped || metaClipped) && r.hovered)
+  if ((clipped || metaClipped || desc.tooltipDetail != nullptr) && r.hovered)
   {
     // A clipped trailing value earns the same reveal as a clipped name, and it only reads as
     // belonging to this row when the name comes with it.
@@ -3085,6 +3140,14 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
     {
       full += "  \xe2\x80\x94  "; // em dash
       full += desc.meta;
+    }
+    // Whatever the caller had to say about this row beyond its name -- for the scene tree,
+    // how deep it sits and what it hangs under, which is the one thing the indent column
+    // stops being able to say once it caps.
+    if (desc.tooltipDetail != nullptr)
+    {
+      full += "\n";
+      full += desc.tooltipDetail;
     }
     SetTooltip(full.c_str());
   }
@@ -3104,6 +3167,12 @@ TreeRowHit TreeRow(const char* id, const TreeRowDesc& desc)
     return TreeRowHit::Row;
   }
   return TreeRowHit::None;
+}
+
+//----------------------------------------------------------------------------
+int TreeIndentSaturationLevel()
+{
+  return ActiveTreeFrame().satLevel;
 }
 
 //----------------------------------------------------------------------------

@@ -179,6 +179,49 @@ std::string SceneTreeRowLabel(const G3DSceneGraph& graph, const G3DTreeRow& row)
   return label;
 }
 
+/**
+ * Where a row sits, spelled out: the ancestors it hangs under, outermost first.
+ *
+ * The answer the indent column stops being able to give. Past the indent ceiling every column shares
+ * one x, so a row twenty levels down is drawn exactly like one twelve levels down and no amount of
+ * squinting recovers which is which -- while the bar is 240px wide and the tree is 27 levels deep,
+ * that is arithmetic, not a bug to be tuned away. Text has no such ceiling.
+ *
+ * Only the nearest couple of ancestors are named. Depth is what the caller pairs this with; the full
+ * chain of a rig would be a paragraph of near-identical bone names, and the parent and grandparent
+ * are what "where am I" actually means.
+ */
+std::string SceneTreeAncestorTrail(const G3DSceneGraph& graph, int node, std::size_t maxSegments)
+{
+  std::vector<std::string> segments;
+  // Stops at the FILE row's parent: node 0 is the synthetic root holding one file per loaded file,
+  // and it has no row of its own to point back at.
+  for (int ancestor = graph.Parent(node); ancestor > 0; ancestor = graph.Parent(ancestor))
+  {
+    segments.emplace_back(graph.Label(ancestor));
+  }
+  if (segments.empty())
+  {
+    return {};
+  }
+
+  const bool elided = segments.size() > maxSegments;
+  if (elided)
+  {
+    segments.resize(maxSegments);
+  }
+  std::string trail;
+  for (auto segment = segments.rbegin(); segment != segments.rend(); ++segment)
+  {
+    if (!trail.empty())
+    {
+      trail += " \xe2\x80\xba "; // single right-pointing angle quotation mark
+    }
+    trail += *segment;
+  }
+  return elided ? "\xe2\x80\xa6 \xe2\x80\xba " + trail : trail;
+}
+
 /// Row icon by what the node *is*, rather than by where it happens to sit in the tree.
 G3DIconId SceneTreeRowIcon(const G3DTreeRow& row)
 {
@@ -777,11 +820,25 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   // which is why expanding a node from a script moves the tree the user is looking at.
   const G3DSceneGraph& graph = importer->GetG3DSceneGraph();
   G3DSceneTreeView& view = ren->GetG3DSceneTreeView();
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
 
   // The selected node's parent, used to light up one indentation guide across its sibling block.
   const int selectedNode = view.Selection();
   const int selectedParent = selectedNode > 0 ? graph.Parent(selectedNode) : -1;
   const int selectedGuide = selectedNode > 0 ? graph.Depth(selectedNode) - 2 : -1;
+
+  // Ancestry, answered per row without walking parent chains: DFS pre-order makes a subtree one
+  // contiguous range, so "is this row an ancestor of that one" is two comparisons.
+  const auto isAncestorOf = [&graph](int candidate, int node)
+  {
+    return candidate > 0 && node > 0 && candidate < node &&
+      node < candidate + 1 + graph.SubtreeSize(candidate);
+  };
+  // Hovering previews an ancestry the way selecting commits to one. Read from last frame (see
+  // SceneTreeHoveredNode) and re-established below, so a row that scrolls out of view stops being
+  // the hovered one.
+  const int hoveredNode = this->SceneTreeHoveredNode;
+  int nextHoveredNode = -1;
 
   // A child window gives the tree its own scroll region — independent of the host window flags, so
   // it scrolls even inside the docked left bar (which is NoScrollbar). Virtualized over the rows.
@@ -794,6 +851,9 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   // rather than smuggled in here — until then a clipped name is revealed by hovering it.
   G3DWidgets::BeginScrollRegion("##g3d.scenetree");
   G3DWidgets::BeginTree(G3DWidgets::TreeDensity::Compact);
+  // Where the indent column gives up. Past it a row is drawn at its parent's x, so depth has to be
+  // said in words instead -- for the row under the pointer, which is where the question gets asked.
+  const int satLevel = G3DWidgets::TreeIndentSaturationLevel();
   G3DWidgets::TreeVirtual(view.RowCount(),
     [&](int i)
     {
@@ -841,16 +901,41 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
       row.selected = isSelected;
       row.focused = isSelected;
       // Highlight the selected node's parent guide column across its sibling block. Contiguous
-      // subtree ranges make "is this row under the selection's parent" a bounds check.
+      // subtree ranges make "is this row under the selection's parent" a bounds check. Correct only
+      // while columns still have distinct positions, which is why the ancestor rows below are
+      // marked too rather than instead: the two cover each other's blind spot.
       if (selectedParent > 0 && selectedGuide >= 0 && rr.Node > selectedParent &&
         rr.Node < selectedParent + 1 + graph.SubtreeSize(selectedParent))
       {
         row.activeGuide = selectedGuide;
       }
+      row.ancestorOfFocus =
+        isAncestorOf(rr.Node, selectedNode) || isAncestorOf(rr.Node, hoveredNode);
+
+      // Only the hovered row, and only where the indent stopped answering: composing this for every
+      // row every frame would allocate once per visible row to say something already on screen.
+      std::string detail;
+      if (rr.Node == hoveredNode && rr.Depth > satLevel)
+      {
+        detail = loc.Translate("Level {n, number}",
+          { { "n", std::to_string(rr.Depth) } });
+        const std::string trail = ::SceneTreeAncestorTrail(graph, rr.Node, 2);
+        if (!trail.empty())
+        {
+          detail += "  \xc2\xb7  "; // middle dot
+          detail += trail;
+        }
+        row.tooltipDetail = detail.c_str();
+      }
 
       // imgui-internal id, must be unique per node
+      bool rowHovered = false;
       const G3DWidgets::TreeRowHit hit =
-        G3DWidgets::TreeRow(("##tree_" + std::to_string(rr.Node)).c_str(), row);
+        G3DWidgets::TreeRow(("##tree_" + std::to_string(rr.Node)).c_str(), row, &rowHovered);
+      if (rowHovered)
+      {
+        nextHoveredNode = rr.Node;
+      }
 
       switch (hit)
       {
@@ -888,6 +973,7 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
           break;
       }
     });
+  this->SceneTreeHoveredNode = nextHoveredNode;
   G3DWidgets::EndTree();
   // Same bottom breathing room as the inspector: keep the scroll end off the bottom seam.
   ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * static_cast<float>(this->FontScale)));
