@@ -95,6 +95,21 @@ const char* G3DNodeTypeToken(
  * back empty. That is fine here -- the display label keeps the original spelling -- as long as the
  * empty result falls back to something addressable rather than to a name the assembly would reject.
  */
+/**
+ * What to show for an object the file declared but never named.
+ *
+ * glTF names almost nothing that is not a node -- meshes, skins and cameras routinely arrive
+ * anonymous -- and the property writer drops a blank value, so passing the empty name on would make
+ * the row vanish. That loses a fact worth keeping: *which* mesh this node draws is how two rows
+ * sharing one mesh are recognised as sharing it. The index is the name the file actually gave it,
+ * so that is what is shown. Digits and `#` read the same in every language and stay out of i18n,
+ * matching the rule that a property's vocabulary belongs to the format, not to Glance3D.
+ */
+std::string G3DNamedOrIndex(const std::string& name, int index)
+{
+  return name.empty() ? "#" + std::to_string(index) : name;
+}
+
 std::string G3DStructuralName(const std::string& raw, const std::string& prefix, int index)
 {
   std::string sanitized =
@@ -335,8 +350,8 @@ void vtkF3DGLTFImporter::RebuildSceneHierarchy(vtkRenderer* renderer)
 
     if (node.Camera >= 0 && static_cast<std::size_t>(node.Camera) < model.Cameras.size())
     {
-      vtkG3DNodeMetadata::AddAssemblyProperty(
-        assembly, assemblyNode, "Camera", model.Cameras[static_cast<std::size_t>(node.Camera)].Name);
+      vtkG3DNodeMetadata::AddAssemblyProperty(assembly, assemblyNode, "Camera",
+        ::G3DNamedOrIndex(model.Cameras[static_cast<std::size_t>(node.Camera)].Name, node.Camera));
     }
 
     // --- geometry ------------------------------------------------------------------------------
@@ -346,7 +361,8 @@ void vtkF3DGLTFImporter::RebuildSceneHierarchy(vtkRenderer* renderer)
     if (node.Mesh >= 0 && static_cast<std::size_t>(node.Mesh) < model.Meshes.size())
     {
       const vtkGLTFDocumentLoader::Mesh& mesh = model.Meshes[static_cast<std::size_t>(node.Mesh)];
-      vtkG3DNodeMetadata::AddAssemblyProperty(assembly, assemblyNode, "Mesh", mesh.Name);
+      vtkG3DNodeMetadata::AddAssemblyProperty(
+        assembly, assemblyNode, "Mesh", ::G3DNamedOrIndex(mesh.Name, node.Mesh));
       if (primitiveCount > 1)
       {
         vtkG3DNodeMetadata::AddAssemblyProperty(
@@ -355,8 +371,8 @@ void vtkF3DGLTFImporter::RebuildSceneHierarchy(vtkRenderer* renderer)
     }
     if (node.Skin >= 0 && static_cast<std::size_t>(node.Skin) < model.Skins.size())
     {
-      vtkG3DNodeMetadata::AddAssemblyProperty(
-        assembly, assemblyNode, "Skin", model.Skins[static_cast<std::size_t>(node.Skin)].Name);
+      vtkG3DNodeMetadata::AddAssemblyProperty(assembly, assemblyNode, "Skin",
+        ::G3DNamedOrIndex(model.Skins[static_cast<std::size_t>(node.Skin)].Name, node.Skin));
     }
     if (node.Mesh >= 0 && lookups.JointSkin[nodeIndex] >= 0)
     {

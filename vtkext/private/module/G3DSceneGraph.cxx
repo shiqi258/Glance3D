@@ -406,7 +406,11 @@ int G3DSceneGraphBuilder::BeginNode(
 void G3DSceneGraphBuilder::AddProperty(const std::string& key, const std::string& value)
 {
   assert(!this->OpenNodes.empty());
-  if (key.empty())
+  // Blank on either side is dropped, the same rule the assembly and information-key writers apply
+  // upstream. This is the last gate before the graph, and the graph is what every frontend reads:
+  // a pair that got past here would surface as a row saying "Skin: " on the desktop, in the web
+  // panel and in `scene_tree_properties` alike.
+  if (key.empty() || value.empty())
   {
     return;
   }

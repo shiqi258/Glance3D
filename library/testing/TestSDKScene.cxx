@@ -265,6 +265,21 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
       sce.getSceneTreeNodeProperties("/no/such/node").empty() &&
       sce.getSceneTreeNodeProperties("").empty();
   });
+  // Neither half of a pair is ever blank. An absent fact and a fact recorded as empty have to read
+  // the same, or a panel ends up drawing a row whose value column says nothing at all.
+  test("Glance3D scene tree node properties are never blank", [&]() {
+    const std::vector<f3d::g3d_tree_row> rows =
+      sce.getSceneTreeRows(0, sce.getSceneTreeInfo().rowCount);
+    return std::all_of(rows.begin(), rows.end(),
+      [&](const f3d::g3d_tree_row& row)
+      {
+        const std::vector<f3d::g3d_node_property> properties =
+          sce.getSceneTreeNodeProperties(row.path);
+        return std::none_of(properties.begin(), properties.end(),
+          [](const f3d::g3d_node_property& property)
+          { return property.key.empty() || property.value.empty(); });
+      });
+  });
   // Faces are the one thing expanding a node can *build* rather than merely reveal. A glTF file has
   // no B-rep behind it, so what has to hold here is that nothing pretends otherwise.
   test("Glance3D scene tree face level", [&]() {

@@ -16,6 +16,7 @@ For Glance3D users:
 - Added CAD semantics to the scene tree for STEP/IGES/XBF files: assemblies, parts and instances are labelled as such, and each carries the colour, layer, material and validation properties (volume, area, centroid) the file declared
 - Added the product an assembly occurrence points at: instance rows get their own glyph and name their target, both in the tree and in the property panel
 - Added B-rep face nodes for STEP/IGES/BREP/XBF parts: a part with faces opens down to them on demand, and selecting one highlights it in the render
+- Fixed scene tree node properties showing a blank value for an object the file declared but never named: such an object is now reported by its index, as in `Mesh: #12`
 - Added a `webifc` plugin to add support for .ifc files
 - Added a `pdal` plugin to add support for many point cloud formats, including .las and .laz
 - Added support for jumping to keyframes using `jump_to_keyframe` command

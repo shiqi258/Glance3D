@@ -55,8 +55,11 @@ void vtkG3DNodeMetadata::AddProperty(
   vtkInformation* info, const std::string& key, const std::string& value)
 {
   // A property with no name could never be shown or looked up, and would shift every later pair by
-  // one if it were stored, so it is dropped rather than half-recorded.
-  if (info == nullptr || key.empty())
+  // one if it were stored, so it is dropped rather than half-recorded. A blank VALUE is dropped for
+  // a different reason: a row reading "Skin: " tells the user less than no row at all, and an absent
+  // fact must not read differently from a fact recorded as empty. Callers that do have something to
+  // say about an unnamed object say it -- an index, a count -- rather than passing the empty name on.
+  if (info == nullptr || key.empty() || value.empty())
   {
     return;
   }
@@ -173,7 +176,9 @@ void vtkG3DNodeMetadata::SetAssemblyFaceCount(vtkDataAssembly* assembly, int nod
 void vtkG3DNodeMetadata::AddAssemblyProperty(
   vtkDataAssembly* assembly, int nodeId, const std::string& key, const std::string& value)
 {
-  if (assembly == nullptr || key.empty())
+  // Same rule as the information-key writer above, which this half of the fork has to match or the
+  // two ends would disagree about what an absent fact looks like.
+  if (assembly == nullptr || key.empty() || value.empty())
   {
     return;
   }

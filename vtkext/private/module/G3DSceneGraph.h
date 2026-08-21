@@ -342,6 +342,10 @@ public:
    * run in node order as it is appended, which is what lets Finalize() build the offset table in a
    * single pass with no sorting and no vector-of-vectors. Out-of-order calls are dropped rather
    * than silently attached to the wrong node.
+   *
+   * An empty key or an empty value is dropped too: a fact nobody recorded and a fact recorded as
+   * blank must not read differently downstream. A caller with something to say about an unnamed
+   * object says it (an index, a count) instead of passing the empty name through.
    */
   void AddProperty(const std::string& key, const std::string& value);
   /// Names the product the node currently open is an occurrence of. See InstanceTarget().

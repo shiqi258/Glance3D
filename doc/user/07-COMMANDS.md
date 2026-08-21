@@ -113,7 +113,9 @@ and the rig.
 
 `scene_tree_properties path`: Print the properties the format attached to a node, if any (a STEP
 product's colour and layer, a computed volume, ...). Formats that describe nothing beyond geometry
-report none. eg: `scene_tree_properties /part.stp/Bracket`.
+report none, and neither half of a pair is ever blank: an object the file declared but never named
+is reported by the index it was addressed by, as in `Mesh: #12`.
+eg: `scene_tree_properties /part.stp/Bracket`.
 
 `scene_tree_select path`: Select a node. An empty path clears the selection.
 

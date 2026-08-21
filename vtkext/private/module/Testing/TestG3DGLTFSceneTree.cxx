@@ -77,6 +77,29 @@ int FindByLabel(const G3DSceneGraph& graph, const std::string& label)
 }
 
 /**
+ * No property is recorded blank, anywhere in the graph.
+ *
+ * A row reading `Skin: ` says less than no row at all, and it also makes an absent fact and a
+ * recorded-but-empty fact read differently -- which the writers explicitly promise they never will.
+ * Checked over the whole graph rather than at the one node that regressed, because the writers are
+ * shared and the next format to add a property gets the same guarantee for free.
+ */
+void CheckNoBlankProperties(const G3DSceneGraph& graph, const std::string& what)
+{
+  for (int node = 0; node < graph.NodeCount(); node++)
+  {
+    for (int index = 0; index < graph.PropertyCount(node); index++)
+    {
+      ::Check(!graph.PropertyKey(node, index).empty(), what + ": no property has a blank name");
+      ::Check(!graph.PropertyValue(node, index).empty(),
+        what + ": no property has a blank value (" + graph.PropertyKey(node, index) + " on " +
+          graph.Label(node) + ")");
+    }
+  }
+}
+
+/**
+ * The invariant that closes the whole misalignment family for good./**
  * The invariant that closes the whole misalignment family for good.
  *
  * Every actor the importer produced is named by exactly one node, and no two nodes name the same
@@ -172,6 +195,7 @@ int TestG3DGLTFSceneTree(int argc, char* argv[])
       "a mesh name does not become an unnamed node's label");
 
     ::CheckActorBinding(scene, "vtk-dasm-test.glb");
+    ::CheckNoBlankProperties(graph, "vtk-dasm-test.glb");
   }
 
   // --- rig semantics ----------------------------------------------------------------------------
@@ -216,6 +240,7 @@ int TestG3DGLTFSceneTree(int argc, char* argv[])
       "the skinned mesh is still a mesh row");
 
     ::CheckActorBinding(scene, "RiggedFigure.glb");
+    ::CheckNoBlankProperties(graph, "RiggedFigure.glb");
   }
 
   // --- cameras stay where the file put them -----------------------------------------------------
@@ -252,6 +277,42 @@ int TestG3DGLTFSceneTree(int argc, char* argv[])
     }
 
     ::CheckActorBinding(scene, "Cameras.gltf");
+    ::CheckNoBlankProperties(graph, "Cameras.gltf");
+  }
+
+  // --- properties of objects the file never named ------------------------------------------------
+  // glTF names almost nothing that is not a node: alpha.glb's sixteen mesh nodes and every one of
+  // their meshes arrive anonymous. Passing that empty name to the property writer used to produce a
+  // row spelled "Mesh: " with nothing after it; dropping it instead would lose which mesh the node
+  // draws, which is how two rows sharing one mesh are recognised as sharing it. So the index the
+  // file addressed it by is what gets shown.
+  {
+    ::LoadedScene scene;
+    if (!scene.Load(dataDir + "alpha.glb", "alpha.glb"))
+    {
+      std::cerr << "FAILED: could not load alpha.glb" << std::endl;
+      return EXIT_FAILURE;
+    }
+    const G3DSceneGraph& graph = scene.Graph();
+
+    int meshProperties = 0;
+    for (int node = 0; node < graph.NodeCount(); node++)
+    {
+      for (int index = 0; index < graph.PropertyCount(node); index++)
+      {
+        if (graph.PropertyKey(node, index) != "Mesh")
+        {
+          continue;
+        }
+        meshProperties++;
+        const std::string value = graph.PropertyValue(node, index);
+        ::Check(value.size() >= 2 && value[0] == '#' &&
+            value.find_first_not_of("0123456789", 1) == std::string::npos,
+          "an unnamed mesh is reported by its index, not by a blank (" + value + ")");
+      }
+    }
+    ::Check(meshProperties > 0, "alpha.glb still reports a Mesh property per mesh node");
+    ::CheckNoBlankProperties(graph, "alpha.glb");
   }
 
   return gFailed ? EXIT_FAILURE : EXIT_SUCCESS;
