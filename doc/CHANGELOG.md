@@ -18,6 +18,7 @@ For Glance3D users:
 - Added B-rep face nodes for STEP/IGES/BREP/XBF parts: a part with faces opens down to them on demand, and selecting one highlights it in the render
 - Fixed scene tree node properties showing a blank value for an object the file declared but never named: such an object is now reported by its index, as in `Mesh: #12`
 - Fixed the scene tree drawing a deeply nested node exactly like a shallower one once the indent column reached its ceiling: the chain a row hangs under is now marked on the ancestor rows themselves, the folded indent column is drawn as a bundle rather than a single rail, and hovering such a row reports its level and its nearest ancestors
+- Added a search field and expand-all / collapse-all buttons to the scene tree panel, shown once a scene has more nodes than fit on screen; a match inside a closed subtree is revealed without disturbing what was open
 - Added a `webifc` plugin to add support for .ifc files
 - Added a `pdal` plugin to add support for many point cloud formats, including .las and .laz
 - Added support for jumping to keyframes using `jump_to_keyframe` command

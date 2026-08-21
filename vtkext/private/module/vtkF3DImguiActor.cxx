@@ -840,6 +840,63 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   const int hoveredNode = this->SceneTreeHoveredNode;
   int nextHoveredNode = -1;
 
+  // --- find, open everything, close everything -------------------------------------------------
+  // The view-model has had substring filtering -- matches inside closed subtrees are revealed
+  // without disturbing the stored expansion -- and ExpandAll/CollapseAll since it was written, and
+  // the bar never offered any of it. On a rig twenty-seven levels deep, typing three letters is the
+  // difference between finding a part and giving up on the tree; it is also the answer to a depth
+  // the indent column cannot draw, which no amount of drawing was going to fix.
+  //
+  // Chrome it earns rather than chrome it always has: below a panel's worth of nodes the whole tree
+  // is on screen and a search field would only take a row away from it. Gated on the node COUNT, not
+  // on how many rows a filter left, so the field cannot disappear out from under the user's own
+  // typing -- and it stays out while a filter is set from a script, or there would be no way to
+  // clear one. Same rule and same reason as the inspector's array filter.
+  static constexpr int kSceneTreeToolbarMinNodes = 20;
+  if (graph.NodeCount() > kSceneTreeToolbarMinNodes || view.Filter().Active())
+  {
+    const float scale = static_cast<float>(this->FontScale);
+    // The field is a scratch buffer, not the state: the filter itself lives in the view, where the
+    // SDK and `scene_tree_filter` also write it. Resynced below whenever the box is idle, so a
+    // filter set from a script does not leave the box telling a different story.
+    static char treeFilter[128] = "";
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float btn = G3DTheme::Size::Control * scale;
+    const float gap = G3DTheme::Spacing::Xs * scale;
+
+    ImGui::SetNextItemWidth(std::max(btn, avail - 2.f * (btn + gap)));
+    const bool typed = G3DWidgets::InputText("##g3d.scenetree.filter", treeFilter,
+      sizeof(treeFilter), loc.Translate("Search...").c_str());
+    const bool editing = ImGui::IsItemActive();
+    if (typed)
+    {
+      G3DTreeFilter filter = view.Filter();
+      filter.Query = treeFilter;
+      view.SetFilter(filter);
+    }
+    else if (!editing && view.Filter().Query != treeFilter)
+    {
+      const std::string& query = view.Filter().Query;
+      const std::size_t n = std::min(query.size(), sizeof(treeFilter) - 1);
+      std::memcpy(treeFilter, query.data(), n);
+      treeFilter[n] = '\0';
+    }
+
+    ImGui::SameLine(0.f, gap);
+    if (G3DWidgets::IconButton("##g3d.scenetree.expand", G3DIconId::ChevronDown, btn, false,
+          loc.Translate("Expand all").c_str()))
+    {
+      view.ExpandAll();
+    }
+    ImGui::SameLine(0.f, gap);
+    if (G3DWidgets::IconButton("##g3d.scenetree.collapse", G3DIconId::ChevronUp, btn, false,
+          loc.Translate("Collapse all").c_str()))
+    {
+      view.CollapseAll();
+    }
+    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
+  }
+
   // A child window gives the tree its own scroll region — independent of the host window flags, so
   // it scrolls even inside the docked left bar (which is NoScrollbar). Virtualized over the rows.
   //
@@ -975,6 +1032,13 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
     });
   this->SceneTreeHoveredNode = nextHoveredNode;
   G3DWidgets::EndTree();
+  // A filter that matches nothing leaves an empty panel, which reads as "the file is empty" rather
+  // than "your query is". Say which.
+  if (view.RowCount() == 0 && view.Filter().Active())
+  {
+    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Md * static_cast<float>(this->FontScale)));
+    ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No matching node").c_str());
+  }
   // Same bottom breathing room as the inspector: keep the scroll end off the bottom seam.
   ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * static_cast<float>(this->FontScale)));
   ::DrawScrollEndFade(static_cast<float>(this->FontScale));
