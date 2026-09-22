@@ -15,14 +15,24 @@ Copy-Item webassembly\deps.local.example.json webassembly\deps.local.json
 
 > 仍然支持用环境变量覆盖（`VTK_DIR`、`F3D_WASM_DEPS_DIR` 等），环境变量优先级更高，方便 CI 使用。
 
-## 构建原生桌面版
+## 构建并运行原生桌面版
 
 使用 CMake 预设（采用 Visual Studio 生成器，无需手动 `vcvars64.bat`）：
 
 ```powershell
-cmake --preset native-local
-cmake --build build --config Release
-# 产物：build\bin\Release\glance3d.exe（或 build\bin\glance3d.exe）
+cmake --preset native-local            # 配置：首次、或改了 CMake 选项后
+cmake --build --preset native-local    # 构建：日常改完代码跑这一条（Release）
+build\bin_Release\glance3d.exe testing\data\f3d.glb   # 运行
+```
+
+> **必须在项目根目录执行。** `cd build` 之后再跑 `--preset` 会静默失败（没有任何报错），实际验证的是旧 `f3d.dll`；确认构建生效看 `build\bin_Release\f3d.dll` 的时间戳（exe 壳不重链是正常的）。
+
+> 目录里若残留改名前的 `f3d.exe`，是陈旧产物，加载新 `f3d.dll` 会直接崩溃，勿用。
+
+不开窗看渲染效果——`--output` 无头出图（开关详见 `CLAUDE.md`）：
+
+```powershell
+build\bin_Release\glance3d.exe testing\data\f3d.glb --output shot.png --resolution 800,600 -x -g
 ```
 
 ## 构建 WebAssembly
