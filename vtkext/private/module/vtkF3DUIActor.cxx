@@ -265,6 +265,10 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
     // While loading, the centered overlay takes over: skip every other widget so nothing
     // competes with it (mirrors the console early-return below).
     this->RenderLoadingOverlay();
+    // ...except problem messages. A warning raised while parsing is exactly what the user needs
+    // to see, and the overlay paints onto the background draw list, so an ImGui window naturally
+    // sits above it. The binding HUD stays suppressed: it has no business competing with a load.
+    this->RenderMessages();
     this->EndFrame(renWin);
     return 1;
   }
@@ -333,6 +337,11 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   {
     this->RenderNotifications(currentTime);
   }
+
+  // Problem messages sit above the docked chrome but below the console palette, which is why they
+  // are submitted here: for NoBringToFrontOnFocus windows ImGui orders by creation, and the
+  // palette (submitted next) also requests focus every frame.
+  this->RenderMessages();
 
   // The console renders LAST: the palette is a light, focused overlay that must sit above the
   // docked chrome and every other overlay (its window also requests focus each frame; the bars

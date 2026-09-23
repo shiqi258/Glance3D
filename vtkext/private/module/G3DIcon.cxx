@@ -405,6 +405,36 @@ void DrawLock(const IconCanvas& c)
   c.Dot(0.50f, 0.63f, 0.05f);
 }
 
+void DrawWarning(const IconCanvas& c)
+{
+  // Rounded-ish triangle + bang. The triangle silhouette is what makes "warning" readable at
+  // 14px without color -- a circled bang reads as "info" at that size.
+  const ImVec2 tri[4] = {
+    c.P(0.50f, 0.16f),
+    c.P(0.92f, 0.82f),
+    c.P(0.08f, 0.82f),
+    c.P(0.50f, 0.16f),
+  };
+  c.Poly(tri, 4);
+  c.Line(0.50f, 0.40f, 0.50f, 0.60f);
+  c.Dot(0.50f, 0.71f, 0.05f);
+}
+
+void DrawError(const IconCanvas& c)
+{
+  // Circled cross: distinct from the warning triangle in silhouette, not only in color.
+  c.Ring(0.50f, 0.50f, 0.34f);
+  c.Line(0.37f, 0.37f, 0.63f, 0.63f);
+  c.Line(0.63f, 0.37f, 0.37f, 0.63f);
+}
+
+void DrawSuccess(const IconCanvas& c)
+{
+  c.Ring(0.50f, 0.50f, 0.34f);
+  c.Line(0.34f, 0.51f, 0.45f, 0.63f);
+  c.Line(0.45f, 0.63f, 0.67f, 0.38f);
+}
+
 void DrawCheck(const IconCanvas& c)
 {
   // Two-segment tick (matches the styleguide swatch / copied checkmark).
@@ -571,6 +601,15 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Lock:
       DrawLock(c);
+      break;
+    case G3DIconId::Warning:
+      DrawWarning(c);
+      break;
+    case G3DIconId::Error:
+      DrawError(c);
+      break;
+    case G3DIconId::Success:
+      DrawSuccess(c);
       break;
     case G3DIconId::Info:
       DrawInfo(c);

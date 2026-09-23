@@ -10,6 +10,7 @@
 
 #include "F3DStyle.h"
 #include "G3DLocaleCore.h"
+#include "G3DNotificationCenter.h"
 #include "vtkF3DExternalRenderWindow.h"
 
 #include "vtkF3DGenericImporter.h"
@@ -556,6 +557,33 @@ void window_impl::UpdateDynamicOptions()
   renderer->SetBackdropOpacity(opt.ui.backdrop.opacity);
   renderer->ShowNotification(opt.ui.notifications.enable);
   renderer->ShowBindings(opt.ui.notifications.show_bindings);
+
+  // The notification center is a singleton shared by every frontend, so its policy is pushed here
+  // rather than threaded through the renderer. `enable` deliberately does NOT gate this: it means
+  // "show binding feedback", and a user who never opted into that HUD must still be told when a
+  // file fails to load.
+  {
+    G3DNotificationCenter::Policy policy;
+    policy.messagesEnabled = opt.ui.notifications.messages;
+    policy.defaultDuration = opt.ui.notifications.duration;
+    policy.maxVisible = opt.ui.notifications.max_visible;
+
+    const std::string& fromLog = opt.ui.notifications.from_log;
+    policy.captureFromLog = (fromLog != "off");
+    if (fromLog == "error")
+    {
+      policy.logThreshold = G3DSeverity::Error;
+    }
+    else if (fromLog == "info")
+    {
+      policy.logThreshold = G3DSeverity::Info;
+    }
+    else
+    {
+      policy.logThreshold = G3DSeverity::Warning;
+    }
+    G3DNotificationCenter::GetInstance().SetPolicy(policy);
+  }
 
   if (this->Internals->Interactor)
   {

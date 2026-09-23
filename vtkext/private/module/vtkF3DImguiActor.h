@@ -13,7 +13,9 @@
 #include "G3DAnimation.h"
 #include "G3DLayout.h"
 
+#include <cstdint>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 class vtkOpenGLRenderWindow;
@@ -145,6 +147,12 @@ private:
    * Newest to oldest, from bottom to top.
    */
   void RenderNotifications(double currentTime) override;
+
+  /**
+   * Render the problem-message stack at the bottom right of the CENTRAL viewport (so it clears
+   * the docked side bars and the timeline), newest closest to the corner.
+   */
+  void RenderMessages() override;
 
 private:
   vtkF3DImguiActor(const vtkF3DImguiActor&) = delete;
@@ -285,6 +293,24 @@ private:
   float ControlBarLeftW = -1.f;
   float ControlBarRightW = -1.f;
   bool ControlBarDragging = false;
+  ///@}
+
+  ///@{
+  /**
+   * Per-message entrance animation for the toast stack, keyed by the center's stable message id
+   * (so a coalesced repeat, which keeps its id, does NOT replay its entrance -- only its count
+   * chip reacts). Entries are garbage-collected against the live id set every frame.
+   *
+   * ONE clock for the whole stack: G3DFrameClock::Tick de-duplicates by frame id, so a second
+   * Tick in the same frame returns 0 and would silently freeze whichever animator asked second.
+   */
+  struct ToastAnim
+  {
+    G3DAnimatedFloat enter{ 0.f };
+    bool init = false; ///< false until the first frame snaps it (deterministic headless output)
+  };
+  std::unordered_map<std::uint64_t, ToastAnim> ToastAnims;
+  G3DFrameClock ToastClock;
   ///@}
 
   ///@{

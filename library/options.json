@@ -337,6 +337,22 @@
       "show_bindings": {
         "type": "bool",
         "default_value": "false"
+      },
+      "messages": {
+        "type": "bool",
+        "default_value": "true"
+      },
+      "from_log": {
+        "type": "string",
+        "default_value": "warn"
+      },
+      "duration": {
+        "type": "double",
+        "default_value": "6.0"
+      },
+      "max_visible": {
+        "type": "int",
+        "default_value": "3"
       }
     }
   },

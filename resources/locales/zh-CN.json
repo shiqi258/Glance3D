@@ -4,6 +4,9 @@
 
   "Drop a file to open it": "拖入文件以打开",
 
+  "Dismiss": "关闭",
+  "{n, plural, one{# more message} other{# more messages}}": "{n, plural, other{还有 # 条消息}}",
+
   "Number of files: {n, number}": "文件数：{n, number}",
   "Number of actors: {n, number}": "Actor 数：{n, number}",
   "Number of points: {n, number}": "点数：{n, number}",

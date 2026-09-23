@@ -426,6 +426,18 @@ protected:
   {
   }
 
+  /**
+   * Render the problem-message stack (the toasts fed by G3DNotificationCenter).
+   *
+   * Distinct from RenderNotifications above, which is the binding HUD: that one is a state
+   * display ("Grid: ON") tied to a keystroke, this one is a message the user may need to act on.
+   * They share a corner of nothing and have opposite lifetimes, so they stay separate surfaces
+   * over one model.
+   */
+  virtual void RenderMessages()
+  {
+  }
+
   bool DropZoneLogoVisible = false;
   bool DropZoneVisible = false;
   std::string DropText = "";

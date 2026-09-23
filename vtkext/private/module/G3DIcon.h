@@ -47,6 +47,9 @@ enum class G3DIconId
   Image,      ///< picture / texture / material
   Lock,       ///< padlock (locked node)
   Info,       ///< circled "i" (data / details panel)
+  Warning,    ///< triangle + exclamation (a message that needs attention)
+  Error,      ///< circled cross (a message about something that failed)
+  Success,    ///< circled check (a message confirming an action worked)
   Help,       ///< circled "?" (shortcuts / cheatsheet)
   Edges,      ///< triangle with vertex dots (mesh edges / wireframe)
   Play,       ///< filled right-pointing triangle (animation play)

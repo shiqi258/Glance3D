@@ -8,6 +8,7 @@
 #include "window_impl.h"
 
 #include "G3DLocaleCore.h"
+#include "G3DNotificationCenter.h"
 #include "vtkF3DConsoleOutputWindow.h"
 
 #if F3D_MODULE_UI
@@ -652,6 +653,14 @@ public:
       this->EventLoopUserCallback({ .animationTime = this->AnimationManager->GetCurrentTime() });
     }
 
+    // A notification action is a plain command string (that is what makes the same action work
+    // for a DOM presenter), so it joins the ordinary command buffer rather than reaching into the
+    // interactor from the UI thread.
+    for (std::string& cmd : G3DNotificationCenter::GetInstance().TakePendingCommands())
+    {
+      this->CommandBuffer.push_back(std::move(cmd));
+    }
+
     if (!this->CommandBuffer.empty())
     {
       // Drain a snapshot: a running command may enqueue follow-ups, which then run next loop.
@@ -990,6 +999,77 @@ interactor& interactor_impl::initCommands()
     },
     command_documentation_t{ "reset option.name", "reset a libf3d option to its default values" },
     complOptionNames);
+
+  // Post a message straight into the notification center. Exists so the toast stack can be driven
+  // from a command script: what ends up on screen is then decided by the script rather than by
+  // whatever the scene happened to warn about, which is what makes an image baseline reproducible.
+  this->addCommand(
+    "notify",
+    [&](const std::vector<std::string>& args)
+    {
+      if (args.size() < 2 || args.size() > 5)
+      {
+        throw interactor::invalid_args_exception(
+          "Command: notify is expecting between 2 and 5 arguments");
+      }
+      G3DNotification n;
+      const std::string& level = args[0];
+      if (level == "error")
+      {
+        n.severity = G3DSeverity::Error;
+      }
+      else if (level == "warning")
+      {
+        n.severity = G3DSeverity::Warning;
+      }
+      else if (level == "success")
+      {
+        n.severity = G3DSeverity::Success;
+      }
+      else if (level == "info")
+      {
+        n.severity = G3DSeverity::Info;
+      }
+      else
+      {
+        throw interactor::invalid_args_exception(
+          "Command: notify severity must be one of info, success, warning, error");
+      }
+      n.source = "user";
+      n.titleKey = args[1];
+      if (args.size() >= 3)
+      {
+        n.detailKey = args[2];
+      }
+      if (args.size() == 5)
+      {
+        G3DNotificationAction action;
+        action.labelKey = args[3];
+        action.command = args[4];
+        action.primary = true;
+        n.actions.push_back(std::move(action));
+      }
+      G3DNotificationCenter::GetInstance().Post(std::move(n));
+    },
+    command_documentation_t{ "notify severity title [detail] [action_label action_command]",
+      "post a message to the notification center (severity: info|success|warning|error)" });
+
+  this->addCommand(
+    "dismiss_notification",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 1, "dismiss_notification");
+      if (args[0] == "all")
+      {
+        G3DNotificationCenter::GetInstance().DismissAll();
+      }
+      else
+      {
+        G3DNotificationCenter::GetInstance().Dismiss(
+          static_cast<std::uint64_t>(std::stoull(args[0])));
+      }
+    },
+    command_documentation_t{ "dismiss_notification id|all", "dismiss one or every live message" });
 
   this->addCommand(
     "clear",
