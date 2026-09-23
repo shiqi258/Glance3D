@@ -60,6 +60,16 @@ bool Button(const char* label, ButtonVariant variant = ButtonVariant::Default);
 /// Text button with a leading icon. Returns true on click.
 bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant = ButtonVariant::Default);
 
+/// Height Button() / ButtonIcon() will occupy (px, already UI-scaled). @p withIcon picks the
+/// ButtonIcon() variant, whose glyph box is taller than a line of text.
+///
+/// Published because a button grows with the font while `Size::Control` does not: any surface that
+/// must reserve room for an action row BEFORE submitting it — a toast stack sizing its window up
+/// front, because an offscreen `--output` render only ever gets one frame — would otherwise reserve
+/// a constant, and the button would quietly overflow the reservation and eat the card's bottom
+/// padding. Measure with this, never with a token.
+float ButtonHeight(bool withIcon = false);
+
 /// How an IconButton renders its persistent "on" state.
 enum class IconOnStyle
 {

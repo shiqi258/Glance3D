@@ -52,10 +52,17 @@ namespace Size
 {
 constexpr float Control = 25.f;    ///< standard control height (inputs, sliders)
 constexpr float IconButton = 27.f; ///< square icon button
-constexpr float Fab = 32.f;        ///< floating action button (the reopen handle uses this)
-constexpr float Icon = 18.f;       ///< default icon edge (== base font size)
-constexpr float IconSm = 14.f;     ///< small icon edge
-constexpr float Border = 1.f;      ///< hairline border / divider thickness
+/// Compact square icon button: the smallest pointer target still worth aiming at, for the
+/// close/dismiss affordance tucked into a card corner. Deliberately NOT `IconSm` — that is a
+/// *glyph* edge, and using it as a button edge yields a 14px target wrapping a 9px glyph, which is
+/// what a dismiss control must never be: a toast that outlives a missed click is worse than one
+/// that was never shown. Pair it with `IconSm` as the glyph box so the target grows outward (see
+/// the toast gutter) and the ✕ keeps its optical inset from the corner.
+constexpr float IconButtonSm = 22.f;
+constexpr float Fab = 32.f;    ///< floating action button (the reopen handle uses this)
+constexpr float Icon = 18.f;   ///< default icon edge (== base font size)
+constexpr float IconSm = 14.f; ///< small icon edge
+constexpr float Border = 1.f;  ///< hairline border / divider thickness
 }
 
 /// Tooltip bubble geometry (px at FontScale 1.0). Mirrors the styleguide `.tip .bubble`

@@ -221,19 +221,28 @@ std::string Tr(const char* key)
   return G3DLocaleCore::GetInstance().Translate(key);
 }
 
+// The single source of truth for a text button's box height. ButtonImpl draws to it and
+// G3DWidgets::ButtonHeight() publishes it, so a caller that reserves room for an action row can
+// never disagree with the button that lands in it.
+float ButtonBoxHeight(bool withIcon)
+{
+  const float s = Scale();
+  const float iconSz = withIcon ? G3DTheme::Size::Icon * s : 0.f;
+  return std::max(ImGui::GetTextLineHeight(), iconSz) + 2.f * G3DTheme::Spacing::Sm * s;
+}
+
 // Shared text-button body (icon optional).
 bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DIconId* icon)
 {
   ImGui::PushID(label);
   const float s = Scale();
   const float padX = G3DTheme::Spacing::Md * s;
-  const float padY = G3DTheme::Spacing::Sm * s;
   const float gap = G3DTheme::Spacing::Sm * s;
   const float iconSz = icon ? G3DTheme::Size::Icon * s : 0.f;
   const bool hasText = label[0] != '\0';
   const ImVec2 textSize = hasText ? ImGui::CalcTextSize(label) : ImVec2(0.f, 0.f);
   const float contentW = iconSz + (icon && hasText ? gap : 0.f) + textSize.x;
-  const ImVec2 size(padX * 2.f + contentW, std::max(textSize.y, iconSz) + padY * 2.f);
+  const ImVec2 size(padX * 2.f + contentW, ButtonBoxHeight(icon != nullptr));
 
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const bool clicked = ImGui::InvisibleButton("##b", size);
@@ -359,6 +368,12 @@ bool Button(const char* label, ButtonVariant variant)
 bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant)
 {
   return ButtonImpl(label, variant, &icon);
+}
+
+//----------------------------------------------------------------------------
+float ButtonHeight(bool withIcon)
+{
+  return ButtonBoxHeight(withIcon);
 }
 
 //----------------------------------------------------------------------------
@@ -2127,18 +2142,22 @@ struct ToastMetrics
 {
   float s = 1.f;
   float padX = 0.f;
-  float padY = 0.f;
+  float padY = 0.f;      ///< top inset — a TEXT inset
+  float padBottom = 0.f; ///< bottom inset — a CONTROL inset once an action row lands on it
   float railW = 0.f;
   float iconSize = 0.f;
-  float closeSize = 0.f;
+  float closeGlyph = 0.f; ///< the ✕'s optical box — what the corner inset is measured against
+  float closeSize = 0.f;  ///< the pointer target, grown outward from that box
+  float closeBleed = 0.f; ///< how far the target overhangs the glyph box on each side
   float lineH = 0.f;
   float cardW = 0.f;
   float textLeft = 0.f;
   float textW = 0.f;
   float titleH = 0.f;
   float detailH = 0.f;
-  float contextH = 0.f; ///< the disclosure row, plus the expanded body when open
-  float actionsH = 0.f;
+  float contextH = 0.f;   ///< the disclosure row, plus the expanded body when open
+  float actionRowH = 0.f; ///< one action button's box — measured, never assumed
+  float actionsH = 0.f;   ///< that row plus the gap above it; 0 when there are no actions
   float height = 0.f;
 };
 
@@ -2155,17 +2174,30 @@ ToastMetrics MeasureToast(const G3DWidgets::ToastDesc& desc, bool detailsOpen, b
   ToastMetrics m;
   m.s = Scale();
   m.padX = G3DTheme::Spacing::Md * m.s;
+  // Optical, not arithmetic, balance: text sits on a TEXT inset, a control sits on a CONTROL inset.
+  // A button paints a hard fill right out to its box, whereas a line of text carries its own
+  // internal leading, so the same numeric gap reads visibly tighter under a button than above a
+  // title. Widening only the edge the action row lands on also leaves a plain title/detail toast
+  // exactly the size it was — capacity in a small viewport is set by the stack's height budget,
+  // and a card has no business getting taller for padding it does not use.
   m.padY = G3DTheme::Spacing::Sm * m.s;
+  m.padBottom = desc.actionCount > 0 ? G3DTheme::Spacing::Md * m.s : m.padY;
   m.railW = 3.f * m.s;
   m.iconSize = G3DTheme::Size::Icon * m.s;
-  m.closeSize = G3DTheme::Size::IconSm * m.s;
+  // Dismiss target: `IconSm` stays the glyph box (so the ✕ keeps its optical corner inset) while
+  // the clickable/hoverable square grows around it. See Size::IconButtonSm.
+  m.closeGlyph = G3DTheme::Size::IconSm * m.s;
+  m.closeSize = G3DTheme::Size::IconButtonSm * m.s;
+  m.closeBleed = std::max(0.f, (m.closeSize - m.closeGlyph) * 0.5f);
   m.lineH = ImGui::GetTextLineHeight();
   m.cardW = desc.width > 0.f ? desc.width : ImGui::GetContentRegionAvail().x;
 
   m.textLeft = m.railW + m.padX + m.iconSize + G3DTheme::Spacing::Sm * m.s;
   // Trailing gutter: the close button and (when repeated) the count chip live there, so the title
-  // has to stop short of them rather than run underneath.
-  float trailing = desc.closable ? m.closeSize + G3DTheme::Spacing::Sm * m.s : 0.f;
+  // has to stop short of them rather than run underneath. Measured against the enlarged target,
+  // not the glyph box — text must clear what the pointer can hit, or a click meant for the ✕
+  // lands on a tooltip instead.
+  float trailing = desc.closable ? m.closeSize - m.closeBleed + G3DTheme::Spacing::Sm * m.s : 0.f;
   if (desc.count > 1)
   {
     char chip[16];
@@ -2190,10 +2222,14 @@ ToastMetrics MeasureToast(const G3DWidgets::ToastDesc& desc, bool detailsOpen, b
   }
   if (desc.actionCount > 0)
   {
-    m.actionsH = G3DTheme::Spacing::Sm * m.s + G3DTheme::Size::Control * m.s;
+    // Ask the button what it is, rather than reserving `Size::Control`: a Button is
+    // `text line + 2 * Spacing::Sm`, which is taller than that token at every font size we ship, so
+    // the old constant let the row overflow its reservation and swallow the bottom inset.
+    m.actionRowH = ButtonBoxHeight(false);
+    m.actionsH = G3DTheme::Spacing::Sm * m.s + m.actionRowH;
   }
 
-  m.height = m.padY * 2.f + m.titleH;
+  m.height = m.padY + m.padBottom + m.titleH;
   if (m.detailH > 0.f)
   {
     m.height += G3DTheme::Spacing::Xs * m.s + m.detailH;
@@ -2203,7 +2239,7 @@ ToastMetrics MeasureToast(const G3DWidgets::ToastDesc& desc, bool detailsOpen, b
     m.height += G3DTheme::Spacing::Xs * m.s + m.contextH;
   }
   m.height += m.actionsH;
-  m.height = std::max(m.height, m.iconSize + m.padY * 2.f);
+  m.height = std::max(m.height, m.iconSize + m.padY + m.padBottom);
   return m;
 }
 
@@ -2393,15 +2429,22 @@ ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen)
     }
   }
 
-  // Header gutter, laid out right to left: close button, then the repeat chip.
+  // Header gutter, laid out right to left: close button, then the repeat chip. `gutterX` tracks the
+  // right edge of the *content* box at each step, which is what the optical inset is measured from.
   float gutterX = p1.x - m.padX;
   if (desc.closable)
   {
-    gutterX -= m.closeSize;
-    ImGui::SetCursorScreenPos(ImVec2(gutterX, p0.y + m.padY));
-    res.closed =
-      IconButton("##g3d.toast.close", G3DIconId::Close, m.closeSize, false, Tr("Dismiss").c_str());
-    gutterX -= G3DTheme::Spacing::Sm * m.s;
+    // The target bleeds symmetrically past the glyph box (up and to the right, into the card's own
+    // padding) so enlarging it moves the hit area, never the ✕: the corner inset stays put and
+    // the hover chip simply becomes a chip worth aiming at.
+    ImGui::SetCursorScreenPos(ImVec2(gutterX + m.closeBleed - m.closeSize,
+      p0.y + m.padY + (m.lineH - m.closeGlyph) * 0.5f - m.closeBleed));
+    // Nominal token, not `m.closeSize`: IconButton applies the UI scale itself, and handing it an
+    // already-scaled edge squares the scale (a 1.5x display got a 31px ✕ where layout
+    // reserved 21).
+    res.closed = IconButton("##g3d.toast.close", G3DIconId::Close, G3DTheme::Size::IconButtonSm,
+      false, Tr("Dismiss").c_str());
+    gutterX -= m.closeGlyph + m.closeBleed + G3DTheme::Spacing::Sm * m.s;
   }
   if (desc.count > 1)
   {
@@ -2421,9 +2464,9 @@ ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen)
   frame.width = m.cardW;
   frame.height = m.height;
   gToasts.push_back(frame);
-  // Leave the cursor on the action row; ToastAction() walks it rightwards.
-  ImGui::SetCursorScreenPos(
-    ImVec2(p0.x + m.textLeft, p1.y - m.padY - G3DTheme::Size::Control * m.s));
+  // Leave the cursor on the action row; ToastAction() walks it rightwards. Sits on the same
+  // measured row height MeasureToast reserved, so the bottom inset survives the button landing.
+  ImGui::SetCursorScreenPos(ImVec2(p0.x + m.textLeft, p1.y - m.padBottom - m.actionRowH));
   return res;
 }
 
@@ -2482,7 +2525,10 @@ bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
   const float textLeft = railW + padX + iconSize + G3DTheme::Spacing::Sm * s;
   const float textW = std::max(24.f * s, w - textLeft - padX - actionW);
   const float textH = std::min(ImGui::CalcTextSize(text, nullptr, false, textW).y, lineH * 4.f);
-  const float h = std::max(textH + padY * 2.f, G3DTheme::Size::Control * s);
+  // Same reservation trap the toast action row fell into: a Button is taller than `Size::Control`,
+  // so a banner sized to that token let its trailing action hang out past the rim. Measure it.
+  const float actionH = hasAction ? ButtonBoxHeight(false) : 0.f;
+  const float h = std::max({ textH + padY * 2.f, G3DTheme::Size::Control * s, actionH });
 
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const ImVec2 p1(p0.x + w, p0.y + h);
@@ -2512,8 +2558,8 @@ bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
   if (hasAction)
   {
     ImGui::PushID(text);
-    ImGui::SetCursorScreenPos(ImVec2(p1.x - padX - (actionW - G3DTheme::Spacing::Sm * s),
-      p0.y + (h - G3DTheme::Size::Control * s) * 0.5f));
+    ImGui::SetCursorScreenPos(ImVec2(
+      p1.x - padX - (actionW - G3DTheme::Spacing::Sm * s), p0.y + (h - actionH) * 0.5f));
     clicked = Button(actionLabel, ButtonVariant::Ghost);
     ImGui::PopID();
   }
