@@ -54,11 +54,27 @@ enum class ButtonVariant
   Danger,  ///< destructive action
 };
 
+/// Box density of a button — orthogonal to ButtonVariant, which sets emphasis. Mirrors the
+/// styleguide's `.btn` / `.btn.sm`.
+///
+/// Only the BOX shrinks: the label keeps the ambient 14px UI font, because a shared widget never
+/// hardcodes a smaller type size (type scale belongs to the layer above). The styleguide's
+/// `.btn.sm` also drops to `--fs-caption`; that part is deliberately not ported.
+enum class ButtonDensity
+{
+  Default, ///< text line + Spacing::Sm above and below — forms, dialogs, anything standalone
+  Compact, ///< the standard control height, Spacing::Sm inline — a secondary action riding inside
+           ///< another surface: a message card's action row, a toolbar strip. A full-size button
+           ///< there dominates the very thing it is subordinate to.
+};
+
 /// Text button. Returns true on click.
-bool Button(const char* label, ButtonVariant variant = ButtonVariant::Default);
+bool Button(const char* label, ButtonVariant variant = ButtonVariant::Default,
+  ButtonDensity density = ButtonDensity::Default);
 
 /// Text button with a leading icon. Returns true on click.
-bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant = ButtonVariant::Default);
+bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant = ButtonVariant::Default,
+  ButtonDensity density = ButtonDensity::Default);
 
 /// Height Button() / ButtonIcon() will occupy (px, already UI-scaled). @p withIcon picks the
 /// ButtonIcon() variant, whose glyph box is taller than a line of text.
@@ -68,7 +84,7 @@ bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant = Butto
 /// front, because an offscreen `--output` render only ever gets one frame — would otherwise reserve
 /// a constant, and the button would quietly overflow the reservation and eat the card's bottom
 /// padding. Measure with this, never with a token.
-float ButtonHeight(bool withIcon = false);
+float ButtonHeight(bool withIcon = false, ButtonDensity density = ButtonDensity::Default);
 
 /// How an IconButton renders its persistent "on" state.
 enum class IconOnStyle

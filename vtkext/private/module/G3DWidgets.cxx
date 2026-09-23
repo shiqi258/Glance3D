@@ -224,25 +224,44 @@ std::string Tr(const char* key)
 // The single source of truth for a text button's box height. ButtonImpl draws to it and
 // G3DWidgets::ButtonHeight() publishes it, so a caller that reserves room for an action row can
 // never disagree with the button that lands in it.
-float ButtonBoxHeight(bool withIcon)
+float ButtonBoxHeight(bool withIcon, G3DWidgets::ButtonDensity density)
 {
   const float s = Scale();
   const float iconSz = withIcon ? G3DTheme::Size::Icon * s : 0.f;
-  return std::max(ImGui::GetTextLineHeight(), iconSz) + 2.f * G3DTheme::Spacing::Sm * s;
+  const float content = std::max(ImGui::GetTextLineHeight(), iconSz);
+  if (density == G3DWidgets::ButtonDensity::Compact)
+  {
+    // A FIXED control height, the way the styleguide sizes `.btn` (`height: var(--ctrl-h)`) rather
+    // than growing out of padding — that is what makes a compact action line up with the inputs
+    // and sliders beside it. The floor keeps it honest at large font scales, where a
+    // padding-derived box would be the taller of the two anyway.
+    return std::max(G3DTheme::Size::Control * s, content + 2.f * G3DTheme::Spacing::Xs * s);
+  }
+  return content + 2.f * G3DTheme::Spacing::Sm * s;
+}
+
+// Horizontal padding that pairs with a given density. The styleguide runs 14px / 10px; these are
+// the nearest steps on the 4-based spacing scale, so the box stays on the system's grid.
+float ButtonPadX(G3DWidgets::ButtonDensity density)
+{
+  return (density == G3DWidgets::ButtonDensity::Compact ? G3DTheme::Spacing::Sm
+                                                        : G3DTheme::Spacing::Md) *
+    Scale();
 }
 
 // Shared text-button body (icon optional).
-bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DIconId* icon)
+bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DIconId* icon,
+  G3DWidgets::ButtonDensity density)
 {
   ImGui::PushID(label);
   const float s = Scale();
-  const float padX = G3DTheme::Spacing::Md * s;
+  const float padX = ButtonPadX(density);
   const float gap = G3DTheme::Spacing::Sm * s;
   const float iconSz = icon ? G3DTheme::Size::Icon * s : 0.f;
   const bool hasText = label[0] != '\0';
   const ImVec2 textSize = hasText ? ImGui::CalcTextSize(label) : ImVec2(0.f, 0.f);
   const float contentW = iconSz + (icon && hasText ? gap : 0.f) + textSize.x;
-  const ImVec2 size(padX * 2.f + contentW, ButtonBoxHeight(icon != nullptr));
+  const ImVec2 size(padX * 2.f + contentW, ButtonBoxHeight(icon != nullptr, density));
 
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const bool clicked = ImGui::InvisibleButton("##b", size);
@@ -359,21 +378,21 @@ namespace G3DWidgets
 {
 
 //----------------------------------------------------------------------------
-bool Button(const char* label, ButtonVariant variant)
+bool Button(const char* label, ButtonVariant variant, ButtonDensity density)
 {
-  return ButtonImpl(label, variant, nullptr);
+  return ButtonImpl(label, variant, nullptr, density);
 }
 
 //----------------------------------------------------------------------------
-bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant)
+bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant, ButtonDensity density)
 {
-  return ButtonImpl(label, variant, &icon);
+  return ButtonImpl(label, variant, &icon, density);
 }
 
 //----------------------------------------------------------------------------
-float ButtonHeight(bool withIcon)
+float ButtonHeight(bool withIcon, ButtonDensity density)
 {
-  return ButtonBoxHeight(withIcon);
+  return ButtonBoxHeight(withIcon, density);
 }
 
 //----------------------------------------------------------------------------
@@ -2222,10 +2241,10 @@ ToastMetrics MeasureToast(const G3DWidgets::ToastDesc& desc, bool detailsOpen, b
   }
   if (desc.actionCount > 0)
   {
-    // Ask the button what it is, rather than reserving `Size::Control`: a Button is
-    // `text line + 2 * Spacing::Sm`, which is taller than that token at every font size we ship, so
-    // the old constant let the row overflow its reservation and swallow the bottom inset.
-    m.actionRowH = ButtonBoxHeight(false);
+    // Ask the button what it is, rather than reserving a token and hoping: the measure pass and the
+    // draw pass must name the SAME density, or the row overflows its reservation and swallows the
+    // bottom inset (which is exactly what a bare `Size::Control` reservation used to do here).
+    m.actionRowH = ButtonBoxHeight(false, G3DWidgets::ButtonDensity::Compact);
     m.actionsH = G3DTheme::Spacing::Sm * m.s + m.actionRowH;
   }
 
@@ -2483,7 +2502,11 @@ bool ToastAction(const char* label, bool primary)
     ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * Scale());
   }
   ImGui::PushID(frame.actionIndex++);
-  const bool clicked = Button(label, primary ? ButtonVariant::Primary : ButtonVariant::Soft);
+  // Compact: these are secondary actions riding inside a card that is itself an interruption. At
+  // full size two of them dominate the message they belong to — the styleguide's own toast draws
+  // them as `.btn.sm` for the same reason.
+  const bool clicked =
+    Button(label, primary ? ButtonVariant::Primary : ButtonVariant::Soft, ButtonDensity::Compact);
   ImGui::PopID();
   return clicked;
 }
@@ -2519,15 +2542,20 @@ bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
   const float alpha = ImGui::GetStyle().Alpha;
 
   const bool hasAction = actionLabel != nullptr && actionLabel[0] != 0;
+  // Width reserved for the trailing action: the button's own box (same density it is drawn with)
+  // plus one Sm gap before the text column.
   const float actionW = hasAction
-    ? ImGui::CalcTextSize(actionLabel).x + G3DTheme::Spacing::Md * 2.f * s + G3DTheme::Spacing::Sm * s
+    ? ImGui::CalcTextSize(actionLabel).x + 2.f * ButtonPadX(G3DWidgets::ButtonDensity::Compact) +
+      G3DTheme::Spacing::Sm * s
     : 0.f;
   const float textLeft = railW + padX + iconSize + G3DTheme::Spacing::Sm * s;
   const float textW = std::max(24.f * s, w - textLeft - padX - actionW);
   const float textH = std::min(ImGui::CalcTextSize(text, nullptr, false, textW).y, lineH * 4.f);
-  // Same reservation trap the toast action row fell into: a Button is taller than `Size::Control`,
-  // so a banner sized to that token let its trailing action hang out past the rim. Measure it.
-  const float actionH = hasAction ? ButtonBoxHeight(false) : 0.f;
+  // Same reservation trap the toast action row fell into: measure the button instead of assuming a
+  // token, and name the same density the draw pass will. Compact, like the styleguide's
+  // `.btn.sm.ghost` — a banner's trailing action is subordinate to the statement beside it.
+  const float actionH =
+    hasAction ? ButtonBoxHeight(false, G3DWidgets::ButtonDensity::Compact) : 0.f;
   const float h = std::max({ textH + padY * 2.f, G3DTheme::Size::Control * s, actionH });
 
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -2560,7 +2588,7 @@ bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
     ImGui::PushID(text);
     ImGui::SetCursorScreenPos(ImVec2(
       p1.x - padX - (actionW - G3DTheme::Spacing::Sm * s), p0.y + (h - actionH) * 0.5f));
-    clicked = Button(actionLabel, ButtonVariant::Ghost);
+    clicked = Button(actionLabel, ButtonVariant::Ghost, ButtonDensity::Compact);
     ImGui::PopID();
   }
 
