@@ -9,6 +9,7 @@
 
 #include "G3DLocaleCore.h"
 #include "G3DNotificationCenter.h"
+#include "G3DReport.h"
 #include "vtkF3DConsoleOutputWindow.h"
 
 #if F3D_MODULE_UI
@@ -1049,7 +1050,7 @@ interactor& interactor_impl::initCommands()
         action.primary = true;
         n.actions.push_back(std::move(action));
       }
-      G3DNotificationCenter::GetInstance().Post(std::move(n));
+      G3DReport::PostNotification(std::move(n));
     },
     command_documentation_t{ "notify severity title [detail] [action_label action_command]",
       "post a message to the notification center (severity: info|success|warning|error)" });

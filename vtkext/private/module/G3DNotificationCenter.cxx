@@ -504,6 +504,31 @@ std::vector<G3DNotification> G3DNotificationCenter::History(std::size_t max) con
 }
 
 //----------------------------------------------------------------------------
+std::uint64_t G3DNotificationCenter::LastPostedId() const
+{
+  const std::lock_guard<std::mutex> lock(this->Pimpl->Mutex);
+  return this->Pimpl->NextId - 1;
+}
+
+//----------------------------------------------------------------------------
+bool G3DNotificationCenter::HasCodeSince(const std::string& code, std::uint64_t sinceId) const
+{
+  const std::lock_guard<std::mutex> lock(this->Pimpl->Mutex);
+  for (auto it = this->Pimpl->Items.rbegin(); it != this->Pimpl->Items.rend(); ++it)
+  {
+    if (it->id <= sinceId)
+    {
+      break; // ids are monotonic, so everything further back is older still
+    }
+    if (it->code == code)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+//----------------------------------------------------------------------------
 int G3DNotificationCenter::UnreadCount(G3DSeverity atLeast) const
 {
   const std::lock_guard<std::mutex> lock(this->Pimpl->Mutex);
@@ -588,8 +613,12 @@ void G3DNotificationCenter::SetHoverHold(bool anyHovered)
   {
     // Bank the hold onto every message that was on screen for it. Only live ones matter: banking
     // onto an already-expired record would resurrect it the moment the pointer left.
+    //
+    // Order matters. The liveness test has to run while HoverSince is still set, because that is
+    // what makes a message held past its nominal lifetime still count as live. Clearing it first
+    // makes every held message look expired, so nothing gets banked and the whole stack vanishes
+    // the instant the pointer leaves -- the exact opposite of hover-to-pause.
     const double delta = now - this->Pimpl->HoverSince;
-    this->Pimpl->HoverSince = -1.0;
     for (G3DNotification& n : this->Pimpl->Items)
     {
       if (!n.transient && this->Pimpl->IsLive(n, now))
@@ -597,6 +626,7 @@ void G3DNotificationCenter::SetHoverHold(bool anyHovered)
         n.heldSec += delta;
       }
     }
+    this->Pimpl->HoverSince = -1.0;
   }
 }
 

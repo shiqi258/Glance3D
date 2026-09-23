@@ -4599,7 +4599,10 @@ void vtkF3DImguiActor::RenderMessages()
     rightInset += 60.f * scale;
   }
 
-  float cardW = std::clamp(r.center.w * 0.32f, 280.f * scale, 420.f * scale);
+  // The comfortable width is ~a third of the viewport, but the floor has to yield on a small one:
+  // a fixed 280px minimum inside a 300px window left the card covering the whole frame.
+  const float minCardW = std::min(280.f * scale, r.center.w * 0.6f);
+  float cardW = std::clamp(r.center.w * 0.32f, minCardW, 420.f * scale);
   cardW = std::min(cardW, std::max(120.f * scale, r.center.w - rightInset - margin));
 
   //--------------------------------------------------------------------------
@@ -4676,7 +4679,19 @@ void vtkF3DImguiActor::RenderMessages()
     laid.push_back(std::move(l));
   }
 
-  const int overflow = center.OverflowCount();
+  // Never let the stack take more than half the viewport. Anything beyond that is dropped from
+  // the oldest end and counted into the overflow row instead -- three tall error cards in a small
+  // window would otherwise leave nothing of the scene to look at.
+  int droppedForHeight = 0;
+  const float heightBudget = std::max(80.f * scale, r.center.h * 0.5f);
+  while (laid.size() > 1 && stackH > heightBudget)
+  {
+    stackH -= laid.front().height + gap;
+    laid.erase(laid.begin());
+    ++droppedForHeight;
+  }
+
+  const int overflow = center.OverflowCount() + droppedForHeight;
   const float overflowH = overflow > 0 ? (lineH + padY) : 0.f;
   if (overflow > 0)
   {

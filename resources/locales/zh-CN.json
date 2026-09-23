@@ -16,7 +16,7 @@
   "No reader named {reader} is available.": "没有名为 {reader} 的读取器。",
   "Clear forced reader": "清除强制读取器",
   "Skipped {name}: too large": "已跳过 {name}：体积过大",
-  "It exceeds the {size, number} MiB limit set by --max-size.": "它超过了 --max-size 设定的 {size, number} MiB 上限。",
+  "It exceeds the {size} MiB limit set by --max-size.": "它超过了 --max-size 设定的 {size} MiB 上限。",
   "Could not read {name}": "无法读取 {name}",
   "The file opened but its contents could not be read. It may be corrupt, or use features this build does not support.": "文件已打开，但内容无法解析。它可能已损坏，或使用了当前版本不支持的特性。",
   "Could not open {name}": "无法打开 {name}",

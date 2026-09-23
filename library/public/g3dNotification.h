@@ -128,6 +128,20 @@ public:
   /// Everything recorded this session, newest first.
   static std::vector<message> history(std::size_t max = 200);
 
+  /// Id of the most recent message (0 when none). Take one before an operation, then ask
+  /// reportedSince() afterwards to find out whether it already explained itself.
+  static std::uint64_t lastId();
+
+  /**
+   * Whether a message carrying @p id was reported after @p sinceId.
+   *
+   * Lets a caller skip a generic explanation when a more specific one has already been given for
+   * the same failure -- otherwise a single bad file produces two cards saying nearly the same
+   * thing, one from the importer that knows which file it was and one from the layer above that
+   * only knows the group failed.
+   */
+  static bool reportedSince(code id, std::uint64_t sinceId);
+
   static int unreadCount();
   static void markAllRead();
   static void clear();

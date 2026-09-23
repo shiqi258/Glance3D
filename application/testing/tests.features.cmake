@@ -115,8 +115,8 @@ f3d_test(NAME TestCameraZoomFactor DATA suzanne.obj ARGS --camera-direction=-1,-
 f3d_test(NAME TestCameraPersp DATA Cameras.gltf ARGS --camera-index=0)
 f3d_test(NAME TestCameraOrtho DATA Cameras.gltf ARGS --camera-index=1)
 f3d_test(NAME TestCameraIndexConfiguration DATA Cameras.gltf ARGS --camera-index=0  --camera-azimuth-angle=15 --camera-position=0.7,0.5,3)
-f3d_test(NAME TestCameraIndexInvalid DATA Cameras.gltf ARGS --camera-index=3 REGEXP "is higher than the number of available camera" NO_BASELINE)
-f3d_test(NAME TestCameraIndexNegative DATA Cameras.gltf ARGS --camera-index=-1 REGEXP "Invalid camera index" NO_BASELINE)
+f3d_test(NAME TestCameraIndexInvalid DATA Cameras.gltf ARGS --camera-index=3 REGEXP "G3D-1102" NO_BASELINE)
+f3d_test(NAME TestCameraIndexNegative DATA Cameras.gltf ARGS --camera-index=-1 REGEXP "G3D-1102" NO_BASELINE)
 f3d_test(NAME TestVerboseCamera DATA Cameras.gltf ARGS --camera-index=1 --verbose NO_RENDER REGEXP "0:.*1:")
 
 # Needs https://gitlab.kitware.com/vtk/vtk/-/merge_requests/12489
@@ -248,7 +248,7 @@ f3d_test(NAME TestFontColor DATA suzanne.ply ARGS -n --font-color=Orange UI)
 f3d_test(NAME TestDefines DATA dragon.vtu ARGS -Dscene.up_direction=+Z --define=model.color.rgb=red)
 f3d_test(NAME TestDefinesInvalid DATA dragon.vtu ARGS -Dscene.up_direction+Z REGEXP "Could not parse a define" NO_BASELINE)
 f3d_test(NAME TestDefinesInexistent DATA dragon.vtu ARGS -Dscene.up_director=+Z REGEXP "option from CLI options does not exists" NO_BASELINE)
-f3d_test(NAME TestAlternativeOptionSyntax DATA WaterBottle.glb ARGS --max-size 0.2 REGEXP "file is bigger than max size" NO_BASELINE)
+f3d_test(NAME TestAlternativeOptionSyntax DATA WaterBottle.glb ARGS --max-size 0.2 REGEXP "G3D-1004.*WaterBottle.glb" NO_BASELINE)
 f3d_test(NAME TestCustomOptionsNone DATA red_translucent_monkey.gltf ARGS --blending=none --anti-aliasing=none --point-sprites=none)
 
 ## Config
@@ -282,7 +282,7 @@ f3d_test(NAME TestCommandScriptVerboseMultiAnimationTimeRange SCRIPT DATA Interp
 
 ## MaxSize
 f3d_test(NAME TestMaxSizeBelow DATA suzanne.stl ARGS --max-size=1)
-f3d_test(NAME TestMaxSizeAbove DATA WaterBottle.glb ARGS --max-size=0.2 REGEXP "file is bigger than max size" NO_BASELINE)
+f3d_test(NAME TestMaxSizeAbove DATA WaterBottle.glb ARGS --max-size=0.2 REGEXP "G3D-1004.*WaterBottle.glb" NO_BASELINE)
 f3d_test(NAME TestMaxSizeAboveMultiFile DATA suzanne.obj WaterBottle.glb ARGS --multi-file-mode=all --max-size=0.6 --blending --opacity=0.5)
 
 ## NoRender
@@ -591,7 +591,7 @@ f3d_test(NAME TestInvalidScalarsRange DATA suzanne.ply ARGS -s --coloring-array=
 f3d_test(NAME TestInvalidBackface DATA backface.vtp ARGS --backface-type=invalid REGEXP "is not a valid backface type, assuming it is not set" NO_BASELINE)
 
 # Test non existent file, do not create nonExistentFile.vtp
-f3d_test(NAME TestVerboseNonExistentFile DATA nonExistentFile.vtp REGEXP ".*nonExistentFile.vtp does not exist" NO_RENDER)
+f3d_test(NAME TestVerboseNonExistentFile DATA nonExistentFile.vtp REGEXP "G3D-1001.*nonExistentFile.vtp" NO_RENDER)
 
 # Test non existent font file, do not create nonExistentFile.ttf
 f3d_test(NAME TestVerboseNonExistentFont DATA suzanne.ply ARGS -n --font-file=${F3D_SOURCE_DIR}/testing/data/nonExistentFile.ttf REGEXP "Cannot find \".*nonExistentFile.ttf\" font file" NO_BASELINE)
@@ -601,10 +601,25 @@ f3d_test(NAME TestVerboseOptionsCLI ARGS -x --verbose=debug REGEXP "'axis' = '1'
 f3d_test(NAME TestVerboseOptionsConfig ARGS --verbose=debug CONFIG ${F3D_SOURCE_DIR}/testing/configs/complex.json REGEXP "'ui.axis' = 'true'" NO_BASELINE)
 
 # Test quiet with a non existent file
-f3d_test(NAME TestQuietNonExistentFile DATA nonExistentFile.vtp ARGS --verbose=quiet --no-render REGEXP_FAIL "File .*nonExistentFile.vtp does not exist")
+f3d_test(NAME TestQuietNonExistentFile DATA nonExistentFile.vtp ARGS --verbose=quiet --no-render REGEXP_FAIL "G3D-1001")
+
+# Notifications: every user-facing failure carries its stable G3D-xxxx code, so these assertions
+# hold in any interface language (the message wording is translated, the code is not).
+# The file-not-found / unsupported-format / camera-index / max-size codes are asserted next to the
+# cases that raise them, above and in tests.plugins.cmake.
+
+# The "clear forced reader" action has to actually be offered, or the message is a dead end.
+f3d_test(NAME TestNotificationForceReaderAction DATA suzanne.stl ARGS --force-reader=INVALID --verbose=debug REGEXP "G3D-1003" NO_BASELINE)
+
+# A message posted from a command script must reach the model. Guards the command path the UI
+# actions and the image baselines both ride on.
+f3d_test(NAME TestNotificationCommand DATA cow.vtp SCRIPT NO_BASELINE REGEXP "notification test message")
+
+# An unknown severity is a scripting error, not something to guess at.
+f3d_test(NAME TestNotificationCommandInvalidSeverity DATA cow.vtp SCRIPT NO_BASELINE REGEXP "severity must be one of")
 
 # Test non supported file, do not add support for .dummy file.
-f3d_test(NAME TestUnsupportedFileText DATA unsupportedFile.dummy ARGS --filename REGEXP ".*unsupportedFile.dummy is of an unknown format" NO_RENDER)
+f3d_test(NAME TestUnsupportedFileText DATA unsupportedFile.dummy ARGS --filename REGEXP "G3D-1002.*unsupportedFile.dummy" NO_RENDER)
 
 # Test non existent texture, do not add a dummy.png
 f3d_test(NAME TestNonExistentTexture DATA cow.vtp ARGS --texture-material=${F3D_SOURCE_DIR}/testing/data/dummy.png REGEXP "Texture file does not exist" NO_BASELINE)
@@ -677,7 +692,7 @@ f3d_test(NAME TestConfigFileNonParsableValue DATA cow.vtp CONFIG ${F3D_SOURCE_DI
 f3d_test(NAME TestConfigFileInexistentKey DATA cow.vtp CONFIG ${F3D_SOURCE_DIR}/testing/configs/inexistent_key.json REGEXP "does not exists , did you mean 'scene.animation.indices" NO_BASELINE)
 
 # Test quiet in config file
-f3d_test(NAME TestConfigFileQuiet DATA nonExistentFile.vtp CONFIG ${F3D_SOURCE_DIR}/testing/configs/quiet.json REGEXP_FAIL "File .*/testing/data/nonExistentFile.vtp does not exist" NO_BASELINE)
+f3d_test(NAME TestConfigFileQuiet DATA nonExistentFile.vtp CONFIG ${F3D_SOURCE_DIR}/testing/configs/quiet.json REGEXP_FAIL "G3D-1001" NO_BASELINE)
 
 # Test no file with config file
 f3d_test(NAME TestNoFileConfigFile CONFIG ${F3D_SOURCE_DIR}/testing/configs/verbose.json ARGS --verbose REGEXP "No files to load provided" NO_BASELINE)

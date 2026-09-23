@@ -7,7 +7,7 @@ f3d_test(NAME TestFBX16bits DATA 16bit.fbx PLUGIN assimp)
 f3d_test(NAME TestVerboseCameraAssimp DATA duck.dae ARGS --verbose PLUGIN assimp NO_BASELINE REGEXP "camera1")
 f3d_test(NAME TestDXF DATA PinkEggFromLW.dxf ARGS --background-color=1,1,1 -p PLUGIN assimp)
 
-f3d_test(NAME TestAssimpInvalid DATA invalid_truncated.fbx PLUGIN assimp REGEXP "Some of these files could not be loaded" NO_BASELINE)
+f3d_test(NAME TestAssimpInvalid DATA invalid_truncated.fbx PLUGIN assimp REGEXP "G3D-1007.*invalid_truncated.fbx" NO_BASELINE)
 f3d_test(NAME TestAssimpMetaDataImporter DATA duck.fbx PLUGIN assimp ARGS -m UI)
 
 if(VTK_VERSION VERSION_GREATER_EQUAL 9.5.20251016)

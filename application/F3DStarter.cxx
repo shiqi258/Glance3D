@@ -2174,14 +2174,21 @@ void F3DStarter::LoadFileGroupInternal(
             {
               // Used to be log::info, i.e. invisible at the default verbosity: a file silently
               // dropped from the scene is the worst failure mode the viewer has.
+              //
+              // The limit is a plain {size}, not {size, number}: it is a MiB figure that is
+              // routinely fractional (--max-size 0.2), and the number formatter would group it
+              // as an integer and report the limit as 0.
+              std::string limit = std::to_string(this->Internals->AppOptions.MaxSize.value());
+              limit.erase(limit.find_last_not_of('0') + 1);
+              if (!limit.empty() && limit.back() == '.')
+              {
+                limit.pop_back();
+              }
               notif::report(notif::severity::WARNING, notif::code::FILE_TOO_BIG,
                 G3D_MSG("Skipped {name}: too large"),
                 { { "name", tmpPath.filename().string() } },
-                G3D_MSG("It exceeds the {size, number} MiB limit set by --max-size."),
-                { { "size",
-                    std::to_string(
-                      static_cast<int>(this->Internals->AppOptions.MaxSize.value())) } },
-                tmpPath.string(), tmpPath.string());
+                G3D_MSG("It exceeds the {size} MiB limit set by --max-size."),
+                { { "size", limit } }, tmpPath.string(), tmpPath.string());
             }
             else
             {
@@ -2281,6 +2288,10 @@ void F3DStarter::LoadFileGroupInternal(
         f3d::interactor& asyncInteractor = this->Internals->Engine->getInteractor();
         f3d::window& asyncWindow = this->Internals->Engine->getWindow();
 
+        // Watermark: anything reported past this point came from this load, which lets the catch
+        // below tell whether the importer already named the file that failed.
+        const std::uint64_t notifMark = g3d::notification::lastId();
+
         // RAII: always clear the centered loading overlay on scope exit, whether the load
         // succeeds, throws (finalizeAsync rethrows build failures), or returns early. The hide
         // takes visible effect on the next render() (the post-load Render() or the interactor loop).
@@ -2369,27 +2380,42 @@ void F3DStarter::LoadFileGroupInternal(
         }
         catch (const f3d::scene::load_failure_exception& ex)
         {
-          // The exception is swallowed and the app carries on with an empty scene, so this report
-          // is the ONLY thing standing between the user and an unexplained blank viewport.
+          // The exception is swallowed and the app carries on with an empty scene, so a report is
+          // the ONLY thing standing between the user and an unexplained blank viewport -- unless
+          // the importer already raised one, in which case it named the actual file and said why,
+          // and repeating "could not open them" here would just be a second, vaguer card.
+          const bool alreadyExplained = g3d::notification::reportedSince(
+            g3d::notification::code::READER_FAILED, notifMark);
+
+          // One line, comma-separated: this ends up in the log and in the toast's context row,
+          // both of which are single-line surfaces.
           std::string names;
           for (const fs::path& tmpPath : localPaths)
           {
             if (!names.empty())
             {
-              names += "\n";
+              names += ", ";
             }
             names += tmpPath.filename().string();
           }
-          const bool single = localPaths.size() == 1;
-          g3d::notification::report(g3d::notification::severity::ERROR,
-            g3d::notification::code::GROUP_ALL_FAILED,
-            single ? G3D_MSG("Could not open {name}")
-                   : G3D_MSG("Could not open any of the {n, number} files"),
-            { { "name", single ? localPaths.front().filename().string() : std::string() },
-              { "n", std::to_string(localPaths.size()) } },
-            G3D_MSG("The files were found but could not be read. They may be corrupt, or use "
-                    "features this build does not support."),
-            {}, names + "\n" + ex.what(), names);
+          if (alreadyExplained)
+          {
+            // Keep it in the log for whoever is debugging; the user already has the better card.
+            f3d::log::debug("Load failed for ", names, ": ", ex.what());
+          }
+          else
+          {
+            const bool single = localPaths.size() == 1;
+            g3d::notification::report(g3d::notification::severity::ERROR,
+              g3d::notification::code::GROUP_ALL_FAILED,
+              single ? G3D_MSG("Could not open {name}")
+                     : G3D_MSG("Could not open any of the {n, number} files"),
+              { { "name", single ? localPaths.front().filename().string() : std::string() },
+                { "n", std::to_string(localPaths.size()) } },
+              G3D_MSG("The files were found but could not be read. They may be corrupt, or use "
+                      "features this build does not support."),
+              {}, std::string(ex.what()) + " | " + names, names);
+          }
         }
       }
     }

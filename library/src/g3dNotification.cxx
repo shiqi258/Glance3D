@@ -159,6 +159,19 @@ std::vector<notification::message> notification::history(std::size_t max)
 }
 
 //----------------------------------------------------------------------------
+std::uint64_t notification::lastId()
+{
+  return G3DNotificationCenter::GetInstance().LastPostedId();
+}
+
+//----------------------------------------------------------------------------
+bool notification::reportedSince(code id, std::uint64_t sinceId)
+{
+  return G3DNotificationCenter::GetInstance().HasCodeSince(
+    G3DCodeString(static_cast<G3DCode>(id)), sinceId);
+}
+
+//----------------------------------------------------------------------------
 int notification::unreadCount()
 {
   return G3DNotificationCenter::GetInstance().UnreadCount();

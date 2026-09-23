@@ -1,6 +1,7 @@
 set(test_sources
   TestG3DGLTFSceneTree.cxx
   TestG3DLocaleFormat.cxx
+  TestG3DNotificationCenter.cxx
   TestG3DSceneGraph.cxx
   TestG3DSceneGraphFromFile.cxx
   TestG3DSceneTreeView.cxx

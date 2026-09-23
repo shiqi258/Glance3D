@@ -167,6 +167,14 @@ public:
   /// Full history, newest first, transients excluded.
   std::vector<G3DNotification> History(std::size_t max = 200) const;
 
+  /// Id of the most recently stored record (0 when nothing has been posted). Paired with
+  /// HasCodeSince() to let a caller suppress a generic explanation when a more specific one has
+  /// already been given for the same failure.
+  std::uint64_t LastPostedId() const;
+
+  /// Whether a record carrying @p code was stored after @p sinceId.
+  bool HasCodeSince(const std::string& code, std::uint64_t sinceId) const;
+
   int UnreadCount(G3DSeverity atLeast = G3DSeverity::Warning) const;
   G3DSeverity TopUnreadSeverity() const;
   bool HasLive(bool transientOnly = false) const;
