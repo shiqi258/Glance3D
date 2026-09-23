@@ -6,6 +6,8 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <optional>
@@ -407,4 +409,43 @@ fs::path F3DSystemTools::GetBinaryResourceDirectory()
   }
 
   return dirPath;
+}
+
+//----------------------------------------------------------------------------
+void F3DSystemTools::RevealInFileManager(const fs::path& path, bool select)
+{
+#if defined(_WIN32)
+  // explorer.exe /select,"file" highlights the file; without /select it just opens the folder.
+  std::wstring params;
+  if (select)
+  {
+    params = L"/select,\"" + path.wstring() + L"\"";
+  }
+  else
+  {
+    params = L"\"" + path.wstring() + L"\"";
+  }
+  const HINSTANCE res =
+    ::ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL);
+  // ShellExecute returns a value <= 32 on failure (it is an error code, not a handle).
+  if (reinterpret_cast<std::intptr_t>(res) <= 32)
+  {
+    f3d::log::warn("Could not open the file manager for: ", path.string());
+  }
+#elif defined(__APPLE__)
+  const std::string cmd = select ? ("open -R \"" + path.string() + "\"")
+                                 : ("open \"" + path.string() + "\"");
+  if (std::system(cmd.c_str()) != 0)
+  {
+    f3d::log::warn("Could not open the file manager for: ", path.string());
+  }
+#else
+  // xdg-open has no "select" concept, so always hand it the containing directory.
+  const fs::path target = select ? path.parent_path() : path;
+  const std::string cmd = "xdg-open \"" + target.string() + "\" >/dev/null 2>&1 &";
+  if (std::system(cmd.c_str()) != 0)
+  {
+    f3d::log::warn("Could not open the file manager for: ", path.string());
+  }
+#endif
 }

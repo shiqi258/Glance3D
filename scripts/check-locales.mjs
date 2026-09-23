@@ -26,8 +26,13 @@ const SOURCE_DIRS = [
 const STR = String.raw`"(?:[^"\\]|\\.)*"`;
 // translate(...) / Translate(...) / tr(...) whose first argument is one or more
 // adjacent string literals (C++ concatenates them, e.g. "part 1 " "part 2").
+//
+// G3D_MSG(...) is in here too: it is the no-op marker wrapping keys that are STORED now and
+// translated later (see G3DReport.h). Those never reach a Translate() call with a literal
+// argument, so without this they would be invisible here and the notification system would
+// quietly stop being checked for Chinese coverage.
 const CALL_RE = new RegExp(
-  String.raw`(?:\bt(?:ranslate|r)|\bTranslate)\s*\(\s*(${STR}(?:\s*${STR})*)`, 'g');
+  String.raw`(?:\bt(?:ranslate|r)|\bTranslate|\bG3D_MSG)\s*\(\s*(${STR}(?:\s*${STR})*)`, 'g');
 
 // Concatenate the adjacent string literals captured as one source-key.
 function literalsToKey(seq) {

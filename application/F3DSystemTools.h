@@ -26,6 +26,15 @@ std::filesystem::path GetBinaryResourceDirectory();
  * g3d::locale::normalizeLocale before use.
  */
 std::string GetSystemLocale();
+
+/**
+ * Show @p path in the OS file manager. When @p select is true the file itself is highlighted,
+ * otherwise its parent folder is simply opened -- which is what a missing file needs, since there
+ * is nothing there to select.
+ *
+ * Best effort: failures are logged, never thrown. Nothing in the viewer depends on it working.
+ */
+void RevealInFileManager(const std::filesystem::path& path, bool select);
 }
 
 #endif

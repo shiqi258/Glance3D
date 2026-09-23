@@ -37,6 +37,7 @@
 
 #include "engine.h"
 #include "g3dLocale.h"
+#include "g3dNotification.h"
 #include "interactor.h"
 #include "log.h"
 #include "options.h"
@@ -2150,9 +2151,17 @@ void F3DStarter::LoadFileGroupInternal(
 
         try
         {
+          using notif = g3d::notification;
           if (!fs::exists(tmpPath))
           {
-            f3d::log::error(tmpPath.string(), " does not exist");
+            notif::report(notif::severity::ERROR, notif::code::FILE_NOT_FOUND,
+              G3D_MSG("Cannot find {name}"), { { "name", tmpPath.filename().string() } },
+              G3D_MSG("The path does not exist. Check the spelling, or whether the file has been "
+                      "moved or renamed."),
+              {}, tmpPath.string(), tmpPath.string(),
+              { { g3d::locale::translate("Open containing folder"),
+                  "reveal_path \"" + tmpPath.string() + "\"", true },
+                { g3d::locale::translate("Open file..."), "open_file_dialog", false } });
           }
           else if (scene.supports(tmpPath))
           {
@@ -2163,7 +2172,16 @@ void F3DStarter::LoadFileGroupInternal(
                 static_cast<std::uintmax_t>(
                   this->Internals->AppOptions.MaxSize.value() * BYTES_IN_MIB))
             {
-              f3d::log::info(tmpPath.string(), " skipped, file is bigger than max size");
+              // Used to be log::info, i.e. invisible at the default verbosity: a file silently
+              // dropped from the scene is the worst failure mode the viewer has.
+              notif::report(notif::severity::WARNING, notif::code::FILE_TOO_BIG,
+                G3D_MSG("Skipped {name}: too large"),
+                { { "name", tmpPath.filename().string() } },
+                G3D_MSG("It exceeds the {size, number} MiB limit set by --max-size."),
+                { { "size",
+                    std::to_string(
+                      static_cast<int>(this->Internals->AppOptions.MaxSize.value())) } },
+                tmpPath.string(), tmpPath.string());
             }
             else
             {
@@ -2175,14 +2193,24 @@ void F3DStarter::LoadFileGroupInternal(
             auto forceReader = this->Internals->LibOptions.scene.force_reader;
             if (forceReader)
             {
-              f3d::log::warn(g3d::locale::translate(
-                "Forced reader {reader} doesn't exist", { { "reader", *forceReader } }));
+              // The one-click fix is the point of this message: the user set a reader that does
+              // not exist, and clearing it is exactly what they need to do next.
+              notif::report(notif::severity::ERROR, notif::code::FORCE_READER_INVALID,
+                G3D_MSG("Invalid forced reader"),
+                { { "reader", *forceReader } },
+                G3D_MSG("No reader named {reader} is available."),
+                { { "reader", *forceReader } }, *forceReader, *forceReader,
+                { { g3d::locale::translate("Clear forced reader"), "reset scene.force_reader",
+                  true } });
             }
             else
             {
-              f3d::log::warn(tmpPath.string(),
-                " is of an unknown format or contains unsupported contents, use "
-                "--force-reader to select a specific reader");
+              notif::report(notif::severity::WARNING, notif::code::UNSUPPORTED_FORMAT,
+                G3D_MSG("Unsupported file format"),
+                { { "name", tmpPath.filename().string() } },
+                G3D_MSG("{name} is not a supported 3D format. Use --force-reader to pick a reader "
+                        "explicitly."),
+                { { "name", tmpPath.filename().string() } }, tmpPath.string(), tmpPath.string());
             }
             unsupported = true;
           }
@@ -2242,8 +2270,9 @@ void F3DStarter::LoadFileGroupInternal(
         }
         catch (const f3d::scene::load_failure_exception& ex)
         {
-          f3d::log::error(
-            g3d::locale::translate("Input stream could not be loaded: {error}", { { "error", ex.what() } }));
+          g3d::notification::report(g3d::notification::severity::ERROR,
+            g3d::notification::code::STREAM_READ_FAILED, G3D_MSG("Could not read the piped input"),
+            {}, G3D_MSG("The data arrived but could not be parsed as a 3D scene."), {}, ex.what());
         }
       }
 
@@ -2340,12 +2369,27 @@ void F3DStarter::LoadFileGroupInternal(
         }
         catch (const f3d::scene::load_failure_exception& ex)
         {
-          f3d::log::error(g3d::locale::translate(
-            "Some of these files could not be loaded: {error}", { { "error", ex.what() } }));
+          // The exception is swallowed and the app carries on with an empty scene, so this report
+          // is the ONLY thing standing between the user and an unexplained blank viewport.
+          std::string names;
           for (const fs::path& tmpPath : localPaths)
           {
-            f3d::log::error("  ", tmpPath.string());
+            if (!names.empty())
+            {
+              names += "\n";
+            }
+            names += tmpPath.filename().string();
           }
+          const bool single = localPaths.size() == 1;
+          g3d::notification::report(g3d::notification::severity::ERROR,
+            g3d::notification::code::GROUP_ALL_FAILED,
+            single ? G3D_MSG("Could not open {name}")
+                   : G3D_MSG("Could not open any of the {n, number} files"),
+            { { "name", single ? localPaths.front().filename().string() : std::string() },
+              { "n", std::to_string(localPaths.size()) } },
+            G3D_MSG("The files were found but could not be read. They may be corrupt, or use "
+                    "features this build does not support."),
+            {}, names + "\n" + ex.what(), names);
         }
       }
     }
@@ -3016,6 +3060,35 @@ void F3DStarter::AddCommands()
     f3d::interactor::command_documentation_t{
       "add_files_or_set_hdri [path/to/file1] [path/to/file2]",
       "add_files or set_hdri depending on the file extension" },
+    complFilesystem);
+
+  // Reveal a path in the OS file manager. Backs the "Open containing folder" action on the
+  // file-not-found message: when a path is wrong, the fastest fix is usually to go look at where
+  // it was supposed to be.
+  interactor.addCommand(
+    "reveal_path",
+    [](const std::vector<std::string>& args)
+    {
+      if (args.size() != 1)
+      {
+        throw f3d::interactor::invalid_args_exception(
+          "Command: reveal_path is expecting 1 argument");
+      }
+      const fs::path target = fs::path(args[0]);
+      // Select the file itself when it exists, otherwise fall back to opening its parent: the
+      // whole point of this action is that the file may be missing.
+      std::error_code ec;
+      const bool exists = fs::exists(target, ec);
+      const fs::path dir = exists ? target : target.parent_path();
+      if (dir.empty() || !fs::exists(dir, ec))
+      {
+        f3d::log::warn("reveal_path: ", target.string(), " has no directory to open");
+        return;
+      }
+      F3DSystemTools::RevealInFileManager(target, exists);
+    },
+    f3d::interactor::command_documentation_t{
+      "reveal_path path/to/file", "show a file (or its folder) in the OS file manager" },
     complFilesystem);
 
 #if F3D_MODULE_TINYFILEDIALOGS

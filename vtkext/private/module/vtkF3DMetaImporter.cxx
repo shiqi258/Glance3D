@@ -1,6 +1,7 @@
 #include "vtkF3DMetaImporter.h"
 
 #include "F3DLog.h"
+#include "G3DReport.h"
 #include "G3DLocaleCore.h"
 #include "vtkF3DGenericImporter.h"
 #include "vtkF3DImporter.h"
@@ -775,9 +776,12 @@ bool vtkF3DMetaImporter::BuildGeometry()
   {
     if (this->Pimpl->CameraIndex < 0)
     {
-      F3DLog::Print(F3DLog::Severity::Warning,
-        "Invalid camera index: " + std::to_string(this->Pimpl->CameraIndex.value()) +
-          ". Camera may be incorrect.");
+      G3DReport::Post({ .code = G3DCode::CameraIndexInvalid,
+        .severity = G3DSeverity::Warning,
+        .titleKey = G3D_MSG("Invalid camera index"),
+        .titleArgs = {},
+        .detailKey = G3D_MSG("Camera {index, number} does not exist, so the view may be wrong."),
+        .detailArgs = { { "index", std::to_string(this->Pimpl->CameraIndex.value()) } } });
     }
     localCameraIndex = this->Pimpl->CameraIndex.value();
   }
@@ -806,6 +810,17 @@ bool vtkF3DMetaImporter::BuildGeometry()
     const auto g3dParseStart = std::chrono::steady_clock::now();
     if (!importer->Update())
     {
+      // This used to return a bare false: the whole group was abandoned and nothing anywhere said
+      // WHICH file had failed. The name is right here in importerInfo -- the [G3D-PERF] line two
+      // statements down already uses it.
+      G3DReport::Post({ .code = G3DCode::ReaderFailed,
+        .severity = G3DSeverity::Error,
+        .titleKey = G3D_MSG("Could not read {name}"),
+        .titleArgs = { { "name", importerInfo.Name } },
+        .detailKey = G3D_MSG("The file opened but its contents could not be read. It may be "
+                             "corrupt, or use features this build does not support."),
+        .raw = importerInfo.Name,
+        .dedupSalt = importerInfo.Name });
       return false;
     }
     const auto g3dParseEnd = std::chrono::steady_clock::now();
@@ -822,9 +837,12 @@ bool vtkF3DMetaImporter::BuildGeometry()
   if (localCameraIndex > 0)
   {
     // Here we know that CameraIndex has a value
-    F3DLog::Print(F3DLog::Severity::Warning,
-      "Camera index " + std::to_string(this->Pimpl->CameraIndex.value()) +
-        " is higher than the number of available camera in the files. Camera may be incorrect.");
+    G3DReport::Post({ .code = G3DCode::CameraIndexInvalid,
+      .severity = G3DSeverity::Warning,
+      .titleKey = G3D_MSG("Invalid camera index"),
+      .titleArgs = {},
+      .detailKey = G3D_MSG("Camera {index, number} does not exist, so the view may be wrong."),
+      .detailArgs = { { "index", std::to_string(this->Pimpl->CameraIndex.value()) } } });
   }
 
   return true;
