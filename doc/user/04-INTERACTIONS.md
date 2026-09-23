@@ -100,7 +100,8 @@ Other hotkeys and interactions are available:
 - <kbd>CTRL</kbd>+<kbd>Q</kbd>: close the window and quit F3D.
 - <kbd>Esc</kbd>: display the command palette (top-centered console with live command suggestions and the recent log tail) or hide it/the minimal console.
 - <kbd>:</kbd>: display the minimal console.
-- <kbd>CTRL</kbd>+<kbd>K</kbd>: toggle notifications.
+- <kbd>CTRL</kbd>+<kbd>K</kbd>: toggle the key hints (the transient "Grid: ON" readouts raised by a binding).
+- <kbd>CTRL</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>: toggle the message center, listing everything Glance3D reported this session.
 - <kbd>Space</kbd>: play the animation if any.
 - <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd>: play the animation backward if any.
 - <kbd>Shift</kbd>+<kbd>V</kbd>: cycle between verbosity levels.

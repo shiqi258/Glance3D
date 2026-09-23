@@ -186,8 +186,13 @@ window_impl::window_impl(const options& options, const std::optional<Type>& type
   this->Internals->Camera = std::make_unique<detail::camera_impl>();
   this->Internals->Camera->SetVTKRenderer(this->Internals->Renderer);
 
-  this->Internals->Renderer->SetConsoleBadgeEnabled(
-    !offscreen || utils::getEnv("CTEST_F3D_CONSOLE_BADGE").has_value());
+  // Freeze the message clock under ctest: a card's countdown would otherwise depend on how long
+  // the machine took to reach the frame being compared, which is not something a pixel baseline
+  // can encode. Frozen at zero, so nothing expires mid-test.
+  if (utils::getEnv("CTEST_F3D_FIXED_CLOCK").has_value())
+  {
+    G3DNotificationCenter::GetInstance().SetClockOverride([]() { return 0.0; });
+  }
 
   this->Initialize();
 
@@ -557,6 +562,7 @@ void window_impl::UpdateDynamicOptions()
   renderer->SetBackdropOpacity(opt.ui.backdrop.opacity);
   renderer->ShowNotification(opt.ui.notifications.enable);
   renderer->ShowBindings(opt.ui.notifications.show_bindings);
+  renderer->ShowNotificationCenter(opt.ui.notification_center);
 
   // The notification center is a singleton shared by every frontend, so its policy is pushed here
   // rather than threaded through the renderer. `enable` deliberately does NOT gate this: it means

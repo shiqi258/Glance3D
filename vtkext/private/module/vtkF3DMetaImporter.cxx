@@ -749,7 +749,8 @@ bool vtkF3DMetaImporter::Update()
   // [G3D] Two-phase load: BuildGeometry() runs the heavy parse off the renderer; CommitToRenderer()
   // registers the actors. Both are public so the parse can be driven on a worker thread (see
   // scene_impl::addAsync); Update() chains them for synchronous callers.
-  if (!this->BuildGeometry())
+  const BuildResult result = this->BuildGeometry();
+  if (!result.anySucceeded)
   {
     return false;
   }
@@ -760,7 +761,7 @@ bool vtkF3DMetaImporter::Update()
 }
 
 //----------------------------------------------------------------------------
-bool vtkF3DMetaImporter::BuildGeometry()
+vtkF3DMetaImporter::BuildResult vtkF3DMetaImporter::BuildGeometry()
 {
   // [G3D-S2] Build geometry against a GL-free render window so this phase can later run off the
   // render thread. The VTK importers add their actors to this build window's renderer; they are
@@ -786,6 +787,11 @@ bool vtkF3DMetaImporter::BuildGeometry()
     localCameraIndex = this->Pimpl->CameraIndex.value();
   }
 
+  BuildResult result;
+  // Identity, not name: two entries can carry the same display name (the same file added twice),
+  // and at this point NOTHING is marked Updated yet -- that happens in CommitToRenderer -- so a
+  // name-based removal would take the healthy twin down with the broken one.
+  std::vector<vtkImporter*> failedImporters;
   for (auto& importerInfo : this->Pimpl->Importers)
   {
     vtkImporter* importer = importerInfo.Importer;
@@ -793,6 +799,8 @@ bool vtkF3DMetaImporter::BuildGeometry()
     // Importer has already been updated
     if (importerInfo.Updated)
     {
+      result.anySucceeded = true;
+      ++result.succeeded;
       localCameraIndex -= importer->GetNumberOfCameras();
       continue;
     }
@@ -810,9 +818,10 @@ bool vtkF3DMetaImporter::BuildGeometry()
     const auto g3dParseStart = std::chrono::steady_clock::now();
     if (!importer->Update())
     {
-      // This used to return a bare false: the whole group was abandoned and nothing anywhere said
-      // WHICH file had failed. The name is right here in importerInfo -- the [G3D-PERF] line two
-      // statements down already uses it.
+      // This used to return a bare false: the whole group was abandoned, the other files never got
+      // their turn, and nothing anywhere said WHICH one had failed. Now the failure is named and
+      // the loop carries on -- one unreadable file in a drop of ten costs that file, not the drop.
+      // The name is right here in importerInfo; the [G3D-PERF] line below already uses it.
       G3DReport::Post({ .code = G3DCode::ReaderFailed,
         .severity = G3DSeverity::Error,
         .titleKey = G3D_MSG("Could not read {name}"),
@@ -821,7 +830,9 @@ bool vtkF3DMetaImporter::BuildGeometry()
                              "corrupt, or use features this build does not support."),
         .raw = importerInfo.Name,
         .dedupSalt = importerInfo.Name });
-      return false;
+      result.failed.push_back(importerInfo.Name);
+      failedImporters.push_back(importer);
+      continue;
     }
     const auto g3dParseEnd = std::chrono::steady_clock::now();
     F3DLog::Print(F3DLog::Severity::Debug,
@@ -831,10 +842,27 @@ bool vtkF3DMetaImporter::BuildGeometry()
                          .count()) +
         " ms");
 
+    result.anySucceeded = true;
+    ++result.succeeded;
     localCameraIndex -= importer->GetNumberOfCameras();
   }
 
-  if (localCameraIndex > 0)
+  // Drop the importers that failed before anyone can commit their half-built state: an importer
+  // that returned false may still have left actors on the build window, and CommitToRenderer()
+  // would happily re-home them into the scene.
+  if (!failedImporters.empty())
+  {
+    auto& importers = this->Pimpl->Importers;
+    importers.erase(std::remove_if(importers.begin(), importers.end(),
+                      [&](const ImporterInfo& info)
+                      {
+                        return std::find(failedImporters.begin(), failedImporters.end(),
+                                 info.Importer.Get()) != failedImporters.end();
+                      }),
+      importers.end());
+  }
+
+  if (localCameraIndex > 0 && result.anySucceeded)
   {
     // Here we know that CameraIndex has a value
     G3DReport::Post({ .code = G3DCode::CameraIndexInvalid,
@@ -845,7 +873,7 @@ bool vtkF3DMetaImporter::BuildGeometry()
       .detailArgs = { { "index", std::to_string(this->Pimpl->CameraIndex.value()) } } });
   }
 
-  return true;
+  return result;
 }
 
 //----------------------------------------------------------------------------

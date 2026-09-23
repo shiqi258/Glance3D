@@ -38,29 +38,22 @@ public:
   /**
    * Show the console: the command palette (top-centered overlay with live suggestions and the
    * recent log tail) or, when @p minimal, the single input line. @p topOffset keeps the window
-   * clear of the docked top bar when the panel chrome is open.
+   * clear of the docked top bar when the panel chrome is open. @p rightInset is the width the
+   * minimal line must leave free at the right end for the viewport's top-right chrome column --
+   * the caller reads it from the single owner of that corner rather than measuring whatever
+   * happens to be up there.
    */
-  void ShowConsole(bool minimal, float topOffset = 0.f);
+  void ShowConsole(bool minimal, float topOffset = 0.f, float rightInset = 0.f);
 
   /**
-   * Show console badge
-   */
-  void ShowBadge();
-
-  /**
-   * Return true if the console badge is visible, false otherwise
-   */
-  bool IsBadgeVisible() const;
-
-  /**
-   * Clear console
+   * Clear the console log.
+   *
+   * Deliberately does NOT clear the message history: `clear` is a user-visible command about the
+   * console's own log tail, and the message center is a different surface with a different
+   * lifetime. It does mark the messages read, because reading the console is how a user learns
+   * what happened -- the unread bell would otherwise keep pointing at what they just read.
    */
   void Clear();
-
-  /**
-   * Get Badge window size
-   */
-  ImVec2 GetBadgeSize();
 
   /**
    * Set the callback to get completion candidates

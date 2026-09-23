@@ -1,13 +1,10 @@
 #include "vtkF3DUIActor.h"
 
-#include "vtkF3DRenderer.h"
+#include "G3DNotificationCenter.h"
 
 #include <vtkObjectFactory.h>
 #include <vtkOpenGLRenderWindow.h>
-#include <vtkRendererCollection.h>
 #include <vtkViewport.h>
-
-#include <algorithm>
 
 vtkObjectFactoryNewMacro(vtkF3DUIActor);
 
@@ -121,12 +118,6 @@ void vtkF3DUIActor::SetMinimalConsoleVisibility(bool show)
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DUIActor::SetConsoleBadgeEnabled(bool enabled)
-{
-  this->ConsoleBadgeEnabled = enabled;
-}
-
-//----------------------------------------------------------------------------
 void vtkF3DUIActor::SetCheatSheet(const std::vector<CheatSheetGroup>& cheatsheet)
 {
   this->CheatSheet = cheatsheet;
@@ -171,6 +162,12 @@ void vtkF3DUIActor::SetUIAnimationState(const UIAnimationState& state)
 void vtkF3DUIActor::SetNotificationVisibility(bool show)
 {
   this->NotificationVisible = show;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DUIActor::SetNotificationCenterVisibility(bool show)
+{
+  this->NotificationCenterVisible = show;
 }
 
 //----------------------------------------------------------------------------
@@ -301,11 +298,6 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
     this->RenderCheatSheet();
   }
 
-  if (this->ConsoleBadgeEnabled)
-  {
-    this->RenderConsoleBadge();
-  }
-
   if (this->FpsCounterVisible)
   {
     this->RenderFpsCounter();
@@ -322,20 +314,16 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   this->RenderControlPanel(renWin);
   this->RenderControlToggle();
 
-  vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
-  assert(ren != nullptr);
-
-  double currentTime = ren->GetTotalTime();
-
-  // clear outdated notifications
-  while (!this->Notifications.empty() && currentTime >= this->Notifications.back().stopTime)
-  {
-    this->Notifications.pop_back();
-  }
-
   if (this->NotificationVisible)
   {
-    this->RenderNotifications(currentTime);
+    this->RenderBindingHud();
+  }
+
+  // The message center: a floating card the user may drag, submitted before the toasts so a fresh
+  // message still reads on top of the history it was just added to.
+  if (this->NotificationCenterVisible)
+  {
+    this->RenderNotificationCenter();
   }
 
   // Problem messages sit above the docked chrome but below the console palette, which is why they
@@ -363,18 +351,32 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
 
 //----------------------------------------------------------------------------
 void vtkF3DUIActor::AddNotification(const std::string& desc, const std::string& value,
-  const std::string& bind, double startTime, double duration)
+  const std::string& bind, double duration, BindingValueState state)
 {
-  if (!this->Notifications.empty())
+  G3DNotification n;
+  n.transient = true;
+  n.source = "user";
+  // The strings arrive already translated (the binding documentation callbacks run tr() as they
+  // build them), so they are stored as their own keys: a second lookup misses and returns them
+  // unchanged. Nothing about a HUD entry outlives the keystroke, so there is no language switch
+  // to re-render for.
+  n.titleKey = desc;
+  n.detailKey = value;
+  n.raw = bind;
+  n.dedupKey = desc.empty() ? std::string() : "hud:" + desc;
+  n.duration = duration;
+  n.severity = G3DSeverity::Info; // a state readout is never a problem, whatever the state is
+  switch (state)
   {
-    Notification& last = this->Notifications.front();
-    if (last.desc == desc && last.value != value)
-    {
-      last.value = value;
-      last.stopTime = startTime + duration;
-      return;
-    }
+    case BindingValueState::On:
+      n.code = "hud.on";
+      break;
+    case BindingValueState::Off:
+      n.code = "hud.off";
+      break;
+    case BindingValueState::Neutral:
+    default:
+      break;
   }
-  this->Notifications.emplace_front(
-    Notification{ desc, value, bind, startTime, startTime + duration });
+  G3DNotificationCenter::GetInstance().Post(std::move(n));
 }

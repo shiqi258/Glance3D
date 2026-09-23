@@ -145,6 +145,17 @@ public:
   static int unreadCount();
   static void markAllRead();
   static void clear();
+
+  /**
+   * Monotonic change counter: bumped whenever anything is reported, coalesced, dismissed, marked
+   * read or cleared.
+   *
+   * This is how a frontend learns something changed -- deliberately a counter to poll rather than
+   * a callback to register. Messages are reported from the load worker, so a callback would fire
+   * on the wrong thread, which for a JS presenter is fatal. Every frontend already has a frame
+   * loop; comparing one integer in it costs nothing.
+   */
+  static std::uint64_t revision();
 };
 }
 

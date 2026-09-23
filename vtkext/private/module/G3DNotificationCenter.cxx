@@ -84,6 +84,10 @@ struct G3DNotificationCenter::Internals
   std::deque<G3DNotification> Items;
 
   std::uint64_t NextId = 1;
+  /// Bumped on every change to the store. A frontend with its own frame loop (the web presenter)
+  /// polls this instead of taking a callback: Post() may run on the load worker, and a JS callback
+  /// invoked from a pthread would land on the wrong thread.
+  std::uint64_t Revision = 0;
   Policy Pol;
 
   std::function<double()> Clock; ///< null: the real steady clock
@@ -275,6 +279,7 @@ std::uint64_t G3DNotificationCenter::Post(G3DNotification n)
   {
     hit->count += n.count;
     hit->createdAt = now;
+    ++this->Pimpl->Revision;
     hit->severity = std::max(hit->severity, n.severity);
     if (!n.detailKey.empty())
     {
@@ -317,11 +322,13 @@ std::uint64_t G3DNotificationCenter::Post(G3DNotification n)
       hit->createdAt = now;
       hit->severity = std::max(hit->severity, storm.severity);
       hit->read = false;
+      ++this->Pimpl->Revision;
       return hit->id;
     }
     storm.id = this->Pimpl->NextId++;
     this->Pimpl->Items.push_back(storm);
     this->Pimpl->Trim();
+    ++this->Pimpl->Revision;
     return storm.id;
   }
 
@@ -331,6 +338,7 @@ std::uint64_t G3DNotificationCenter::Post(G3DNotification n)
   this->Pimpl->Items.push_back(std::move(n));
   const std::uint64_t id = this->Pimpl->Items.back().id;
   this->Pimpl->Trim();
+  ++this->Pimpl->Revision;
   return id;
 }
 
@@ -376,6 +384,7 @@ void G3DNotificationCenter::Dismiss(std::uint64_t id)
     {
       n.userDismissed = true;
       n.read = true;
+      ++this->Pimpl->Revision;
       return;
     }
   }
@@ -398,6 +407,7 @@ void G3DNotificationCenter::DismissAll(bool includeSticky)
     }
     n.userDismissed = true;
     n.read = true;
+    ++this->Pimpl->Revision;
   }
 }
 
@@ -410,6 +420,7 @@ void G3DNotificationCenter::MarkRead(std::uint64_t id)
     if (n.id == id)
     {
       n.read = true;
+      ++this->Pimpl->Revision;
       return;
     }
   }
@@ -419,9 +430,17 @@ void G3DNotificationCenter::MarkRead(std::uint64_t id)
 void G3DNotificationCenter::MarkAllRead()
 {
   const std::lock_guard<std::mutex> lock(this->Pimpl->Mutex);
+  bool changed = false;
   for (G3DNotification& n : this->Pimpl->Items)
   {
+    changed = changed || !n.read;
     n.read = true;
+  }
+  // Only on a real change: the message center calls this every frame it is open, and a counter
+  // that ticks every frame tells a polling frontend nothing.
+  if (changed)
+  {
+    ++this->Pimpl->Revision;
   }
 }
 
@@ -430,6 +449,7 @@ void G3DNotificationCenter::ClearHistory()
 {
   const std::lock_guard<std::mutex> lock(this->Pimpl->Mutex);
   this->Pimpl->Items.clear();
+  ++this->Pimpl->Revision;
 }
 
 //----------------------------------------------------------------------------
@@ -526,6 +546,28 @@ bool G3DNotificationCenter::HasCodeSince(const std::string& code, std::uint64_t 
     }
   }
   return false;
+}
+
+//----------------------------------------------------------------------------
+std::uint64_t G3DNotificationCenter::Revision() const
+{
+  const std::lock_guard<std::mutex> lock(this->Pimpl->Mutex);
+  return this->Pimpl->Revision;
+}
+
+//----------------------------------------------------------------------------
+int G3DNotificationCenter::CountAtLeast(G3DSeverity atLeast) const
+{
+  const std::lock_guard<std::mutex> lock(this->Pimpl->Mutex);
+  int count = 0;
+  for (const G3DNotification& n : this->Pimpl->Items)
+  {
+    if (!n.transient && n.severity >= atLeast)
+    {
+      ++count;
+    }
+  }
+  return count;
 }
 
 //----------------------------------------------------------------------------

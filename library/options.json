@@ -354,6 +354,10 @@
         "type": "int",
         "default_value": "3"
       }
+    },
+    "notification_center": {
+      "type": "bool",
+      "default_value": "false"
     }
   },
   "model": {

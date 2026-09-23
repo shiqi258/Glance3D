@@ -11,7 +11,10 @@ For Glance3D users:
 - Added a `--checkerboard` option to display a checkerboard texture to check UVs
 - Added a `--scene-hierarchy` option and interactive bind (`Shift+H`) to show a hierarchy widget that let enabling/disabling actor visibility
 - Added a `--normal-glyphs` option to show normals as arrow glyphs
-- Added a `--notifications` option and interactive bind (`Ctrl+K`) to enable/disable notifications, which shows a widget whenever an interactive bind is pressed
+- Added a `--notifications` option and interactive bind (`Ctrl+K`) to enable/disable the key hints, which show a widget whenever an interactive bind is pressed
+- Added problem messages: a failure or warning now appears as a readable card at the bottom right of the viewport, with what happened, the file it happened to and what can be done about it, instead of lighting a bare `!` in the corner. Errors stay until dismissed, the stack pauses while the pointer rests on it, and a burst of identical warnings collapses into one card with a repeat count (`--no-messages` turns the cards off)
+- Added a message center (`--notification-center`, the bell in the top bar, or `Ctrl+Shift+K`): everything reported this session, with the detail, the raw developer text and any one-click fixes. The corner alert badge is gone, and the frame counter moved to the viewport's top left
+- Added actionable messages for the common load failures: a wrong `--force-reader` offers to clear it, a missing file offers to open its containing folder, and a file skipped for exceeding `--max-size` now says so instead of being dropped silently
 - Added a `--dpi-aware` option to rescale font automatically on HiDPI screens (Windows only)
 - Added CAD semantics to the scene tree for STEP/IGES/XBF files: assemblies, parts and instances are labelled as such, and each carries the colour, layer, material and validation properties (volume, area, centroid) the file declared
 - Added the product an assembly occurrence points at: instance rows get their own glyph and name their target, both in the tree and in the property panel

@@ -46,7 +46,8 @@ F3DLogFile::F3DLogFile(int argc, char** argv)
   {
     try
     {
-      f3d::log::forward(nullptr);
+      f3d::log::removeForwarder(this->ForwarderToken);
+      this->ForwarderToken = 0;
     }
     catch (...)
     {
@@ -132,10 +133,12 @@ void F3DLogFile::Initialize(int argc, char** argv)
   this->Stream << "========================================\n";
   this->Stream.flush();
 
-  // Register the forwarder. It receives every f3d log message, all levels,
-  // regardless of the console verbose level.
-  f3d::log::forward([this](f3d::log::VerboseLevel level, const std::string& msg)
-    { this->Write(level, msg); });
+  // Register the forwarder. It receives every f3d log message, all levels, regardless of the
+  // console verbose level. Subscribed rather than SET: log::forward() owns a single slot, so an
+  // embedder (or a JS binding) calling it would otherwise switch the session log file off without
+  // a word.
+  this->ForwarderToken = f3d::log::addForwarder(
+    [this](f3d::log::VerboseLevel level, const std::string& msg) { this->Write(level, msg); });
 }
 
 //----------------------------------------------------------------------------
@@ -146,7 +149,8 @@ F3DLogFile::~F3DLogFile()
     // Unregister first so no callback can touch the stream while it is closing.
     // This object outlives F3DStarter (and thus the dmon watcher thread), so no
     // other thread is logging at this point.
-    f3d::log::forward(nullptr);
+    f3d::log::removeForwarder(this->ForwarderToken);
+    this->ForwarderToken = 0;
 
     std::lock_guard<std::mutex> lock(this->Mutex);
     if (this->Stream.is_open())

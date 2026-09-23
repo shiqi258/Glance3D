@@ -521,5 +521,24 @@
   "Click to copy. Right-click for more": "单击复制，右键查看更多",
   "Copy full path": "复制完整路径",
   "Copy file name": "复制文件名",
-  "Copy containing folder": "复制所在文件夹"
+  "Copy containing folder": "复制所在文件夹",
+
+  "Messages": "消息",
+  "Message center": "消息中心",
+  "Clear all": "全部清除",
+  "Open console": "打开控制台",
+  "All messages": "全部消息",
+  "Warnings and errors only": "只看警告与错误",
+  "No messages this session": "本次会话还没有消息",
+  "No warnings or errors this session": "本次会话没有警告或错误",
+  "Load it anyway": "仍然加载",
+  "{n, number} of {total, number} files could not be loaded": "{total, number} 个文件中有 {n, number} 个未能加载",
+  "The rest of the scene loaded. See the message center for which files failed and why.": "场景其余部分已加载。哪些文件失败、为什么，见消息中心。",
+  "Nothing loaded: {n, plural, one{# file failed} other{# files failed}}": "未加载任何内容：{n, plural, other{# 个文件失败}}",
+  "Key hints": "快捷键提示",
+  "Details": "详情",
+  "{n} unread": "{n} 条未读",
+  "just now": "刚刚",
+  "{n} min ago": "{n} 分钟前",
+  "{n} h ago": "{n} 小时前"
 }

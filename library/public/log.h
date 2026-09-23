@@ -4,6 +4,7 @@
 #include "export.h"
 
 /// @cond
+#include <cstdint>
 #include <functional>
 #include <sstream>
 #include <string>
@@ -118,12 +119,28 @@ public:
   using forward_fn_t = std::function<void(VerboseLevel, const std::string&)>;
 
   /**
-   * Set a callback function to forward log messages.
+   * Set THE callback function to forward log messages.
    * The callback will be invoked with the level and the message string whenever a message is
    * logged, regardless of the verbose level.
    * Set to nullptr to disable forwarding.
+   *
+   * There is only one such slot: a second call replaces the first. When several subscribers need
+   * the stream at once (an application's own file log AND an embedder's callback), use
+   * addForwarder() instead -- that is the case this single slot silently broke.
    */
   static void forward(const forward_fn_t& callback);
+
+  /**
+   * Subscribe to log messages without displacing anyone else. Returns a token for
+   * removeForwarder(); 0 when @p callback is null.
+   *
+   * Callbacks run on the thread that logged, outside any internal lock. A callback must not
+   * assume it is the only one, and must not block.
+   */
+  static std::uint64_t addForwarder(const forward_fn_t& callback);
+
+  /// Unsubscribe a callback added by addForwarder(). Unknown tokens are ignored.
+  static void removeForwarder(std::uint64_t token);
 
 protected:
   //! @cond

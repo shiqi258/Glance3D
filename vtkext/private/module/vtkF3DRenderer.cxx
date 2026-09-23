@@ -2022,6 +2022,12 @@ void vtkF3DRenderer::ShowBindings(bool show)
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DRenderer::ShowNotificationCenter(bool show)
+{
+  this->UIActor->SetNotificationCenterVisibility(show);
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DRenderer::ShowEdge(const std::optional<bool>& show)
 {
   if (this->EdgeVisible != show)
@@ -4004,14 +4010,8 @@ void vtkF3DRenderer::UpdateControlPanelPush()
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DRenderer::SetConsoleBadgeEnabled(bool enabled)
+void vtkF3DRenderer::AddNotification(const std::string& desc, const std::string& value,
+  const std::string& bind, double duration, vtkF3DUIActor::BindingValueState state)
 {
-  this->UIActor->SetConsoleBadgeEnabled(enabled);
-}
-
-//----------------------------------------------------------------------------
-void vtkF3DRenderer::AddNotification(
-  const std::string& desc, const std::string& value, const std::string& bind, double duration)
-{
-  this->UIActor->AddNotification(desc, value, bind, this->TotalTime, duration);
+  this->UIActor->AddNotification(desc, value, bind, duration, state);
 }

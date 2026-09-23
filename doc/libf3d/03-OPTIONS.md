@@ -617,13 +617,47 @@ CLI: `--scene-hierarchy`.
 
 ### `ui.notifications.enable` (_bool_, default: `false`)
 
-Show notifications at the bottom left of the viewport.
+Show the key hints at the bottom left of the viewport: the transient state readouts a binding raises
+("Grid: ON"). This is not the problem-message stack, which is always on — see
+`ui.notifications.messages`.
 
 CLI: `--notifications`.
 
 ### `ui.notifications.show_bindings` (_bool_, default: `false`)
 
 Show corresponding keys when notifications are triggered by bindings key press events.
+
+### `ui.notifications.messages` (_bool_, default: `true`)
+
+Show the problem messages (load failures, warnings) as cards at the bottom right of the viewport.
+Deliberately independent of `ui.notifications.enable`: a user who never turned the key hints on still
+has to see that a file failed to open.
+
+CLI: `--messages`.
+
+### `ui.notifications.from_log` (_string_, default: `warn`)
+
+Lowest log severity captured into the message center: `off`, `error`, `warn` or `info`. Third-party
+(VTK-internal) warnings are recorded but never raise a card of their own.
+
+### `ui.notifications.duration` (_double_, default: `6.0`)
+
+How long a non-sticky message stays up, in seconds. Counted from the frame the message was first
+actually DRAWN, not from when it was reported, so a message raised behind the loading overlay is not
+already gone when the overlay lifts. Errors ignore this and wait to be dismissed.
+
+### `ui.notifications.max_visible` (_int_, default: `3`)
+
+How many message cards may be on screen at once. The rest collapse into a "N more messages" row and
+stay available in the message center.
+
+### `ui.notification_center` (_bool_, default: `false`)
+
+Show the message center: a draggable panel listing everything reported this session, with the detail,
+the developer's raw text and any actions for each entry. Toggled by the bell in the top bar or with
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>.
+
+CLI: `--notification-center`.
 
 ## APIs
 

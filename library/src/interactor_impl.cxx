@@ -561,7 +561,23 @@ public:
           vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
 
         auto [desc, value] = binding.DocumentationCallback();
-        ren->AddNotification(desc, value, bind.format(), 3.0);
+        // Say what the value MEANS here, where the translation of "ON" / "OFF" is at hand. The
+        // presenter used to infer it by matching those two literals, which stopped working the
+        // moment the catalog translated them -- and painted "OFF" in the error color besides.
+        auto state = vtkF3DUIActor::BindingValueState::Neutral;
+        if (binding.Type == f3d::interactor::BindingType::TOGGLE)
+        {
+          G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+          if (value == loc.Translate("ON"))
+          {
+            state = vtkF3DUIActor::BindingValueState::On;
+          }
+          else if (value == loc.Translate("OFF"))
+          {
+            state = vtkF3DUIActor::BindingValueState::Off;
+          }
+        }
+        ren->AddNotification(desc, value, bind.format(), 3.0, state);
       }
     }
 
@@ -2190,7 +2206,8 @@ interactor& interactor_impl::initBindings()
   this->addBinding({mod_t::NONE, "H"}, "toggle ui.cheatsheet", "Others", std::bind(docStr, tr("Cheatsheet"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::NONE, "Escape"}, "dismiss_or_toggle_console", "Others", std::bind(docStr, tr("Close help / Console"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::ANY, "Colon"}, "toggle ui.minimal_console", "Others", std::bind(docStr, tr("Minimal console"), ""), f3d::interactor::BindingType::OTHER, true);
-  this->addBinding({mod_t::CTRL, "K"}, "toggle ui.notifications.enable", "Others", std::bind(docTgl, tr("Notifications"), std::cref(opts.ui.notifications.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::CTRL, "K"}, "toggle ui.notifications.enable", "Others", std::bind(docTgl, tr("Key hints"), std::cref(opts.ui.notifications.enable)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::CTRL_SHIFT, "K"}, "toggle ui.notification_center", "Others", std::bind(docTgl, tr("Message center"), std::cref(opts.ui.notification_center)), f3d::interactor::BindingType::TOGGLE);
   this->addBinding({mod_t::NONE, "Grave"}, "toggle ui.control_panel", "Others", std::bind(docTgl, tr("Control panel"), std::cref(opts.ui.control_panel)), f3d::interactor::BindingType::TOGGLE);
 #endif
   this->addBinding({mod_t::CTRL, "Q"}, "stop_interactor", "Others", std::bind(docStr, tr("Stop the interactor"), ""), f3d::interactor::BindingType::OTHER, true);

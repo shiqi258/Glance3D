@@ -338,6 +338,39 @@ int TestG3DNotificationCenter(int, char*[])
       "threads.no.lost.records");
   }
 
+  //--------------------------------------------------------------------------
+  // The change counter a polling frontend watches. It has to move on every real change and stay
+  // put otherwise -- the message center calls MarkAllRead every frame it is open, and a counter
+  // that ticks every frame is no signal at all.
+  //--------------------------------------------------------------------------
+  {
+    G3DNotificationCenter& c = Fresh();
+    const std::uint64_t start = c.Revision();
+    const std::uint64_t id = c.Post(Make(G3DSeverity::Warning, "something", "dedup"));
+    const std::uint64_t afterPost = c.Revision();
+    Check(afterPost > start, "revision.moves.on.post");
+
+    c.Post(Make(G3DSeverity::Warning, "something", "dedup")); // coalesces
+    Check(c.Revision() > afterPost, "revision.moves.on.coalesce");
+
+    const std::uint64_t beforeReads = c.Revision();
+    c.LiveToasts(false);
+    c.History();
+    c.UnreadCount();
+    ExpectEq(static_cast<long long>(c.Revision()), static_cast<long long>(beforeReads),
+      "revision.still.on.read");
+
+    c.MarkAllRead();
+    const std::uint64_t afterRead = c.Revision();
+    Check(afterRead > beforeReads, "revision.moves.on.markAllRead");
+    c.MarkAllRead(); // already read: nothing changed
+    ExpectEq(static_cast<long long>(c.Revision()), static_cast<long long>(afterRead),
+      "revision.idempotent.markAllRead");
+
+    c.Dismiss(id);
+    Check(c.Revision() > afterRead, "revision.moves.on.dismiss");
+  }
+
   // Leave the singleton on the real clock for anything running after this.
   G3DNotificationCenter::GetInstance().SetClockOverride(nullptr);
   G3DNotificationCenter::GetInstance().Reset();

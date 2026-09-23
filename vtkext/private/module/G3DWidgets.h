@@ -267,11 +267,15 @@ void EndPropRow();
 /// actions, enable toggle, accordion, variants) use BeginCollapse()/EndCollapse() below.
 bool CollapsingSection(const char* label, bool* open);
 
-/// Pill badge tint.
+/// Pill badge tint. The three severity tints exist so a count chip or a status label can carry the
+/// same tone ladder as a toast without anyone inventing a second badge atom.
 enum class BadgeVariant
 {
   Neutral, ///< subtle surface fill, muted text
   Accent,  ///< accent-soft fill, accent text
+  Success, ///< success-tinted fill + text
+  Warning, ///< warning-tinted fill + text
+  Danger,  ///< danger-tinted fill + text
 };
 
 /// Small inline pill badge (mirrors styleguide g3d-badge). Advances the layout cursor like a normal
@@ -740,6 +744,85 @@ void EndCollapse();
 /// @p exclusive keeps at most one panel open — opening one closes the others.
 void BeginAccordion(const char* id, bool exclusive = false);
 void EndAccordion();
+
+//----------------------------------------------------------------------------
+// Messages — toast cards, inline banners and the message-center bell
+//
+// One tone enum drives BOTH the theme color role and the glyph, so every surface that speaks about
+// a message (the viewport toast stack, an inline panel banner, the bell's unread dot) reads from
+// the same ladder and none of them switches on severity by itself. Everything else these surfaces
+// need — the floating card chrome, the scroll region, the collapse, the buttons — already exists
+// in this library and is reused as-is; only the three atoms below are new.
+//----------------------------------------------------------------------------
+
+/// How loud a message is, in UI terms. Maps to a G3DTheme color role + a G3DIconId.
+enum class ToneVariant
+{
+  Info,
+  Success,
+  Warning,
+  Danger,
+};
+
+/// The theme color a tone is painted in.
+ImVec4 ToneColor(ToneVariant tone);
+
+/// The glyph a tone is drawn with (silhouettes differ, so severity survives grayscale).
+G3DIconId ToneIcon(ToneVariant tone);
+
+/// The matching badge tint, for count chips and status labels that sit next to a toned surface.
+BadgeVariant ToneBadge(ToneVariant tone);
+
+/// A message card: tone rail + icon + title, optional detail line, optional raw-context disclosure,
+/// optional action row, repeat count chip and close button.
+///
+/// The card does NOT own its entrance animation: @p alpha comes from the caller, because a stack
+/// re-flows as a whole and the cards must fade in phase with the reflow, on one shared clock.
+struct ToastDesc
+{
+  const char* id = "##g3d.toast"; ///< unique within the enclosing window
+  ToneVariant tone = ToneVariant::Info;
+  const char* title = "";
+  const char* detail = nullptr;  ///< curated second line; null: none
+  const char* context = nullptr; ///< raw developer text (a path, reader output) — mono, one line
+  int count = 1;                 ///< repeats; > 1 shows a xN chip
+  int actionCount = 0;           ///< ToastAction() calls that follow (reserves the row height)
+  float alpha = 1.f;             ///< fade, driven by the caller's animator
+  float width = 0.f;             ///< card width; <= 0 fills the available content width
+  bool closable = true;
+};
+
+/// What a toast reported this frame.
+struct ToastResult
+{
+  bool closed = false;      ///< the close button was clicked
+  bool hovered = false;     ///< the pointer rests anywhere on the card
+  bool detailsOpen = false; ///< the raw-context disclosure is expanded
+};
+
+/// Height @p desc would occupy (px, already UI-scaled). A stack has to size its window before
+/// submitting anything — offscreen rendering only ever gets one frame — so measuring is public.
+/// @p detailsOpen must mirror what will be passed to BeginToast, or an expanded card gets clipped.
+float ToastHeight(const ToastDesc& desc, bool detailsOpen = false);
+
+/// Draw a message card at the cursor. @p detailsOpen persists the raw-context disclosure across
+/// frames; null means the context line is always shown inline instead. Always pair with EndToast();
+/// submit the ToastAction() calls in between.
+ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen = nullptr);
+
+/// One action button on the current toast's action row (laid out left to right).
+bool ToastAction(const char* label, bool primary = false);
+void EndToast();
+
+/// Inline tone banner for panels and inspectors: a tinted full-width strip with icon + text and an
+/// optional trailing action. Returns true when the action was clicked. Use for a standing statement
+/// about what is on screen ("this file loaded with warnings"), never for transient events.
+bool Banner(const char* text, ToneVariant tone, const char* actionLabel = nullptr);
+
+/// Bell button carrying an unread count. @p unread <= 0 draws the plain bell; otherwise the dotted
+/// bell plus a tone-colored count chip on its upper-right corner (clamped at "99+").
+bool BellButton(const char* id, int unread, ToneVariant tone, float size = -1.f,
+  const char* tooltip = nullptr, const char* shortcut = nullptr);
 
 //----------------------------------------------------------------------------
 // Color picker

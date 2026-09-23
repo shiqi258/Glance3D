@@ -138,21 +138,21 @@ private:
   void RenderConsole(bool) override;
 
   /**
-   * Render the console badge
+   * Render the binding HUD (the transient "Grid: ON" readouts) at the central viewport's bottom
+   * left — the corner the problem-message stack deliberately leaves free.
    */
-  void RenderConsoleBadge() override;
-
-  /**
-   * Render the notifications at the bottom left of viewport.
-   * Newest to oldest, from bottom to top.
-   */
-  void RenderNotifications(double currentTime) override;
+  void RenderBindingHud() override;
 
   /**
    * Render the problem-message stack at the bottom right of the CENTRAL viewport (so it clears
    * the docked side bars and the timeline), newest closest to the corner.
    */
   void RenderMessages() override;
+
+  /**
+   * Render the message center: the draggable history panel behind the bell.
+   */
+  void RenderNotificationCenter() override;
 
 private:
   vtkF3DImguiActor(const vtkF3DImguiActor&) = delete;
@@ -167,6 +167,12 @@ private:
    * Compute the width of a badge
    */
   float CalcBadgeWidth(const std::string& text);
+
+  /**
+   * The corner bell shown while the docked chrome is closed (the top bar carries its own). Only
+   * appears when something is unread — this is the successor of the bare "!" alert badge.
+   */
+  void RenderFloatingBell();
 
   /**
    * Advance the FAB (toggle button) opacity/idle animation once per frame. Called from
@@ -308,9 +314,22 @@ private:
   {
     G3DAnimatedFloat enter{ 0.f };
     bool init = false; ///< false until the first frame snaps it (deterministic headless output)
+    /// The raw-context disclosure. Per message, and kept HERE rather than in the center: whether a
+    /// user expanded a card is presentation state, and each frontend expands its own.
+    bool detailsOpen = false;
   };
   std::unordered_map<std::uint64_t, ToastAnim> ToastAnims;
   G3DFrameClock ToastClock;
+
+  /// Same entrance treatment for the binding HUD, on its own clock: G3DFrameClock::Tick
+  /// de-duplicates by frame id, so two stacks sharing one clock would silently freeze the second.
+  struct HudAnim
+  {
+    G3DAnimatedFloat enter{ 0.f };
+    bool init = false;
+  };
+  std::unordered_map<std::uint64_t, HudAnim> HudAnims;
+  G3DFrameClock HudClock;
   ///@}
 
   ///@{

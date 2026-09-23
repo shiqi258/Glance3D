@@ -8,6 +8,7 @@
 #include "window_impl.h"
 
 #include "F3DStyle.h"
+#include "G3DReport.h"
 #include "factory.h"
 #include "vtkF3DGenericImporter.h"
 #include "vtkF3DMemoryMesh.h"
@@ -347,7 +348,14 @@ public:
     // window that currently blocks the UI thread; the per-importer breakdown is logged inside
     // vtkF3DMetaImporter::Update.
     const auto g3dImportStart = std::chrono::steady_clock::now();
-    const bool g3dImportOk = this->MetaImporter->Update();
+    // The two phases explicitly rather than Update(): the build result names the files that failed,
+    // which is what lets a partial load say so instead of silently dropping them.
+    const vtkF3DMetaImporter::BuildResult g3dBuildResult = this->MetaImporter->BuildGeometry();
+    const bool g3dImportOk = g3dBuildResult.anySucceeded;
+    if (g3dImportOk)
+    {
+      this->MetaImporter->CommitToRenderer();
+    }
     log::debug("[G3D-PERF] scene::add total MetaImporter::Update (parse+build+actor setup) = ",
       std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - g3dImportStart)
@@ -368,6 +376,7 @@ public:
     progressWidget->Off();
 
     this->LoadPostProcess();
+    internals::ReportPartialFailure(g3dBuildResult);
   }
 
   // Recover a vtkImporter for each provided path (synchronous, throws on unsupported file).
@@ -445,6 +454,40 @@ public:
     return importers;
   }
 
+  /**
+   * Say that a group loaded only partly.
+   *
+   * The importer already named each unreadable file as it hit it; this is the line that tells the
+   * user the SCENE is incomplete, which no per-file message can say. Reported only when something
+   * did load -- a total failure throws, and the thrower explains itself.
+   */
+  static void ReportPartialFailure(const vtkF3DMetaImporter::BuildResult& result)
+  {
+    if (result.failed.empty() || !result.anySucceeded)
+    {
+      return;
+    }
+    std::string names;
+    for (const std::string& name : result.failed)
+    {
+      if (!names.empty())
+      {
+        names += ", ";
+      }
+      names += name;
+    }
+    const int total = result.succeeded + static_cast<int>(result.failed.size());
+    G3DReport::Post({ .code = G3DCode::GroupPartialFailure,
+      .severity = G3DSeverity::Warning,
+      .titleKey = G3D_MSG("{n, number} of {total, number} files could not be loaded"),
+      .titleArgs = { { "n", std::to_string(result.failed.size()) },
+        { "total", std::to_string(total) } },
+      .detailKey = G3D_MSG("The rest of the scene loaded. See the message center for which files "
+                           "failed and why."),
+      .raw = names,
+      .dedupSalt = names });
+  }
+
   // Kick off an asynchronous load: prepare on the calling thread, then run the heavy BuildGeometry()
   // on a worker thread. Completion is observed via AsyncState; finalize with LoadFinalize().
   void LoadStart(
@@ -470,8 +513,11 @@ public:
     this->AsyncBuildThread = std::thread(
       [this]
       {
-        const bool ok = this->MetaImporter->BuildGeometry();
-        this->AsyncState = ok ? scene::AsyncState::READY : scene::AsyncState::FAILED;
+        // Written before the atomic state, read only after join() in LoadFinalize -- both are
+        // synchronization points, so no extra locking is needed for the names.
+        this->AsyncBuildResult = this->MetaImporter->BuildGeometry();
+        this->AsyncState =
+          this->AsyncBuildResult.anySucceeded ? scene::AsyncState::READY : scene::AsyncState::FAILED;
       });
   }
 
@@ -501,6 +547,10 @@ public:
 
     this->MetaImporter->CommitToRenderer();
     this->LoadPostProcess();
+    // A file that could not be read no longer takes the whole group down with it, so the scene we
+    // just committed may be incomplete -- say so rather than let the user wonder what is missing.
+    internals::ReportPartialFailure(this->AsyncBuildResult);
+    this->AsyncBuildResult = {};
     this->AsyncProgress = 1.0;
     this->AsyncState = scene::AsyncState::IDLE;
   }
@@ -550,6 +600,9 @@ public:
   std::atomic<scene::AsyncState> AsyncState{ scene::AsyncState::IDLE };
   std::atomic<double> AsyncProgress{ 0.0 };
   unsigned long AsyncProgressTag = 0;
+  /// What the worker's BuildGeometry() achieved -- which files made it and which did not. Written
+  /// by the worker before it publishes AsyncState, read only after the join in LoadFinalize.
+  vtkF3DMetaImporter::BuildResult AsyncBuildResult;
 };
 
 //----------------------------------------------------------------------------

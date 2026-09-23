@@ -2,6 +2,7 @@
 
 #include "camera.h"
 #include "engine.h"
+#include "g3dNotification.h"
 #include "interactor.h"
 #include "options.h"
 #include "scene.h"
@@ -38,6 +39,43 @@ emscripten::val containerToJSArray(const T& container)
   for (const auto& elem : container)
   {
     jsArray.call<void>("push", elem);
+  }
+  return jsArray;
+}
+
+/// One message as a plain JS object: already-translated strings, no handles to free. A DOM
+/// presenter reads these and renders the same content the desktop toast stack does.
+emscripten::val messageToJSObject(const g3d::notification::message& msg)
+{
+  emscripten::val obj = emscripten::val::object();
+  obj.set("id", static_cast<double>(msg.id)); // JS numbers: ids stay exact well past a session
+  obj.set("severity", static_cast<int>(msg.level));
+  obj.set("code", msg.code);
+  obj.set("title", msg.title);
+  obj.set("detail", msg.detail);
+  obj.set("raw", msg.raw);
+  obj.set("count", msg.count);
+  emscripten::val actions = emscripten::val::array();
+  for (const g3d::notification::action& act : msg.actions)
+  {
+    emscripten::val a = emscripten::val::object();
+    a.set("label", act.label);
+    // A command STRING, not a callback: the page hands it straight to interactor.triggerCommand,
+    // which is what lets the same action work identically on both frontends.
+    a.set("command", act.command);
+    a.set("primary", act.primary);
+    actions.call<void>("push", a);
+  }
+  obj.set("actions", actions);
+  return obj;
+}
+
+emscripten::val messagesToJSArray(const std::vector<g3d::notification::message>& msgs)
+{
+  emscripten::val jsArray = emscripten::val::array();
+  for (const g3d::notification::message& msg : msgs)
+  {
+    jsArray.call<void>("push", ::messageToJSObject(msg));
   }
   return jsArray;
 }
@@ -647,5 +685,48 @@ EMSCRIPTEN_BINDINGS(f3d)
       {
         f3d::log::forward(
           [=](f3d::log::VerboseLevel level, const std::string& txt) { callback(level, txt); });
-      });
+      })
+    // Subscribing beats setting: `forward` owns a single slot, so a page that called it silently
+    // switched off whatever else was listening -- which is exactly how a JS log hook used to kill
+    // the session log file on desktop. Keep the token and hand it back to removeForwarder.
+    .class_function(
+      "addForwarder",
+      +[](const emscripten::val& callback) -> std::uint64_t
+      {
+        return f3d::log::addForwarder(
+          [=](f3d::log::VerboseLevel level, const std::string& txt) { callback(level, txt); });
+      })
+    .class_function(
+      "removeForwarder", +[](std::uint64_t token) { f3d::log::removeForwarder(token); });
+
+  // g3d::notification -- the shared message model, so a web presenter renders exactly what the
+  // desktop toast stack renders: same records, same codes, same action command strings.
+  //
+  // Strings arrive ALREADY TRANSLATED (the facade renders them through the same catalog the
+  // desktop uses), so a page needs no ICU engine of its own.
+  //
+  // There is no observe(callback) on purpose: messages are reported from the parse worker, and a
+  // JS callback invoked from a pthread would run on the wrong thread. Poll `revision` from the
+  // page's animation frame instead and re-read `list` when it changes.
+  emscripten::class_<g3d::notification>("Notification")
+    .class_function(
+      "post",
+      +[](g3d::notification::severity level, const std::string& title, const std::string& detail)
+      { return g3d::notification::post(level, title, detail); })
+    .class_function("dismiss", +[](std::uint64_t id) { g3d::notification::dismiss(id); })
+    .class_function("dismissAll", +[]() { g3d::notification::dismissAll(); })
+    .class_function("markAllRead", +[]() { g3d::notification::markAllRead(); })
+    .class_function("clear", +[]() { g3d::notification::clear(); })
+    .class_function("unreadCount", +[]() { return g3d::notification::unreadCount(); })
+    .class_function("revision", +[]() { return g3d::notification::revision(); })
+    .class_function("list", +[]() { return ::messagesToJSArray(g3d::notification::live()); })
+    .class_function(
+      "history",
+      +[](std::size_t max) { return ::messagesToJSArray(g3d::notification::history(max)); });
+
+  emscripten::enum_<g3d::notification::severity>("NotificationSeverity")
+    .value("INFO", g3d::notification::severity::INFO)
+    .value("SUCCESS", g3d::notification::severity::SUCCESS)
+    .value("WARNING", g3d::notification::severity::WARNING)
+    .value("ERROR", g3d::notification::severity::ERROR);
 }

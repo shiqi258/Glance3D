@@ -175,6 +175,21 @@ public:
   /// Whether a record carrying @p code was stored after @p sinceId.
   bool HasCodeSince(const std::string& code, std::uint64_t sinceId) const;
 
+  /**
+   * Monotonic change counter: bumped whenever the store changes (a message posted, coalesced,
+   * dismissed, marked read or cleared).
+   *
+   * This is the change signal, rather than an observer callback, on purpose: Post() runs on the
+   * load worker, and a frontend callback fired from there would land on the wrong thread -- fatal
+   * for a JS presenter. A frontend already has a frame loop; comparing this integer costs nothing.
+   */
+  std::uint64_t Revision() const;
+
+  /// How many recorded messages are at least @p atLeast severe, whether or not they were read.
+  /// Unlike UnreadCount() this does not fall to zero once the user has looked: it answers "did
+  /// anything go wrong this session", which is what a standing banner states.
+  int CountAtLeast(G3DSeverity atLeast) const;
+
   int UnreadCount(G3DSeverity atLeast = G3DSeverity::Warning) const;
   G3DSeverity TopUnreadSeverity() const;
   bool HasLive(bool transientOnly = false) const;

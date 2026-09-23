@@ -2,6 +2,7 @@
 
 #include "F3DStyle.h"
 #include "G3DLocaleCore.h"
+#include "G3DNotificationCenter.h"
 #include "G3DWidgets.h"
 #include "vtkF3DUserEvents.h"
 
@@ -29,8 +30,6 @@ struct vtkF3DImguiConsole::Internals
 
   std::vector<std::pair<LogType, std::string>> Logs;
   std::array<char, 2048> CurrentInput = {};
-  bool NewError = false;
-  bool NewWarning = false;
   std::function<std::vector<std::string>(const std::string& pattern)>
     CompletionCallback; // Callback to get the list of commands matching pattern
   std::vector<std::string> CommandHistory;
@@ -191,12 +190,10 @@ void vtkF3DImguiConsole::DisplayText(const char* text)
     {
       case vtkOutputWindow::MESSAGE_TYPE_ERROR:
         this->Pimpl->Logs.emplace_back(std::make_pair(Internals::LogType::Error, text));
-        this->Pimpl->NewError = true;
         break;
       case vtkOutputWindow::MESSAGE_TYPE_WARNING:
       case vtkOutputWindow::MESSAGE_TYPE_GENERIC_WARNING:
         this->Pimpl->Logs.emplace_back(std::make_pair(Internals::LogType::Warning, text));
-        this->Pimpl->NewWarning = true;
         break;
       default:
         this->Pimpl->Logs.emplace_back(std::make_pair(Internals::LogType::Log, text));
@@ -208,7 +205,7 @@ void vtkF3DImguiConsole::DisplayText(const char* text)
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
+void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset, float rightInset)
 {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
@@ -223,14 +220,11 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
 
   if (minimal)
   {
-    float windowWidth = viewport->WorkSize.x - 2.f * margin;
-    if (this->Pimpl->NewError || this->Pimpl->NewWarning)
-    {
-      // prevent overlap with console badge in minimal console
-      const ImVec2 badgeSize = this->GetBadgeSize();
-      windowWidth = viewport->WorkSize.x - badgeSize.x - 3.f * margin;
-    }
-    // minimal console shouldn't clear the console badge
+    // Stop short of the top-right chrome column. @p rightInset comes from the single owner of that
+    // corner (vtkF3DImguiActor::TopRightSlotReservedWidth), not from a local guess about what might
+    // be up there -- the previous version measured the console alert badge itself, and went wrong
+    // the moment anything else moved into the corner.
+    const float windowWidth = viewport->WorkSize.x - 2.f * margin - std::max(0.f, rightInset);
     ImGui::SetNextWindowPos(ImVec2(margin, margin + topOffset));
     ImGui::SetNextWindowSize(ImVec2(windowWidth, ImGui::CalcTextSize(">").y + 2.f * padding));
     winFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
@@ -239,9 +233,9 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
   {
     // Command palette (VS Code quick-open convention): a focused, top-centered overlay over a
     // light scrim — typing a command keeps the model visible, unlike the legacy full-screen
-    // takeover. Reading it clears the badge (the log tail below shows the new entries).
-    this->Pimpl->NewError = false;
-    this->Pimpl->NewWarning = false;
+    // takeover. Opening it marks the messages read: the log tail below shows what happened, so
+    // the bell has nothing left to point at.
+    G3DNotificationCenter::GetInstance().MarkAllRead();
 
     ImDrawList* bg = ImGui::GetBackgroundDrawList();
     bg->AddRectFilled(viewport->WorkPos,
@@ -440,64 +434,13 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset)
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DImguiConsole::ShowBadge()
-{
-  const ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-  if (this->Pimpl->NewError || this->Pimpl->NewWarning)
-  {
-    constexpr float margin = F3DStyle::GetDefaultMargin();
-    ImVec2 badgeSize = this->GetBadgeSize();
-
-    ImGui::SetNextWindowPos(ImVec2(viewport->WorkSize.x - badgeSize.x - margin, margin));
-    ImGui::SetNextWindowSize(badgeSize);
-    ImGui::SetNextWindowBgAlpha(0.9f);
-
-    ImGuiWindowFlags winFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
-      ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
-
-    ImGui::Begin("ConsoleAlert", nullptr, winFlags);
-
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, F3DStyle::imgui::GetHighlightColor());
-
-    ImGui::PushStyleColor(ImGuiCol_Text,
-      this->Pimpl->NewError ? F3DStyle::imgui::GetErrorColor()
-                            : F3DStyle::imgui::GetWarningColor());
-
-    if (ImGui::Button("!"))
-    {
-      this->InvokeEvent(vtkF3DUserEvents::ShowEvent);
-    }
-
-    ImGui::PopStyleColor(3);
-
-    ImGui::End();
-  }
-}
-
-//----------------------------------------------------------------------------
-bool vtkF3DImguiConsole::IsBadgeVisible() const
-{
-  return this->Pimpl->NewError || this->Pimpl->NewWarning;
-}
-
-//----------------------------------------------------------------------------
-ImVec2 vtkF3DImguiConsole::GetBadgeSize()
-{
-  const float padding = ImGui::GetStyle().WindowPadding.x + ImGui::GetStyle().FramePadding.x;
-  ImVec2 badgeSize = ImGui::CalcTextSize("!");
-  badgeSize.x += 2.f * padding;
-  badgeSize.y += 2.f * padding;
-  return badgeSize;
-}
-
-//----------------------------------------------------------------------------
 void vtkF3DImguiConsole::Clear()
 {
   this->Pimpl->Logs.clear();
-  this->Pimpl->NewError = false;
-  this->Pimpl->NewWarning = false;
+  // The message HISTORY survives `clear`: it is a different surface with a different lifetime, and
+  // wiping a session's problem record as a side effect of emptying the log tail would be a
+  // surprise. Marking it read is the honest half -- the user has seen what happened.
+  G3DNotificationCenter::GetInstance().MarkAllRead();
 }
 
 //----------------------------------------------------------------------------

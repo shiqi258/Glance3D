@@ -2035,6 +2035,17 @@ void Badge(const char* text, BadgeVariant variant)
     bg = G3DTheme::AccentSoft();
     fg = G3DTheme::Accent();
   }
+  else if (variant != BadgeVariant::Neutral)
+  {
+    // Severity tints (styleguide .badge.success / .warn / .danger): the tone at full strength for
+    // the text, the same hue washed down to a soft fill — one formula for all three, so a new tone
+    // never needs a hand-picked pair.
+    fg = variant == BadgeVariant::Success
+      ? G3DTheme::Success()
+      : (variant == BadgeVariant::Warning ? G3DTheme::Warning() : G3DTheme::Danger());
+    bg = fg;
+    bg.w = 0.16f;
+  }
   else
   {
     // surface-3 fill, muted text, hairline border (styleguide .badge).
@@ -2052,6 +2063,510 @@ void Badge(const char* text, BadgeVariant variant)
     dl->AddRect(p0, p1, U32(G3DTheme::Border()), r, 0, G3DTheme::Size::Border * Scale());
   }
   DrawTextSized(dl, ImVec2(p0.x + padX, p0.y + padY), U32(fg), text, fs);
+}
+
+//----------------------------------------------------------------------------
+// Messages — the tone ladder, the toast card, the inline banner and the bell
+//----------------------------------------------------------------------------
+ImVec4 ToneColor(ToneVariant tone)
+{
+  switch (tone)
+  {
+    case ToneVariant::Danger:
+      return G3DTheme::Danger();
+    case ToneVariant::Warning:
+      return G3DTheme::Warning();
+    case ToneVariant::Success:
+      return G3DTheme::Success();
+    case ToneVariant::Info:
+    default:
+      return G3DTheme::Accent();
+  }
+}
+
+//----------------------------------------------------------------------------
+G3DIconId ToneIcon(ToneVariant tone)
+{
+  switch (tone)
+  {
+    case ToneVariant::Danger:
+      return G3DIconId::Error;
+    case ToneVariant::Warning:
+      return G3DIconId::Warning;
+    case ToneVariant::Success:
+      return G3DIconId::Success;
+    case ToneVariant::Info:
+    default:
+      return G3DIconId::Info;
+  }
+}
+
+//----------------------------------------------------------------------------
+BadgeVariant ToneBadge(ToneVariant tone)
+{
+  switch (tone)
+  {
+    case ToneVariant::Danger:
+      return BadgeVariant::Danger;
+    case ToneVariant::Warning:
+      return BadgeVariant::Warning;
+    case ToneVariant::Success:
+      return BadgeVariant::Success;
+    case ToneVariant::Info:
+    default:
+      return BadgeVariant::Accent;
+  }
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+// Resolved geometry of one toast, shared by the measure pass (ToastHeight) and the draw pass
+// (BeginToast) so a stack can size its window ahead of submitting without the two disagreeing.
+struct ToastMetrics
+{
+  float s = 1.f;
+  float padX = 0.f;
+  float padY = 0.f;
+  float railW = 0.f;
+  float iconSize = 0.f;
+  float closeSize = 0.f;
+  float lineH = 0.f;
+  float cardW = 0.f;
+  float textLeft = 0.f;
+  float textW = 0.f;
+  float titleH = 0.f;
+  float detailH = 0.f;
+  float contextH = 0.f; ///< the disclosure row, plus the expanded body when open
+  float actionsH = 0.f;
+  float height = 0.f;
+};
+
+// A wrapped text block, capped at three lines: past that a toast is a document, and the message
+// center is where a document belongs.
+float WrappedHeight(const char* text, float wrapW, float lineH)
+{
+  const float h = ImGui::CalcTextSize(text, nullptr, false, wrapW).y;
+  return std::min(h, lineH * 3.f);
+}
+
+ToastMetrics MeasureToast(const G3DWidgets::ToastDesc& desc, bool detailsOpen, bool disclosure)
+{
+  ToastMetrics m;
+  m.s = Scale();
+  m.padX = G3DTheme::Spacing::Md * m.s;
+  m.padY = G3DTheme::Spacing::Sm * m.s;
+  m.railW = 3.f * m.s;
+  m.iconSize = G3DTheme::Size::Icon * m.s;
+  m.closeSize = G3DTheme::Size::IconSm * m.s;
+  m.lineH = ImGui::GetTextLineHeight();
+  m.cardW = desc.width > 0.f ? desc.width : ImGui::GetContentRegionAvail().x;
+
+  m.textLeft = m.railW + m.padX + m.iconSize + G3DTheme::Spacing::Sm * m.s;
+  // Trailing gutter: the close button and (when repeated) the count chip live there, so the title
+  // has to stop short of them rather than run underneath.
+  float trailing = desc.closable ? m.closeSize + G3DTheme::Spacing::Sm * m.s : 0.f;
+  if (desc.count > 1)
+  {
+    char chip[16];
+    std::snprintf(chip, sizeof(chip), "x%d", std::min(desc.count, 999));
+    trailing += G3DWidgets::BadgeWidth(chip) + G3DTheme::Spacing::Xs * m.s;
+  }
+  m.textW = std::max(40.f * m.s, m.cardW - m.textLeft - m.padX - trailing);
+
+  m.titleH = WrappedHeight(desc.title != nullptr ? desc.title : "", m.textW, m.lineH);
+  if (desc.detail != nullptr && desc.detail[0] != 0)
+  {
+    m.detailH = WrappedHeight(desc.detail, m.textW, m.lineH);
+  }
+  if (desc.context != nullptr && desc.context[0] != 0)
+  {
+    m.contextH = m.lineH;
+    if (disclosure && detailsOpen)
+    {
+      const DataFontScope dataFont;
+      m.contextH += G3DTheme::Spacing::Xs * m.s + WrappedHeight(desc.context, m.textW, m.lineH);
+    }
+  }
+  if (desc.actionCount > 0)
+  {
+    m.actionsH = G3DTheme::Spacing::Sm * m.s + G3DTheme::Size::Control * m.s;
+  }
+
+  m.height = m.padY * 2.f + m.titleH;
+  if (m.detailH > 0.f)
+  {
+    m.height += G3DTheme::Spacing::Xs * m.s + m.detailH;
+  }
+  if (m.contextH > 0.f)
+  {
+    m.height += G3DTheme::Spacing::Xs * m.s + m.contextH;
+  }
+  m.height += m.actionsH;
+  m.height = std::max(m.height, m.iconSize + m.padY * 2.f);
+  return m;
+}
+
+// Live between BeginToast and EndToast: the card rect and the action-row cursor.
+struct ToastFrame
+{
+  ImVec2 p0;
+  float width = 0.f;
+  float height = 0.f;
+  int actionIndex = 0;
+};
+std::vector<ToastFrame> gToasts;
+
+// Count-chip pulse: a repeat must be noticed without the whole card replaying its entrance, which
+// would make a storm of repeats strobe. Keyed by ImGuiID, one overshoot per increment.
+struct CountPulse
+{
+  G3DAnimatedFloat anim{ 1.f };
+  int lastCount = -1;
+  int lastFrame = -1;
+};
+std::unordered_map<ImGuiID, CountPulse> gCountPulses;
+
+float CountPulseScale(ImGuiID id, int count)
+{
+  auto it = gCountPulses.find(id);
+  if (it == gCountPulses.end())
+  {
+    CountPulse p;
+    G3DTheme::Configure(p.anim, G3DTheme::Motions::Playful);
+    p.anim.Snap(1.f);
+    p.lastCount = count;
+    it = gCountPulses.emplace(id, p).first;
+  }
+  CountPulse& p = it->second;
+  const int f = ImGui::GetFrameCount();
+  if (p.lastCount != count)
+  {
+    p.lastCount = count;
+    p.anim.Snap(0.f);
+    p.anim.AnimateTo(1.f);
+  }
+  if (p.lastFrame != f)
+  {
+    p.anim.Update(FrameDelta());
+    p.lastFrame = f;
+    // Pruned like the widget animations: one entry per message id would otherwise outlive the
+    // messages themselves in a long session.
+    for (auto pit = gCountPulses.begin(); pit != gCountPulses.end();)
+    {
+      pit = (f - pit->second.lastFrame > 240) ? gCountPulses.erase(pit) : std::next(pit);
+    }
+  }
+  return 1.f + 0.35f * (1.f - p.anim.Value());
+}
+
+// Scale the vertices a widget just emitted about their own center — the only way to pulse an atom
+// that draws itself, without giving every atom a scale parameter it would never otherwise use.
+void SwellLastItem(int firstVtx, float scale)
+{
+  if (scale <= 1.001f)
+  {
+    return;
+  }
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImVec2 mn = ImGui::GetItemRectMin();
+  const ImVec2 mx = ImGui::GetItemRectMax();
+  const ImVec2 c((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
+  for (int i = firstVtx; i < dl->VtxBuffer.Size; ++i)
+  {
+    ImDrawVert& v = dl->VtxBuffer[i];
+    v.pos.x = c.x + (v.pos.x - c.x) * scale;
+    v.pos.y = c.y + (v.pos.y - c.y) * scale;
+  }
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+float ToastHeight(const ToastDesc& desc, bool detailsOpen)
+{
+  return MeasureToast(desc, detailsOpen, detailsOpen).height;
+}
+
+//----------------------------------------------------------------------------
+ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen)
+{
+  ToastResult res;
+  ImGui::PushID(desc.id);
+  const bool hasContext = desc.context != nullptr && desc.context[0] != 0;
+  const bool disclosure = hasContext && detailsOpen != nullptr;
+  res.detailsOpen = disclosure && *detailsOpen;
+
+  const ToastMetrics m = MeasureToast(desc, res.detailsOpen, disclosure);
+  const float a = std::clamp(desc.alpha, 0.f, 1.f) * ImGui::GetStyle().Alpha;
+  const ImVec4 tone = ToneColor(desc.tone);
+
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const ImVec2 p1(p0.x + m.cardW, p0.y + m.height);
+  const float rounding = G3DTheme::Radius::Card * m.s;
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  {
+    AAGuard aa(dl);
+    dl->AddRectFilled(p0, p1, U32(G3DTheme::Surface(), a), rounding);
+    dl->AddRect(p0, p1, U32(G3DTheme::Border(), a), rounding, ImDrawFlags_None,
+      G3DTheme::Size::Border * m.s);
+    // Tone rail: severity readable from the silhouette, not only from the icon. Painted as a
+    // full-card rounded fill clipped to the rail width — the sanctioned way to round a SOLID fill —
+    // so its left corners match the card exactly while its right edge cuts clean.
+    dl->PushClipRect(p0, ImVec2(p0.x + m.railW, p1.y), true);
+    dl->AddRectFilled(p0, p1, U32(tone, a), rounding);
+    dl->PopClipRect();
+  }
+
+  G3DIcon::Draw(dl, ToneIcon(desc.tone),
+    ImVec2(p0.x + m.railW + m.padX + m.iconSize * 0.5f, p0.y + m.padY + m.iconSize * 0.5f),
+    m.iconSize, U32(tone, a));
+
+  const auto wrapped = [&](float yTop, float boxH, ImU32 col, const char* text)
+  {
+    const ImVec2 at(p0.x + m.textLeft, yTop);
+    dl->PushClipRect(at, ImVec2(at.x + m.textW, yTop + boxH), true);
+    dl->AddText(nullptr, 0.f, at, col, text, nullptr, m.textW);
+    dl->PopClipRect();
+  };
+
+  float ty = p0.y + m.padY;
+  wrapped(ty, m.titleH, U32(G3DTheme::Text(), a), desc.title != nullptr ? desc.title : "");
+  ty += m.titleH;
+
+  if (m.detailH > 0.f)
+  {
+    ty += G3DTheme::Spacing::Xs * m.s;
+    wrapped(ty, m.detailH, U32(G3DTheme::TextMuted(), a), desc.detail);
+    ty += m.detailH;
+  }
+
+  if (m.contextH > 0.f)
+  {
+    ty += G3DTheme::Spacing::Xs * m.s;
+    if (disclosure)
+    {
+      // A lightweight inline disclosure rather than BeginCollapse: a collapse draws its own card
+      // surface, and a card inside a card reads as a mistake at this size. Same chevron + muted
+      // label, one row tall.
+      const std::string label = Tr("Details");
+      const float chev = G3DTheme::Size::IconSm * m.s;
+      const float labelW = ImGui::CalcTextSize(label.c_str()).x;
+      ImGui::SetCursorScreenPos(ImVec2(p0.x + m.textLeft, ty));
+      if (ImGui::InvisibleButton(
+            "##g3d.toast.details", ImVec2(chev + G3DTheme::Spacing::Xs * m.s + labelW, m.lineH)))
+      {
+        *detailsOpen = !*detailsOpen;
+        res.detailsOpen = *detailsOpen;
+      }
+      const bool hov = ImGui::IsItemHovered();
+      if (hov)
+      {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      }
+      const ImU32 col = U32(hov ? G3DTheme::Text() : G3DTheme::TextSubtle(), a);
+      G3DIcon::Draw(dl, res.detailsOpen ? G3DIconId::ChevronDown : G3DIconId::ChevronRight,
+        ImVec2(p0.x + m.textLeft + chev * 0.5f, ty + m.lineH * 0.5f), chev, col);
+      dl->AddText(
+        ImVec2(p0.x + m.textLeft + chev + G3DTheme::Spacing::Xs * m.s, ty), col, label.c_str());
+      ty += m.lineH;
+      if (res.detailsOpen)
+      {
+        ty += G3DTheme::Spacing::Xs * m.s;
+        // Paths and raw reader output belong to the DATA font, like every other value in the UI.
+        const DataFontScope dataFont;
+        wrapped(ty, m.contextH - m.lineH - G3DTheme::Spacing::Xs * m.s,
+          U32(G3DTheme::TextSubtle(), a), desc.context);
+      }
+    }
+    else
+    {
+      const DataFontScope dataFont;
+      const ImVec2 at(p0.x + m.textLeft, ty);
+      if (TextEllipsis(dl, at, m.textW, U32(G3DTheme::TextSubtle(), a), desc.context) &&
+        ImGui::IsMouseHoveringRect(at, ImVec2(at.x + m.textW, at.y + m.lineH)))
+      {
+        // Truncated: the full string stays one hover away rather than being lost.
+        SetTooltip(desc.context);
+      }
+      ty += m.lineH;
+    }
+  }
+
+  // Header gutter, laid out right to left: close button, then the repeat chip.
+  float gutterX = p1.x - m.padX;
+  if (desc.closable)
+  {
+    gutterX -= m.closeSize;
+    ImGui::SetCursorScreenPos(ImVec2(gutterX, p0.y + m.padY));
+    res.closed =
+      IconButton("##g3d.toast.close", G3DIconId::Close, m.closeSize, false, Tr("Dismiss").c_str());
+    gutterX -= G3DTheme::Spacing::Sm * m.s;
+  }
+  if (desc.count > 1)
+  {
+    char chip[16];
+    std::snprintf(chip, sizeof(chip), "x%d", std::min(desc.count, 999));
+    gutterX -= BadgeWidth(chip);
+    ImGui::SetCursorScreenPos(ImVec2(gutterX, p0.y + m.padY));
+    const int firstVtx = ImGui::GetWindowDrawList()->VtxBuffer.Size;
+    Badge(chip, ToneBadge(desc.tone));
+    SwellLastItem(firstVtx, CountPulseScale(ImGui::GetID("##g3d.toast.count"), desc.count));
+  }
+
+  res.hovered = ImGui::IsMouseHoveringRect(p0, p1);
+
+  ToastFrame frame;
+  frame.p0 = p0;
+  frame.width = m.cardW;
+  frame.height = m.height;
+  gToasts.push_back(frame);
+  // Leave the cursor on the action row; ToastAction() walks it rightwards.
+  ImGui::SetCursorScreenPos(
+    ImVec2(p0.x + m.textLeft, p1.y - m.padY - G3DTheme::Size::Control * m.s));
+  return res;
+}
+
+//----------------------------------------------------------------------------
+bool ToastAction(const char* label, bool primary)
+{
+  if (gToasts.empty())
+  {
+    return false;
+  }
+  ToastFrame& frame = gToasts.back();
+  if (frame.actionIndex > 0)
+  {
+    ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * Scale());
+  }
+  ImGui::PushID(frame.actionIndex++);
+  const bool clicked = Button(label, primary ? ButtonVariant::Primary : ButtonVariant::Soft);
+  ImGui::PopID();
+  return clicked;
+}
+
+//----------------------------------------------------------------------------
+void EndToast()
+{
+  if (gToasts.empty())
+  {
+    ImGui::PopID();
+    return;
+  }
+  const ToastFrame frame = gToasts.back();
+  gToasts.pop_back();
+  // Advance the layout cursor past the whole card, so a stack built with plain ImGui layout works
+  // as well as one positioned by hand.
+  ImGui::SetCursorScreenPos(frame.p0);
+  ImGui::Dummy(ImVec2(frame.width, frame.height));
+  ImGui::PopID();
+}
+
+//----------------------------------------------------------------------------
+bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
+{
+  const float s = Scale();
+  const float padX = G3DTheme::Spacing::Md * s;
+  const float padY = G3DTheme::Spacing::Sm * s;
+  const float railW = 3.f * s;
+  const float iconSize = G3DTheme::Size::IconSm * s;
+  const float lineH = ImGui::GetTextLineHeight();
+  const float w = ImGui::GetContentRegionAvail().x;
+  const ImVec4 col = ToneColor(tone);
+  const float alpha = ImGui::GetStyle().Alpha;
+
+  const bool hasAction = actionLabel != nullptr && actionLabel[0] != 0;
+  const float actionW = hasAction
+    ? ImGui::CalcTextSize(actionLabel).x + G3DTheme::Spacing::Md * 2.f * s + G3DTheme::Spacing::Sm * s
+    : 0.f;
+  const float textLeft = railW + padX + iconSize + G3DTheme::Spacing::Sm * s;
+  const float textW = std::max(24.f * s, w - textLeft - padX - actionW);
+  const float textH = std::min(ImGui::CalcTextSize(text, nullptr, false, textW).y, lineH * 4.f);
+  const float h = std::max(textH + padY * 2.f, G3DTheme::Size::Control * s);
+
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const ImVec2 p1(p0.x + w, p0.y + h);
+  const float rounding = G3DTheme::Radius::Control * s;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  {
+    AAGuard aa(dl);
+    ImVec4 fill = col;
+    fill.w = 0.12f;
+    dl->AddRectFilled(p0, p1, U32(fill, alpha), rounding);
+    ImVec4 rim = col;
+    rim.w = 0.35f;
+    dl->AddRect(p0, p1, U32(rim, alpha), rounding, ImDrawFlags_None, G3DTheme::Size::Border * s);
+    dl->PushClipRect(p0, ImVec2(p0.x + railW, p1.y), true);
+    dl->AddRectFilled(p0, p1, U32(col, alpha), rounding);
+    dl->PopClipRect();
+  }
+  G3DIcon::Draw(dl, ToneIcon(tone), ImVec2(p0.x + railW + padX + iconSize * 0.5f, p0.y + h * 0.5f),
+    iconSize, U32(col, alpha));
+
+  const ImVec2 at(p0.x + textLeft, p0.y + (h - textH) * 0.5f);
+  dl->PushClipRect(at, ImVec2(at.x + textW, at.y + textH), true);
+  dl->AddText(nullptr, 0.f, at, U32(G3DTheme::Text(), alpha), text, nullptr, textW);
+  dl->PopClipRect();
+
+  bool clicked = false;
+  if (hasAction)
+  {
+    ImGui::PushID(text);
+    ImGui::SetCursorScreenPos(ImVec2(p1.x - padX - (actionW - G3DTheme::Spacing::Sm * s),
+      p0.y + (h - G3DTheme::Size::Control * s) * 0.5f));
+    clicked = Button(actionLabel, ButtonVariant::Ghost);
+    ImGui::PopID();
+  }
+
+  ImGui::SetCursorScreenPos(p0);
+  ImGui::Dummy(ImVec2(w, h));
+  return clicked;
+}
+
+//----------------------------------------------------------------------------
+bool BellButton(const char* id, int unread, ToneVariant tone, float size, const char* tooltip,
+  const char* shortcut)
+{
+  const float s = Scale();
+  const bool clicked = IconButton(id, unread > 0 ? G3DIconId::BellDot : G3DIconId::Bell, size,
+    false, tooltip, false, IconOnStyle::Fill, shortcut);
+  if (unread <= 0)
+  {
+    return clicked;
+  }
+  // Count chip riding the upper-right corner. Drawn AFTER the button so nothing covers it, at the
+  // overline scale every other numeric chip uses.
+  const ImVec2 mn = ImGui::GetItemRectMin();
+  const ImVec2 mx = ImGui::GetItemRectMax();
+  char txt[8];
+  if (unread > 99)
+  {
+    std::snprintf(txt, sizeof(txt), "99+");
+  }
+  else
+  {
+    std::snprintf(txt, sizeof(txt), "%d", unread);
+  }
+  const float fs = OverlineSize();
+  const ImVec2 ts = CalcTextSized(txt, fs);
+  const float padX = 3.f * s;
+  const float dotW = std::max(ts.x + padX * 2.f, fs + padX);
+  const float dotH = fs + 2.f * s;
+  const float pulse = CountPulseScale(ImGui::GetID(id), unread);
+  // Anchored to the button's top-right CORNER and grown inwards: a chip that overhangs is a chip
+  // the host window clips, and the pulse would push it further out every repeat.
+  const ImVec2 d1(mx.x, mn.y + dotH * pulse);
+  const ImVec2 d0(d1.x - dotW * pulse, mn.y);
+  const float alpha = ImGui::GetStyle().Alpha;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  AAGuard aa(dl);
+  // A hairline of the panel color around the chip keeps it legible over the bell's own strokes.
+  dl->AddRectFilled(ImVec2(d0.x - s, d0.y - s), ImVec2(d1.x + s, d1.y + s),
+    U32(G3DTheme::Panel(), alpha), dotH);
+  dl->AddRectFilled(d0, d1, U32(ToneColor(tone), alpha), dotH);
+  DrawTextSized(dl, ImVec2((d0.x + d1.x) * 0.5f - ts.x * 0.5f, (d0.y + d1.y) * 0.5f - ts.y * 0.5f),
+    U32(ImVec4(0.06f, 0.07f, 0.09f, 1.f), alpha), txt, fs);
+  return clicked;
 }
 
 //----------------------------------------------------------------------------

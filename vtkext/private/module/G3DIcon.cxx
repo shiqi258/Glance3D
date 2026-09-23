@@ -435,6 +435,42 @@ void DrawSuccess(const IconCanvas& c)
   c.Line(0.45f, 0.63f, 0.67f, 0.38f);
 }
 
+void DrawBell(const IconCanvas& c, bool dot)
+{
+  // Body: two shoulders rising to a rounded dome, a flat lip, and the clapper below.
+  c.dl->AddBezierCubic(c.P(0.26f, 0.66f), c.P(0.26f, 0.34f), c.P(0.36f, 0.22f),
+    c.P(0.50f, 0.22f), c.color, c.th);
+  c.dl->AddBezierCubic(c.P(0.50f, 0.22f), c.P(0.64f, 0.22f), c.P(0.74f, 0.34f),
+    c.P(0.74f, 0.66f), c.color, c.th);
+  c.Line(0.20f, 0.66f, 0.80f, 0.66f);
+  c.dl->AddBezierQuadratic(
+    c.P(0.42f, 0.72f), c.P(0.50f, 0.84f), c.P(0.58f, 0.72f), c.color, c.th);
+  // Handle nub on top, so the silhouette reads as a bell and not as an arch.
+  c.Line(0.50f, 0.22f, 0.50f, 0.14f);
+  if (dot)
+  {
+    // Unread marker: punched clear of the body with a ring gap so it reads on a busy toolbar.
+    c.dl->AddCircleFilled(c.P(0.76f, 0.26f), c.R(0.16f), IM_COL32(0, 0, 0, 0), 16);
+    c.Dot(0.76f, 0.26f, 0.12f);
+  }
+}
+
+void DrawExternalLink(const IconCanvas& c)
+{
+  // Open box with the top-right corner left out, plus the arrow leaving through the gap.
+  const ImVec2 box[5] = {
+    c.P(0.60f, 0.22f),
+    c.P(0.22f, 0.22f),
+    c.P(0.22f, 0.78f),
+    c.P(0.78f, 0.78f),
+    c.P(0.78f, 0.42f),
+  };
+  c.Poly(box, 5);
+  c.Line(0.46f, 0.55f, 0.80f, 0.21f);
+  const ImVec2 head[3] = { c.P(0.58f, 0.20f), c.P(0.82f, 0.20f), c.P(0.82f, 0.44f) };
+  c.Poly(head, 3);
+}
+
 void DrawCheck(const IconCanvas& c)
 {
   // Two-segment tick (matches the styleguide swatch / copied checkmark).
@@ -610,6 +646,15 @@ void G3DIcon::Draw(
       break;
     case G3DIconId::Success:
       DrawSuccess(c);
+      break;
+    case G3DIconId::Bell:
+      DrawBell(c, false);
+      break;
+    case G3DIconId::BellDot:
+      DrawBell(c, true);
+      break;
+    case G3DIconId::ExternalLink:
+      DrawExternalLink(c);
       break;
     case G3DIconId::Info:
       DrawInfo(c);

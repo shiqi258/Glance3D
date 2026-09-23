@@ -2188,7 +2188,12 @@ void F3DStarter::LoadFileGroupInternal(
                 G3D_MSG("Skipped {name}: too large"),
                 { { "name", tmpPath.filename().string() } },
                 G3D_MSG("It exceeds the {size} MiB limit set by --max-size."),
-                { { "size", limit } }, tmpPath.string(), tmpPath.string());
+                { { "size", limit } }, tmpPath.string(), tmpPath.string(),
+                // The limit is a guard, not a verdict: the user who hit it is usually the one who
+                // knows the file is worth the wait, and they should not have to restart the app
+                // with a different flag to say so.
+                { { g3d::locale::translate("Load it anyway"),
+                  "load_ignoring_max_size \"" + tmpPath.string() + "\"", true } });
             }
             else
             {
@@ -3031,6 +3036,35 @@ void F3DStarter::AddCommands()
     },
     f3d::interactor::command_documentation_t{
       "add_files path/to/file [path/to/another_file]", "add files to the scene" },
+    complFilesystem);
+
+  // Load a file the size guard skipped. Backs the "Load it anyway" action: --max-size exists to
+  // stop an accidental 8 GB open from freezing the app, not to forbid one the user asked for.
+  interactor.addCommand(
+    "load_ignoring_max_size",
+    [this](const std::vector<std::string>& args)
+    {
+      if (args.empty())
+      {
+        throw f3d::interactor::invalid_args_exception(
+          "Command: load_ignoring_max_size is expecting at least 1 argument");
+      }
+      const std::optional<double> savedMaxSize = this->Internals->AppOptions.MaxSize;
+      this->Internals->AppOptions.MaxSize.reset();
+      int index = -1;
+      for (const std::string& file : args)
+      {
+        index = this->AddFile(f3d::utils::collapsePath(file));
+      }
+      if (index > -1)
+      {
+        this->LoadFileGroup(index);
+      }
+      // One file, not a new policy: the guard is back in place for whatever is opened next.
+      this->Internals->AppOptions.MaxSize = savedMaxSize;
+    },
+    f3d::interactor::command_documentation_t{ "load_ignoring_max_size path/to/file",
+      "load a file even though it exceeds --max-size" },
     complFilesystem);
 
   interactor.addCommand(

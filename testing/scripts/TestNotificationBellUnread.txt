@@ -1,0 +1,2 @@
+notify error "Cannot find scene.gltf" "The path does not exist."
+notify warning "Camera 3 does not exist"

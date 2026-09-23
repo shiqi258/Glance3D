@@ -389,7 +389,20 @@ On desktop the tree lives in the docked panel chrome's left bar (the legacy floa
 
 ### `--notifications` (_bool_, default: `false`)
 
-Display the notifications at the bottom left of the window.
+Display the key hints at the bottom left of the window: the transient state readouts a binding raises
+("Grid: ON"). Problem messages are separate and always on, see `--no-messages`.
+
+### `--messages` (_bool_, default: `true`)
+
+Display problem messages (load failures, warnings) as cards at the bottom right of the window. Use
+`--no-messages` to turn them off; they are independent of `--notifications` on purpose, so a user who
+never enabled the key hints still sees that a file failed to open.
+
+### `--notification-center` (_bool_, default: `false`)
+
+Open the message center: a draggable panel listing everything Glance3D reported this session, with
+the detail, the raw developer text and any actions for each entry. Also reachable from the bell in
+the top bar or with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>.
 
 ### `--hdri-filename` (_bool_, default: `false`)
 

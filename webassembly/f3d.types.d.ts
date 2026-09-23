@@ -101,6 +101,31 @@ export interface Glance3DReaderInfo {
 
 export type Glance3DLogLevel = LogVerboseLevel | number;
 
+/** One action offered on a message. `command` is a libf3d command string, handed straight to
+ * `interactor.triggerCommand` — the same string the desktop presenter runs, which is what keeps
+ * the two frontends honest about what an action actually does. */
+export interface Glance3DMessageAction {
+  label: string;
+  command: string;
+  primary: boolean;
+}
+
+/** A user-facing message as the notification center holds it. Strings arrive already translated,
+ * so a page needs no ICU engine of its own. `severity` matches the NotificationSeverity enum
+ * (0 info, 1 success, 2 warning, 3 error); `code` is the stable "G3D-1001" identifier, empty for a
+ * message captured from the log. */
+export interface Glance3DMessage {
+  id: number;
+  severity: number;
+  code: string;
+  title: string;
+  detail: string;
+  /** Untranslated technical text — the line that belongs in a bug report. */
+  raw: string;
+  count: number;
+  actions: Glance3DMessageAction[];
+}
+
 export interface Glance3DFactoryOptions {
   canvas?: HTMLCanvasElement;
   locateFile?: (path: string, prefix?: string) => string;

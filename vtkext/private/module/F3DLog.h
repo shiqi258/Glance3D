@@ -11,6 +11,7 @@
 #ifndef F3DLog_h
 #define F3DLog_h
 
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -59,14 +60,26 @@ void SetUseColoring(bool use);
 void SetStandardStream(StandardStream mode);
 
 /**
- * Callback function for forwarding log messages.
- * If set, it will be invoked with the message string whenever a log message is printed.
+ * Subscribe to every log message. Returns a token for RemoveForwarder().
+ *
+ * Multicast on purpose: the session file log, the exported libf3d facade and the wasm bindings all
+ * want the stream, and the single-slot version meant whichever registered last silently switched
+ * the others off -- which is exactly how a JS `Log.forward` call used to kill the file log.
+ *
+ * Forwarders are called OUTSIDE the registry lock, from the thread that logged. A forwarder that
+ * itself logs would otherwise deadlock.
  */
-extern std::function<void(Severity, const std::string&)> Forwarder;
+std::uint64_t AddForwarder(std::function<void(Severity, const std::string&)> callback);
+
+/// Unsubscribe a forwarder added by AddForwarder(). Unknown tokens are ignored.
+void RemoveForwarder(std::uint64_t token);
 
 /**
- * Set a callback function to forward log messages.
- * The callback will be invoked with the message string whenever a log message is printed.
+ * Set THE legacy single forwarder (null clears it).
+ *
+ * Kept because it is what f3d::log::forward() exposes, and because F3DLogFile's destructor calls
+ * forward(nullptr) on the way out -- with a naive multicast that would have unsubscribed everyone
+ * else too. It owns one reserved slot and touches nothing added through AddForwarder().
  */
 void Forward(std::function<void(Severity, const std::string&)> userCallback);
 };

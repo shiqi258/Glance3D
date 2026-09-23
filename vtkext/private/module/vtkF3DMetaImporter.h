@@ -176,7 +176,22 @@ public:
    * called on the thread owning the GL context. Call BuildGeometry() (optionally off-thread) then
    * CommitToRenderer() (on the render thread); Update() simply chains the two.
    */
-  bool BuildGeometry();
+  /**
+   * What one BuildGeometry() pass achieved.
+   *
+   * A group used to be all-or-nothing and silent about it: one unreadable file in a drop of ten
+   * abandoned the other nine with no indication of which one was at fault. Now every importer gets
+   * its turn, the ones that fail are named and dropped, and the caller decides what a partial
+   * result means for it.
+   */
+  struct BuildResult
+  {
+    bool anySucceeded = false;       ///< at least one importer produced geometry
+    int succeeded = 0;               ///< how many did
+    std::vector<std::string> failed; ///< names of the importers that did not
+  };
+
+  BuildResult BuildGeometry();
   void CommitToRenderer();
   ///@}
 

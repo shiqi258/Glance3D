@@ -1,0 +1,3 @@
+notify error "Cannot find scene.gltf" "The path does not exist."
+notify warning "1 of 3 files could not be loaded" "The rest of the scene loaded."
+notify success "Screenshot saved"

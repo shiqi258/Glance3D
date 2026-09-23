@@ -29,6 +29,7 @@
 
 #include "log.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -70,6 +71,8 @@ private:
 
   std::mutex Mutex;
   std::ofstream Stream;
+  /// Subscription token from f3d::log::addForwarder (0 = not subscribed).
+  std::uint64_t ForwarderToken = 0;
 };
 
 #endif

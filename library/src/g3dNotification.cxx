@@ -184,6 +184,12 @@ void notification::markAllRead()
 }
 
 //----------------------------------------------------------------------------
+std::uint64_t notification::revision()
+{
+  return G3DNotificationCenter::GetInstance().Revision();
+}
+
+//----------------------------------------------------------------------------
 void notification::clear()
 {
   G3DNotificationCenter::GetInstance().ClearHistory();

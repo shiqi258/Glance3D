@@ -43,13 +43,18 @@ public:
   using CheatSheetTuple = std::tuple<std::string, std::string, std::string, CheatSheetBindingType>;
   using CheatSheetGroup = std::pair<std::string, std::vector<CheatSheetTuple>>;
 
-  struct Notification
+  /**
+   * What a binding HUD entry's value MEANS, decided where the value is produced.
+   *
+   * The presenter used to sniff the string ("ON" -> green, "OFF" -> red): semantically wrong (an
+   * off grid is not an error) and, once the value went through the translation catalog, simply
+   * dead — a localized build matched neither literal.
+   */
+  enum class BindingValueState : std::uint8_t
   {
-    std::string desc;
-    std::string value;
-    std::string bind;
-    double startTime;
-    double stopTime;
+    Neutral = 0, ///< a value with no on/off meaning (a mode name, a number)
+    On,
+    Off,
   };
 
   /**
@@ -179,12 +184,6 @@ public:
   void SetMinimalConsoleVisibility(bool show);
 
   /**
-   * Set the console badge enabled status
-   * False by default
-   */
-  void SetConsoleBadgeEnabled(bool enabled);
-
-  /**
    * Set the cheatsheet string
    * Empty by default
    */
@@ -227,6 +226,12 @@ public:
    * False by default
    */
   void SetBindingsVisibility(bool show);
+
+  /**
+   * Set the message center panel visibility
+   * False by default
+   */
+  void SetNotificationCenterVisibility(bool show);
 
   /**
    * Updates the fps value
@@ -308,10 +313,13 @@ public:
   }
 
   /**
-   * Add notification info to deque
+   * Report a binding HUD entry ("Grid: ON" + the key that did it). Stored in the shared
+   * G3DNotificationCenter as a TRANSIENT record: one model for every message on screen, but
+   * transients never enter history and never count as unread — a session's worth of "Grid: ON"
+   * would bury the one error that mattered.
    */
   void AddNotification(const std::string& desc, const std::string& value, const std::string& bind,
-    double startTime, double duration);
+    double duration, BindingValueState state = BindingValueState::Neutral);
 
 protected:
   vtkF3DUIActor();
@@ -413,28 +421,31 @@ protected:
   }
 
   /**
-   * Render the console badge
+   * Render the binding HUD: the transient "Grid: ON" readouts a keystroke raises, bottom left.
+   *
+   * No time argument: expiry belongs to G3DNotificationCenter, which drives it from the frame a
+   * message was first DRAWN rather than from the frame it was posted.
    */
-  virtual void RenderConsoleBadge()
-  {
-  }
-
-  /**
-   * Render the notifications
-   */
-  virtual void RenderNotifications(double vtkNotUsed(currenTime))
+  virtual void RenderBindingHud()
   {
   }
 
   /**
    * Render the problem-message stack (the toasts fed by G3DNotificationCenter).
    *
-   * Distinct from RenderNotifications above, which is the binding HUD: that one is a state
-   * display ("Grid: ON") tied to a keystroke, this one is a message the user may need to act on.
-   * They share a corner of nothing and have opposite lifetimes, so they stay separate surfaces
-   * over one model.
+   * Distinct from the binding HUD above: that one is a state display tied to a keystroke, this one
+   * is a message the user may need to act on. They share a model and nothing else — opposite
+   * lifetimes, opposite corners — so they stay separate surfaces.
    */
   virtual void RenderMessages()
+  {
+  }
+
+  /**
+   * Render the message center: the history panel behind the bell, listing everything reported this
+   * session. Reads its own visibility option, so it is called unconditionally.
+   */
+  virtual void RenderNotificationCenter()
   {
   }
 
@@ -463,7 +474,6 @@ protected:
 
   bool ConsoleVisible = false;
   bool MinimalConsoleVisible = false;
-  bool ConsoleBadgeEnabled = false;
 
   bool FpsCounterVisible = false;
 
@@ -508,7 +518,7 @@ protected:
 
   bool NotificationVisible = false;
   bool BindingsVisible = false;
-  std::deque<Notification> Notifications;
+  bool NotificationCenterVisible = false;
 
 private:
   vtkF3DUIActor(const vtkF3DUIActor&) = delete;

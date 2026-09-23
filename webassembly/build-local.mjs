@@ -218,6 +218,22 @@ const TYPE_SUBSTITUTIONS = [
     pattern: /^(\s*)forward\(_0: any\): void;$/m,
     replacement: "$1forward(_0: (level: Glance3DLogLevel, message: string) => void): void;",
   },
+  {
+    name: "Log.addForwarder",
+    pattern: /^(\s*)addForwarder\(_0: any\): bigint;$/m,
+    replacement:
+      "$1addForwarder(_0: (level: Glance3DLogLevel, message: string) => void): bigint;",
+  },
+  {
+    name: "Notification.list",
+    pattern: /^(\s*)list\(\): any;$/m,
+    replacement: "$1list(): Glance3DMessage[];",
+  },
+  {
+    name: "Notification.history",
+    pattern: /^(\s*)history\(_0: number\): any;$/m,
+    replacement: "$1history(max: number): Glance3DMessage[];",
+  },
   // The hand-written file redeclares both of these, so the generated ones have to go.
   {
     name: "generated MainModule alias",
@@ -250,6 +266,8 @@ const REQUIRED_TYPE_SYMBOLS = [
   "Glance3DNodeProperty",
   "activateSceneTreeNode",
   "getG3DDataInfo(): Glance3DDataInfo;",
+  "Glance3DMessage",
+  "list(): Glance3DMessage[];",
 ];
 
 /**

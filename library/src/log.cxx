@@ -151,4 +151,25 @@ void log::forward(const forward_fn_t& callback)
   F3DLog::Forward([=](F3DLog::Severity sev, const std::string& msg)
     { callback(detail::convertLevel(sev), msg); });
 }
+
+//----------------------------------------------------------------------------
+std::uint64_t log::addForwarder(const forward_fn_t& callback)
+{
+  detail::init::initialize();
+
+  if (callback == nullptr)
+  {
+    return 0;
+  }
+  return F3DLog::AddForwarder([=](F3DLog::Severity sev, const std::string& msg)
+    { callback(detail::convertLevel(sev), msg); });
+}
+
+//----------------------------------------------------------------------------
+void log::removeForwarder(std::uint64_t token)
+{
+  detail::init::initialize();
+
+  F3DLog::RemoveForwarder(token);
+}
 }

@@ -112,6 +112,7 @@ public:
   void ShowSceneHierarchy(bool show);
   void ShowNotification(bool show);
   void ShowBindings(bool show);
+  void ShowNotificationCenter(bool show);
   ///@}
 
   using vtkOpenGLRenderer::SetBackground;
@@ -599,15 +600,12 @@ public:
   //@}
 
   /**
-   * Set console badge enabled status
+   * Report a binding HUD entry ("Grid: ON" + the key that raised it). @p state says what the value
+   * MEANS, because only the caller knows: the presenter cannot read that off a translated string.
    */
-  void SetConsoleBadgeEnabled(bool enabled);
-
-  /**
-   * Add notification info to deque
-   */
-  void AddNotification(
-    const std::string& desc, const std::string& value, const std::string& bind, double duration);
+  void AddNotification(const std::string& desc, const std::string& value, const std::string& bind,
+    double duration,
+    vtkF3DUIActor::BindingValueState state = vtkF3DUIActor::BindingValueState::Neutral);
 
 private:
   vtkF3DRenderer();

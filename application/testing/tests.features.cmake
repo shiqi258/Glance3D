@@ -168,9 +168,11 @@ f3d_test(NAME TestHDRIFilename DATA dragon.vtu ARGS --hdri-filename -f -j --hdri
 f3d_test(NAME TestFilenameHDRIFilename DATA dragon.vtu ARGS --hdri-filename -n -f -j --hdri-file=${F3D_SOURCE_DIR}/testing/data/palermo_park_1k.hdr RESOLUTION 400,400 UI LONG_TIMEOUT)
 f3d_test(NAME TestHDRIFilenameDefault DATA dragon.vtu ARGS --hdri-filename -f -j UI LONG_TIMEOUT)
 f3d_test(NAME TestFilenameWhiteBg DATA suzanne.ply ARGS -n --background-color=1,1,1 UI)
-f3d_test(NAME TestConsoleBadgeWarning DATA suzanne.ply ARGS --position=0 UI)
-f3d_test(NAME TestConsoleBadgeQuiet DATA suzanne.ply ARGS --position=0 --verbose=quiet UI)
-f3d_test(NAME TestConsoleBadgeError DATA invalid_body.vtp NO_DATA_FORCE_RENDER UI)
+# A warning has to leave something on screen (the message card, and the bell that counts it);
+# --verbose=quiet has to leave nothing, since a message the log never carried was never captured.
+f3d_test(NAME TestMessageBellWarning DATA suzanne.ply ARGS --position=0 UI)
+f3d_test(NAME TestMessageBellQuiet DATA suzanne.ply ARGS --position=0 --verbose=quiet UI)
+f3d_test(NAME TestMessageBellError DATA invalid_body.vtp NO_DATA_FORCE_RENDER UI)
 
 ## Axis widget
 # Needs https://gitlab.kitware.com/vtk/vtk/-/merge_requests/12489
@@ -618,6 +620,21 @@ f3d_test(NAME TestNotificationCommand DATA cow.vtp SCRIPT NO_BASELINE REGEXP "no
 # An unknown severity is a scripting error, not something to guess at.
 f3d_test(NAME TestNotificationCommandInvalidSeverity DATA cow.vtp SCRIPT NO_BASELINE REGEXP "severity must be one of")
 
+# A group with one unreadable file must still show the others. This used to abandon the whole
+# group and never say which file was at fault, so both halves are asserted: the group-level
+# warning, and the per-file error naming the culprit.
+f3d_test(NAME TestNotificationPartialGroup DATA cow.vtp invalid_body.vtp ARGS --multi-file-mode=all REGEXP "G3D-1006" NO_BASELINE)
+f3d_test(NAME TestNotificationPartialGroupNamesFile DATA cow.vtp invalid_body.vtp ARGS --multi-file-mode=all REGEXP "G3D-1005.*invalid_body" NO_BASELINE)
+
+# The message center panel: severity icons, relative times and the pinned toolbar. Rendered wider
+# than the 300x300 default because the panel and the card stack have to both be legible for the
+# comparison to mean anything.
+f3d_test(NAME TestNotificationCenter DATA cow.vtp SCRIPT ARGS -Dui.notification_center=true RESOLUTION 600,450 UI)
+
+# The bell carries the unread count once the cards themselves have been dismissed -- that is the
+# whole point of it, and what replaced the bare "!" badge.
+f3d_test(NAME TestNotificationBellUnread DATA cow.vtp SCRIPT UI)
+
 # Test non supported file, do not add support for .dummy file.
 f3d_test(NAME TestUnsupportedFileText DATA unsupportedFile.dummy ARGS --filename REGEXP "G3D-1002.*unsupportedFile.dummy" NO_RENDER)
 
@@ -804,6 +821,8 @@ f3d_test(NAME TestFPS DATA suzanne.ply ARGS -z --font-scale=0.35
   --font-file=${F3D_SOURCE_DIR}/testing/data/Crosterian.ttf UI THRESHOLD 0.2)
 # Require improved importer support https://gitlab.kitware.com/vtk/vtk/-/merge_requests/11303
 if(VTK_VERSION VERSION_GREATER_EQUAL 9.3.20240910)
-  f3d_test(NAME TestFPSWithBadge DATA invalid_body.vtp ARGS -z --font-scale=0.35
+  # The fps counter alongside a message: it moved to the viewport's top LEFT, so it no longer has
+  # to step around whatever is in the opposite corner.
+  f3d_test(NAME TestFPSWithMessage DATA invalid_body.vtp ARGS -z --font-scale=0.35
     --font-file=${F3D_SOURCE_DIR}/testing/data/Crosterian.ttf NO_DATA_FORCE_RENDER UI THRESHOLD 0.2)
 endif()

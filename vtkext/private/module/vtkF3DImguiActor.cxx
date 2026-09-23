@@ -93,6 +93,46 @@ constexpr double CONTROL_PANEL_ANIM_SEC = 0.22; // panel slide in/out duration
 constexpr double CONTROL_FAB_FADE_SEC = 0.18;   // FAB fade in/out duration
 constexpr double CONTROL_FAB_IDLE_SEC = 2.5;    // idle before the FAB starts fading out
 
+/// Hand out the viewport's top-right chrome column, top to bottom: slot 0 = the panel reopen FAB,
+/// slot 1 = the message bell. ONE owner of that corner, so nothing needs a private "step around
+/// whatever else might be up there" offset — the class of bug that had the fps counter, the minimal
+/// console and the FAB each carrying their own copy of the same dodge around the alert badge.
+/// The pitch is constant and sized on the tallest tenant, so a slot never moves because the slot
+/// above it happens to be empty this frame.
+ImVec2 TopRightSlot(const G3DLayout::Rect& rect, int slot, const ImVec2& size, float fontScale)
+{
+  constexpr float margin = F3DStyle::GetDefaultMargin();
+  const float pitch = CONTROL_FAB_SIZE * fontScale + margin;
+  return ImVec2(rect.x + rect.w - margin - size.x, rect.y + margin + slot * pitch);
+}
+
+/// How much width the slot column claims. Anything that spans the top of the viewport (the minimal
+/// console) asks for this instead of inventing its own offset — the same single owner, read from
+/// the other side.
+float TopRightSlotReservedWidth(float fontScale)
+{
+  constexpr float margin = F3DStyle::GetDefaultMargin();
+  return CONTROL_FAB_SIZE * fontScale + 2.f * margin;
+}
+
+/// Severity -> the design system's tone ladder. One mapping, so the toast stack, the message
+/// center and the bell can never disagree about what "warning" looks like.
+G3DWidgets::ToneVariant ToneFor(G3DSeverity sev)
+{
+  switch (sev)
+  {
+    case G3DSeverity::Error:
+      return G3DWidgets::ToneVariant::Danger;
+    case G3DSeverity::Warning:
+      return G3DWidgets::ToneVariant::Warning;
+    case G3DSeverity::Success:
+      return G3DWidgets::ToneVariant::Success;
+    case G3DSeverity::Info:
+    default:
+      return G3DWidgets::ToneVariant::Info;
+  }
+}
+
 // Orientation-gizmo footprint at the central viewport's upper-right corner. One source of truth
 // shared by RenderViewGizmo (anchor) and RenderScalarBar (the legend starts below the gizmo so the
 // two right-edge overlays never overlap). zoneH() is the vertical span consumed from the top edge.
@@ -562,6 +602,12 @@ struct vtkF3DImguiActor::Internals
   bool SearchFocusRequested = false;
   float CheatSheetWidth = 0.f;
   G3DWidgets::FloatingCardState CheatSheetFloat;
+
+  /// Message center: its floating-card position, the filter segment, and which rows are expanded.
+  G3DWidgets::FloatingCardState NotifCenterFloat;
+  bool NotifCenterProblemsOnly = false;
+  std::unordered_map<std::uint64_t, bool> NotifCenterOpen;
+
   std::map<std::string, ImFont*> ExtraFonts;
 };
 
@@ -699,11 +745,12 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
 
   // Regular UI font size (logical px), unified with the design system (doc/dev/ui-styleguide.html):
   // the industry "regular" base for professional editors is 14px (Ant Design / Fluent / Material;
-  // CJK reads better at 14 than the 13px Latin-IDE norm). The secondary "noti" font stays 0.8x.
+  // CJK reads better at 14 than the 13px Latin-IDE norm). Exactly two atlases are burned, UI and
+  // data: the binding HUD used to carry a private 0.8x copy of the UI face — a third atlas plus a
+  // third CJK merge, for one call site, against the single-type-scale rule.
   // Spacing keeps the fixed 4-grid because G3DWidgets BASE_FONT == this size, so Scale() carries DPI
   // only (see G3DWidgets.cxx). FontScale is the DPI/user scale.
   const float uiFont = 14.f * this->FontScale;
-  const float notiSize = uiFont * 0.8f;
 
   // Dual-font system: UI text = proportional sans (Inter, embedded; --font-file overrides it),
   // data = Monaspace (always embedded), pushed by widgets for values / filenames / array names /
@@ -717,20 +764,11 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
       const_cast<void*>(reinterpret_cast<const void*>(G3DUIFontBuffer)), sizeof(G3DUIFontBuffer),
       uiFont, &fontConfig, nullptr);
     mergeCJK(uiFont, cjkUiScale);
-    ImFont* notiFont = io.Fonts->AddFontFromMemoryTTF(
-      const_cast<void*>(reinterpret_cast<const void*>(G3DUIFontBuffer)), sizeof(G3DUIFontBuffer),
-      notiSize, &fontConfig, nullptr);
-    mergeCJK(notiSize, cjkUiScale);
-    Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
   else
   {
     font = io.Fonts->AddFontFromFileTTF(this->FontFile.c_str(), uiFont, &fontConfig, nullptr);
     mergeCJK(uiFont, cjkUiScale);
-    ImFont* notiFont =
-      io.Fonts->AddFontFromFileTTF(this->FontFile.c_str(), notiSize, &fontConfig, nullptr);
-    mergeCJK(notiSize, cjkUiScale);
-    Pimpl->ExtraFonts["notiFont"] = notiFont;
   }
   {
     ImFontConfig dataConfig;
@@ -2024,17 +2062,16 @@ void vtkF3DImguiActor::RenderFpsCounter()
   winSize.x += 2.f * ImGui::GetStyle().WindowPadding.x;
   winSize.y += 2.f * ImGui::GetStyle().WindowPadding.y;
 
-  float posX = viewport->WorkSize.x - winSize.x - margin;
-  if (this->ConsoleBadgeEnabled)
-  {
-    vtkF3DImguiConsole* console = vtkF3DImguiConsole::SafeDownCast(vtkOutputWindow::GetInstance());
-    if (console && console->IsBadgeVisible())
-    {
-      ImVec2 badgeSize = console->GetBadgeSize();
-      posX = viewport->WorkSize.x - winSize.x - badgeSize.x - 2.f * margin;
-    }
-  }
-  ImVec2 position(posX, margin);
+  // Top LEFT of the central viewport -- where every 3D viewer puts its frame counter, and the one
+  // corner nothing else claims. It used to sit top-right and carry its own formula for stepping
+  // around the console alert badge; the badge is gone and so is the dodge.
+  const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
+    viewport->WorkSize.y };
+  const G3DLayout::Rect rc =
+    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(),
+      static_cast<float>(this->FontScale))
+      .center;
+  const ImVec2 position(rc.x + margin, rc.y + margin);
 
   ::SetupNextWindow(position, winSize);
   ImGuiStyle& style = ImGui::GetStyle();
@@ -2217,9 +2254,63 @@ void vtkF3DImguiActor::AdvanceControlAnim()
 }
 
 //----------------------------------------------------------------------------
+void vtkF3DImguiActor::RenderFloatingBell()
+{
+  // Only while the top bar (which carries its own bell) is away, and only when there is something
+  // unread: an always-present bell in an empty session is chrome for nothing. This is what took
+  // over from the bare "!" in the corner.
+  if (this->PanelAnim.Value() >= 0.001f)
+  {
+    return;
+  }
+  G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
+  const int unread = nc.UnreadCount(G3DSeverity::Info);
+  if (unread <= 0)
+  {
+    return;
+  }
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  if (viewport->WorkSize.x < 60.f || viewport->WorkSize.y < 60.f)
+  {
+    return;
+  }
+
+  const float scale = static_cast<float>(this->FontScale);
+  const float size = G3DTheme::Size::IconButton * scale;
+  const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
+    viewport->WorkSize.y };
+  // Slot 1 of the shared top-right column: directly under the panel reopen handle, with no
+  // knowledge of it beyond the slot number.
+  const ImVec2 pos = ::TopRightSlot(work, 1, ImVec2(size, size), scale);
+
+  ::SetupNextWindow(pos, ImVec2(size, size));
+  ImGui::SetNextWindowBgAlpha(0.f); // the button paints its own surface
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+  constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+    ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+  ImGui::Begin("##g3d.bell", nullptr, flags);
+
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const std::string tip = loc.Translate("{n} unread", { { "n", std::to_string(unread) } });
+  if (G3DWidgets::BellButton("##g3d.bell.btn", unread, ToneFor(nc.TopUnreadSeverity()), size,
+        tip.c_str(), "Ctrl+Shift+K"))
+  {
+    this->SendCommand("toggle ui.notification_center");
+  }
+
+  ImGui::End();
+  ImGui::PopStyleVar(2);
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderControlToggle()
 {
   this->AdvanceControlAnim();
+  this->RenderFloatingBell();
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   if (viewport->WorkSize.x < 10 || viewport->WorkSize.y < 10 || this->FabAlpha.Value() < 0.01f)
@@ -2233,10 +2324,12 @@ void vtkF3DImguiActor::RenderControlToggle()
 
   // Fixed top-right reopen handle (it only exists while the panel is fully closed, so it never
   // tracks the panel edge — the old drawer-handle formula also missed the DPI scale and overlapped
-  // the inspector header at high scales). One row below the top to clear the fps/console badge.
-  const float rowH = ImGui::GetTextLineHeight() + 2.f * ImGui::GetStyle().WindowPadding.y;
-  const ImVec2 pos(viewport->WorkPos.x + viewport->WorkSize.x - fabSize - margin,
-    viewport->WorkPos.y + margin + rowH + margin);
+  // the inspector header at high scales). Slot 0 of the shared top-right column: it used to be
+  // pushed down one text row to clear the console alert badge, which no longer exists.
+  const G3DLayout::Rect fabWork{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
+    viewport->WorkSize.y };
+  const ImVec2 pos =
+    ::TopRightSlot(fabWork, 0, ImVec2(fabSize, fabSize), static_cast<float>(this->FontScale));
 
   ::SetupNextWindow(pos, ImVec2(fabSize, fabSize));
   ImGui::SetNextWindowBgAlpha(0.f); // we draw our own rounded glass background
@@ -2336,6 +2429,27 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
 
   // --- Geometry: read-only key/value stats, right-aligned values. ---
   const vtkF3DMetaImporter::G3DDataStats stats = importer->GetG3DDataStats();
+
+  // An inspector full of zeros is a riddle. When the scene is empty AND something was reported,
+  // say so here too: the card that explained it may have timed out long before the user opened
+  // this panel, and the message center is one click away.
+  if (stats.actors == 0)
+  {
+    G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
+    const int errors = nc.CountAtLeast(G3DSeverity::Error);
+    if (errors > 0)
+    {
+      const std::string text =
+        loc.Translate("Nothing loaded: {n, plural, one{# file failed} other{# files failed}}",
+          { { "n", std::to_string(errors) } });
+      const std::string action = loc.Translate("Details");
+      if (G3DWidgets::Banner(text.c_str(), G3DWidgets::ToneVariant::Danger, action.c_str()))
+      {
+        this->SendCommand("set ui.notification_center true");
+      }
+      ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Sm * scale));
+    }
+  }
   {
     const std::string title = loc.Translate("Geometry");
     G3DWidgets::CollapseDesc d;
@@ -4128,6 +4242,24 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       loc.Translate("Shortcuts").c_str(), this->CheatSheetVisible, G3DWidgets::IconOnStyle::Well,
       "H");
 
+    // Message bell — the formal entrance to what the app has to say, replacing the bare "!" that
+    // used to float in the corner with no text, no severity and no way to dismiss it. The dot is
+    // tinted by the loudest unread message, so a glance says whether it is worth opening.
+    {
+      G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
+      const int unread = nc.UnreadCount(G3DSeverity::Info);
+      rightX -= btn + gapXs;
+      ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
+      const std::string bellTip = unread > 0
+        ? loc.Translate("{n} unread", { { "n", std::to_string(unread) } })
+        : loc.Translate("Messages");
+      if (G3DWidgets::BellButton("##tb.bell", unread, ToneFor(nc.TopUnreadSeverity()), btn,
+            bellTip.c_str(), "Ctrl+Shift+K"))
+      {
+        this->SendCommand("toggle ui.notification_center");
+      }
+    }
+
     // Parse the app-composed "(i/m) " prefix out of the title (F3DStarter builds it): the bare
     // name goes to the centered title, i/m drive the pager; a single-file "(1/1)" prefix is
     // stripped and shows no pager at all.
@@ -4345,14 +4477,14 @@ void vtkF3DImguiActor::RenderConsole(bool minimal)
   // Keep the console clear of the docked top bar (palette minimum y / minimal pill anchor).
   const float topOffset =
     G3DLayout::DefaultBarSizes(static_cast<float>(this->FontScale)).topH * this->PanelAnim.Value();
-  console->ShowConsole(minimal, topOffset);
-}
-
-//----------------------------------------------------------------------------
-void vtkF3DImguiActor::RenderConsoleBadge()
-{
-  vtkF3DImguiConsole* console = vtkF3DImguiConsole::SafeDownCast(vtkOutputWindow::GetInstance());
-  console->ShowBadge();
+  // The minimal console runs along the top of the viewport, straight through the chrome column in
+  // the top-right corner. It asks the owner of that column how wide it is rather than carrying its
+  // own guess — only while the docked chrome is closed, since the column's tenants live there only
+  // then (with the chrome open the top bar carries them instead).
+  const float rightInset = this->PanelAnim.Value() < 0.999f
+    ? ::TopRightSlotReservedWidth(static_cast<float>(this->FontScale))
+    : 0.f;
+  console->ShowConsole(minimal, topOffset, rightInset);
 }
 
 //----------------------------------------------------------------------------
@@ -4402,139 +4534,204 @@ void vtkF3DImguiActor::SetDeltaTime(double time)
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DImguiActor::RenderNotifications(double currentTime)
+void vtkF3DImguiActor::RenderBindingHud()
 {
-  constexpr double slideUpTime = .1;
-  constexpr double fadingInTime = .1;
-  constexpr double fadingOutTime = .5;
-
-  int index = 0;
-  float yOffset = 0.0f;
-
-  for (const auto& [desc, value, bind, startTime, stopTime] : this->Notifications)
+  G3DNotificationCenter& center = G3DNotificationCenter::GetInstance();
+  const std::vector<G3DNotification> live = center.LiveToasts(true);
+  if (live.empty())
   {
-    std::string description = desc;
-    if (!value.empty())
+    return;
+  }
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  if (viewport->WorkSize.x < 80.f || viewport->WorkSize.y < 80.f)
+  {
+    return;
+  }
+
+  const float scale = static_cast<float>(this->FontScale);
+  const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
+    viewport->WorkSize.y };
+  const BarsResolution rb = this->ResolveBars(work.w);
+  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, this->PanelAnim.Value(), scale);
+
+  const float margin = G3DTheme::Spacing::Md * scale;
+  const float padX = G3DTheme::Spacing::Md * scale;
+  const float padY = G3DTheme::Spacing::Sm * scale;
+  const float gap = G3DTheme::Spacing::Xs * scale;
+  const float lineH = ImGui::GetTextLineHeight();
+  const float rowH = lineH + 2.f * padY;
+  const float keyGap = G3DTheme::Spacing::Xs * scale;
+
+  // A key chip: the same anatomy as the accelerator chip in every G3DWidgets tooltip, so one
+  // keyboard key looks like a keyboard key everywhere in the app.
+  const float chipPadX = 5.f * scale;
+  const float chipPadY = 2.f * scale;
+  const auto chipWidth = [&](const std::string& key)
+  { return ImGui::CalcTextSize(key.c_str()).x + 2.f * chipPadX; };
+
+  //--------------------------------------------------------------------------
+  // Measure: one window for the whole stack, sized up front (offscreen rendering gets one frame).
+  //--------------------------------------------------------------------------
+  struct HudRow
+  {
+    std::string desc;
+    std::string value;
+    std::vector<std::string> keys;
+    std::string code; ///< "hud.on" / "hud.off" / empty — what the value means
+    float width = 0.f;
+  };
+
+  std::vector<HudRow> rows;
+  rows.reserve(live.size());
+  float winW = 0.f;
+  for (const G3DNotification& n : live)
+  {
+    HudRow row;
+    row.desc = n.titleKey;
+    row.value = n.detailKey;
+    row.code = n.code;
+    if (this->BindingsVisible && !n.raw.empty())
     {
-      description += ':';
+      row.keys = ::SplitBindings(n.raw, '+');
+    }
+    row.width = padX * 2.f + ImGui::CalcTextSize(row.desc.c_str()).x;
+    if (!row.value.empty())
+    {
+      row.width += ImGui::CalcTextSize(":").x + ImGui::GetStyle().ItemSpacing.x +
+        ImGui::CalcTextSize(row.value.c_str()).x;
+    }
+    for (const std::string& key : row.keys)
+    {
+      row.width += chipWidth(key) + keyGap;
+    }
+    winW = std::max(winW, row.width);
+    rows.push_back(std::move(row));
+  }
+  winW = std::min(winW, std::max(120.f * scale, r.center.w - 2.f * margin));
+  const float winH = rows.size() * rowH + (rows.size() - 1) * gap;
+
+  // Bottom LEFT of the central viewport — the corner the problem-message stack deliberately left
+  // free, and clear of the docked bars.
+  const ImVec2 winPos(r.center.x + margin, r.center.y + r.center.h - margin - winH);
+  ::SetupNextWindow(winPos, ImVec2(winW, winH));
+  ImGui::SetNextWindowBgAlpha(0.f); // the pills paint their own surfaces
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+  constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+    ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
+  ImGui::Begin("##g3d.bindinghud", nullptr, flags);
+
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const ImDrawListFlags savedFlags = dl->Flags;
+  dl->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
+
+  const ImVec2 origin = ImGui::GetWindowPos();
+  const double dt = this->HudClock.Tick(ImGui::GetFrameCount());
+  float y = origin.y;
+
+  for (std::size_t i = 0; i < rows.size(); ++i)
+  {
+    const HudRow& row = rows[i];
+    const std::uint64_t id = live[i].id;
+
+    HudAnim& anim = this->HudAnims[id];
+    if (!anim.init)
+    {
+      // Snap on the first frame (PanelAnim / FabAlpha convention): a headless --output render gets
+      // exactly one frame, and a half-faded readout would make baselines unreproducible.
+      G3DTheme::Configure(anim.enter, G3DTheme::Motions::Standard);
+      anim.enter.Snap(1.f);
+      anim.init = true;
+    }
+    anim.enter.AnimateTo(1.f);
+    anim.enter.Update(dt);
+    const float t = anim.enter.Value();
+    center.NotePresented(id);
+
+    // Rise into place from below as it fades up — the readout comes from the keyboard, not from
+    // the edge of the screen, so it lifts rather than slides sideways.
+    const ImVec2 p0(origin.x, y + G3DLerp(8.f * scale, 0.f, t));
+    const ImVec2 p1(p0.x + row.width, p0.y + rowH);
+    const float rounding = G3DTheme::Radius::Card * scale;
+    dl->AddRectFilled(p0, p1, G3DTheme::U32(G3DTheme::Surface(), t), rounding);
+    dl->AddRect(p0, p1, G3DTheme::U32(G3DTheme::Border(), t), rounding, ImDrawFlags_None,
+      G3DTheme::Size::Border * scale);
+
+    float x = p0.x + padX;
+    for (const std::string& key : row.keys)
+    {
+      const float w = chipWidth(key);
+      const ImVec2 k0(x, p0.y + padY - chipPadY);
+      const ImVec2 k1(x + w, p0.y + padY + lineH + chipPadY);
+      dl->AddRectFilled(k0, k1, G3DTheme::U32(G3DTheme::Panel(), t),
+        G3DTheme::Radius::Control * scale);
+      dl->AddRect(k0, k1, G3DTheme::U32(G3DTheme::BorderStrong(), t),
+        G3DTheme::Radius::Control * scale, ImDrawFlags_None, G3DTheme::Size::Border * scale);
+      dl->AddText(ImVec2(x + chipPadX, p0.y + padY), G3DTheme::U32(G3DTheme::TextMuted(), t),
+        key.c_str());
+      x += w + keyGap;
     }
 
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-    // Mimic the style format in cheatsheet
-    ImGui::PushFont(Pimpl->ExtraFonts["notiFont"]);
-    constexpr float margin = F3DStyle::GetDefaultMargin();
-    ImVec2 descLineSize = ImGui::CalcTextSize(description.c_str());
-    ImVec2 valueLineSize = ImGui::CalcTextSize(value.c_str());
-    ImVec2 windowPadding = ImGui::GetStyle().WindowPadding;
-    const float itemSpacingX = ImGui::GetStyle().ItemSpacing.x;
-    // Increase line spacing a bit
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(itemSpacingX, 10.0f * this->FontScale));
-
-    float windowWidth = descLineSize.x + valueLineSize.x + windowPadding.x * 2.f;
-    windowWidth += value.empty() ? 0.f : itemSpacingX;
-
-    auto keys = ::SplitBindings(bind, '+');
-
-    if (this->BindingsVisible && !bind.empty())
+    std::string label = row.desc;
+    if (!row.value.empty())
     {
-      windowWidth +=
-        std::accumulate(keys.begin(), keys.end(), 0.0f, [&](float sum, const std::string& key)
-          { return sum + this->CalcBadgeWidth(key) + itemSpacingX; });
+      label += ':';
     }
-
-    float windowHeight = descLineSize.y + windowPadding.y * 2.f;
-
-    ImVec4 descTextColor = ::ColorToImVec4(this->FontColor);
-    ImVec4 valueTextColor = F3DStyle::imgui::GetHighlightColor(); // Blue
-
-    // change color for booleans
-    if (value == "ON")
+    dl->AddText(ImVec2(x, p0.y + padY), G3DTheme::U32(G3DTheme::Text(), t), label.c_str());
+    if (!row.value.empty())
     {
-      valueTextColor = F3DStyle::imgui::GetCompletionColor(); // Green
-    }
-    else if (value == "OFF")
-    {
-      valueTextColor = F3DStyle::imgui::GetErrorColor(); // Red
-    }
-
-    const float alphaIn = (currentTime - startTime - slideUpTime) / fadingInTime;
-    const float alphaOut = (stopTime - currentTime) / fadingOutTime;
-    const float alpha = std::clamp(std::min(alphaIn, alphaOut), 0.0f, 1.0f);
-
-    descTextColor.w = alpha;
-    valueTextColor.w = alpha;
-    ImGui::SetNextWindowBgAlpha(alpha * this->BackdropOpacity);
-
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-      ImGuiWindowFlags_NoNav;
-
-    const float slideUpFactor = std::clamp((currentTime - startTime) / slideUpTime, 0.0, 1.0);
-    yOffset += slideUpFactor * (windowHeight + margin);
-
-    ImVec2 position(margin, viewport->WorkSize.y - yOffset);
-    ::SetupNextWindow(position, ImVec2(windowWidth, windowHeight));
-
-    // Render each notification in separated window
-    ImGui::Begin(("##notif_" + std::to_string(index)).c_str(), nullptr, flags);
-
-    if (this->BindingsVisible && !bind.empty())
-    {
-      for (const std::string& key : keys)
+      x += ImGui::CalcTextSize(label.c_str()).x + ImGui::GetStyle().ItemSpacing.x;
+      // The value's color comes from what the caller SAID it means (see BindingValueState), never
+      // from matching the string: an off grid is a state, not an error, and the literals stopped
+      // matching the moment the catalog translated them.
+      ImVec4 valueCol = G3DTheme::Accent();
+      if (row.code == "hud.on")
       {
-        this->RenderBadge(key, alpha);
-        ImGui::SameLine();
+        valueCol = G3DTheme::Success();
       }
+      else if (row.code == "hud.off")
+      {
+        valueCol = G3DTheme::TextMuted();
+      }
+      dl->AddText(ImVec2(x, p0.y + padY), G3DTheme::U32(valueCol, t), row.value.c_str());
     }
 
-    ImGui::TextColored(descTextColor, "%s", description.c_str());
-    if (!value.empty())
-    {
-      ImGui::SameLine();
-      ImGui::TextColored(valueTextColor, "%s", value.c_str());
-    }
-
-    ImGui::End();
-    ImGui::PopStyleVar();
-    ImGui::PopFont();
-
-    ++index;
+    y += rowH + gap;
   }
-}
 
-//----------------------------------------------------------------------------
-namespace
-{
-/// Semantic colour + glyph for a severity. One place, so the toast stack, the details rows and
-/// (later) the bell cannot drift from each other.
-struct ToastTone
-{
-  ImVec4 color;
-  G3DIconId icon;
-};
+  dl->Flags = savedFlags;
+  ImGui::End();
+  ImGui::PopStyleVar(2);
 
-ToastTone ToneFor(G3DSeverity sev)
-{
-  switch (sev)
+  // Garbage-collect the per-entry animation state against the live set.
+  if (this->HudAnims.size() > live.size())
   {
-    case G3DSeverity::Error:
-      return { G3DTheme::Danger(), G3DIconId::Error };
-    case G3DSeverity::Warning:
-      return { G3DTheme::Warning(), G3DIconId::Warning };
-    case G3DSeverity::Success:
-      return { G3DTheme::Success(), G3DIconId::Success };
-    case G3DSeverity::Info:
-    default:
-      return { G3DTheme::Accent(), G3DIconId::Info };
+    for (auto it = this->HudAnims.begin(); it != this->HudAnims.end();)
+    {
+      const bool stillLive = std::any_of(
+        live.begin(), live.end(), [&](const G3DNotification& n) { return n.id == it->first; });
+      it = stillLive ? std::next(it) : this->HudAnims.erase(it);
+    }
   }
-}
 }
 
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderMessages()
 {
   G3DNotificationCenter& center = G3DNotificationCenter::GetInstance();
+
+  // The message center IS the full list, and it is open: stacking the same messages in front of it
+  // is noise, and on a small window the two surfaces fight for the same corner. Same reasoning as
+  // VS Code, which hides its toasts while the notification center is up.
+  if (this->NotificationCenterVisible)
+  {
+    center.SetHoverHold(false);
+    return;
+  }
+
   const std::vector<G3DNotification> live = center.LiveToasts(false);
 
   // Garbage-collect the per-message animation state against the live set, so a long session does
@@ -4576,16 +4773,10 @@ void vtkF3DImguiActor::RenderMessages()
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
   const BarsResolution rb = this->ResolveBars(work.w);
-  const G3DLayout::Result r =
-    G3DLayout::Compute(work, rb.sizes, this->PanelAnim.Value(), scale);
+  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, this->PanelAnim.Value(), scale);
 
   const float margin = G3DTheme::Spacing::Md * scale;
-  const float padX = G3DTheme::Spacing::Md * scale;
-  const float padY = G3DTheme::Spacing::Sm * scale;
   const float gap = G3DTheme::Spacing::Sm * scale;
-  const float railW = 3.f * scale;
-  const float iconSize = G3DTheme::Size::Icon * scale;
-  const float closeSize = G3DTheme::Size::IconSm * scale;
   const float lineH = ImGui::GetTextLineHeight();
 
   // The scalar bar hugs the central viewport's RIGHT edge and is vertically centred on it, so a
@@ -4616,13 +4807,9 @@ void vtkF3DImguiActor::RenderMessages()
     std::string detail;
     std::string context;
     std::vector<std::string> actionLabels;
-    float titleH;
-    float detailH;
     float height;
+    bool detailsOpen;
   };
-
-  const float textLeft = railW + padX + iconSize + G3DTheme::Spacing::Sm * scale;
-  const float textW = std::max(40.f * scale, cardW - textLeft - padX - closeSize - gap);
 
   std::vector<Laid> laid;
   laid.reserve(live.size());
@@ -4632,10 +4819,6 @@ void vtkF3DImguiActor::RenderMessages()
     Laid l{};
     l.n = &n;
     l.title = loc.Translate(n.titleKey, n.titleArgs);
-    if (n.count > 1)
-    {
-      l.title += "  x" + std::to_string(n.count);
-    }
     if (!n.detailKey.empty())
     {
       l.detail = loc.Translate(n.detailKey, n.detailArgs);
@@ -4650,30 +4833,17 @@ void vtkF3DImguiActor::RenderMessages()
     {
       l.actionLabels.push_back(loc.Translate(a.labelKey, a.labelArgs));
     }
+    l.detailsOpen = this->ToastAnims[n.id].detailsOpen;
 
-    l.titleH = ImGui::CalcTextSize(l.title.c_str(), nullptr, false, textW).y;
-    l.titleH = std::min(l.titleH, lineH * 3.f);
-    l.detailH = 0.f;
-    if (!l.detail.empty())
-    {
-      l.detailH = ImGui::CalcTextSize(l.detail.c_str(), nullptr, false, textW).y;
-      l.detailH = std::min(l.detailH, lineH * 3.f);
-    }
-
-    l.height = padY * 2.f + l.titleH;
-    if (l.detailH > 0.f)
-    {
-      l.height += G3DTheme::Spacing::Xs * scale + l.detailH;
-    }
-    if (!l.context.empty())
-    {
-      l.height += G3DTheme::Spacing::Xs * scale + lineH;
-    }
-    if (!l.actionLabels.empty())
-    {
-      l.height += G3DTheme::Spacing::Sm * scale + G3DTheme::Size::Control * scale;
-    }
-    l.height = std::max(l.height, iconSize + padY * 2.f);
+    G3DWidgets::ToastDesc d;
+    d.tone = ToneFor(n.severity);
+    d.title = l.title.c_str();
+    d.detail = l.detail.empty() ? nullptr : l.detail.c_str();
+    d.context = l.context.empty() ? nullptr : l.context.c_str();
+    d.count = n.count;
+    d.actionCount = static_cast<int>(l.actionLabels.size());
+    d.width = cardW;
+    l.height = G3DWidgets::ToastHeight(d, l.detailsOpen);
 
     stackH += l.height + gap;
     laid.push_back(std::move(l));
@@ -4692,7 +4862,7 @@ void vtkF3DImguiActor::RenderMessages()
   }
 
   const int overflow = center.OverflowCount() + droppedForHeight;
-  const float overflowH = overflow > 0 ? (lineH + padY) : 0.f;
+  const float overflowH = overflow > 0 ? (lineH + G3DTheme::Spacing::Sm * scale) : 0.f;
   if (overflow > 0)
   {
     stackH += overflowH + gap;
@@ -4701,8 +4871,8 @@ void vtkF3DImguiActor::RenderMessages()
 
   const float winW = cardW;
   const float winH = std::min(stackH, std::max(40.f * scale, r.center.h - 2.f * margin));
-  const ImVec2 winPos(r.center.x + r.center.w - rightInset - winW,
-    r.center.y + r.center.h - margin - winH);
+  const ImVec2 winPos(
+    r.center.x + r.center.w - rightInset - winW, r.center.y + r.center.h - margin - winH);
 
   ::SetupNextWindow(winPos, ImVec2(winW, winH));
   ImGui::SetNextWindowBgAlpha(0.f); // the cards paint their own surfaces
@@ -4714,34 +4884,30 @@ void vtkF3DImguiActor::RenderMessages()
     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
   ImGui::Begin("##g3d.messages", nullptr, flags);
 
-  ImDrawList* dl = ImGui::GetWindowDrawList();
-  const ImDrawListFlags savedFlags = dl->Flags;
-  dl->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
-
   const ImVec2 origin = ImGui::GetWindowPos();
   const double dt = this->ToastClock.Tick(ImGui::GetFrameCount());
 
   float y = origin.y;
   if (overflow > 0)
   {
-    const std::string more = loc.Translate(
-      "{n, plural, one{# more message} other{# more messages}}",
-      { { "n", std::to_string(overflow) } });
-    G3DWidgets::TextEllipsis(dl, ImVec2(origin.x + padX, y + padY * 0.5f), winW - 2.f * padX,
-      G3DTheme::U32(G3DTheme::TextSubtle()), more.c_str());
+    const std::string more =
+      loc.Translate("{n, plural, one{# more message} other{# more messages}}",
+        { { "n", std::to_string(overflow) } });
+    G3DWidgets::TextEllipsis(ImGui::GetWindowDrawList(),
+      ImVec2(origin.x + G3DTheme::Spacing::Md * scale, y + G3DTheme::Spacing::Xs * scale),
+      winW - 2.f * G3DTheme::Spacing::Md * scale, G3DTheme::U32(G3DTheme::TextSubtle()),
+      more.c_str());
     y += overflowH + gap;
   }
 
   std::uint64_t dismissId = 0;
   std::string pendingCommand;
+  bool anyHovered = false;
+  bool anyExpanded = false;
 
   for (const Laid& l : laid)
   {
     const G3DNotification& n = *l.n;
-    const ToastTone tone = ToneFor(n.severity);
-    // One ID scope per message: two cards may legitimately carry the same action label, and
-    // G3DWidgets::Button derives its id from that label.
-    ImGui::PushID(static_cast<int>(n.id));
 
     // Start this message's countdown only now that it is genuinely being drawn -- see
     // G3DNotificationCenter: a message behind the loading overlay must not time out unseen.
@@ -4761,104 +4927,53 @@ void vtkF3DImguiActor::RenderMessages()
     const float t = anim.enter.Value();
 
     // Slide in from the right edge as it fades up.
-    const float slideX = G3DLerp(24.f * scale, 0.f, t);
-    const ImVec2 p0(origin.x + slideX, y);
-    const ImVec2 p1(p0.x + cardW, y + l.height);
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + G3DLerp(24.f * scale, 0.f, t), y));
 
-    const float rounding = G3DTheme::Radius::Card * scale;
-    dl->AddRectFilled(p0, p1, G3DTheme::U32(G3DTheme::Surface(), t), rounding);
-    dl->AddRect(p0, p1, G3DTheme::U32(G3DTheme::Border(), t), rounding, ImDrawFlags_None,
-      G3DTheme::Size::Border * scale);
-    // Tone rail: severity readable from the silhouette, not only from the icon. Painted as a
-    // full-card rounded fill clipped to the rail width -- the sanctioned way to round a solid
-    // fill -- so its left corners match the card exactly and its right edge cuts clean.
-    dl->PushClipRect(p0, ImVec2(p0.x + railW, p1.y), true);
-    dl->AddRectFilled(p0, p1, G3DTheme::U32(tone.color, t), rounding);
-    dl->PopClipRect();
+    char id[32];
+    std::snprintf(id, sizeof(id), "##g3d.toast.%llu", static_cast<unsigned long long>(n.id));
+    G3DWidgets::ToastDesc d;
+    d.id = id;
+    d.tone = ToneFor(n.severity);
+    d.title = l.title.c_str();
+    d.detail = l.detail.empty() ? nullptr : l.detail.c_str();
+    d.context = l.context.empty() ? nullptr : l.context.c_str();
+    d.count = n.count;
+    d.actionCount = static_cast<int>(l.actionLabels.size());
+    d.alpha = t;
+    d.width = cardW;
 
-    G3DIcon::Draw(dl, tone.icon,
-      ImVec2(p0.x + railW + padX + iconSize * 0.5f, p0.y + padY + iconSize * 0.5f), iconSize,
-      G3DTheme::U32(tone.color, t));
-
-    const auto wrappedText = [&](float yTop, float boxH, ImU32 col, const char* text)
+    const G3DWidgets::ToastResult res = G3DWidgets::BeginToast(d, &anim.detailsOpen);
+    for (std::size_t i = 0; i < l.actionLabels.size(); ++i)
     {
-      const ImVec2 at(p0.x + textLeft, yTop);
-      dl->PushClipRect(ImVec2(at.x, yTop), ImVec2(at.x + textW, yTop + boxH), true);
-      dl->AddText(nullptr, 0.f, at, col, text, nullptr, textW);
-      dl->PopClipRect();
-    };
-
-    float ty = p0.y + padY;
-    wrappedText(ty, l.titleH, G3DTheme::U32(G3DTheme::Text(), t), l.title.c_str());
-    ty += l.titleH;
-
-    if (l.detailH > 0.f)
-    {
-      ty += G3DTheme::Spacing::Xs * scale;
-      wrappedText(ty, l.detailH, G3DTheme::U32(G3DTheme::TextMuted(), t), l.detail.c_str());
-      ty += l.detailH;
-    }
-
-    if (!l.context.empty())
-    {
-      ty += G3DTheme::Spacing::Xs * scale;
-      // Paths and raw reader output belong to the DATA font, like every other value in the UI.
-      if (ImFont* data = G3DWidgets::DataFont())
+      if (G3DWidgets::ToastAction(l.actionLabels[i].c_str(), n.actions[i].primary))
       {
-        ImGui::PushFont(data);
-      }
-      G3DWidgets::TextEllipsis(dl, ImVec2(p0.x + textLeft, ty), textW,
-        G3DTheme::U32(G3DTheme::TextSubtle(), t), l.context.c_str());
-      if (G3DWidgets::DataFont())
-      {
-        ImGui::PopFont();
-      }
-      ty += lineH;
-    }
-
-    if (!l.actionLabels.empty())
-    {
-      ty += G3DTheme::Spacing::Sm * scale;
-      ImGui::SetCursorScreenPos(ImVec2(p0.x + textLeft, ty));
-      for (std::size_t i = 0; i < l.actionLabels.size(); ++i)
-      {
-        ImGui::PushID(static_cast<int>(i));
-        const bool primary = n.actions[i].primary;
-        if (G3DWidgets::Button(l.actionLabels[i].c_str(),
-              primary ? G3DWidgets::ButtonVariant::Primary : G3DWidgets::ButtonVariant::Soft))
+        pendingCommand = n.actions[i].command;
+        if (n.actions[i].dismissAfterRun)
         {
-          pendingCommand = n.actions[i].command;
-          if (n.actions[i].dismissAfterRun)
-          {
-            dismissId = n.id;
-          }
-        }
-        ImGui::PopID();
-        if (i + 1 < l.actionLabels.size())
-        {
-          ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
+          dismissId = n.id;
         }
       }
     }
+    G3DWidgets::EndToast();
 
-    // Close button, top-right of the card.
-    ImGui::SetCursorScreenPos(ImVec2(p1.x - padX - closeSize, p0.y + padY));
-    if (G3DWidgets::IconButton("##g3d.toast.close", G3DIconId::Close, closeSize, false,
-          loc.Translate("Dismiss").c_str()))
+    if (res.closed)
     {
       dismissId = n.id;
     }
+    anyHovered = anyHovered || res.hovered;
+    anyExpanded = anyExpanded || res.detailsOpen;
 
-    ImGui::PopID();
     y += l.height + gap;
   }
 
   // Pause every countdown while the pointer rests anywhere on the stack: the user is reading, and
-  // a message hidden behind the one they are reading must still be reachable.
-  center.SetHoverHold(ImGui::IsWindowHovered(
-    ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
+  // a message hidden behind the one they are reading must still be reachable. An expanded details
+  // disclosure holds the stack open the same way -- nothing is more hostile than a message that
+  // vanishes halfway through being read.
+  center.SetHoverHold(anyHovered || anyExpanded ||
+    ImGui::IsWindowHovered(
+      ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
 
-  dl->Flags = savedFlags;
   ImGui::End();
   ImGui::PopStyleVar(2);
 
@@ -4869,6 +4984,314 @@ void vtkF3DImguiActor::RenderMessages()
   if (dismissId != 0)
   {
     center.Dismiss(dismissId);
+  }
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+/// "just now" / "5 min ago" / "2 h ago" — the coarse relative stamp a history list wants. Exact
+/// clock times belong in the log file, which the panel links to.
+std::string RelativeTime(double ageSec)
+{
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  if (ageSec < 60.0)
+  {
+    return loc.Translate("just now");
+  }
+  if (ageSec < 3600.0)
+  {
+    return loc.Translate(
+      "{n} min ago", { { "n", std::to_string(static_cast<int>(ageSec / 60.0)) } });
+  }
+  return loc.Translate("{n} h ago", { { "n", std::to_string(static_cast<int>(ageSec / 3600.0)) } });
+}
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::RenderNotificationCenter()
+{
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  if (viewport->WorkSize.x < 80.f || viewport->WorkSize.y < 80.f)
+  {
+    return;
+  }
+
+  G3DNotificationCenter& center = G3DNotificationCenter::GetInstance();
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const float scale = static_cast<float>(this->FontScale);
+  const float margin = G3DTheme::Spacing::Md * scale;
+  const float padding = G3DTheme::Spacing::Md * scale;
+
+  const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
+    viewport->WorkSize.y };
+  const G3DLayout::Rect rc =
+    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(), scale)
+      .center;
+
+  const float cardW = std::clamp(rc.w * 0.42f, std::min(320.f * scale, rc.w - 2.f * margin),
+    std::min(520.f * scale, std::max(200.f * scale, rc.w - 2.f * margin)));
+  const float cardH =
+    std::min(std::max(220.f * scale, rc.h - 2.f * margin), std::min(440.f * scale, work.h - 2.f * margin));
+  // Opens under the bell it belongs to: upper right of the central viewport.
+  const ImVec2 defaultPos(rc.x + std::max(margin, rc.w - cardW - margin), rc.y + margin);
+
+  const std::string title = loc.Translate("Messages");
+  const std::string dragHint = this->Pimpl->NotifCenterFloat.moved
+    ? loc.Translate("Drag to move · double-click to reset")
+    : loc.Translate("Drag to move");
+  // The panel surface comes from the design system, not from the user's backdrop option: this is
+  // app chrome listing app state, and it must not be see-through over a bright model. Set
+  // explicitly rather than left to ImGuiCol_WindowBg, which other overlays rewrite in place.
+  const ImVec4 cardBg = G3DTheme::Panel();
+
+  G3DWidgets::FloatingCardDesc cardDesc;
+  cardDesc.id = "NotificationCenter";
+  cardDesc.title = title.c_str();
+  cardDesc.icon = G3DIconId::Bell;
+  cardDesc.closable = true;
+  cardDesc.dragTooltip = dragHint.c_str();
+  cardDesc.size = ImVec2(cardW, cardH);
+  cardDesc.defaultPos = defaultPos;
+  cardDesc.bounds = ImVec4(work.x, work.y, work.w, work.h);
+  cardDesc.margin = margin;
+  cardDesc.padding = padding;
+  cardDesc.background = &cardBg;
+
+  const G3DWidgets::FloatingCardResult card =
+    G3DWidgets::BeginFloatingCard(this->Pimpl->NotifCenterFloat, cardDesc);
+  if (card.closed)
+  {
+    this->SendCommand("set ui.notification_center false");
+  }
+
+  // Snapshot BEFORE marking read, so the frame that opens the panel still shows which rows were
+  // new. Reading the panel is what clears the bell: an unread counter that never clears is noise.
+  const std::vector<G3DNotification> history = center.History(200);
+  center.MarkAllRead();
+  std::vector<const G3DNotification*> shown;
+  shown.reserve(history.size());
+  for (const G3DNotification& n : history)
+  {
+    if (this->Pimpl->NotifCenterProblemsOnly && n.severity < G3DSeverity::Warning)
+    {
+      continue;
+    }
+    shown.push_back(&n);
+  }
+
+  //--------------------------------------------------------------------------
+  // Pinned toolbar: the filter on the left, clear on the right. Stays put while the list scrolls.
+  //--------------------------------------------------------------------------
+  const std::string allTip = loc.Translate("All messages");
+  const std::string problemTip = loc.Translate("Warnings and errors only");
+  const ImVec2 barP0 = ImGui::GetCursorScreenPos();
+  const float barW = ImGui::GetContentRegionAvail().x;
+  const G3DWidgets::SegmentedIconItem filterSegs[2] = {
+    { G3DIconId::Layers, allTip.c_str(), !this->Pimpl->NotifCenterProblemsOnly, false },
+    { G3DIconId::Warning, problemTip.c_str(), this->Pimpl->NotifCenterProblemsOnly, false },
+  };
+  const int seg = G3DWidgets::SegmentedIcon("##nc.filter", filterSegs, 2);
+  if (seg >= 0)
+  {
+    this->Pimpl->NotifCenterProblemsOnly = (seg == 1);
+  }
+
+  const std::string clearLabel = loc.Translate("Clear all");
+  const std::string consoleLabel = loc.Translate("Open console");
+  const float clearW =
+    ImGui::CalcTextSize(clearLabel.c_str()).x + G3DTheme::Spacing::Md * 2.f * scale;
+  const float consoleW =
+    ImGui::CalcTextSize(consoleLabel.c_str()).x + G3DTheme::Spacing::Md * 2.f * scale;
+  const float barH = G3DTheme::Size::IconButton * scale;
+  const float btnY = barP0.y + (barH - G3DTheme::Size::Control * scale) * 0.5f;
+  ImGui::SetCursorScreenPos(ImVec2(barP0.x + barW - clearW, btnY));
+  if (G3DWidgets::Button(clearLabel.c_str(), G3DWidgets::ButtonVariant::Ghost))
+  {
+    center.ClearHistory();
+    this->Pimpl->NotifCenterOpen.clear();
+  }
+  ImGui::SetCursorScreenPos(
+    ImVec2(barP0.x + barW - clearW - consoleW - G3DTheme::Spacing::Xs * scale, btnY));
+  if (G3DWidgets::Button(consoleLabel.c_str(), G3DWidgets::ButtonVariant::Ghost))
+  {
+    // The console is the DEVELOPER face of the same information, the center is the user face. One
+    // link between them, in this direction only.
+    this->SendCommand("set ui.console true");
+  }
+  ImGui::SetCursorScreenPos(ImVec2(barP0.x, barP0.y + barH));
+  ImGui::Dummy(ImVec2(barW, G3DTheme::Spacing::Sm * scale));
+
+  //--------------------------------------------------------------------------
+  // The list. Rows are drawn here rather than through BeginCollapse: a history row's whole job is
+  // to make severity and age scannable, and the collapse header has no severity tint and no
+  // right-aligned meta slot. Same primitives, same tokens.
+  //--------------------------------------------------------------------------
+  G3DWidgets::BeginFloatingCardBody("##nc.body");
+  if (shown.empty())
+  {
+    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * scale));
+    const std::string empty = this->Pimpl->NotifCenterProblemsOnly
+      ? loc.Translate("No warnings or errors this session")
+      : loc.Translate("No messages this session");
+    const float w = ImGui::CalcTextSize(empty.c_str()).x;
+    ImGui::SetCursorPosX(
+      ImGui::GetCursorPosX() + std::max(0.f, (ImGui::GetContentRegionAvail().x - w) * 0.5f));
+    ImGui::TextColored(G3DTheme::TextSubtle(), "%s", empty.c_str());
+  }
+
+  const double now = center.NowSec();
+  const float twisty = G3DTheme::Size::IconSm * scale;
+  const float iconSize = G3DTheme::Size::Icon * scale;
+  const float rowPadY = G3DTheme::Spacing::Sm * scale;
+  const float lineH = ImGui::GetTextLineHeight();
+  const float rowH = lineH + 2.f * rowPadY;
+  std::string pendingCommand;
+
+  for (const G3DNotification* np : shown)
+  {
+    const G3DNotification& n = *np;
+    const G3DWidgets::ToneVariant tone = ToneFor(n.severity);
+    const ImVec4 toneCol = G3DWidgets::ToneColor(tone);
+    ImGui::PushID(static_cast<int>(n.id));
+
+    const std::string titleText = loc.Translate(n.titleKey, n.titleArgs);
+    const std::string detailText =
+      n.detailKey.empty() ? std::string() : loc.Translate(n.detailKey, n.detailArgs);
+    const bool expandable = !detailText.empty() || !n.raw.empty() || !n.actions.empty();
+    bool& open = this->Pimpl->NotifCenterOpen[n.id];
+
+    const float rowW = ImGui::GetContentRegionAvail().x;
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    if (ImGui::InvisibleButton("##row", ImVec2(rowW, rowH)) && expandable)
+    {
+      open = !open;
+    }
+    const bool hovered = ImGui::IsItemHovered();
+    if (hovered && expandable)
+    {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (hovered)
+    {
+      dl->AddRectFilled(p0, ImVec2(p0.x + rowW, p0.y + rowH),
+        G3DTheme::U32(G3DTheme::SurfaceHover()), G3DTheme::Radius::Control * scale);
+    }
+
+    float x = p0.x;
+    if (expandable)
+    {
+      G3DIcon::Draw(dl, open ? G3DIconId::ChevronDown : G3DIconId::ChevronRight,
+        ImVec2(x + twisty * 0.5f, p0.y + rowH * 0.5f), twisty,
+        G3DTheme::U32(G3DTheme::TextSubtle()));
+    }
+    x += twisty + G3DTheme::Spacing::Xs * scale;
+    G3DIcon::Draw(dl, G3DWidgets::ToneIcon(tone), ImVec2(x + iconSize * 0.5f, p0.y + rowH * 0.5f),
+      iconSize, G3DTheme::U32(toneCol));
+    x += iconSize + G3DTheme::Spacing::Sm * scale;
+
+    // Right cluster measured first, so the title knows where it has to stop.
+    const std::string age = RelativeTime(now - n.createdAt);
+    const float ageW = G3DWidgets::CalcTextSizedPx(age.c_str(), 11.f * scale, false).x;
+    float rightX = p0.x + rowW;
+    rightX -= ageW;
+    G3DWidgets::TextSized(dl, ImVec2(rightX, p0.y + (rowH - 11.f * scale) * 0.5f),
+      G3DTheme::U32(G3DTheme::TextSubtle()), age.c_str(), 11.f * scale);
+    if (n.count > 1)
+    {
+      char chip[16];
+      std::snprintf(chip, sizeof(chip), "x%d", std::min(n.count, 999));
+      const float chipW = G3DWidgets::BadgeWidth(chip);
+      rightX -= chipW + G3DTheme::Spacing::Sm * scale;
+      ImGui::SetCursorScreenPos(ImVec2(rightX, p0.y + rowPadY - 2.f * scale));
+      G3DWidgets::Badge(chip, G3DWidgets::ToneBadge(tone));
+    }
+
+    const float titleW = std::max(40.f * scale, rightX - x - G3DTheme::Spacing::Sm * scale);
+    if (G3DWidgets::TextEllipsis(dl, ImVec2(x, p0.y + rowPadY), titleW,
+          G3DTheme::U32(n.read ? G3DTheme::TextMuted() : G3DTheme::Text()), titleText.c_str()) &&
+      hovered)
+    {
+      G3DWidgets::SetTooltip(titleText.c_str());
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + rowH));
+    if (open && expandable)
+    {
+      const float indent = twisty + G3DTheme::Spacing::Xs * scale + iconSize +
+        G3DTheme::Spacing::Sm * scale;
+      ImGui::Indent(indent);
+      ImGui::PushTextWrapPos(0.f);
+      if (!detailText.empty())
+      {
+        ImGui::TextColored(G3DTheme::TextMuted(), "%s", detailText.c_str());
+      }
+      if (!n.raw.empty() && n.raw != titleText)
+      {
+        // The developer's own words, in the data font: this is the line that goes into a bug
+        // report, so it is never translated and never reflowed into prose.
+        if (ImFont* data = G3DWidgets::DataFont())
+        {
+          ImGui::PushFont(data, 0.f);
+        }
+        ImGui::TextColored(G3DTheme::TextSubtle(), "%s", n.raw.c_str());
+        if (G3DWidgets::DataFont())
+        {
+          ImGui::PopFont();
+        }
+      }
+      ImGui::PopTextWrapPos();
+      if (!n.code.empty())
+      {
+        G3DWidgets::Badge(n.code.c_str(), G3DWidgets::BadgeVariant::Neutral);
+        ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
+      }
+      for (std::size_t i = 0; i < n.actions.size(); ++i)
+      {
+        if (i > 0 || !n.code.empty())
+        {
+          ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
+        }
+        ImGui::PushID(static_cast<int>(i));
+        const std::string label = loc.Translate(n.actions[i].labelKey, n.actions[i].labelArgs);
+        if (G3DWidgets::Button(label.c_str(),
+              n.actions[i].primary ? G3DWidgets::ButtonVariant::Primary
+                                   : G3DWidgets::ButtonVariant::Soft))
+        {
+          pendingCommand = n.actions[i].command;
+        }
+        ImGui::PopID();
+      }
+      if (!n.code.empty() || !n.actions.empty())
+      {
+        ImGui::NewLine();
+      }
+      ImGui::Unindent(indent);
+      ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
+    }
+    ImGui::PopID();
+  }
+
+  DrawScrollEndFade(scale);
+  G3DWidgets::EndFloatingCardBody();
+  G3DWidgets::EndFloatingCard();
+
+  if (!pendingCommand.empty())
+  {
+    center.RequestCommand(pendingCommand);
+  }
+
+  // Forget the expansion state of messages that are gone, so a long session does not grow a map of
+  // dead ids.
+  if (this->Pimpl->NotifCenterOpen.size() > history.size() + 32)
+  {
+    for (auto it = this->Pimpl->NotifCenterOpen.begin(); it != this->Pimpl->NotifCenterOpen.end();)
+    {
+      const bool alive = std::any_of(history.begin(), history.end(),
+        [&](const G3DNotification& n) { return n.id == it->first; });
+      it = alive ? std::next(it) : this->Pimpl->NotifCenterOpen.erase(it);
+    }
   }
 }
 
