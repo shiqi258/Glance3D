@@ -503,6 +503,11 @@
         color: var(--text-subtle);
         font-family: var(--mono);
       }
+      /* status cells carry their semantic tone (the only icons the product never shows neutral) */
+      .icongrid .cell.tone .icon,
+      .icongrid .cell.tone:hover .icon {
+        color: inherit;
+      }
 
       /* ============================================================
          BUTTON
@@ -2362,10 +2367,12 @@
         <symbol id="i-eyedropper" viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9" /><path d="M3 21v-3l9-9" /><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z" /></symbol>
         <symbol id="i-updown" viewBox="0 0 24 24"><polyline points="8 9 12 5 16 9" /><polyline points="8 15 12 19 16 15" /></symbol>
         <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></symbol>
-        <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4 22 20H2Z" /><line x1="12" y1="10" x2="12" y2="14.5" /><circle cx="12" cy="17.4" r="1.15" fill="currentColor" stroke="none" /></symbol>
-        <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" /><line x1="8.9" y1="8.9" x2="15.1" y2="15.1" /><line x1="15.1" y1="8.9" x2="8.9" y2="15.1" /></symbol>
-        <symbol id="i-success" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" /><polyline points="8.2 12.2 10.8 15.1 16.1 9.1" /></symbol>
-        <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" /><line x1="12" y1="11" x2="12" y2="16.4" /><circle cx="12" cy="7.9" r="1.15" fill="currentColor" stroke="none" /></symbol>
+        <!-- status family: one ring radius (8.52), one dot (1.32), one corner radius (2.4) across all
+             four, so a column of messages reads as one set. Mirrors DrawInfo/Success/Warning/Error. -->
+        <symbol id="i-warning" viewBox="0 0 24 24"><path d="M 14.1 6.57 L 19.76 16.84 A 2.4 2.4 0 0 1 17.66 20.4 L 6.34 20.4 A 2.4 2.4 0 0 1 4.24 16.84 L 9.9 6.57 A 2.4 2.4 0 0 1 14.1 6.57 Z" /><line x1="12" y1="8.52" x2="12" y2="13.44" /><circle cx="12" cy="16.68" r="1.32" fill="currentColor" stroke="none" /></symbol>
+        <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.52" /><line x1="9" y1="9" x2="15" y2="15" /><line x1="15" y1="9" x2="9" y2="15" /></symbol>
+        <symbol id="i-success" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.52" /><polyline points="8.28 11.95 10.8 14.47 15.72 9.55" /></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.52" /><line x1="12" y1="11.23" x2="12" y2="16.46" /><circle cx="12" cy="7.92" r="1.32" fill="currentColor" stroke="none" /></symbol>
         <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.2 15.8V10.2a5.8 5.8 0 0 1 11.6 0v5.6" /><line x1="4.8" y1="15.8" x2="19.2" y2="15.8" /><path d="M10.1 18.2a2 2 0 0 0 3.8 0" /><line x1="12" y1="4.4" x2="12" y2="2.6" /></symbol>
         <symbol id="i-external" viewBox="0 0 24 24"><polyline points="14.4 5.2 5.2 5.2 5.2 18.8 18.8 18.8 18.8 10.2" /><line x1="11.2" y1="13.2" x2="19.2" y2="5.2" /><polyline points="13.9 4.8 19.7 4.8 19.7 10.6" /></symbol>
       </defs>
@@ -2566,6 +2573,14 @@
               <div class="cell"><g3d-icon n="expand-all"></g3d-icon><span>ExpandAll</span></div>
               <div class="cell"><g3d-icon n="collapse-all"></g3d-icon><span>CollapseAll</span></div>
               <div class="cell"><g3d-icon n="check"></g3d-icon><span>Check</span></div>
+            </div>
+            <div class="divider"></div>
+            <div class="state-label">状态族（消息条 / 消息中心共用：同一外廓、同一圆角、同一圆点，只换语义色）</div>
+            <div class="icongrid">
+              <div class="cell tone" style="color: var(--accent)"><g3d-icon n="info"></g3d-icon><span>Info</span></div>
+              <div class="cell tone" style="color: var(--success)"><g3d-icon n="success"></g3d-icon><span>Success</span></div>
+              <div class="cell tone" style="color: var(--warning)"><g3d-icon n="warning"></g3d-icon><span>Warning</span></div>
+              <div class="cell tone" style="color: var(--danger)"><g3d-icon n="error"></g3d-icon><span>Error</span></div>
             </div>
           </div>
         </section>

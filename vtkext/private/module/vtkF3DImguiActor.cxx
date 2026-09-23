@@ -6,6 +6,7 @@
 #include "G3DUIFontBuffer.h"
 #include "F3DStyle.h"
 #include "G3DIcon.h"
+#include "G3DIconAtlas.h"
 #include "G3DSceneTreeView.h"
 #include "G3DLayout.h"
 #include "G3DLocaleCore.h"
@@ -466,6 +467,10 @@ struct vtkF3DImguiActor::Internals
         this->Program = nullptr;
       }
 
+      // Before Clear(): the baked icon cache holds ImFontAtlasRectIds, and Clear() destroys the
+      // packer that issued them. A fresh atlas reissues the same ids, so a stale one would not
+      // fail to resolve — it would quietly resolve to somebody else's rectangle.
+      G3DIconAtlas::Invalidate();
       io.Fonts->Clear();
 
       io.BackendPlatformName = io.BackendRendererName = nullptr;
@@ -696,6 +701,9 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
 {
   // release existing context
   this->ReleaseGraphicsResources(renWin);
+  // Redundant on that path, which already invalidated; needed on the very first call, where there
+  // was no context to release.
+  G3DIconAtlas::Invalidate();
 
   ImGuiContext* ctx = ImGui::CreateContext();
   ImGui::SetCurrentContext(ctx);

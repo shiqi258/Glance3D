@@ -76,17 +76,25 @@ enum class G3DIconId
 namespace G3DIcon
 {
 /**
- * Draw @p id centered at @p center, fitting a square of edge @p size (px), stroked in @p color.
+ * Draw @p id centered at @p center, fitting a square of edge @p size (px), tinted @p color.
  * @p thickness <= 0 selects a size-proportional stroke.
+ *
+ * This is the entry point for all UI code. It snaps the glyph to the pixel grid, then blits it
+ * from the baked cache (G3DIconAtlas) and only strokes it live if no baked glyph is available.
  */
 void Draw(ImDrawList* drawList, G3DIconId id, const ImVec2& center, float size, ImU32 color,
   float thickness = -1.f);
 
 /**
- * Lay an icon out inline like text: reserves a @p size × @p size item at the cursor and draws into
- * it (so it participates in ImGui layout / SameLine).
+ * Stroke @p id into the box [@p topLeft, @p topLeft + @p size] with an exact @p thickness and no
+ * pixel snapping.
+ *
+ * The glyph table itself — every icon's geometry is written once, here. Two callers: Draw()'s
+ * fallback, and the baker, which runs it supersampled to produce the cached bitmap. UI code should
+ * not call this; use Draw().
  */
-void Inline(G3DIconId id, float size, ImU32 color);
+void DrawUnsnapped(ImDrawList* drawList, G3DIconId id, const ImVec2& topLeft, float size,
+  ImU32 color, float thickness);
 }
 
 #endif

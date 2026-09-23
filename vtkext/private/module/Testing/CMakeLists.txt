@@ -38,12 +38,27 @@ if(TARGET VTK::IOHDF)
   list(APPEND test_sources TestF3DGenericImporterTimeSteps.cxx)
 endif()
 
+if(F3D_MODULE_UI)
+  # Needs ImDrawVert, so it only exists where the bundled/external ImGui does.
+  list(APPEND test_sources TestG3DIconRaster.cxx)
+endif()
+
 vtk_add_test_cxx(vtkextPrivateTests tests
   NO_DATA NO_VALID NO_OUTPUT
   ${test_sources}
   ${F3D_SOURCE_DIR}/testing/ ${CMAKE_BINARY_DIR}/Testing/Temporary/)
 vtk_test_cxx_executable(vtkextPrivateTests tests)
 set_target_properties(vtkextPrivateTests PROPERTIES CXX_STANDARD 20)
+
+# The module keeps its imgui include PRIVATE, so the test executable needs its own (mirrors the
+# branch in ../CMakeLists.txt).
+if(F3D_MODULE_UI)
+  if(F3D_USE_EXTERNAL_IMGUI)
+    target_link_libraries(vtkextPrivateTests PRIVATE imgui::imgui)
+  else()
+    target_include_directories(vtkextPrivateTests PRIVATE "${F3D_SOURCE_DIR}/external/imgui")
+  endif()
+endif()
 
 foreach(test ${test_sources})
   get_filename_component (TName ${test} NAME_WE)

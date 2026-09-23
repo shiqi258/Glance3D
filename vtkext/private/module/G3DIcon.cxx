@@ -1,5 +1,7 @@
 #include "G3DIcon.h"
 
+#include "G3DIconAtlas.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -31,11 +33,39 @@ struct IconCanvas
   }
   void Ring(float x, float y, float nr) const
   {
-    this->dl->AddCircle(this->P(x, y), this->R(nr), this->color, 0, this->th);
+    // AddCircle strokes at `radius - 0.5` (its radius means the OUTER edge of a hairline); add it
+    // back so a ring's normalized radius means the centerline, the same as the `<circle r>` of the
+    // SVG mirror in the styleguide. Without this the desktop rings came out a pixel smaller than
+    // every straight-edged glyph beside them.
+    const float r = this->R(nr) + 0.5f;
+    // Explicit segment count: the automatic one targets a 0.3px chord error, which at icon radii is
+    // a visible flat spot every 30 degrees. A multiple of 4 also puts vertices exactly on the axes,
+    // so the ring stays symmetric about both of them.
+    const int seg = std::clamp(4 * static_cast<int>(std::ceil(r)), 16, 64);
+    this->dl->AddCircle(this->P(x, y), r, this->color, seg, this->th);
   }
   void Poly(const ImVec2* pts, int n) const
   {
     this->dl->AddPolyline(pts, n, this->color, ImDrawFlags_None, this->th);
+  }
+
+  /**
+   * Round off a stroke end (or an elbow) with a disc of the stroke radius.
+   *
+   * ImDrawList only strokes with butt caps and mitered joins, which leaves chopped ends and spiky
+   * corners; a disc at the point is what buys the SVG `stroke-linecap="round"` look the styleguide
+   * mirror of these icons is drawn with.
+   */
+  void Cap(float x, float y) const
+  {
+    this->dl->AddCircleFilled(this->P(x, y), this->th * 0.5f, this->color, 12);
+  }
+  /// Line with round caps at both ends.
+  void RLine(float x0, float y0, float x1, float y1) const
+  {
+    this->Line(x0, y0, x1, y1);
+    this->Cap(x0, y0);
+    this->Cap(x1, y1);
   }
 };
 
@@ -124,6 +154,54 @@ void DrawPanelClose(const IconCanvas& c)
 // kPi lives in imgui_internal.h (not the public imgui.h these icons include), so keep a local
 // constant for the arc-based glyphs below.
 constexpr float kPi = 3.14159265358979f;
+
+/**
+ * Stroke a closed polygon whose every corner is filleted with a circular arc of radius @p r.
+ *
+ * Both @p v and @p r are in the normalized icon box. A mitered corner is a spike, which is exactly
+ * what made the warning triangle read as harsher than the round marks beside it; filleting lets a
+ * straight-edged silhouette carry the same corner radius as a circle.
+ */
+void StrokeRoundedPolygon(const IconCanvas& c, const ImVec2* v, int n, float r)
+{
+  const auto unit = [](float x, float y)
+  {
+    const float l = std::sqrt(x * x + y * y);
+    return l > 0.f ? ImVec2(x / l, y / l) : ImVec2(0.f, 0.f);
+  };
+
+  c.dl->PathClear();
+  for (int i = 0; i < n; ++i)
+  {
+    const ImVec2& cur = v[i];
+    const ImVec2& prev = v[(i + n - 1) % n];
+    const ImVec2& next = v[(i + 1) % n];
+    const ImVec2 u = unit(prev.x - cur.x, prev.y - cur.y); // toward the incoming edge
+    const ImVec2 w = unit(next.x - cur.x, next.y - cur.y); // toward the outgoing edge
+    const float half = 0.5f * std::acos(std::clamp(u.x * w.x + u.y * w.y, -1.f, 1.f));
+    const float tangent = r / std::tan(half); // corner -> where the arc meets each edge
+    const float bisect = r / std::sin(half);  // corner -> arc center, along the bisector
+    const ImVec2 bis = unit(u.x + w.x, u.y + w.y);
+    const ImVec2 ctr = c.P(cur.x + bis.x * bisect, cur.y + bis.y * bisect);
+    const ImVec2 a = c.P(cur.x + u.x * tangent, cur.y + u.y * tangent);
+    const ImVec2 b = c.P(cur.x + w.x * tangent, cur.y + w.y * tangent);
+    float a0 = std::atan2(a.y - ctr.y, a.x - ctr.x);
+    float a1 = std::atan2(b.y - ctr.y, b.x - ctr.x);
+    a1 += (a1 - a0 > kPi) ? -2.f * kPi : (a1 - a0 < -kPi) ? 2.f * kPi : 0.f; // shortest sweep
+    c.dl->PathArcTo(ctr, c.R(r), a0, a1, 12);
+  }
+  c.dl->PathStroke(c.color, ImDrawFlags_Closed, c.th);
+}
+
+/**
+ * Geometry shared by the status family (info / success / warning / error).
+ *
+ * The four marks show up stacked in one message column, so they are drawn as one system: the same
+ * optical footprint, the same corner roundness, the same dot. Drifting radii is what made them read
+ * as four unrelated drawings that happened to be the same colour family.
+ */
+constexpr float kStatusRing = 0.355f; // ring radius of the circled marks
+constexpr float kStatusDot = 0.055f;  // the "i" dot and the bang dot
 
 // Lucide "repeat": an upper track flowing right and a lower track flowing left, joined by rounded
 // corners, each ending in an arrowhead — the media "loop" glyph. Normalized to the [0,1] box.
@@ -376,9 +454,11 @@ void DrawEdges(const IconCanvas& c)
 
 void DrawInfo(const IconCanvas& c)
 {
-  c.Ring(0.50f, 0.50f, 0.32f);
-  c.Dot(0.50f, 0.35f, 0.045f);      // dot of the "i"
-  c.Line(0.50f, 0.47f, 0.50f, 0.67f); // stem
+  // The "i" is the warning bang turned over: same dot, same stem, dot on top. Centered on the ring
+  // rather than on the box, so it sits level with the check and the cross in a message column.
+  c.Ring(0.50f, 0.50f, kStatusRing);
+  c.Dot(0.50f, 0.330f, kStatusDot);
+  c.RLine(0.50f, 0.468f, 0.50f, 0.686f);
 }
 
 void DrawHelp(const IconCanvas& c)
@@ -407,32 +487,38 @@ void DrawLock(const IconCanvas& c)
 
 void DrawWarning(const IconCanvas& c)
 {
-  // Rounded-ish triangle + bang. The triangle silhouette is what makes "warning" readable at
-  // 14px without color -- a circled bang reads as "info" at that size.
-  const ImVec2 tri[4] = {
-    c.P(0.50f, 0.16f),
-    c.P(0.92f, 0.82f),
-    c.P(0.08f, 0.82f),
-    c.P(0.50f, 0.16f),
-  };
-  c.Poly(tri, 4);
-  c.Line(0.50f, 0.40f, 0.50f, 0.60f);
-  c.Dot(0.50f, 0.71f, 0.05f);
+  // Triangle + bang. The triangle silhouette is what makes "warning" readable at 14px without
+  // color -- a circled bang reads as "info" at that size. The corners are filleted to the same
+  // radius the circled marks curve at, and the outline is sized to the ring's footprint, so the
+  // triangle sits in a message column at the weight of its neighbours instead of shouting over
+  // them.
+  const ImVec2 tri[3] = { ImVec2(0.500f, 0.115f), ImVec2(0.905f, 0.850f),
+    ImVec2(0.095f, 0.850f) };
+  StrokeRoundedPolygon(c, tri, 3, 0.10f);
+  c.RLine(0.50f, 0.355f, 0.50f, 0.560f);
+  c.Dot(0.50f, 0.695f, kStatusDot);
 }
 
 void DrawError(const IconCanvas& c)
 {
-  // Circled cross: distinct from the warning triangle in silhouette, not only in color.
-  c.Ring(0.50f, 0.50f, 0.34f);
-  c.Line(0.37f, 0.37f, 0.63f, 0.63f);
-  c.Line(0.63f, 0.37f, 0.37f, 0.63f);
+  // Circled cross: distinct from the warning triangle in silhouette, not only in color. The cross
+  // runs on the same 45 degrees as the check's arms, so success and error are the same drawing
+  // with one stroke changed.
+  c.Ring(0.50f, 0.50f, kStatusRing);
+  c.RLine(0.375f, 0.375f, 0.625f, 0.625f);
+  c.RLine(0.625f, 0.375f, 0.375f, 0.625f);
 }
 
 void DrawSuccess(const IconCanvas& c)
 {
-  c.Ring(0.50f, 0.50f, 0.34f);
-  c.Line(0.34f, 0.51f, 0.45f, 0.63f);
-  c.Line(0.45f, 0.63f, 0.67f, 0.38f);
+  // Circled check, both arms at 45 degrees and the whole mark centered on the ring -- the old one
+  // was pitched off-axis and drifted up-right until its tip crowded the ring.
+  c.Ring(0.50f, 0.50f, kStatusRing);
+  c.Line(0.345f, 0.498f, 0.450f, 0.603f);
+  c.Line(0.450f, 0.603f, 0.655f, 0.398f);
+  c.Cap(0.345f, 0.498f);
+  c.Cap(0.450f, 0.603f); // elbow: rounds the join the mitered polyline would spike
+  c.Cap(0.655f, 0.398f);
 }
 
 void DrawBell(const IconCanvas& c, bool dot)
@@ -544,17 +630,55 @@ void G3DIcon::Draw(
     return;
   }
 
+  // Land the glyph on the pixel grid before drawing anything.
+  //
+  // ImGui strokes with a 1px geometric AA fringe rather than the analytic coverage a browser gives
+  // the same paths, so at icon sizes it has no margin to waste: a box that starts on a fractional
+  // pixel spreads every stroke over one more pixel column than it needs, softens the whole glyph
+  // and breaks its left/right symmetry. Snapping costs nothing and is what closes most of the gap
+  // against the SVG mirror of these icons.
+  //  - the box edge becomes a whole number of pixels, so the normalized grid maps to whole pixels;
+  //  - the stroke is quantized to half a pixel, the finest step the rasterizer resolves;
+  //  - the glyph's centre axis is parked where a stroke of that width covers pixels evenly: on a
+  //    pixel centre for odd widths, on a pixel boundary for even ones.
+  const float sz = std::max(1.f, std::floor(size + 0.5f));
+  const float rawTh = thickness > 0.f ? thickness : sz * 0.085f;
+  const float th = std::max(1.f, std::floor(rawTh * 2.f + 0.5f) * 0.5f);
+  const float phase = (static_cast<int>(std::floor(th + 0.5f)) & 1) ? 0.5f : 0.f;
+  const float cx = std::floor(center.x - phase + 0.5f) + phase;
+  const float cy = std::floor(center.y - phase + 0.5f) + phase;
+  const ImVec2 topLeft(cx - sz * 0.5f, cy - sz * 0.5f);
+
+  // Preferred path: one tinted quad out of the baked cache. Stroking is the fallback, and doubles
+  // as the thing the baker renders — see G3DIconAtlas.h.
+  if (G3DIconAtlas::Blit(drawList, id, topLeft, sz, th, color))
+  {
+    return;
+  }
+  G3DIcon::DrawUnsnapped(drawList, id, topLeft, sz, color, th);
+}
+
+//----------------------------------------------------------------------------
+void G3DIcon::DrawUnsnapped(ImDrawList* drawList, G3DIconId id, const ImVec2& topLeft, float size,
+  ImU32 color, float thickness)
+{
   IconCanvas c;
   c.dl = drawList;
+  c.topLeft = topLeft;
   c.size = size;
   c.color = color;
-  c.topLeft = ImVec2(center.x - size * 0.5f, center.y - size * 0.5f);
-  c.th = thickness > 0.f ? thickness : std::max(1.f, size * 0.085f);
+  c.th = thickness;
 
   // The global style disables line anti-aliasing; enable it locally so icons stay crisp, then
   // restore (same pattern as the loading overlay / FAB).
+  //
+  // AntiAliasedLinesUseTex has to go the other way. ImGui only takes that path when the stroke
+  // width happens to be a whole number, so leaving it on gives the icon set two different AA
+  // profiles selected by a rounding boundary — and neither matches the baked glyph, which is
+  // rasterized without it. Off here keeps the fallback and the bake the same drawing.
   const ImDrawListFlags saved = drawList->Flags;
   drawList->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
+  drawList->Flags &= ~ImDrawListFlags_AntiAliasedLinesUseTex;
 
   switch (id)
   {
@@ -719,13 +843,4 @@ void G3DIcon::Draw(
   }
 
   drawList->Flags = saved;
-}
-
-//----------------------------------------------------------------------------
-void G3DIcon::Inline(G3DIconId id, float size, ImU32 color)
-{
-  const ImVec2 p = ImGui::GetCursorScreenPos();
-  G3DIcon::Draw(
-    ImGui::GetWindowDrawList(), id, ImVec2(p.x + size * 0.5f, p.y + size * 0.5f), size, color);
-  ImGui::Dummy(ImVec2(size, size));
 }
