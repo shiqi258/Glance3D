@@ -93,9 +93,10 @@ private:
   void RenderFpsCounter() override;
 
   /**
-   * Render the control panel mode toggle button (FAB) anchored top-right
+   * Render the floating viewport chrome cluster anchored top-right (shown while the docked panel
+   * is collapsed)
    */
-  void RenderControlToggle() override;
+  void RenderViewportChrome(vtkOpenGLRenderWindow* renWin) override;
 
   /**
    * Render the docked control panel (top / left / right / bottom bars)
@@ -169,15 +170,9 @@ private:
   float CalcBadgeWidth(const std::string& text);
 
   /**
-   * The corner bell shown while the docked chrome is closed (the top bar carries its own). Only
-   * appears when something is unread — this is the successor of the bare "!" alert badge.
-   */
-  void RenderFloatingBell();
-
-  /**
-   * Advance the FAB (toggle button) opacity/idle animation once per frame. Called from
-   * RenderControlToggle, inside the ImGui frame. The panel slide is advanced separately, pre-pass,
-   * in UpdateControlPanelSlide so the bars and the 3D viewport read the same eased fraction.
+   * Advance the viewport chrome cluster's opacity once per frame. Called from RenderViewportChrome,
+   * inside the ImGui frame. The panel slide is advanced separately, pre-pass, in
+   * UpdateControlPanelSlide so the bars and the 3D viewport read the same eased fraction.
    */
   void AdvanceControlAnim();
 
@@ -272,21 +267,20 @@ private:
 
   ///@{
   /**
-   * Animation state for the control panel toggle (FAB) and the sliding panel, built on the reusable
-   * G3DAnimation helpers. The interactive event loop re-renders the UI every tick, which is what
-   * drives these transitions forward.
+   * Animation state for the floating viewport chrome cluster and the sliding panel, built on the
+   * reusable G3DAnimation helpers. The interactive event loop re-renders the UI every tick, which
+   * is what drives these transitions forward.
+   *
+   * The cluster has NO idle auto-hide: while the panel is collapsed it is the only way back into
+   * the chrome, so it stays put instead of making the user wake it up with the mouse.
    */
-  G3DFrameClock ControlClock;     ///< per-frame steady_clock delta source (FAB, ticked in-pass)
-  G3DAnimatedFloat PanelAnim;     ///< panel slide progress, 0 closed .. 1 open (advanced pre-pass)
-  G3DAnimatedFloat FabAlpha;      ///< FAB opacity, eased for fade in/out
-  G3DAnimatedFloat FabHover;      ///< FAB hover progress (eased), lifts the glass fill
-  G3DAnimatedFloat FabPress;      ///< FAB press progress (eased), drives the press scale
-  G3DFrameClock FabInteractClock; ///< per-frame delta for FAB hover/press (ticked in RenderControlToggle)
-  G3DFrameClock SlideClock;       ///< steady_clock delta for the pre-pass panel slide advance
-  int SlideFrame = 0;             ///< ever-incrementing id so SlideClock yields a real delta per call
-  double ControlIdleSec = 0.0;    ///< seconds since last viewport activity (FAB idle auto-hide)
-  bool ControlAnimInit = false;   ///< false until the first frame snaps the FAB to its initial state
-  bool PanelAnimInit = false;     ///< false until the first pre-pass frame snaps the slide
+  G3DFrameClock ControlClock; ///< per-frame steady_clock delta source (chrome, ticked in-pass)
+  G3DAnimatedFloat PanelAnim; ///< panel slide progress, 0 closed .. 1 open (advanced pre-pass)
+  G3DAnimatedFloat ChromeAlpha; ///< chrome cluster opacity, eased across the panel open/close swap
+  G3DFrameClock SlideClock; ///< steady_clock delta for the pre-pass panel slide advance
+  int SlideFrame = 0;       ///< ever-incrementing id so SlideClock yields a real delta per call
+  bool ControlAnimInit = false; ///< false until the first frame snaps the cluster to its end state
+  bool PanelAnimInit = false;   ///< false until the first pre-pass frame snaps the slide
   double FileNamePathCopiedTime = -100.0; ///< ImGui::GetTime() of the last filename→clipboard copy (inline "copied" flash)
   ///@}
 

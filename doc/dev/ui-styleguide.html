@@ -694,7 +694,8 @@
         border-radius: 50%;
         background: var(--accent);
       }
-      /* Glass FAB (matches the in-viewer floating toggle) */
+      /* Glass FAB — the single-button case of a framed .toolgroup below. Kept as its own class for
+         the standalone floating action button; a CLUSTER of floating actions is a .toolgroup. */
       .fab {
         width: 40px;
         height: 40px;
@@ -710,6 +711,34 @@
         color: #fff;
         border-color: transparent;
         box-shadow: var(--shadow-accent);
+      }
+
+      /* ---- tool group (≡ G3DWidgets::ToolGroup): a horizontal run of icon buttons that reads as
+         ONE control. Plain, it drops into a bar that already supplies a surface (the top bar's
+         command cluster). Framed, it carries its own glass shell and becomes a floating island over
+         the 3D view — which is what the viewport shows while the docked panel is collapsed. Both
+         faces are the same markup, so the two states cannot drift apart. */
+      .toolgroup {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-1);
+      }
+      .toolgroup.framed {
+        padding: var(--s-1);
+        border-radius: var(--r-lg);
+        background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-sm);
+      }
+      /* Grouping rule INSIDE the group — the top bar's cluster separator: a hairline spanning the
+         middle 56% of the button height (22%..78%), with one extra gap of air on each side. */
+      .toolgroup .tg-sep {
+        width: 1px;
+        height: 56%;
+        align-self: center;
+        margin: 0 var(--s-1);
+        background: var(--border-strong);
       }
 
       /* Spinner */
@@ -2403,6 +2432,7 @@
         <div class="group">组件</div>
         <a href="#buttons">按钮</a>
         <a href="#iconbuttons">图标按钮 / FAB</a>
+        <a href="#toolgroup">工具组</a>
         <a href="#inputs">输入框 / 选择</a>
         <a href="#toggles">开关 / 复选 / 分段</a>
         <a href="#sliders">滑块</a>
@@ -2645,6 +2675,35 @@
               <span class="note" style="margin: 0">凹陷键 + 描边常驻两态：关也能认出是开关，非一次性按钮。</span>
             </div>
             <div class="note">FAB 为玻璃拟态（毛玻璃底 + 投影 <span class="tag-impl">≈ImGui</span>），激活态切到渐变主色。图标按钮 <code>active</code> = 通用主色填充；<code>well</code> = 显示开关专用（关态凹陷键、开态主色填充 + 描边 + 底点 <span class="tag-impl">≈ImGui</span>）。</div>
+          </div>
+        </section>
+
+        <!-- ===================== TOOL GROUP ===================== -->
+        <section class="block" id="toolgroup">
+          <h2>工具组</h2>
+          <p class="desc">
+            一排图标按钮读作<strong>一个</strong>控件。裸态放进本来就有底色的工具栏；
+            <code>framed</code> 态自带玻璃外壳，浮在 3D 视图上 —— 操作面板收起时，视口右上角就是它。
+          </p>
+          <p class="uses">
+            <b>组合</b>工具组 <code>g3d-toolgroup</code> = 若干 图标按钮 <code>g3d-iconbtn</code>
+            （＋可选分组细线、未读角标）装进一个共享容器。
+          </p>
+          <div class="panel stack">
+            <div class="row">
+              <span class="state-label" style="margin: 0">工具栏内（裸态）→</span>
+              <g3d-toolgroup items="folder|!home|cube|!grid.well|axis.well.active|eye.well"></g3d-toolgroup>
+            </div>
+            <div class="row">
+              <span class="state-label" style="margin: 0">视口悬浮（framed）→</span>
+              <g3d-toolgroup v="framed" items="folder|bell+2|sliders"></g3d-toolgroup>
+            </div>
+            <div class="note">
+              同一份标记的两张面孔：面板展开时这一簇在顶栏里，收起时它浮到视口右上角。
+              两态走<strong>同一个组件</strong>（桌面端 <code>G3DWidgets::ToolGroup</code>），所以尺寸、
+              圆角、悬停手感、快捷键键帽不可能各走各的。<code>!</code> 前缀插一条分组细线；
+              <code>+N</code> 给该项挂未读计数角标 <span class="tag-impl">≈ImGui</span>。
+            </div>
           </div>
         </section>
 
@@ -3312,6 +3371,25 @@
           },
           "g3d-iconbtn": (el) =>
             `<button class="${cls("iconbtn", a(el, "v"), a(el, "cls"), stateCls(a(el, "state")))}"${passData(el)}>${icon(a(el, "n"), a(el, "sz"))}</button>`,
+          // A run of icon buttons that reads as ONE control (≡ G3DWidgets::ToolGroup). `items` is
+          // pipe separated; an item may carry ".well" / ".active" state suffixes, a "+N" unread
+          // count, and a leading "|" asks for a grouping rule before it.
+          "g3d-toolgroup": (el) => {
+            const body = a(el, "items")
+              .split("|")
+              .filter(Boolean)
+              .map((spec) => {
+                const sep = spec.startsWith("!") ? `<span class="tg-sep"></span>` : "";
+                const [name, ...mods] = spec.replace(/^!/, "").split(".");
+                const [glyph, count] = name.split("+");
+                const btn = `<button class="${cls("iconbtn", mods.join(" "))}">${icon(glyph)}</button>`;
+                return count
+                  ? `${sep}<span class="bell">${btn}<span class="bell-count">${count}</span></span>`
+                  : `${sep}${btn}`;
+              })
+              .join("");
+            return `<span class="${cls("toolgroup", a(el, "v"))}">${body}</span>`;
+          },
 
           // — inputs —
           "g3d-input": (el) => {

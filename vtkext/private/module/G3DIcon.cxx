@@ -151,6 +151,17 @@ void DrawPanelClose(const IconCanvas& c)
   c.Poly(pts, 3);
 }
 
+// Lucide panel-right-open: the same frame, chevron pointing back out of the panel side. Mirrors
+// DrawPanelClose so the reopen handle and the collapse button read as one switch, two directions.
+void DrawPanelOpen(const IconCanvas& c)
+{
+  c.dl->AddRect(
+    c.P(0.125f, 0.125f), c.P(0.875f, 0.875f), c.color, c.R(0.083f), ImDrawFlags_None, c.th);
+  c.Line(0.625f, 0.125f, 0.625f, 0.875f);
+  const ImVec2 pts[3] = { c.P(0.417f, 0.625f), c.P(0.292f, 0.5f), c.P(0.417f, 0.375f) }; // m10 15-3-3 3-3
+  c.Poly(pts, 3);
+}
+
 // kPi lives in imgui_internal.h (not the public imgui.h these icons include), so keep a local
 // constant for the arc-based glyphs below.
 constexpr float kPi = 3.14159265358979f;
@@ -839,6 +850,9 @@ void G3DIcon::DrawUnsnapped(ImDrawList* drawList, G3DIconId id, const ImVec2& to
       break;
     case G3DIconId::PanelClose:
       DrawPanelClose(c);
+      break;
+    case G3DIconId::PanelOpen:
+      DrawPanelOpen(c);
       break;
   }
 

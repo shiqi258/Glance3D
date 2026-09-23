@@ -851,6 +851,54 @@ bool BellButton(const char* id, int unread, ToneVariant tone, float size = -1.f,
   const char* tooltip = nullptr, const char* shortcut = nullptr);
 
 //----------------------------------------------------------------------------
+// Tool group
+//
+// A horizontal run of icon buttons that reads as ONE control: the top bar's command cluster and the
+// floating cluster the viewport shows while the panel is collapsed are the same component, so the
+// two states cannot drift apart in size, radius, hover feel or keycap formatting. Framed, it draws
+// its own glass shell and becomes a floating island over the 3D view; unframed it drops into a bar
+// that already supplies a surface.
+//----------------------------------------------------------------------------
+
+/// One action in a tool group.
+struct ToolItem
+{
+  const char* id = nullptr;             ///< ImGui id, e.g. "##g3d.chrome.panel"
+  G3DIconId icon = G3DIconId::Cube;
+  const char* tooltip = nullptr;
+  const char* shortcut = nullptr;       ///< keyboard accelerator, appended to the tooltip as a keycap
+  bool on = false;                      ///< persistent toggle state
+  IconOnStyle onStyle = IconOnStyle::Fill;
+  bool separatorBefore = false;         ///< hairline rule before this item (groups within the group)
+  int badge = 0;                        ///< > 0 rides a tone-colored count chip on the upper-right corner
+  ToneVariant badgeTone = ToneVariant::Info;
+  /// 0..1 presence: scales BOTH the item's opacity and the width it claims, so an item joining or
+  /// leaving the group grows/collapses the group instead of popping. Below 0.01 it is not submitted
+  /// at all (an invisible button would still eat clicks).
+  float presence = 1.f;
+};
+
+/// A tool group's layout and shell.
+struct ToolGroupDesc
+{
+  const ToolItem* items = nullptr;
+  int count = 0;
+  float size = -1.f;      ///< per-item edge; <= 0 uses the icon-button token
+  bool framed = false;    ///< draw the floating glass shell (over the 3D view)
+  ImVec4 frameColor = ImVec4(0.f, 0.f, 0.f, 1.f); ///< shell backdrop tint (rgb used, alpha ignored)
+  float alpha = 1.f;      ///< whole-group opacity, multiplied into every item's presence
+};
+
+/// Footprint of @p desc, shell included. Published because the group is usually hosted by a window
+/// that must be sized and positioned BEFORE it is submitted — and an offscreen `--output` render
+/// only ever gets one frame, so the host cannot learn the size from the previous one.
+ImVec2 ToolGroupSize(const ToolGroupDesc& desc);
+
+/// Submit a tool group at the current cursor. Returns the index of the item clicked this frame,
+/// else -1.
+int ToolGroup(const char* id, const ToolGroupDesc& desc);
+
+//----------------------------------------------------------------------------
 // Color picker
 //
 // The styleguide color picker (doc/dev/ui-styleguide.html: <g3d-colorswatch> / <g3d-colorpicker>) —

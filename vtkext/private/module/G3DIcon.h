@@ -71,6 +71,7 @@ enum class G3DIconId
   PanelRight,  ///< frame + right divider (toggle the right dock bar) — Lucide panel-right
   PanelBottom, ///< frame + bottom divider (toggle the bottom dock bar) — Lucide panel-bottom
   PanelClose, ///< panel-right frame + inward chevron (collapse the panel chrome) — Lucide panel-right-close
+  PanelOpen, ///< panel-right frame + outward chevron (bring the panel chrome back) — Lucide panel-right-open
 };
 
 namespace G3DIcon

@@ -89,31 +89,54 @@ constexpr float LOADING_SPIN_PERIOD_SEC = 4.4f; // seconds per revolution (slow,
 // Control panel (FAB + sliding panel) geometry and animation tuning. Grouped so the feel is easy
 // to retune in one place. The fully-open bar thicknesses themselves live in G3DLayout.h
 // (G3DLayout::DefaultBarSizes) so the renderer derives the central viewport from the same numbers.
-constexpr float CONTROL_FAB_SIZE = G3DTheme::Size::Fab; // reopen handle size (single token source)
-constexpr double CONTROL_PANEL_ANIM_SEC = 0.22; // panel slide in/out duration
-constexpr double CONTROL_FAB_FADE_SEC = 0.18;   // FAB fade in/out duration
-constexpr double CONTROL_FAB_IDLE_SEC = 2.5;    // idle before the FAB starts fading out
+constexpr double CONTROL_PANEL_ANIM_SEC = 0.22;  // panel slide in/out duration
+constexpr double CONTROL_CHROME_FADE_SEC = 0.18; // chrome cluster fade in/out duration
 
-/// Hand out the viewport's top-right chrome column, top to bottom: slot 0 = the panel reopen FAB,
-/// slot 1 = the message bell. ONE owner of that corner, so nothing needs a private "step around
-/// whatever else might be up there" offset — the class of bug that had the fps counter, the minimal
-/// console and the FAB each carrying their own copy of the same dodge around the alert badge.
-/// The pitch is constant and sized on the tallest tenant, so a slot never moves because the slot
-/// above it happens to be empty this frame.
-ImVec2 TopRightSlot(const G3DLayout::Rect& rect, int slot, const ImVec2& size, float fontScale)
+/// The actions the floating chrome cluster can carry, laid out left to right. The reopen handle
+/// sits LAST so it lands on the same pixel as the top bar's collapse button: one switch, two
+/// directions, rather than two unrelated controls swapping places.
+enum ChromeAction
 {
-  constexpr float margin = F3DStyle::GetDefaultMargin();
-  const float pitch = CONTROL_FAB_SIZE * fontScale + margin;
-  return ImVec2(rect.x + rect.w - margin - size.x, rect.y + margin + slot * pitch);
+  CHROME_OPEN_FILE = 0,
+  CHROME_MESSAGES,
+  CHROME_PANEL,
+  CHROME_ACTION_COUNT
+};
+
+/// Height of the floating chrome cluster. Constant — it does not depend on how many buttons are
+/// showing this frame — so anything that has to clear the corner can ask before the cluster is
+/// laid out, with no ordering dependency (the orientation gizmo is drawn first).
+float ViewportChromeHeight(float fontScale)
+{
+  return (G3DTheme::Size::IconButton + 2.f * G3DTheme::Spacing::Xs) * fontScale;
 }
 
-/// How much width the slot column claims. Anything that spans the top of the viewport (the minimal
-/// console) asks for this instead of inventing its own offset — the same single owner, read from
-/// the other side.
-float TopRightSlotReservedWidth(float fontScale)
+/// How much width the cluster claims, measured with EVERY action present. Anything that spans the
+/// top of the viewport (the minimal console) asks for this instead of inventing its own offset —
+/// ONE owner of that corner, read from the other side. Deliberately the full-width figure and not
+/// the animated one: a console edge that tracked the cluster growing would jitter.
+float ViewportChromeReservedWidth(float fontScale)
 {
   constexpr float margin = F3DStyle::GetDefaultMargin();
-  return CONTROL_FAB_SIZE * fontScale + 2.f * margin;
+  const float items = static_cast<float>(CHROME_ACTION_COUNT);
+  const float inner = items * G3DTheme::Size::IconButton +
+    (items - 1.f) * G3DTheme::Spacing::Xs + 2.f * G3DTheme::Spacing::Xs;
+  return inner * fontScale + 2.f * margin;
+}
+
+/// Top-right anchor for a cluster of @p size. Right-aligned, so the corner stays put while the
+/// group grows and collapses leftwards.
+ImVec2 ViewportChromePos(const G3DLayout::Rect& rect, const ImVec2& size)
+{
+  constexpr float margin = F3DStyle::GetDefaultMargin();
+  return ImVec2(rect.x + rect.w - margin - size.x, rect.y + margin);
+}
+
+/// Vertical span the cluster consumes from the viewport's top edge, its clearance gap included.
+float ViewportChromeZoneH(float fontScale)
+{
+  constexpr float margin = F3DStyle::GetDefaultMargin();
+  return margin + ViewportChromeHeight(fontScale) + G3DTheme::Spacing::Sm * fontScale;
 }
 
 /// Severity -> the design system's tone ladder. One mapping, so the toast stack, the message
@@ -146,9 +169,20 @@ struct GizmoMetrics
     return this->pad + 2.f * this->radius;
   }
 };
-GizmoMetrics ViewGizmoMetrics(float W, float H, float scale)
+/// @p topInset is the vertical span the floating chrome cluster occupies in that same corner (0
+/// when it is not up). The gizmo sinks below it: the two used to be laid out in ignorance of each
+/// other, and with `-x` on, the corner buttons landed right on the axis heads.
+GizmoMetrics ViewGizmoMetrics(float W, float H, float scale, float topInset = 0.f)
 {
-  return { std::min(W, H) * 0.15f * 0.5f, 18.f * scale };
+  return { std::min(W, H) * 0.15f * 0.5f, std::max(18.f * scale, topInset) };
+}
+
+/// The inset above is only owed while the cluster is actually up — i.e. while the docked panel is
+/// fully closed. Once the panel is open the gizmo anchors to the central viewport, which already
+/// starts below the top bar.
+float ViewGizmoTopInset(float panelEased, float fontScale)
+{
+  return panelEased < 0.001f ? ViewportChromeZoneH(fontScale) : 0.f;
 }
 
 const inline ImVec4 ColorToImVec4(const std::array<double, 3>& color)
@@ -665,11 +699,12 @@ vtkF3DImguiActor::vtkF3DImguiActor()
 {
   this->PanelAnim.SetDuration(::CONTROL_PANEL_ANIM_SEC);
   this->PanelAnim.SetEasing(G3DEasing::SmoothStep);
-  this->FabAlpha.SetDuration(::CONTROL_FAB_FADE_SEC);
-  this->FabAlpha.SetEasing(G3DEasing::SmoothStep);
-  // Same hover/press motion presets the G3DWidgets buttons use, so the FAB feels consistent.
-  G3DTheme::Configure(this->FabHover, G3DTheme::Motions::Micro);
-  G3DTheme::Configure(this->FabPress, G3DTheme::Motions::Press);
+  this->ChromeAlpha.SetDuration(::CONTROL_CHROME_FADE_SEC);
+  this->ChromeAlpha.SetEasing(G3DEasing::SmoothStep);
+  // Hover/press belong to the buttons themselves (G3DWidgets::IconButton animates them per widget
+  // id), and a button entering or leaving the cluster is NOT tweened: its only trigger is a file
+  // finishing loading, where the model itself is popping in at the same instant, and a tween there
+  // would make every image baseline depend on how fast the machine reached that frame.
   // Observation-log sink for the widget library (same event bridge as SendCommand → session log).
   G3DWidgets::SetTraceSink(
     [](const char* msg) {
@@ -2231,183 +2266,136 @@ void vtkF3DImguiActor::GetControlPanelViewport(const int windowSize[2], double v
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::AdvanceControlAnim()
 {
-  // FAB-only animation (opacity fade + idle auto-hide). The panel SLIDE is advanced pre-pass in
-  // UpdateControlPanelSlide so the 3D viewport and the bars stay in lockstep; the FAB lives entirely
-  // in the full-window UI texture, so its timing can stay on the ImGui frame clock here.
+  // Chrome-cluster animation only. The panel SLIDE is advanced pre-pass in UpdateControlPanelSlide
+  // so the 3D viewport and the bars stay in lockstep; the cluster lives entirely in the full-window
+  // UI texture, so its timing can stay on the ImGui frame clock here.
   const double dt = this->ControlClock.Tick(ImGui::GetFrameCount());
 
-  // Mouse movement / clicks count as activity and refresh the FAB idle timer.
-  const ImGuiIO& io = ImGui::GetIO();
-  const bool mouseActive = io.MouseDelta.x != 0.f || io.MouseDelta.y != 0.f || io.MouseDown[0] ||
-    io.MouseDown[1] || io.MouseDown[2];
-  this->ControlIdleSec = mouseActive ? 0.0 : this->ControlIdleSec + dt;
-
-  // The FAB is only the REOPEN handle: hidden whenever the panel is open or sliding (the toolbar's
-  // collapse button owns closing), and once fully closed it shows only while the viewport was
-  // recently active — so the working 3D view carries no floating chrome.
-  const bool fabWanted = !this->EffectivePanelVisible() && this->PanelAnim.Value() < 0.001f &&
-    this->ControlIdleSec <= ::CONTROL_FAB_IDLE_SEC;
-  const float fabTarget = fabWanted ? 1.f : 0.f;
+  // The cluster is the way BACK into the chrome: hidden whenever the panel is open or sliding (the
+  // toolbar's collapse button owns closing), and otherwise simply present. It deliberately has no
+  // idle timer — the reopen handle used to fade out after a couple of seconds of stillness, which
+  // meant the only route back into the panel vanished until the user waved the mouse at it.
+  const bool chromeWanted = !this->EffectivePanelVisible() && this->PanelAnim.Value() < 0.001f;
+  const float chromeTarget = chromeWanted ? 1.f : 0.f;
 
   if (!this->ControlAnimInit)
   {
     // Snap on the first frame so a single offscreen/headless render shows the correct end state.
-    this->FabAlpha.Snap(fabTarget);
+    this->ChromeAlpha.Snap(chromeTarget);
     this->ControlAnimInit = true;
     return;
   }
 
-  this->FabAlpha.AnimateTo(fabTarget);
-  this->FabAlpha.Update(dt);
+  this->ChromeAlpha.AnimateTo(chromeTarget);
+  this->ChromeAlpha.Update(dt);
 }
 
 //----------------------------------------------------------------------------
-void vtkF3DImguiActor::RenderFloatingBell()
+void vtkF3DImguiActor::RenderViewportChrome(vtkOpenGLRenderWindow* renWin)
 {
-  // Only while the top bar (which carries its own bell) is away, and only when there is something
-  // unread: an always-present bell in an empty session is chrome for nothing. This is what took
-  // over from the bare "!" in the corner.
-  if (this->PanelAnim.Value() >= 0.001f)
+  // "Something to inspect": the geometry bounding box is a cached member, so this is an O(1) read
+  // every frame (GetG3DDataStats() walks the actor collection and is not). It is the scene's own
+  // state rather than the drop-zone option, so embedders that drive the UI themselves still get the
+  // right answer.
+  bool hasScene = false;
+  if (renWin != nullptr)
   {
-    return;
-  }
-  G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
-  const int unread = nc.UnreadCount(G3DSeverity::Info);
-  if (unread <= 0)
-  {
-    return;
+    vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+    vtkF3DMetaImporter* importer = ren != nullptr ? ren->GetMetaImporter() : nullptr;
+    hasScene = importer != nullptr && importer->GetGeometryBoundingBox().IsValid();
   }
 
+  this->AdvanceControlAnim();
+
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
-  if (viewport->WorkSize.x < 60.f || viewport->WorkSize.y < 60.f)
+  const float alpha = this->ChromeAlpha.Value();
+  if (viewport->WorkSize.x < 60.f || viewport->WorkSize.y < 60.f || alpha < 0.01f)
   {
     return;
   }
 
   const float scale = static_cast<float>(this->FontScale);
-  const float size = G3DTheme::Size::IconButton * scale;
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
+  const int unread = nc.UnreadCount(G3DSeverity::Info);
+
+  // One table, one visibility rule per row: adding a fourth button is adding a row, not another
+  // hand-placed window with its own copy of the corner arithmetic.
+  const std::string openTip = loc.Translate("Open file...");
+  const std::string bellTip = unread > 0
+    ? loc.Translate("{n} unread", { { "n", std::to_string(unread) } })
+    : loc.Translate("Messages");
+  const std::string panelTip = loc.Translate("Open panel");
+
+  G3DWidgets::ToolItem items[::CHROME_ACTION_COUNT];
+  G3DWidgets::ToolItem& openItem = items[::CHROME_OPEN_FILE];
+  openItem.id = "##g3d.chrome.open";
+  openItem.icon = G3DIconId::Folder;
+  openItem.tooltip = openTip.c_str();
+  openItem.shortcut = "Ctrl+O";
+
+  G3DWidgets::ToolItem& bellItem = items[::CHROME_MESSAGES];
+  bellItem.id = "##g3d.chrome.bell";
+  bellItem.icon = unread > 0 ? G3DIconId::BellDot : G3DIconId::Bell;
+  bellItem.tooltip = bellTip.c_str();
+  bellItem.shortcut = "Ctrl+Shift+K";
+  bellItem.badge = unread;
+  bellItem.badgeTone = ToneFor(nc.TopUnreadSeverity());
+
+  G3DWidgets::ToolItem& panelItem = items[::CHROME_PANEL];
+  panelItem.id = "##g3d.chrome.panel";
+  panelItem.icon = G3DIconId::PanelOpen;
+  panelItem.tooltip = panelTip.c_str();
+  panelItem.shortcut = "`";
+
+  // The reopen handle waits for something to inspect: an empty session has no panel worth opening.
+  // Open-file and the bell are unconditional — the bell used to appear only when something was
+  // unread, which left no way at all to reach the message history from a quiet viewport.
+  panelItem.presence = hasScene ? 1.f : 0.f;
+
+  G3DWidgets::ToolGroupDesc desc;
+  desc.items = items;
+  desc.count = ::CHROME_ACTION_COUNT;
+  desc.framed = true;
+  desc.frameColor = ImVec4(static_cast<float>(this->BackdropColor[0]),
+    static_cast<float>(this->BackdropColor[1]), static_cast<float>(this->BackdropColor[2]), 1.f);
+  desc.alpha = alpha;
+
+  // The host window must be sized and placed BEFORE the group is submitted, and a headless
+  // --output render only ever gets one frame — so the footprint is measured, never remembered.
+  const ImVec2 size = G3DWidgets::ToolGroupSize(desc);
+  if (size.x < 1.f || size.y < 1.f)
+  {
+    return;
+  }
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
-  // Slot 1 of the shared top-right column: directly under the panel reopen handle, with no
-  // knowledge of it beyond the slot number.
-  const ImVec2 pos = ::TopRightSlot(work, 1, ImVec2(size, size), scale);
+  const ImVec2 pos = ::ViewportChromePos(work, size);
 
-  ::SetupNextWindow(pos, ImVec2(size, size));
-  ImGui::SetNextWindowBgAlpha(0.f); // the button paints its own surface
+  ::SetupNextWindow(pos, size);
+  ImGui::SetNextWindowBgAlpha(0.f); // the group paints its own glass shell
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
   constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
-  ImGui::Begin("##g3d.bell", nullptr, flags);
+  ImGui::Begin("ViewportChrome", nullptr, flags);
 
-  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const std::string tip = loc.Translate("{n} unread", { { "n", std::to_string(unread) } });
-  if (G3DWidgets::BellButton("##g3d.bell.btn", unread, ToneFor(nc.TopUnreadSeverity()), size,
-        tip.c_str(), "Ctrl+Shift+K"))
+  switch (G3DWidgets::ToolGroup("##g3d.chrome", desc))
   {
-    this->SendCommand("toggle ui.notification_center");
+    case ::CHROME_OPEN_FILE:
+      this->SendCommand("open_file_dialog");
+      break;
+    case ::CHROME_MESSAGES:
+      this->SendCommand("toggle ui.notification_center");
+      break;
+    case ::CHROME_PANEL:
+      this->SendCommand("toggle ui.control_panel");
+      break;
+    default:
+      break;
   }
-
-  ImGui::End();
-  ImGui::PopStyleVar(2);
-}
-
-//----------------------------------------------------------------------------
-void vtkF3DImguiActor::RenderControlToggle()
-{
-  this->AdvanceControlAnim();
-  this->RenderFloatingBell();
-
-  const ImGuiViewport* viewport = ImGui::GetMainViewport();
-  if (viewport->WorkSize.x < 10 || viewport->WorkSize.y < 10 || this->FabAlpha.Value() < 0.01f)
-  {
-    return;
-  }
-
-  const float alpha = this->FabAlpha.Value();
-  constexpr float margin = F3DStyle::GetDefaultMargin();
-  const float fabSize = ::CONTROL_FAB_SIZE * static_cast<float>(this->FontScale);
-
-  // Fixed top-right reopen handle (it only exists while the panel is fully closed, so it never
-  // tracks the panel edge — the old drawer-handle formula also missed the DPI scale and overlapped
-  // the inspector header at high scales). Slot 0 of the shared top-right column: it used to be
-  // pushed down one text row to clear the console alert badge, which no longer exists.
-  const G3DLayout::Rect fabWork{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
-    viewport->WorkSize.y };
-  const ImVec2 pos =
-    ::TopRightSlot(fabWork, 0, ImVec2(fabSize, fabSize), static_cast<float>(this->FontScale));
-
-  ::SetupNextWindow(pos, ImVec2(fabSize, fabSize));
-  ImGui::SetNextWindowBgAlpha(0.f); // we draw our own rounded glass background
-
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
-
-  constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
-    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-    ImGuiWindowFlags_NoMove;
-  ImGui::Begin("ControlToggle", nullptr, flags);
-
-  const ImVec2 p0 = ImGui::GetWindowPos();
-
-  const bool clicked = ImGui::InvisibleButton("##ControlToggleBtn", ImVec2(fabSize, fabSize));
-  if (clicked)
-  {
-    this->SendCommand("toggle ui.control_panel");
-  }
-  const bool hovered = ImGui::IsItemHovered();
-  const bool held = ImGui::IsItemActive();
-  if (hovered)
-  {
-    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-  }
-
-  // Eased hover/press so the FAB feels like the G3DWidgets buttons (no hard on/off step). Ticked
-  // once per frame here (RenderControlToggle runs once per frame, after AdvanceControlAnim).
-  const double interactDt = this->FabInteractClock.Tick(ImGui::GetFrameCount());
-  this->FabHover.AnimateTo(hovered ? 1.f : 0.f);
-  this->FabHover.Update(interactDt);
-  this->FabPress.AnimateTo(held ? 1.f : 0.f);
-  this->FabPress.Update(interactDt);
-  const float hoverT = this->FabHover.Value();
-  const float pressT = this->FabPress.Value();
-
-  ImDrawList* drawList = ImGui::GetWindowDrawList();
-  const ImDrawListFlags savedFlags = drawList->Flags;
-  drawList->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
-
-  // Press shrinks the button toward its center (== styleguide .iconbtn:active scale(0.92)).
-  const float pressScale = G3DLerp(1.f, 0.92f, pressT);
-  const ImVec2 ctr(p0.x + fabSize * 0.5f, p0.y + fabSize * 0.5f);
-  const float half = fabSize * 0.5f * pressScale;
-  const ImVec2 r0(ctr.x - half, ctr.y - half);
-  const ImVec2 r1(ctr.x + half, ctr.y + half);
-  const float radius = G3DTheme::Radius::Control * static_cast<float>(this->FontScale);
-
-  // Neutral dark glass (styleguide .fab): backdrop fill lifting on hover, deepening on press —
-  // never an accent slab floating over the 3D view.
-  const float fillA = std::clamp(0.55f + 0.20f * hoverT - 0.06f * pressT, 0.f, 1.f) * alpha;
-  const ImU32 bg = IM_COL32(static_cast<int>(this->BackdropColor[0] * 255),
-    static_cast<int>(this->BackdropColor[1] * 255),
-    static_cast<int>(this->BackdropColor[2] * 255), static_cast<int>(fillA * 255.f));
-  drawList->AddRectFilled(r0, r1, bg, radius);
-
-  // Hairline border (styleguide .fab border), slightly stronger on hover.
-  const ImU32 border = IM_COL32(
-    255, 255, 255, static_cast<int>((0.10f + 0.06f * hoverT) * alpha * 255.f));
-  drawList->AddRect(
-    r0, r1, border, radius, 0, G3DTheme::Size::Border * static_cast<float>(this->FontScale));
-
-  // Sliders glyph (the inspector identity) in the muted font color; scales with the press so the
-  // whole button reads as one pressed surface.
-  const ImU32 fg = IM_COL32(static_cast<int>(this->FontColor[0] * 255),
-    static_cast<int>(this->FontColor[1] * 255), static_cast<int>(this->FontColor[2] * 255),
-    static_cast<int>(0.92f * alpha * 255.f));
-  G3DIcon::Draw(drawList, G3DIconId::Sliders, ctr, fabSize * 0.55f * pressScale, fg);
-
-  drawList->Flags = savedFlags;
 
   ImGui::End();
   ImGui::PopStyleVar(2);
@@ -3681,7 +3669,9 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
   // it (same metrics the gizmo anchors with) so title/labels never collide with the axis heads.
   if (this->ReadOptionBool("ui.axis", false))
   {
-    yTop += ::ViewGizmoMetrics(W, H, scale).zoneH() + 8.f * scale;
+    yTop +=
+      ::ViewGizmoMetrics(W, H, scale, ::ViewGizmoTopInset(this->PanelAnim.Value(), scale)).zoneH() +
+      8.f * scale;
   }
   // The title + max label are drawn ABOVE the strip: fold their height into the top reservation so
   // on short spans they cannot climb back over the boundary the code above just established.
@@ -3791,7 +3781,8 @@ void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
   // timeline bar and of the scalar bar's numeric endpoints (the legend shifts below the gizmo,
   // see ::ViewGizmoMetrics shared with RenderScalarBar).
   const float scale = static_cast<float>(this->FontScale);
-  const ::GizmoMetrics gm = ::ViewGizmoMetrics(W, H, scale);
+  const ::GizmoMetrics gm =
+    ::ViewGizmoMetrics(W, H, scale, ::ViewGizmoTopInset(this->PanelAnim.Value(), scale));
   const float R = gm.radius;
   const ImVec2 ctr(xRight - gm.pad - R, yTop + gm.pad + R);
 
@@ -4189,63 +4180,93 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
     const float clusterEndX = ImGui::GetCursorScreenPos().x;
 
-    // Right cluster, composed right -> left: collapse (the VS Code layout-toggle spot; the FAB
-    // becomes the reopen handle once fully closed), screenshot, and — for multi-file groups —
-    // the ‹ i/m › file pager, fixed at the edge so the centered title never collides with it.
-    // Screenshot / pager / open are app-level commands: embedding contexts without them just log
-    // an unknown-command warning on click.
+    // Right cluster: bell, shortcuts, screenshot, collapse (the VS Code layout-toggle spot; the
+    // floating chrome cluster carries the mirrored reopen handle once the panel is closed), plus —
+    // for multi-file groups — the ‹ i/m › file pager, fixed at the edge so the centered title never
+    // collides with it. This is the SAME G3DWidgets::ToolGroup the floating cluster uses, so the
+    // buttons cannot drift apart between the panel's open and closed states. Screenshot / pager /
+    // open are app-level commands: embedding contexts without them just log an unknown-command
+    // warning on click.
     const float gapXs = G3DTheme::Spacing::Xs * scale;
     const float btnY = wp.y + (topIsle.h - btn) * 0.5f;
-    float rightX = wp.x + topIsle.w - ImGui::GetStyle().WindowPadding.x - btn;
-    ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
-    // Collapse = close the chrome whatever opened it: the panel option itself or the legacy
-    // metadata / scene-hierarchy force-opens (a bare toggle could re-OPEN ui.control_panel while
-    // a force flag holds the chrome up, making the button look dead).
-    if (G3DWidgets::IconButton("##tb.collapse", G3DIconId::PanelClose, -1.f, false,
-          loc.Translate("Collapse panel").c_str(), false, G3DWidgets::IconOnStyle::Fill, "`"))
+
+    G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
+    const int unread = nc.UnreadCount(G3DSeverity::Info);
+    const std::string bellTip = unread > 0
+      ? loc.Translate("{n} unread", { { "n", std::to_string(unread) } })
+      : loc.Translate("Messages");
+    const std::string shortcutsTip = loc.Translate("Shortcuts");
+    const std::string shotTip = loc.Translate("Screenshot");
+    const std::string collapseTip = loc.Translate("Collapse panel");
+
+    enum
     {
-      this->SendCommand("set ui.control_panel false");
-      if (this->MetaDataVisible)
-      {
-        this->SendCommand("set ui.metadata false");
-      }
-      if (this->SceneHierarchyVisible)
-      {
-        this->SendCommand("set ui.scene_hierarchy false");
-      }
-    }
-    ImGui::SameLine(0.f, gapXs);
-
-    rightX -= btn + gapXs;
-    ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
-    toolButton("##tb.shot", G3DIconId::Camera, "take_screenshot",
-      loc.Translate("Screenshot").c_str(), false, G3DWidgets::IconOnStyle::Fill, "F12");
-
+      TB_BELL = 0,
+      TB_HELP,
+      TB_SHOT,
+      TB_COLLAPSE,
+      TB_COUNT
+    };
+    G3DWidgets::ToolItem rightItems[TB_COUNT];
+    // Message bell — the formal entrance to what the app has to say. The dot is tinted by the
+    // loudest unread message, so a glance says whether it is worth opening.
+    rightItems[TB_BELL].id = "##tb.bell";
+    rightItems[TB_BELL].icon = unread > 0 ? G3DIconId::BellDot : G3DIconId::Bell;
+    rightItems[TB_BELL].tooltip = bellTip.c_str();
+    rightItems[TB_BELL].shortcut = "Ctrl+Shift+K";
+    rightItems[TB_BELL].badge = unread;
+    rightItems[TB_BELL].badgeTone = ToneFor(nc.TopUnreadSeverity());
     // Help — surface the cheatsheet, the keyboard-driven feature set the icon-only bar otherwise
     // hides (a single low-cost on-ramp to every shortcut). Stateful toggle: the Well reads as
     // pressed while the sheet is open ('H' toggles it as well).
-    rightX -= btn + gapXs;
-    ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
-    toolButton("##tb.help", G3DIconId::Help, "toggle ui.cheatsheet",
-      loc.Translate("Shortcuts").c_str(), this->CheatSheetVisible, G3DWidgets::IconOnStyle::Well,
-      "H");
+    rightItems[TB_HELP].id = "##tb.help";
+    rightItems[TB_HELP].icon = G3DIconId::Help;
+    rightItems[TB_HELP].tooltip = shortcutsTip.c_str();
+    rightItems[TB_HELP].shortcut = "H";
+    rightItems[TB_HELP].on = this->CheatSheetVisible;
+    rightItems[TB_HELP].onStyle = G3DWidgets::IconOnStyle::Well;
+    rightItems[TB_SHOT].id = "##tb.shot";
+    rightItems[TB_SHOT].icon = G3DIconId::Camera;
+    rightItems[TB_SHOT].tooltip = shotTip.c_str();
+    rightItems[TB_SHOT].shortcut = "F12";
+    rightItems[TB_COLLAPSE].id = "##tb.collapse";
+    rightItems[TB_COLLAPSE].icon = G3DIconId::PanelClose;
+    rightItems[TB_COLLAPSE].tooltip = collapseTip.c_str();
+    rightItems[TB_COLLAPSE].shortcut = "`";
 
-    // Message bell — the formal entrance to what the app has to say, replacing the bare "!" that
-    // used to float in the corner with no text, no severity and no way to dismiss it. The dot is
-    // tinted by the loudest unread message, so a glance says whether it is worth opening.
+    G3DWidgets::ToolGroupDesc rightDesc;
+    rightDesc.items = rightItems;
+    rightDesc.count = TB_COUNT;
+    const ImVec2 rightSize = G3DWidgets::ToolGroupSize(rightDesc);
+    float rightX = wp.x + topIsle.w - ImGui::GetStyle().WindowPadding.x - rightSize.x;
+    ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
+    switch (G3DWidgets::ToolGroup("##tb.right", rightDesc))
     {
-      G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
-      const int unread = nc.UnreadCount(G3DSeverity::Info);
-      rightX -= btn + gapXs;
-      ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
-      const std::string bellTip = unread > 0
-        ? loc.Translate("{n} unread", { { "n", std::to_string(unread) } })
-        : loc.Translate("Messages");
-      if (G3DWidgets::BellButton("##tb.bell", unread, ToneFor(nc.TopUnreadSeverity()), btn,
-            bellTip.c_str(), "Ctrl+Shift+K"))
-      {
+      case TB_BELL:
         this->SendCommand("toggle ui.notification_center");
-      }
+        break;
+      case TB_HELP:
+        this->SendCommand("toggle ui.cheatsheet");
+        break;
+      case TB_SHOT:
+        this->SendCommand("take_screenshot");
+        break;
+      case TB_COLLAPSE:
+        // Collapse = close the chrome whatever opened it: the panel option itself or the legacy
+        // metadata / scene-hierarchy force-opens (a bare toggle could re-OPEN ui.control_panel
+        // while a force flag holds the chrome up, making the button look dead).
+        this->SendCommand("set ui.control_panel false");
+        if (this->MetaDataVisible)
+        {
+          this->SendCommand("set ui.metadata false");
+        }
+        if (this->SceneHierarchyVisible)
+        {
+          this->SendCommand("set ui.scene_hierarchy false");
+        }
+        break;
+      default:
+        break;
     }
 
     // Parse the app-composed "(i/m) " prefix out of the title (F3DStarter builds it): the bare
@@ -4470,7 +4491,7 @@ void vtkF3DImguiActor::RenderConsole(bool minimal)
   // own guess — only while the docked chrome is closed, since the column's tenants live there only
   // then (with the chrome open the top bar carries them instead).
   const float rightInset = this->PanelAnim.Value() < 0.999f
-    ? ::TopRightSlotReservedWidth(static_cast<float>(this->FontScale))
+    ? ::ViewportChromeReservedWidth(static_cast<float>(this->FontScale))
     : 0.f;
   console->ShowConsole(minimal, topOffset, rightInset);
 }
@@ -4628,7 +4649,7 @@ void vtkF3DImguiActor::RenderBindingHud()
     HudAnim& anim = this->HudAnims[id];
     if (!anim.init)
     {
-      // Snap on the first frame (PanelAnim / FabAlpha convention): a headless --output render gets
+      // Snap on the first frame (PanelAnim / ChromeAlpha convention): a headless --output render gets
       // exactly one frame, and a half-faded readout would make baselines unreproducible.
       G3DTheme::Configure(anim.enter, G3DTheme::Motions::Standard);
       anim.enter.Snap(1.f);
@@ -4904,7 +4925,7 @@ void vtkF3DImguiActor::RenderMessages()
     ToastAnim& anim = this->ToastAnims[n.id];
     if (!anim.init)
     {
-      // Snap on the first frame, matching PanelAnim/FabAlpha: a single headless --output render
+      // Snap on the first frame, matching PanelAnim/ChromeAlpha: a single headless --output render
       // gets exactly one frame, and a mid-transition toast would make baselines unreproducible.
       G3DTheme::Configure(anim.enter, G3DTheme::Motions::Standard);
       anim.enter.Snap(1.f);

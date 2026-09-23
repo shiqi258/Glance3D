@@ -382,9 +382,10 @@ protected:
   }
 
   /**
-   * Render the control panel mode toggle button (FAB) anchored top-right
+   * Render the floating viewport chrome cluster anchored top-right: the button group the viewport
+   * shows while the docked control panel is collapsed (reopen handle, message bell, open file).
    */
-  virtual void RenderControlToggle()
+  virtual void RenderViewportChrome(vtkOpenGLRenderWindow*)
   {
   }
 

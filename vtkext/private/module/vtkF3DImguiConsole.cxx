@@ -221,7 +221,7 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset, float rightI
   if (minimal)
   {
     // Stop short of the top-right chrome column. @p rightInset comes from the single owner of that
-    // corner (vtkF3DImguiActor::TopRightSlotReservedWidth), not from a local guess about what might
+    // corner (vtkF3DImguiActor::ViewportChromeReservedWidth), not from a local guess about what might
     // be up there -- the previous version measured the console alert badge itself, and went wrong
     // the moment anything else moved into the corner.
     const float windowWidth = viewport->WorkSize.x - 2.f * margin - std::max(0.f, rightInset);

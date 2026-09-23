@@ -4,13 +4,13 @@
 // libf3d option `ui.control_panel`; each frontend owns a swappable presenter. The web build is
 // F3D_MODULE_UI=OFF (no ImGui drawn on the canvas), so this DOM/CSS presenter owns the visuals.
 //
-// A floating toggle button (FAB) and the `` ` `` (backtick) key both flip the state; the FAB
-// auto-hides after the viewport goes idle (presentation only, not part of the shared state).
+// A floating toggle button (FAB) and the `` ` `` (backtick) key both flip the state. The FAB stays
+// put: while the panel is closed it is the only way back into it, so it does not fade out on idle
+// (the desktop presenter dropped the same timer for the same reason).
 
 import { initG3DSceneTree } from "./g3dSceneTree.js";
 
 const PANEL_OPTION = "ui.control_panel";
-const IDLE_HIDE_MS = 2500;
 
 /**
  * Wire up the control panel DOM presenter.
@@ -590,8 +590,6 @@ export function initG3DControlPanel(engine) {
     fab.classList.toggle("is-active", open);
     fab.setAttribute("aria-pressed", String(open));
     if (open) {
-      // Never auto-hide the FAB while the panel is open.
-      fab.classList.remove("is-idle");
       // The tree's scroll viewport has no height until the panel is on screen, so its first row
       // window can only be sized now.
       sceneTree.refresh();
@@ -664,21 +662,5 @@ export function initG3DControlPanel(engine) {
     true,
   );
 
-  // Idle auto-hide for the FAB (presentation only).
-  let idleTimer = null;
-  const markActive = () => {
-    fab.classList.remove("is-idle");
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-    }
-    idleTimer = setTimeout(() => {
-      if (!isOpen()) {
-        fab.classList.add("is-idle");
-      }
-    }, IDLE_HIDE_MS);
-  };
-  host.addEventListener("pointermove", markActive);
-
   sync();
-  markActive();
 }

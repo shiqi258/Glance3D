@@ -308,11 +308,11 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   this->RenderScalarBar(renWin);
   this->RenderViewGizmo(renWin);
 
-  // The control panel mode toggle (FAB) and its panel. Both are called unconditionally so the
-  // presenter can animate the open AND close transitions (it no-ops once fully closed); the panel is
-  // submitted first so the FAB draws on top of it.
+  // The docked panel and the floating chrome cluster that reopens it. Both are called
+  // unconditionally so the presenter can animate the open AND close transitions (each no-ops once
+  // fully settled); the panel is submitted first so the cluster draws on top of it.
   this->RenderControlPanel(renWin);
-  this->RenderControlToggle();
+  this->RenderViewportChrome(renWin);
 
   if (this->NotificationVisible)
   {

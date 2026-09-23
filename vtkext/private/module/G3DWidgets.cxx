@@ -2598,35 +2598,30 @@ bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
 }
 
 //----------------------------------------------------------------------------
-bool BellButton(const char* id, int unread, ToneVariant tone, float size, const char* tooltip,
-  const char* shortcut)
+namespace
+{
+/// Tone-colored count chip on the LAST submitted item's upper-right corner. Shared by the bell and
+/// by any badged tool-group item, so a count never renders two ways.
+void DrawCountChip(ImGuiID pulseId, int count, ToneVariant tone)
 {
   const float s = Scale();
-  const bool clicked = IconButton(id, unread > 0 ? G3DIconId::BellDot : G3DIconId::Bell, size,
-    false, tooltip, false, IconOnStyle::Fill, shortcut);
-  if (unread <= 0)
-  {
-    return clicked;
-  }
-  // Count chip riding the upper-right corner. Drawn AFTER the button so nothing covers it, at the
-  // overline scale every other numeric chip uses.
   const ImVec2 mn = ImGui::GetItemRectMin();
   const ImVec2 mx = ImGui::GetItemRectMax();
   char txt[8];
-  if (unread > 99)
+  if (count > 99)
   {
     std::snprintf(txt, sizeof(txt), "99+");
   }
   else
   {
-    std::snprintf(txt, sizeof(txt), "%d", unread);
+    std::snprintf(txt, sizeof(txt), "%d", count);
   }
   const float fs = OverlineSize();
   const ImVec2 ts = CalcTextSized(txt, fs);
   const float padX = 3.f * s;
   const float dotW = std::max(ts.x + padX * 2.f, fs + padX);
   const float dotH = fs + 2.f * s;
-  const float pulse = CountPulseScale(ImGui::GetID(id), unread);
+  const float pulse = CountPulseScale(pulseId, count);
   // Anchored to the button's top-right CORNER and grown inwards: a chip that overhangs is a chip
   // the host window clips, and the pulse would push it further out every repeat.
   const ImVec2 d1(mx.x, mn.y + dotH * pulse);
@@ -2634,12 +2629,150 @@ bool BellButton(const char* id, int unread, ToneVariant tone, float size, const 
   const float alpha = ImGui::GetStyle().Alpha;
   ImDrawList* dl = ImGui::GetWindowDrawList();
   AAGuard aa(dl);
-  // A hairline of the panel color around the chip keeps it legible over the bell's own strokes.
+  // A hairline of the panel color around the chip keeps it legible over the glyph's own strokes.
   dl->AddRectFilled(ImVec2(d0.x - s, d0.y - s), ImVec2(d1.x + s, d1.y + s),
     U32(G3DTheme::Panel(), alpha), dotH);
   dl->AddRectFilled(d0, d1, U32(ToneColor(tone), alpha), dotH);
   DrawTextSized(dl, ImVec2((d0.x + d1.x) * 0.5f - ts.x * 0.5f, (d0.y + d1.y) * 0.5f - ts.y * 0.5f),
     U32(ImVec4(0.06f, 0.07f, 0.09f, 1.f), alpha), txt, fs);
+}
+} // namespace
+
+bool BellButton(const char* id, int unread, ToneVariant tone, float size, const char* tooltip,
+  const char* shortcut)
+{
+  const bool clicked = IconButton(id, unread > 0 ? G3DIconId::BellDot : G3DIconId::Bell, size,
+    false, tooltip, false, IconOnStyle::Fill, shortcut);
+  if (unread > 0)
+  {
+    // Drawn AFTER the button so nothing covers it, at the overline scale every numeric chip uses.
+    DrawCountChip(ImGui::GetID(id), unread, tone);
+  }
+  return clicked;
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+/// Geometry of a tool group, derived once and reused by ToolGroupSize and ToolGroup so a measured
+/// footprint and a submitted one can never disagree.
+struct ToolGroupGeom
+{
+  float item = 0.f;    ///< per-item edge
+  float gap = 0.f;     ///< gap between neighbouring items
+  float sepExtra = 0.f;///< EXTRA advance a separator inserts on top of the plain gap
+  float pad = 0.f;     ///< shell inset (0 when unframed)
+  float content = 0.f; ///< laid-out width of the items themselves
+};
+
+ToolGroupGeom ComputeToolGroupGeom(const ToolGroupDesc& desc)
+{
+  const float s = Scale();
+  ToolGroupGeom g;
+  g.item = (desc.size > 0.f ? desc.size : G3DTheme::Size::IconButton) * s;
+  g.gap = G3DTheme::Spacing::Xs * s;
+  // Matches the top bar's rule: the line occupies Spacing::Sm and sits between two Xs gaps, so it
+  // costs one extra gap plus its own width over a plain neighbour.
+  g.sepExtra = (G3DTheme::Spacing::Sm + G3DTheme::Spacing::Xs) * s;
+  g.pad = desc.framed ? G3DTheme::Spacing::Xs * s : 0.f;
+
+  // Every item claims (gap + item) * presence and the leading gap is removed once, so a group of n
+  // full-presence items is exactly n * item + (n - 1) * gap, and an item fading out collapses its
+  // gap with it.
+  float maxPresence = 0.f;
+  for (int i = 0; i < desc.count; i++)
+  {
+    const float p = std::clamp(desc.items[i].presence, 0.f, 1.f);
+    if (p < 0.01f)
+    {
+      continue;
+    }
+    g.content += p * (g.gap + g.item + (desc.items[i].separatorBefore ? g.sepExtra : 0.f));
+    maxPresence = std::max(maxPresence, p);
+  }
+  g.content = std::max(0.f, g.content - g.gap * maxPresence);
+  return g;
+}
+} // namespace
+
+ImVec2 ToolGroupSize(const ToolGroupDesc& desc)
+{
+  const ToolGroupGeom g = ComputeToolGroupGeom(desc);
+  return ImVec2(g.content + 2.f * g.pad, g.item + 2.f * g.pad);
+}
+
+int ToolGroup(const char* id, const ToolGroupDesc& desc)
+{
+  if (desc.items == nullptr || desc.count <= 0)
+  {
+    return -1;
+  }
+  const float s = Scale();
+  const ToolGroupGeom g = ComputeToolGroupGeom(desc);
+  const ImVec2 total = ToolGroupSize(desc);
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const float groupAlpha = std::clamp(desc.alpha, 0.f, 1.f);
+
+  ImGui::PushID(id);
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+
+  if (desc.framed && groupAlpha > 0.001f)
+  {
+    // Floating glass island: a neutral dark backdrop the 3D still shows through, plus the hairline
+    // rim the docked panels use — a bright edge on a dark ground is what keeps an island's outline
+    // legible over arbitrary scene content. Hover lift belongs to the ITEMS; a shell that also lit
+    // up would double the feedback.
+    AAGuard aa(dl);
+    const ImVec2 f1(p0.x + total.x, p0.y + total.y);
+    const float radius = G3DTheme::Radius::Card * s;
+    ImVec4 bg = desc.frameColor;
+    bg.w = 0.55f * groupAlpha;
+    dl->AddRectFilled(p0, f1, U32(bg), radius);
+    dl->AddRect(p0, f1, U32(ImVec4(1.f, 1.f, 1.f, 0.10f * groupAlpha)), radius, 0,
+      G3DTheme::Size::Border * s);
+  }
+
+  int clicked = -1;
+  float x = p0.x + g.pad;
+  const float y = p0.y + g.pad;
+  for (int i = 0; i < desc.count; i++)
+  {
+    const ToolItem& it = desc.items[i];
+    const float p = std::clamp(it.presence, 0.f, 1.f);
+    if (p < 0.01f)
+    {
+      // Not submitted at all: an invisible button at zero opacity would still swallow the click.
+      continue;
+    }
+    if (it.separatorBefore)
+    {
+      const float advance = p * g.sepExtra;
+      // Centered in its own advance, at the same 22%..78% height the top bar's rule uses.
+      const float sx = x + advance * 0.5f;
+      dl->AddLine(ImVec2(sx, y + g.item * 0.22f), ImVec2(sx, y + g.item * 0.78f),
+        U32(G3DTheme::BorderStrong(), groupAlpha * p), G3DTheme::Size::Border * s);
+      x += advance;
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(x, y));
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, groupAlpha * p);
+    if (IconButton(it.id, it.icon, desc.size, false, it.tooltip, it.on, it.onStyle, it.shortcut))
+    {
+      clicked = i;
+    }
+    if (it.badge > 0)
+    {
+      DrawCountChip(ImGui::GetID(it.id), it.badge, it.badgeTone);
+    }
+    ImGui::PopStyleVar();
+    x += p * (g.item + g.gap);
+  }
+
+  ImGui::PopID();
+  // Reserve the whole group as one item so an unframed host can keep laying out after it (the
+  // per-item SetCursorScreenPos above left the cursor mid-group).
+  ImGui::SetCursorScreenPos(p0);
+  ImGui::Dummy(total);
   return clicked;
 }
 
