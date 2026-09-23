@@ -2438,26 +2438,6 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
   // --- Geometry: read-only key/value stats, right-aligned values. ---
   const vtkF3DMetaImporter::G3DDataStats stats = importer->GetG3DDataStats();
 
-  // An inspector full of zeros is a riddle. When the scene is empty AND something was reported,
-  // say so here too: the card that explained it may have timed out long before the user opened
-  // this panel, and the message center is one click away.
-  if (stats.actors == 0)
-  {
-    G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
-    const int errors = nc.CountAtLeast(G3DSeverity::Error);
-    if (errors > 0)
-    {
-      const std::string text =
-        loc.Translate("Nothing loaded: {n, plural, one{# file failed} other{# files failed}}",
-          { { "n", std::to_string(errors) } });
-      const std::string action = loc.Translate("Details");
-      if (G3DWidgets::Banner(text.c_str(), G3DWidgets::ToneVariant::Danger, action.c_str()))
-      {
-        this->SendCommand("set ui.notification_center true");
-      }
-      ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Sm * scale));
-    }
-  }
   {
     const std::string title = loc.Translate("Geometry");
     G3DWidgets::CollapseDesc d;
