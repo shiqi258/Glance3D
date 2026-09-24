@@ -86,6 +86,14 @@ bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant = Butto
 /// padding. Measure with this, never with a token.
 float ButtonHeight(bool withIcon = false, ButtonDensity density = ButtonDensity::Default);
 
+/// Width Button() / ButtonIcon() will occupy for @p label (px, already UI-scaled). The horizontal
+/// twin of ButtonHeight(), and needed for the same reason: a RIGHT-aligned button has to be
+/// positioned before it is submitted, so its width is read ahead of drawing it. A hand-rolled
+/// `CalcTextSize(label).x + 2 * Spacing::Md` reproduces only the default density and drifts the
+/// moment a call site is made compact — the horizontal form of the reservation bug.
+float ButtonWidth(const char* label, ButtonDensity density = ButtonDensity::Default,
+  bool withIcon = false);
+
 /// How an IconButton renders its persistent "on" state.
 enum class IconOnStyle
 {

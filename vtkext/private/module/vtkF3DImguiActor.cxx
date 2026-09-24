@@ -5108,21 +5108,24 @@ void vtkF3DImguiActor::RenderNotificationCenter()
 
   const std::string clearLabel = loc.Translate("Clear all");
   const std::string consoleLabel = loc.Translate("Open console");
-  const float clearW =
-    ImGui::CalcTextSize(clearLabel.c_str()).x + G3DTheme::Spacing::Md * 2.f * scale;
-  const float consoleW =
-    ImGui::CalcTextSize(consoleLabel.c_str()).x + G3DTheme::Spacing::Md * 2.f * scale;
+  // Compact, like every other action that rides inside a strip rather than standing on its own:
+  // these two sit in a toolbar sized for icon buttons, and a full-height button both overflows that
+  // strip and outweighs the segmented filter it shares the row with.
+  constexpr G3DWidgets::ButtonDensity kBarDensity = G3DWidgets::ButtonDensity::Compact;
+  const float clearW = G3DWidgets::ButtonWidth(clearLabel.c_str(), kBarDensity);
+  const float consoleW = G3DWidgets::ButtonWidth(consoleLabel.c_str(), kBarDensity);
   const float barH = G3DTheme::Size::IconButton * scale;
-  const float btnY = barP0.y + (barH - G3DTheme::Size::Control * scale) * 0.5f;
+  // Centre on what the button actually measures, not on a size token it never honoured.
+  const float btnY = barP0.y + (barH - G3DWidgets::ButtonHeight(false, kBarDensity)) * 0.5f;
   ImGui::SetCursorScreenPos(ImVec2(barP0.x + barW - clearW, btnY));
-  if (G3DWidgets::Button(clearLabel.c_str(), G3DWidgets::ButtonVariant::Ghost))
+  if (G3DWidgets::Button(clearLabel.c_str(), G3DWidgets::ButtonVariant::Ghost, kBarDensity))
   {
     center.ClearHistory();
     this->Pimpl->NotifCenterOpen.clear();
   }
   ImGui::SetCursorScreenPos(
     ImVec2(barP0.x + barW - clearW - consoleW - G3DTheme::Spacing::Xs * scale, btnY));
-  if (G3DWidgets::Button(consoleLabel.c_str(), G3DWidgets::ButtonVariant::Ghost))
+  if (G3DWidgets::Button(consoleLabel.c_str(), G3DWidgets::ButtonVariant::Ghost, kBarDensity))
   {
     // The console is the DEVELOPER face of the same information, the center is the user face. One
     // link between them, in this direction only.

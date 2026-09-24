@@ -249,6 +249,23 @@ float ButtonPadX(G3DWidgets::ButtonDensity density)
     Scale();
 }
 
+// Glyph + gap + label, without the padding — what the box centers its content on.
+float ButtonContentWidth(const char* label, bool withIcon)
+{
+  const float s = Scale();
+  const float iconSz = withIcon ? G3DTheme::Size::Icon * s : 0.f;
+  const bool hasText = label != nullptr && label[0] != '\0';
+  const float textW = hasText ? ImGui::CalcTextSize(label).x : 0.f;
+  const float gap = (withIcon && hasText) ? G3DTheme::Spacing::Sm * s : 0.f;
+  return iconSz + gap + textW;
+}
+
+// The single source of truth for a button's box width, mirroring ButtonBoxHeight.
+float ButtonBoxWidth(const char* label, G3DWidgets::ButtonDensity density, bool withIcon)
+{
+  return 2.f * ButtonPadX(density) + ButtonContentWidth(label, withIcon);
+}
+
 // Shared text-button body (icon optional).
 bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DIconId* icon,
   G3DWidgets::ButtonDensity density)
@@ -260,7 +277,7 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
   const float iconSz = icon ? G3DTheme::Size::Icon * s : 0.f;
   const bool hasText = label[0] != '\0';
   const ImVec2 textSize = hasText ? ImGui::CalcTextSize(label) : ImVec2(0.f, 0.f);
-  const float contentW = iconSz + (icon && hasText ? gap : 0.f) + textSize.x;
+  const float contentW = ButtonContentWidth(label, icon != nullptr);
   const ImVec2 size(padX * 2.f + contentW, ButtonBoxHeight(icon != nullptr, density));
 
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -393,6 +410,12 @@ bool ButtonIcon(const char* label, G3DIconId icon, ButtonVariant variant, Button
 float ButtonHeight(bool withIcon, ButtonDensity density)
 {
   return ButtonBoxHeight(withIcon, density);
+}
+
+//----------------------------------------------------------------------------
+float ButtonWidth(const char* label, ButtonDensity density, bool withIcon)
+{
+  return ButtonBoxWidth(label, density, withIcon);
 }
 
 //----------------------------------------------------------------------------
