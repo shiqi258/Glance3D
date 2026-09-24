@@ -343,6 +343,18 @@ public:
     (void)reduced;
   }
 
+  /**
+   * Whether an interaction session drives the frames: the interactor's event loop, interactive or
+   * replaying a recording. Until one does, a hidden window plays no UI transition at all -- any
+   * frame it renders may be the one --output writes, so each transition settles at once, as under
+   * reduced motion. The interactor sets it when its loop first starts and never clears it, so
+   * what a session leaves in motion is still in motion in the capture taken after it.
+   */
+  virtual void SetInteractionStarted(bool started)
+  {
+    (void)started;
+  }
+
 protected:
   vtkF3DUIActor();
   ~vtkF3DUIActor() override;

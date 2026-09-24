@@ -295,8 +295,10 @@ struct FloatingCardResult
 /// description. Also settles a card on the first frame it is ever evaluated.
 bool FloatingCardIdle(FloatingCardState& st, bool open);
 
-/// Reduced motion (the prefers-reduced-motion convention): floating cards appear and disappear
-/// without transitions. Image tests turn it on so a capture never lands mid-fade.
+/// Reduced motion (the prefers-reduced-motion convention): floating cards, and the presenter's
+/// message and binding-HUD stacks, appear and disappear without transitions. Image tests turn it on
+/// so a capture never lands mid-fade; the presenter also holds it on, frame by frame, for a hidden
+/// window that no interaction session drives yet (a plain --output render).
 void SetReducedMotion(bool reduced);
 bool ReducedMotion();
 
@@ -864,8 +866,9 @@ BadgeVariant ToneBadge(ToneVariant tone);
 /// A message card: tone rail + icon + title, optional detail line, optional raw-context disclosure,
 /// optional action row, repeat count chip and close button.
 ///
-/// The card does NOT own its entrance animation: @p alpha comes from the caller, because a stack
-/// re-flows as a whole and the cards must fade in phase with the reflow, on one shared clock.
+/// The card does NOT own its entrance or exit animation: @p alpha comes from the caller, because a
+/// stack re-flows as a whole and the cards must fade in phase with the reflow, on one shared clock.
+/// It fades everything the card draws, its close button, repeat chip and action buttons included.
 struct ToastDesc
 {
   const char* id = "##g3d.toast"; ///< unique within the enclosing window
@@ -875,7 +878,7 @@ struct ToastDesc
   const char* context = nullptr; ///< raw developer text (a path, reader output) — mono, one line
   int count = 1;                 ///< repeats; > 1 shows a xN chip
   int actionCount = 0;           ///< ToastAction() calls that follow (reserves the row height)
-  float alpha = 1.f;             ///< fade, driven by the caller's animator
+  float alpha = 1.f;             ///< fade of the whole card, driven by the caller's animator
   float width = 0.f;             ///< card width; <= 0 fills the available content width
   bool closable = true;
 };

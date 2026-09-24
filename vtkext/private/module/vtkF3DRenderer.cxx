@@ -4027,3 +4027,9 @@ void vtkF3DRenderer::SetUIReducedMotion(bool reduced)
 {
   this->UIActor->SetReducedMotion(reduced);
 }
+
+//----------------------------------------------------------------------------
+void vtkF3DRenderer::SetUIInteractionStarted(bool started)
+{
+  this->UIActor->SetInteractionStarted(started);
+}

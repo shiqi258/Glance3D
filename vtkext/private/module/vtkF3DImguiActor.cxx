@@ -4589,6 +4589,14 @@ void vtkF3DImguiActor::StartFrame(vtkOpenGLRenderWindow* renWin)
 
   ImGui::NewFrame();
 
+  // Transitions play only where something can watch them. A hidden window (a --output render) has
+  // no audience until an interaction session drives it -- before that, any frame may be the one
+  // written out, so every transition settles at once, exactly as under reduced motion.
+  G3DWidgets::SetReducedMotion(this->ReducedMotionPreferred ||
+    (!renWin->GetShowWindow() && !this->InteractionStarted));
+  this->FirstUIFrame = !this->UIFrameSeen;
+  this->UIFrameSeen = true;
+
   // Fixed zones are republished every frame by whatever draws them. The minimal console is drawn
   // LAST (it sits above the cards), so its line is published here, before any card reads it.
   this->Pimpl->Zones.Clear(ImGui::GetFrameCount());
@@ -4649,7 +4657,14 @@ bool vtkF3DImguiActor::RaiseFloatingIfObscured(const std::string& option)
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::SetReducedMotion(bool reduced)
 {
-  G3DWidgets::SetReducedMotion(reduced);
+  // Only the preference: StartFrame folds it into what G3DWidgets sees, frame by frame.
+  this->ReducedMotionPreferred = reduced;
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::SetInteractionStarted(bool started)
+{
+  this->InteractionStarted = started;
 }
 
 //----------------------------------------------------------------------------
@@ -4660,11 +4675,99 @@ void vtkF3DImguiActor::SetDeltaTime(double time)
 }
 
 //----------------------------------------------------------------------------
+namespace
+{
+/// Advance one stack entry's presence by a frame: toward shown while it is @p live, toward gone
+/// once it has left. With @p settle (transitions off, or the presenter's very first frame) it jumps
+/// there. Otherwise a newcomer enters from exactly zero and only starts moving on its NEXT frame --
+/// the first tick after an idle stretch is clamped, not zeroed, and would eat half the entrance --
+/// and a departure fades out quicker than the entrance came in: the user knows what is going.
+void AdvanceEntry(G3DAnimatedFloat& presence, bool& init, bool live, bool settle, double dt)
+{
+  const float target = live ? 1.f : 0.f;
+  if (settle)
+  {
+    presence.Snap(target);
+    init = true;
+    return;
+  }
+  if (!init)
+  {
+    G3DTheme::Configure(presence, G3DTheme::Motions::Standard);
+    presence.Snap(0.f);
+    presence.AnimateTo(target);
+    init = true;
+    return;
+  }
+  if (presence.Target() != target)
+  {
+    G3DTheme::Configure(presence, live ? G3DTheme::Motions::Standard : G3DTheme::Motions::Micro);
+    presence.AnimateTo(target);
+  }
+  presence.Update(dt);
+}
+
+/// One slot of a message stack this frame: a live record, or the last record of one fading out.
+struct StackEntry
+{
+  const G3DNotification* n = nullptr;
+  bool leaving = false;
+};
+
+/// Reconcile a stack's per-entry state with this frame's live set, and return what to lay out,
+/// oldest first: every live record, plus the last record of each entry that left and is still
+/// fading out, in its old slot (ids are monotonic, so id order is stack order). An entry that has
+/// faded out, or left while transitions are off, is dropped here.
+template <typename Anim>
+std::vector<StackEntry> ReconcileStack(const std::vector<G3DNotification>& live,
+  std::unordered_map<std::uint64_t, Anim>& anims, bool settle, double dt)
+{
+  std::vector<StackEntry> entries;
+  entries.reserve(live.size() + anims.size());
+  for (auto it = anims.begin(); it != anims.end();)
+  {
+    const bool stillLive = std::any_of(
+      live.begin(), live.end(), [&](const G3DNotification& n) { return n.id == it->first; });
+    if (stillLive)
+    {
+      ++it;
+      continue;
+    }
+    Anim& a = it->second;
+    if (a.init)
+    {
+      ::AdvanceEntry(a.presence, a.init, false, settle, dt);
+    }
+    if (!a.init || a.presence.Value() <= 0.001f)
+    {
+      it = anims.erase(it); // faded out, or never drawn: nothing left to show
+      continue;
+    }
+    entries.push_back({ &a.last, true });
+    ++it;
+  }
+  for (const G3DNotification& n : live)
+  {
+    entries.push_back({ &n, false });
+  }
+  std::sort(entries.begin(), entries.end(),
+    [](const StackEntry& x, const StackEntry& y) { return x.n->id < y.n->id; });
+  return entries;
+}
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderBindingHud()
 {
   G3DNotificationCenter& center = G3DNotificationCenter::GetInstance();
+  // Ticked every frame the HUD is dispatched, drawn or not, so a delta always spans one frame.
+  const double dt = this->HudClock.Tick(ImGui::GetFrameCount());
+  const bool settle = G3DWidgets::ReducedMotion() || this->FirstUIFrame;
   const std::vector<G3DNotification> live = center.LiveToasts(true);
-  if (live.empty())
+  // A readout that expired, or was pushed out by newer ones, fades out in place, from its last
+  // record.
+  const std::vector<StackEntry> entries = ::ReconcileStack(live, this->HudAnims, settle, dt);
+  if (entries.empty())
   {
     return;
   }
@@ -4709,10 +4812,11 @@ void vtkF3DImguiActor::RenderBindingHud()
   };
 
   std::vector<HudRow> rows;
-  rows.reserve(live.size());
+  rows.reserve(entries.size());
   float winW = 0.f;
-  for (const G3DNotification& n : live)
+  for (const StackEntry& e : entries)
   {
+    const G3DNotification& n = *e.n;
     HudRow row;
     row.desc = n.titleKey;
     row.value = n.detailKey;
@@ -4755,33 +4859,32 @@ void vtkF3DImguiActor::RenderBindingHud()
   ImDrawList* dl = ImGui::GetWindowDrawList();
   const ImDrawListFlags savedFlags = dl->Flags;
   dl->Flags |= ImDrawListFlags_AntiAliasedLines | ImDrawListFlags_AntiAliasedFill;
+  // A readout rising into place starts below the window's bottom edge, which would slice the pill
+  // in a hard line: let it overhang down to the central viewport's edge instead.
+  dl->PushClipRect(dl->GetClipRectMin(),
+    ImVec2(dl->GetClipRectMax().x, std::max(dl->GetClipRectMax().y, r.center.y + r.center.h)),
+    false);
 
   const ImVec2 origin = ImGui::GetWindowPos();
-  const double dt = this->HudClock.Tick(ImGui::GetFrameCount());
   float y = origin.y;
 
   for (std::size_t i = 0; i < rows.size(); ++i)
   {
     const HudRow& row = rows[i];
-    const std::uint64_t id = live[i].id;
+    const StackEntry& e = entries[i];
 
-    HudAnim& anim = this->HudAnims[id];
-    if (!anim.init)
+    HudAnim& anim = this->HudAnims[e.n->id];
+    if (!e.leaving)
     {
-      // Snap on the first frame (PanelAnim / ChromeAlpha convention): a headless --output render gets
-      // exactly one frame, and a half-faded readout would make baselines unreproducible.
-      G3DTheme::Configure(anim.enter, G3DTheme::Motions::Standard);
-      anim.enter.Snap(1.f);
-      anim.init = true;
+      ::AdvanceEntry(anim.presence, anim.init, true, settle, dt);
+      anim.last = *e.n;
+      center.NotePresented(e.n->id);
     }
-    anim.enter.AnimateTo(1.f);
-    anim.enter.Update(dt);
-    const float t = anim.enter.Value();
-    center.NotePresented(id);
+    const float t = anim.presence.Value();
 
     // Rise into place from below as it fades up — the readout comes from the keyboard, not from
-    // the edge of the screen, so it lifts rather than slides sideways.
-    const ImVec2 p0(origin.x, y + G3DLerp(8.f * scale, 0.f, t));
+    // the edge of the screen, so it lifts rather than slides sideways. It leaves in place.
+    const ImVec2 p0(origin.x, y + (e.leaving ? 0.f : G3DLerp(8.f * scale, 0.f, t)));
     const ImVec2 p1(p0.x + row.width, p0.y + rowH);
     const float rounding = G3DTheme::Radius::Card * scale;
     dl->AddRectFilled(p0, p1, G3DTheme::U32(G3DTheme::Surface(), t), rounding);
@@ -4830,58 +4933,37 @@ void vtkF3DImguiActor::RenderBindingHud()
     y += rowH + gap;
   }
 
+  dl->PopClipRect();
   dl->Flags = savedFlags;
   ImGui::End();
   ImGui::PopStyleVar(2);
-
-  // Garbage-collect the per-entry animation state against the live set.
-  if (this->HudAnims.size() > live.size())
-  {
-    for (auto it = this->HudAnims.begin(); it != this->HudAnims.end();)
-    {
-      const bool stillLive = std::any_of(
-        live.begin(), live.end(), [&](const G3DNotification& n) { return n.id == it->first; });
-      it = stillLive ? std::next(it) : this->HudAnims.erase(it);
-    }
-  }
 }
 
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderMessages()
 {
   G3DNotificationCenter& center = G3DNotificationCenter::GetInstance();
+  // Ticked every frame, drawn or not, so a delta always spans one frame.
+  const double dt = this->ToastClock.Tick(ImGui::GetFrameCount());
+  const bool settle = G3DWidgets::ReducedMotion() || this->FirstUIFrame;
 
   // The message center IS the full list, and it is open: stacking the same messages in front of it
   // is noise, and on a small window the two surfaces fight for the same corner. Same reasoning as
-  // VS Code, which hides its toasts while the notification center is up.
+  // VS Code, which hides its toasts while the notification center is up. A card that was fading
+  // out goes with the rest, rather than resuming its fade when the center closes.
   if (this->NotificationCenterVisible)
   {
+    std::erase_if(this->ToastAnims,
+      [](const auto& kv) { return kv.second.init && kv.second.presence.Target() <= 0.f; });
     center.SetHoverHold(false);
     return;
   }
 
   const std::vector<G3DNotification> live = center.LiveToasts(false);
-
-  // Garbage-collect the per-message animation state against the live set, so a long session does
-  // not accumulate one entry per message ever shown.
-  if (this->ToastAnims.size() > live.size())
-  {
-    for (auto it = this->ToastAnims.begin(); it != this->ToastAnims.end();)
-    {
-      const bool stillLive = std::any_of(live.begin(), live.end(),
-        [&](const G3DNotification& n) { return n.id == it->first; });
-      if (stillLive)
-      {
-        ++it;
-      }
-      else
-      {
-        it = this->ToastAnims.erase(it);
-      }
-    }
-  }
-
-  if (live.empty())
+  // A message that left the live set (dismissed, expired, or pushed past maxVisible) fades out in
+  // its slot, from the record it last showed; see ReconcileStack.
+  const std::vector<StackEntry> entries = ::ReconcileStack(live, this->ToastAnims, settle, dt);
+  if (entries.empty())
   {
     center.SetHoverHold(false);
     return;
@@ -4937,15 +5019,18 @@ void vtkF3DImguiActor::RenderMessages()
     std::vector<std::string> actionLabels;
     float height;
     bool detailsOpen;
+    bool leaving; ///< no longer live: fading out in its slot
   };
 
   std::vector<Laid> laid;
-  laid.reserve(live.size());
+  laid.reserve(entries.size());
   float stackH = 0.f;
-  for (const G3DNotification& n : live)
+  for (const StackEntry& e : entries)
   {
+    const G3DNotification& n = *e.n;
     Laid l{};
     l.n = &n;
+    l.leaving = e.leaving;
     l.title = loc.Translate(n.titleKey, n.titleArgs);
     if (!n.detailKey.empty())
     {
@@ -4985,8 +5070,11 @@ void vtkF3DImguiActor::RenderMessages()
   while (laid.size() > 1 && stackH > heightBudget)
   {
     stackH -= laid.front().height + gap;
+    if (!laid.front().leaving) // one already on its way out is not a message still to read
+    {
+      ++droppedForHeight;
+    }
     laid.erase(laid.begin());
-    ++droppedForHeight;
   }
 
   const int overflow = center.OverflowCount() + droppedForHeight;
@@ -5014,7 +5102,6 @@ void vtkF3DImguiActor::RenderMessages()
   G3DLayers::Assign(G3DLayer::Toast, 1);
 
   const ImVec2 origin = ImGui::GetWindowPos();
-  const double dt = this->ToastClock.Tick(ImGui::GetFrameCount());
 
   float y = origin.y;
   if (overflow > 0)
@@ -5038,25 +5125,20 @@ void vtkF3DImguiActor::RenderMessages()
   {
     const G3DNotification& n = *l.n;
 
-    // Start this message's countdown only now that it is genuinely being drawn -- see
-    // G3DNotificationCenter: a message behind the loading overlay must not time out unseen.
-    center.NotePresented(n.id);
-
     ToastAnim& anim = this->ToastAnims[n.id];
-    if (!anim.init)
+    if (!l.leaving)
     {
-      // Snap on the first frame, matching PanelAnim/ChromeAlpha: a single headless --output render
-      // gets exactly one frame, and a mid-transition toast would make baselines unreproducible.
-      G3DTheme::Configure(anim.enter, G3DTheme::Motions::Standard);
-      anim.enter.Snap(1.f);
-      anim.init = true;
+      // Start this message's countdown only now that it is genuinely being drawn -- see
+      // G3DNotificationCenter: a message behind the loading overlay must not time out unseen.
+      center.NotePresented(n.id);
+      ::AdvanceEntry(anim.presence, anim.init, true, settle, dt);
+      anim.last = n;
     }
-    anim.enter.AnimateTo(1.f);
-    anim.enter.Update(dt);
-    const float t = anim.enter.Value();
+    const float t = anim.presence.Value();
 
-    // Slide in from the right edge as it fades up.
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + G3DLerp(24.f * scale, 0.f, t), y));
+    // Slide in from the right edge as it fades up; leave in place.
+    ImGui::SetCursorScreenPos(
+      ImVec2(origin.x + (l.leaving ? 0.f : G3DLerp(24.f * scale, 0.f, t)), y));
 
     char id[32];
     std::snprintf(id, sizeof(id), "##g3d.toast.%llu", static_cast<unsigned long long>(n.id));
@@ -5071,6 +5153,24 @@ void vtkF3DImguiActor::RenderMessages()
     d.alpha = t;
     d.width = cardW;
 
+    // A card on its way out shows everything it showed but takes no input: disabled at full
+    // opacity, so the fade is the only dimming it gets.
+    if (l.leaving)
+    {
+      ImGui::PushStyleVar(ImGuiStyleVar_DisabledAlpha, 1.f);
+      ImGui::BeginDisabled();
+    }
+    // A sliding card starts past the stack's right edge, where the stack window would cut it and
+    // its close button in a hard vertical line: let it overhang up to the central viewport's edge
+    // instead, so it slides in from under the frame of the 3D view.
+    const bool sliding = !l.leaving && t < 1.f;
+    if (sliding)
+    {
+      const ImVec2 clipMin = ImGui::GetWindowDrawList()->GetClipRectMin();
+      const ImVec2 clipMax = ImGui::GetWindowDrawList()->GetClipRectMax();
+      ImGui::PushClipRect(
+        clipMin, ImVec2(std::max(clipMax.x, r.center.x + r.center.w), clipMax.y), false);
+    }
     const G3DWidgets::ToastResult res = G3DWidgets::BeginToast(d, &anim.detailsOpen);
     for (std::size_t i = 0; i < l.actionLabels.size(); ++i)
     {
@@ -5084,6 +5184,15 @@ void vtkF3DImguiActor::RenderMessages()
       }
     }
     G3DWidgets::EndToast();
+    if (sliding)
+    {
+      ImGui::PopClipRect();
+    }
+    if (l.leaving)
+    {
+      ImGui::EndDisabled();
+      ImGui::PopStyleVar();
+    }
 
     if (res.closed)
     {

@@ -239,10 +239,13 @@ function(f3d_test)
   endif()
   list(APPEND f3d_test_env_vars ${F3D_TEST_ENV})
   list(APPEND f3d_test_env_vars "CTEST_F3D_PROGRESS_BAR=1")
+  # No capture may land in the middle of a UI transition (a card's fade, a message sliding in):
+  # they run on wall time, and not only UI tests show them -- any test whose data raises a message,
+  # or whose recording replays a session, does.
+  list(APPEND f3d_test_env_vars "CTEST_G3D_REDUCED_MOTION=1")
   if (F3D_TEST_UI)
-    # Message timing must not depend on machine speed (see window_impl), nor may a capture land in
-    # the middle of a floating card's fade.
-    list(APPEND f3d_test_env_vars "CTEST_F3D_FIXED_CLOCK=1" "CTEST_G3D_REDUCED_MOTION=1")
+    # Message timing must not depend on machine speed either (see window_impl).
+    list(APPEND f3d_test_env_vars "CTEST_F3D_FIXED_CLOCK=1")
   endif ()
   if (F3D_TEST_UI)
   endif ()

@@ -966,22 +966,28 @@ bool gCardClosing = false;
 
 bool gReducedMotion = false;
 
-/// Fade everything the current window has drawn so far by @p alpha. ImGui's style Alpha only
+/// Fade the vertices @p dl emitted from index @p first on by @p alpha. ImGui's style Alpha only
 /// reaches what ImGui draws itself, while a card is mostly custom paint (title band, grip, rows,
 /// icons, the elevation shadow), so the transition works on the vertices instead.
-void FadeWindowDrawList(float alpha)
+void FadeVertices(ImDrawList* dl, int first, float alpha)
 {
   if (alpha >= 0.999f)
   {
     return;
   }
-  ImDrawList* dl = ImGui::GetWindowDrawList();
-  for (ImDrawVert& v : dl->VtxBuffer)
+  for (int i = std::max(0, first); i < dl->VtxBuffer.Size; ++i)
   {
+    ImDrawVert& v = dl->VtxBuffer[i];
     const float a = static_cast<float>((v.col >> IM_COL32_A_SHIFT) & 0xFFu) * alpha;
     v.col = (v.col & ~IM_COL32_A_MASK) |
       (static_cast<ImU32>(std::clamp(a + 0.5f, 0.f, 255.f)) << IM_COL32_A_SHIFT);
   }
+}
+
+/// Fade everything the current window has drawn so far by @p alpha.
+void FadeWindowDrawList(float alpha)
+{
+  FadeVertices(ImGui::GetWindowDrawList(), 0, alpha);
 }
 
 /// Outward elevation shadow for a floating layer: concentric rounded strokes fading out, drawn
@@ -2478,13 +2484,16 @@ ToastMetrics MeasureToast(const G3DWidgets::ToastDesc& desc, bool detailsOpen, b
   return m;
 }
 
-// Live between BeginToast and EndToast: the card rect and the action-row cursor.
+// Live between BeginToast and EndToast: the card rect, the action-row cursor, and where the card's
+// vertices start so EndToast can fade all of them — atoms included — by the caller's alpha.
 struct ToastFrame
 {
   ImVec2 p0;
   float width = 0.f;
   float height = 0.f;
   int actionIndex = 0;
+  int firstVtx = 0;
+  float alpha = 1.f;
 };
 std::vector<ToastFrame> gToasts;
 
@@ -2568,7 +2577,10 @@ ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen)
   res.detailsOpen = disclosure && *detailsOpen;
 
   const ToastMetrics m = MeasureToast(desc, res.detailsOpen, disclosure);
-  const float a = std::clamp(desc.alpha, 0.f, 1.f) * ImGui::GetStyle().Alpha;
+  // desc.alpha is NOT folded in here: EndToast applies it to every vertex the card emitted, because
+  // the atoms inside (close button, repeat chip, action buttons) paint at their own opacity and
+  // would otherwise sit fully opaque on a card that is still fading in.
+  const float a = ImGui::GetStyle().Alpha;
   const ImVec4 tone = ToneColor(desc.tone);
 
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -2576,6 +2588,7 @@ ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen)
   const float rounding = G3DTheme::Radius::Card * m.s;
 
   ImDrawList* dl = ImGui::GetWindowDrawList();
+  const int firstVtx = dl->VtxBuffer.Size;
   {
     AAGuard aa(dl);
     dl->AddRectFilled(p0, p1, U32(G3DTheme::Surface(), a), rounding);
@@ -2698,6 +2711,8 @@ ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen)
   frame.p0 = p0;
   frame.width = m.cardW;
   frame.height = m.height;
+  frame.firstVtx = firstVtx;
+  frame.alpha = std::clamp(desc.alpha, 0.f, 1.f);
   gToasts.push_back(frame);
   // Leave the cursor on the action row; ToastAction() walks it rightwards. Sits on the same
   // measured row height MeasureToast reserved, so the bottom inset survives the button landing.
@@ -2737,6 +2752,7 @@ void EndToast()
   }
   const ToastFrame frame = gToasts.back();
   gToasts.pop_back();
+  FadeVertices(ImGui::GetWindowDrawList(), frame.firstVtx, frame.alpha);
   // Advance the layout cursor past the whole card, so a stack built with plain ImGui layout works
   // as well as one positioned by hand.
   ImGui::SetCursorScreenPos(frame.p0);

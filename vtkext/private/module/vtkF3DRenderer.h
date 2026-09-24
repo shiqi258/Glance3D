@@ -617,6 +617,11 @@ public:
    */
   void SetUIReducedMotion(bool reduced);
 
+  /**
+   * See vtkF3DUIActor::SetInteractionStarted.
+   */
+  void SetUIInteractionStarted(bool started);
+
 private:
   vtkF3DRenderer();
   ~vtkF3DRenderer() override;

@@ -600,6 +600,16 @@ public:
     // Trigger a render to ensure Window is ready to be configured
     this->Window.render();
 
+    // From here on a session drives the frames, so UI transitions play even in a hidden window: a
+    // recording replayed into --output has to show what the user would have seen. Up to this
+    // point (the render just above included) a hidden window settled every transition at once.
+    vtkRenderWindow* renWin = this->Window.GetRenderWindow();
+    vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+    if (ren != nullptr)
+    {
+      ren->SetUIInteractionStarted(true);
+    }
+
     // Create the timer
     this->EventLoopTimerId = this->VTKInteractor->CreateRepeatingTimer(deltaTime * 1000);
 

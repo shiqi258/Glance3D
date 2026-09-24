@@ -12,6 +12,7 @@
 
 #include "G3DAnimation.h"
 #include "G3DLayout.h"
+#include "G3DNotificationCenter.h"
 
 #include <cstdint>
 #include <memory>
@@ -51,6 +52,11 @@ public:
    * See vtkF3DUIActor::SetReducedMotion.
    */
   void SetReducedMotion(bool reduced) override;
+
+  /**
+   * See vtkF3DUIActor::SetInteractionStarted.
+   */
+  void SetInteractionStarted(bool started) override;
 
 protected:
   vtkF3DImguiActor();
@@ -307,33 +313,45 @@ private:
 
   ///@{
   /**
-   * Per-message entrance animation for the toast stack, keyed by the center's stable message id
-   * (so a coalesced repeat, which keeps its id, does NOT replay its entrance -- only its count
-   * chip reacts). Entries are garbage-collected against the live id set every frame.
+   * Per-message presence for the toast stack (the entrance, and the fade out once it leaves),
+   * keyed by the center's stable message id -- so a coalesced repeat, which keeps its id, does NOT
+   * replay its entrance; only its count chip reacts. A message that leaves the live set keeps its
+   * entry, and its last record, until it has faded out; then the entry goes, so a long session
+   * does not accumulate one per message ever shown.
    *
    * ONE clock for the whole stack: G3DFrameClock::Tick de-duplicates by frame id, so a second
    * Tick in the same frame returns 0 and would silently freeze whichever animator asked second.
    */
   struct ToastAnim
   {
-    G3DAnimatedFloat enter{ 0.f };
-    bool init = false; ///< false until the first frame snaps it (deterministic headless output)
+    G3DAnimatedFloat presence{ 0.f }; ///< 0 = gone .. 1 = shown
+    bool init = false;                ///< advanced at least once (see ::AdvanceEntry in the .cxx)
     /// The raw-context disclosure. Per message, and kept HERE rather than in the center: whether a
     /// user expanded a card is presentation state, and each frontend expands its own.
     bool detailsOpen = false;
+    G3DNotification last; ///< the record as last drawn: what the card shows while it fades out
   };
   std::unordered_map<std::uint64_t, ToastAnim> ToastAnims;
   G3DFrameClock ToastClock;
 
-  /// Same entrance treatment for the binding HUD, on its own clock: G3DFrameClock::Tick
-  /// de-duplicates by frame id, so two stacks sharing one clock would silently freeze the second.
+  /// Same treatment for the binding HUD, on its own clock: G3DFrameClock::Tick de-duplicates by
+  /// frame id, so two stacks sharing one clock would silently freeze the second.
   struct HudAnim
   {
-    G3DAnimatedFloat enter{ 0.f };
+    G3DAnimatedFloat presence{ 0.f };
     bool init = false;
+    G3DNotification last;
   };
   std::unordered_map<std::uint64_t, HudAnim> HudAnims;
   G3DFrameClock HudClock;
+
+  /// What decides, each frame, whether UI transitions play (see StartFrame): the reduced-motion
+  /// preference, whether an interaction session drives the frames, and whether this is the very
+  /// first frame -- whatever is on screen then was there at startup and is shown settled.
+  bool ReducedMotionPreferred = false;
+  bool InteractionStarted = false;
+  bool FirstUIFrame = true;
+  bool UIFrameSeen = false;
   ///@}
 
   ///@{

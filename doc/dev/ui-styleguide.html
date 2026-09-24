@@ -2671,7 +2671,7 @@
             <div class="proprow"><span class="k">触发语义</span><span class="v"><code>raise_or_toggle</code>：卡片开着但被同层卡片盖住 → 置顶；已在最上 → 关闭（任务栏规则）。铃铛、<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>、帮助按钮与 <kbd>H</kbd> 同一语义</span></div>
             <div class="proprow"><span class="k">入场</span><span class="v">透明度 0→1 + 从锚点一侧位移 6px→0，<code>--t-std</code> + <code>--ease</code>（桌面 <code>Motions::Enter</code>）；自由卡片从下方上浮</span></div>
             <div class="proprow"><span class="k">退场</span><span class="v">原地淡出 <code>--t-micro</code>（<code>Motions::Micro</code>），退场期间不接收输入，也不再把消息标为已读</span></div>
-            <div class="proprow"><span class="k">减弱动效</span><span class="v"><code>G3DWidgets::SetReducedMotion</code> 关掉以上过渡；图像测试经 <code>CTEST_G3D_REDUCED_MOTION=1</code> 打开它。启动即打开的卡片首帧直接取终态，单帧 <code>--output</code> 也拍得到</span></div>
+            <div class="proprow"><span class="k">减弱动效</span><span class="v"><code>G3DWidgets::SetReducedMotion</code> 关掉以上过渡（连同消息条与快捷键 HUD 的入退场）；所有图像测试经 <code>CTEST_G3D_REDUCED_MOTION=1</code> 打开它。没有交互会话驱动的隐藏窗口（普通 <code>--output</code>）同样按减弱动效出图；回放录制时过渡照常播放，所以不带该变量的回放能拍到中间态。启动即打开的卡片、启动时已在的消息首帧直接取终态，单帧 <code>--output</code> 也拍得到</span></div>
           </div>
         </section>
 
@@ -3351,8 +3351,10 @@
               语气坡度共四档：<code>info</code>（默认，accent）/ <code>success</code> / <code>warn</code> /
               <code>danger</code>，对应 <code>G3DWidgets::ToneVariant</code>。左侧 3px 色条不是装饰——
               它让级别<b>在剪影上</b>就能读出来，不依赖颜色（灰度、色觉障碍同样成立），图标形状是第二重冗余。
-              入场 <code>Standard</code>（0.18s，淡入 + 右侧滑入）、出场 <code>Micro</code>、计数跳变
+              入场 <code>Standard</code>（0.18s，淡入 + 右侧滑入 24px）、出场 <code>Micro</code>（原地淡出，退场期间不接收输入）、计数跳变
               <code>Playful</code> 一次过冲脉冲——而<b>不</b>重播整条入场，否则一串重复消息会整屏闪烁。
+              淡化作用于整张卡片（关闭钮、计数徽章、操作按钮同步），滑入时越过消息栈边缘、直到中央视口边缘才裁剪，不会被切出一道硬边。
+              左下角快捷键 HUD 同一套规则，入场改为从下方上浮 8px。减弱动效与首帧规则见浮层卡片的「减弱动效」。
             </div>
           </div>
         </section>
