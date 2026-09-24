@@ -319,6 +319,11 @@ void Badge(const char* text, BadgeVariant variant = BadgeVariant::Neutral);
 /// Width a Badge() would occupy for @p text (for right-aligning a trailing badge).
 float BadgeWidth(const char* text);
 
+/// Height a Badge() occupies. Independent of the text, which is always one overline-sized line.
+/// Its use is vertical centring: a badge is short, so on a shared row with a taller neighbour
+/// (an action button) ImGui's top-alignment leaves it visibly floating.
+float BadgeHeight();
+
 /// Animated on/off switch. Returns true when toggled this frame.
 bool Toggle(const char* label, bool* v);
 

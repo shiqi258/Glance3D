@@ -5254,22 +5254,33 @@ void vtkF3DImguiActor::RenderNotificationCenter()
         }
       }
       ImGui::PopTextWrapPos();
+      // Code chip and action buttons share one row. The chip is a fraction of a button's height, so
+      // ImGui's top-alignment would leave it floating above them: lift the row top for the buttons
+      // instead, and let the chip sit centred on them.
+      const float rowTop = ImGui::GetCursorPosY();
+      const float actionH = n.actions.empty()
+        ? 0.f
+        : G3DWidgets::ButtonHeight(false, G3DWidgets::ButtonDensity::Compact);
       if (!n.code.empty())
       {
+        ImGui::SetCursorPosY(rowTop + std::max(0.f, (actionH - G3DWidgets::BadgeHeight()) * 0.5f));
         G3DWidgets::Badge(n.code.c_str(), G3DWidgets::BadgeVariant::Neutral);
-        ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
       }
       for (std::size_t i = 0; i < n.actions.size(); ++i)
       {
         if (i > 0 || !n.code.empty())
         {
           ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
+          ImGui::SetCursorPosY(rowTop);
         }
         ImGui::PushID(static_cast<int>(i));
         const std::string label = loc.Translate(n.actions[i].labelKey, n.actions[i].labelArgs);
+        // The SAME actions the toast offers, so they must be the same size: one message, two
+        // surfaces. Compact, matching ToastAction().
         if (G3DWidgets::Button(label.c_str(),
               n.actions[i].primary ? G3DWidgets::ButtonVariant::Primary
-                                   : G3DWidgets::ButtonVariant::Soft))
+                                   : G3DWidgets::ButtonVariant::Soft,
+              G3DWidgets::ButtonDensity::Compact))
         {
           pendingCommand = n.actions[i].command;
         }

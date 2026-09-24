@@ -2077,6 +2077,13 @@ float BadgeWidth(const char* text)
   return BadgeMetrics(text, padX, padY, fs).x;
 }
 
+//----------------------------------------------------------------------------
+float BadgeHeight()
+{
+  float padX, padY, fs;
+  return BadgeMetrics("X", padX, padY, fs).y;
+}
+
 void Badge(const char* text, BadgeVariant variant)
 {
   float padX, padY, fs;
