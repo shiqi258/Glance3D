@@ -17,8 +17,8 @@
  * more. Those flags keep their focus meaning only (a card still does not steal the keyboard, the
  * command palette still grabs it every frame).
  *
- * G3DWidgets::BeginFloatingCard assigns the Floating band itself, so every card complies without its
- * caller knowing about layers.
+ * G3DWidgets::BeginFloatingCard assigns the Floating band itself, so every card complies without
+ * its caller knowing about layers.
  */
 
 #ifndef G3DLayers_h

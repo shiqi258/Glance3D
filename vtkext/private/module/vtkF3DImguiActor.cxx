@@ -140,6 +140,15 @@ float ViewportChromeZoneH(float fontScale)
   return margin + ViewportChromeHeight(fontScale) + G3DTheme::Spacing::Sm * fontScale;
 }
 
+/// Where the console keeps clear of the docked chrome: below the top bar (as far as it has slid in)
+/// and, while the panel is not fully open, short of the top-right tool group. Shared by the console
+/// itself and by the zone it publishes for the floating cards, which are drawn before it.
+void ConsoleInsets(float panelEased, float fontScale, float& topOffset, float& rightInset)
+{
+  topOffset = G3DLayout::DefaultBarSizes(fontScale).topH * panelEased;
+  rightInset = panelEased < 0.999f ? ViewportChromeReservedWidth(fontScale) : 0.f;
+}
+
 /// Severity -> the design system's tone ladder. One mapping, so the toast stack, the message
 /// center and the bell can never disagree about what "warning" looks like.
 G3DWidgets::ToneVariant ToneFor(G3DSeverity sev)
@@ -648,6 +657,19 @@ struct vtkF3DImguiActor::Internals
   G3DWidgets::FloatingCardState NotifCenterFloat;
   bool NotifCenterProblemsOnly = false;
   std::unordered_map<std::uint64_t, bool> NotifCenterOpen;
+
+  /// The fixed interaction zones drawn this frame (see G3DPlacement::ZoneSet), and where each of
+  /// the two bell hosts was last drawn — for the frames where the host the panel is heading to has
+  /// not been drawn yet (the top bar before its first sliding frame).
+  G3DPlacement::ZoneSet Zones;
+  std::array<G3DLayout::Rect, 2> BellHost{};
+  std::array<bool, 2> BellHostKnown{};
+  void NoteBellHost(G3DPlacement::ZoneId id, const G3DLayout::Rect& rect, G3DLayer layer)
+  {
+    this->Zones.Publish(id, rect, layer);
+    this->BellHost[static_cast<std::size_t>(id)] = rect;
+    this->BellHostKnown[static_cast<std::size_t>(id)] = true;
+  }
 
   std::map<std::string, ImFont*> ExtraFonts;
 };
@@ -2201,11 +2223,12 @@ bool vtkF3DImguiActor::IsControlPanelAnimating()
   // Animating while the eased value is still in flight OR has not yet reached the state implied by
   // the current visibility (covers the frame right after a toggle, before the first advance runs).
   const float target = this->EffectivePanelVisible() ? 1.f : 0.f;
-  // CheatSheetVisible guards the drag latch: closing the sheet mid-drag would otherwise leave
-  // dragging stuck true, since the handle only updates while the sheet renders.
+  // The visibility flags guard the drag latches: closing a card mid-drag would otherwise leave
+  // dragging stuck true, since the handle only updates while the card renders.
   return this->PanelAnim.IsAnimating() || this->PanelAnim.Value() != target ||
     this->ControlBarDragging || this->ViewportDirtyOneShot ||
-    (this->Pimpl->CheatSheetFloat.dragging && this->CheatSheetVisible);
+    (this->Pimpl->CheatSheetFloat.dragging && this->CheatSheetVisible) ||
+    (this->Pimpl->NotifCenterFloat.dragging && this->NotificationCenterVisible);
 }
 
 //----------------------------------------------------------------------------
@@ -2329,12 +2352,11 @@ void vtkF3DImguiActor::RenderViewportChrome(vtkOpenGLRenderWindow* renWin)
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   const float alpha = this->ChromeAlpha.Value();
-  if (viewport->WorkSize.x < 60.f || viewport->WorkSize.y < 60.f || alpha < 0.01f)
+  if (viewport->WorkSize.x < 60.f || viewport->WorkSize.y < 60.f)
   {
     return;
   }
 
-  const float scale = static_cast<float>(this->FontScale);
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
   G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
   const int unread = nc.UnreadCount(G3DSeverity::Info);
@@ -2391,6 +2413,18 @@ void vtkF3DImguiActor::RenderViewportChrome(vtkOpenGLRenderWindow* renWin)
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
   const ImVec2 pos = ::ViewportChromePos(work, size);
+
+  // The bell's host whenever the panel is closed or closing. Published even while the group is
+  // still fading in, so a message center opened in that instant anchors where the group will be.
+  if (!this->EffectivePanelVisible())
+  {
+    this->Pimpl->NoteBellHost(
+      G3DPlacement::ZoneId::ViewportChrome, { pos.x, pos.y, size.x, size.y }, G3DLayer::Chrome);
+  }
+  if (alpha < 0.01f)
+  {
+    return;
+  }
 
   ::SetupNextWindow(pos, size);
   ImGui::SetNextWindowBgAlpha(0.f); // the group paints its own glass shell
@@ -4269,6 +4303,9 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     rightDesc.count = TB_COUNT;
     const ImVec2 rightSize = G3DWidgets::ToolGroupSize(rightDesc);
     float rightX = wp.x + topIsle.w - ImGui::GetStyle().WindowPadding.x - rightSize.x;
+    // The bell's host while the panel is open: the message center anchors under this cluster.
+    this->Pimpl->NoteBellHost(G3DPlacement::ZoneId::TopBarTools,
+      { rightX, btnY, rightSize.x, rightSize.y }, G3DLayer::Docked);
     ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
     switch (G3DWidgets::ToolGroup("##tb.right", rightDesc))
     {
@@ -4514,16 +4551,15 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
 void vtkF3DImguiActor::RenderConsole(bool minimal)
 {
   vtkF3DImguiConsole* console = vtkF3DImguiConsole::SafeDownCast(vtkOutputWindow::GetInstance());
-  // Keep the console clear of the docked top bar (palette minimum y / minimal pill anchor).
-  const float topOffset =
-    G3DLayout::DefaultBarSizes(static_cast<float>(this->FontScale)).topH * this->PanelAnim.Value();
-  // The minimal console runs along the top of the viewport, straight through the chrome column in
-  // the top-right corner. It asks the owner of that column how wide it is rather than carrying its
-  // own guess — only while the docked chrome is closed, since the column's tenants live there only
+  // Keep the console clear of the docked top bar (palette minimum y / minimal pill anchor). The
+  // minimal console runs along the top of the viewport, straight through the chrome column in the
+  // top-right corner: it asks the owner of that column how wide it is rather than carrying its own
+  // guess — only while the docked chrome is closed, since the column's tenants live there only
   // then (with the chrome open the top bar carries them instead).
-  const float rightInset = this->PanelAnim.Value() < 0.999f
-    ? ::ViewportChromeReservedWidth(static_cast<float>(this->FontScale))
-    : 0.f;
+  float topOffset = 0.f;
+  float rightInset = 0.f;
+  ::ConsoleInsets(
+    this->PanelAnim.Value(), static_cast<float>(this->FontScale), topOffset, rightInset);
   console->ShowConsole(minimal, topOffset, rightInset);
 }
 
@@ -4552,6 +4588,19 @@ void vtkF3DImguiActor::StartFrame(vtkOpenGLRenderWindow* renWin)
   ImGui::GetStyle().Colors[ImGuiCol_WindowBg] = G3DTheme::Panel();
 
   ImGui::NewFrame();
+
+  // Fixed zones are republished every frame by whatever draws them. The minimal console is drawn
+  // LAST (it sits above the cards), so its line is published here, before any card reads it.
+  this->Pimpl->Zones.Clear(ImGui::GetFrameCount());
+  if (this->MinimalConsoleVisible && !this->ConsoleVisible)
+  {
+    float topOffset = 0.f;
+    float rightInset = 0.f;
+    ::ConsoleInsets(
+      this->PanelAnim.Value(), static_cast<float>(this->FontScale), topOffset, rightInset);
+    this->Pimpl->Zones.Publish(G3DPlacement::ZoneId::MiniConsole,
+      vtkF3DImguiConsole::MinimalRect(topOffset, rightInset), G3DLayer::Palette);
+  }
 }
 
 //----------------------------------------------------------------------------
@@ -5089,8 +5138,28 @@ void vtkF3DImguiActor::RenderNotificationCenter()
     std::min(520.f * scale, std::max(200.f * scale, rc.w - 2.f * margin)));
   const float cardH =
     std::min(std::max(220.f * scale, rc.h - 2.f * margin), std::min(440.f * scale, work.h - 2.f * margin));
-  // Opens under the bell it belongs to: upper right of the central viewport.
-  const ImVec2 defaultPos(rc.x + std::max(margin, rc.w - cardW - margin), rc.y + margin);
+
+  // Opens UNDER the bell it belongs to — the top-right tool group while the panel is closed, the
+  // top bar's tool cluster while it is open — right edges flush, the group itself left uncovered so
+  // the same bell closes it. The host is picked by where the panel is HEADING, so a panel toggle
+  // moves the card once instead of chasing the crossfade; the last rectangle it was drawn at
+  // bridges the frames where it is not drawn yet (and before it was ever drawn, the view corner).
+  using G3DPlacement::Align;
+  using G3DPlacement::Side;
+  static const G3DPlacement::Placement placements[] = { { Side::Bottom, Align::End },
+    { Side::Left, Align::Start }, { Side::Bottom, Align::Start } };
+  constexpr float cornerMargin = F3DStyle::GetDefaultMargin(); // the tool group's own inset
+  const G3DPlacement::ZoneId host = this->EffectivePanelVisible()
+    ? G3DPlacement::ZoneId::TopBarTools
+    : G3DPlacement::ZoneId::ViewportChrome;
+  const std::size_t hostIndex = static_cast<std::size_t>(host);
+  const G3DLayout::Rect anchor = this->Pimpl->BellHostKnown[hostIndex]
+    ? this->Pimpl->BellHost[hostIndex]
+    : G3DLayout::Rect{ rc.x + rc.w - cornerMargin, rc.y, 0.f, 0.f };
+  // Its own trigger and whatever is drawn above the cards (the minimal console): never under those.
+  // The gizmo and the color legend below it may be covered — the card is temporary.
+  const std::vector<G3DPlacement::Obstacle> obstacles =
+    this->Pimpl->Zones.Obstacles(G3DLayer::Floating, host);
 
   const std::string title = loc.Translate("Messages");
   const std::string dragHint = this->Pimpl->NotifCenterFloat.moved
@@ -5108,12 +5177,19 @@ void vtkF3DImguiActor::RenderNotificationCenter()
   cardDesc.closable = true;
   cardDesc.dragTooltip = dragHint.c_str();
   cardDesc.size = ImVec2(cardW, cardH);
-  cardDesc.defaultPos = defaultPos;
   cardDesc.bounds = ImVec4(work.x, work.y, work.w, work.h);
-  cardDesc.margin = margin;
+  cardDesc.margin = cornerMargin;
   cardDesc.padding = padding;
   cardDesc.background = &cardBg;
   cardDesc.open = this->NotificationCenterVisible;
+  cardDesc.anchor = anchor;
+  cardDesc.placements = placements;
+  cardDesc.placementCount = static_cast<int>(std::size(placements));
+  cardDesc.placementOffset = G3DTheme::Spacing::Sm * scale;
+  cardDesc.minSize = ImVec2(0.f, 220.f * scale);
+  cardDesc.placementBounds = ImVec4(rc.x, rc.y, rc.w, rc.h);
+  cardDesc.obstacles = obstacles.data();
+  cardDesc.obstacleCount = static_cast<int>(obstacles.size());
 
   const G3DWidgets::FloatingCardResult card =
     G3DWidgets::BeginFloatingCard(this->Pimpl->NotifCenterFloat, cardDesc);

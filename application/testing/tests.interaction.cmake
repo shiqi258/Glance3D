@@ -247,6 +247,13 @@ f3d_test(NAME TestInteractionMinimalConsoleBellRemains DATA f3d.glb INTERACTION 
 f3d_test(NAME TestInteractionMinimalConsoleOverCheatSheet DATA f3d.glb INTERACTION UI) #h;:
 f3d_test(NAME TestInteractionMinimalConsoleOverCheatSheetAndFilename DATA f3d.glb INTERACTION UI) #h;n;:
 
+## Message center placement and layering
+# Opens under the viewport tool group, never covering it, and a reopened card is not buried under
+# the group whose button was just pressed.
+f3d_test(NAME TestInteractionNotificationCenterReopen DATA f3d.glb RESOLUTION 800,600 INTERACTION UI) #Bell;Close;Bell
+# A click on the gizmo head the card covers belongs to the card: the camera must not move.
+f3d_test(NAME TestInteractionNotificationCenterGizmoClick DATA f3d.glb ARGS -x RESOLUTION 800,600 INTERACTION UI) #Bell;Click the -Y head under the card
+
 ## HDRI
 f3d_test(NAME TestInteractionHDRIMove DATA suzanne.ply HDRI palermo_park_1k.hdr INTERACTION) #Shift+MouseRight;
 f3d_test(NAME TestInteractionHDRIBlur DATA suzanne.ply HDRI palermo_park_1k.hdr INTERACTION) #U

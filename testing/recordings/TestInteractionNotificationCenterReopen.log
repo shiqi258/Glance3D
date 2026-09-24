@@ -1,0 +1,79 @@
+# StreamVersion 1.2
+# The message center opens under the viewport tool group's bell, closes from its own close
+# button and reopens from the bell. The group and the card must never cover each other, whatever
+# was clicked last: the reopened card used to come back UNDER the group, its close button hidden.
+RenderEvent 0 0 0 0 0 0 0
+TimerEvent 0 0 0 0 0 0 0
+TimerEvent 0 0 0 0 0 0 0
+TimerEvent 0 0 0 0 0 0 0
+# Open from the bell
+MouseMoveEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+LeftButtonPressEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+LeftButtonReleaseEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+# Close from the card's own close button
+MouseMoveEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+LeftButtonPressEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+LeftButtonReleaseEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+TimerEvent 776 534 0 0 0 0 0
+# Reopen from the bell
+MouseMoveEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+LeftButtonPressEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+LeftButtonReleaseEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+TimerEvent 746 576 0 0 0 0 0
+# Park the pointer over the model so no hover state or tooltip is captured
+MouseMoveEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0
+TimerEvent 150 300 0 0 0 0 0

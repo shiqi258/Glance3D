@@ -1010,11 +1010,59 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     return res;
   }
 
-  const ImVec2 pos = FloatingCardPos(st, desc.defaultPos, desc.size, desc.bounds, desc.margin);
+  const bool anchored = desc.placements != nullptr && desc.placementCount > 0;
+  if (opened && anchored)
+  {
+    // Every open of a card that belongs to a control starts back at that control, like any popover:
+    // where the last open was dragged to says nothing about where this one is wanted.
+    st.detached = false;
+    st.moved = false;
+    st.dragOffset = ImVec2(0.f, 0.f);
+  }
+
+  ImVec2 pos;
+  ImVec2 size = desc.size;
+  if (anchored && !st.detached)
+  {
+    const bool ownBounds = desc.placementBounds.z > 0.f && desc.placementBounds.w > 0.f;
+    const ImVec4& pb = ownBounds ? desc.placementBounds : desc.bounds;
+    G3DPlacement::Request req;
+    req.anchor = desc.anchor;
+    req.w = desc.size.x;
+    req.h = desc.size.y;
+    req.minW = desc.minSize.x;
+    req.minH = desc.minSize.y;
+    req.prefs = desc.placements;
+    req.prefCount = desc.placementCount;
+    req.offset = desc.placementOffset;
+    req.boundary = { pb.x, pb.y, pb.z, pb.w };
+    req.padding = desc.margin;
+    req.obstacles = desc.obstacles;
+    req.obstacleCount = desc.obstacleCount;
+    const G3DPlacement::Result placed = G3DPlacement::Resolve(req);
+    pos = ImVec2(placed.rect.x, placed.rect.y);
+    size = ImVec2(placed.rect.w, placed.rect.h);
+  }
+  else if (anchored)
+  {
+    // Detached: exactly where the user put it, clamped for display only. Never written back, so a
+    // window that shrinks and grows again hands the card back where it was left.
+    size = st.detachedSize;
+    const ImVec4& b = desc.bounds;
+    pos.x = std::clamp(st.detachedPos.x, b.x + desc.margin,
+      std::max(b.x + desc.margin, b.x + b.z - desc.margin - size.x));
+    pos.y = std::clamp(st.detachedPos.y, b.y + desc.margin,
+      std::max(b.y + desc.margin, b.y + b.w - desc.margin - size.y));
+  }
+  else
+  {
+    pos = FloatingCardPos(st, desc.defaultPos, desc.size, desc.bounds, desc.margin);
+  }
+  res.size = size;
   // Size must be set explicitly (offscreen rendering skips the auto-size frame — see the actor's
   // SetupNextWindow), and both are unconditional so a drag lands on the very next frame.
   ImGui::SetNextWindowPos(pos);
-  ImGui::SetNextWindowSize(desc.size);
+  ImGui::SetNextWindowSize(size);
 
   const float pad = desc.padding > 0.f ? desc.padding : G3DTheme::Spacing::Lg * s;
   const float rounding = G3DTheme::Radius::Card * s;
@@ -1078,8 +1126,26 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
   if (bandActive)
   {
     const ImVec2 delta = ImGui::GetIO().MouseDelta;
-    st.dragOffset.x += delta.x / s;
-    st.dragOffset.y += delta.y / s;
+    if (anchored)
+    {
+      if ((delta.x != 0.f || delta.y != 0.f) && !st.detached)
+      {
+        // The first move takes the card off its anchor, at the size it has right now.
+        st.detached = true;
+        st.detachedPos = wp;
+        st.detachedSize = ws;
+      }
+      if (st.detached)
+      {
+        st.detachedPos.x += delta.x;
+        st.detachedPos.y += delta.y;
+      }
+    }
+    else
+    {
+      st.dragOffset.x += delta.x / s;
+      st.dragOffset.y += delta.y / s;
+    }
     if (delta.x != 0.f || delta.y != 0.f)
     {
       st.moved = true;
@@ -1090,6 +1156,7 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
   if (bandHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
   {
     st.dragOffset = ImVec2(0.f, 0.f);
+    st.detached = false;
     st.moved = false;
   }
   if (desc.dragTooltip != nullptr)

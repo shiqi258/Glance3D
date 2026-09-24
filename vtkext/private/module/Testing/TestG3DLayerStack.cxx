@@ -46,9 +46,9 @@ enum : G3DLayerStack::Id
 
 int TestG3DLayerStack(int, char*[])
 {
-  // Bands never interleave, whatever order the surfaces were first seen in: here the palette and the
-  // eyedropper are seen before the bars they must cover, the way an on-demand window is created long
-  // after the docked chrome.
+  // Bands never interleave, whatever order the surfaces were first seen in: here the palette and
+  // the eyedropper are seen before the bars they must cover, the way an on-demand window is created
+  // long after the docked chrome.
   {
     G3DLayerStack s;
     s.Touch(EYEDROP, G3DLayer::Capture, 0, true, 1, kFarAway);
@@ -89,8 +89,8 @@ int TestG3DLayerStack(int, char*[])
     Check(s.Raise(CENTER), "floating.press.raises");
     Check(Below(s, SHEET, CENTER), "floating.pressed.on.top");
     Check(!s.Raise(CENTER), "floating.raise.idempotent");
-    // Being shown again without being (re)opened must not reshuffle: a file load skips every card for
-    // a few frames and the user's order has to survive it.
+    // Being shown again without being (re)opened must not reshuffle: a file load skips every card
+    // for a few frames and the user's order has to survive it.
     s.Touch(SHEET, G3DLayer::Floating, 0, false, 50, kOtherCard);
     s.Touch(CENTER, G3DLayer::Floating, 0, false, 50, kCard);
     Check(Below(s, SHEET, CENTER), "floating.reshow.keeps.order");
@@ -112,13 +112,13 @@ int TestG3DLayerStack(int, char*[])
     Check(Below(s, HUD, TOAST), "fixed.order.unchanged");
   }
 
-  // Occlusion: only an overlapping surface of the same band, drawn above and shown in the same frame,
-  // counts. That is the only case a raise can fix.
+  // Occlusion: only an overlapping surface of the same band, drawn above and shown in the same
+  // frame, counts. That is the only case a raise can fix.
   {
     G3DLayerStack s;
     s.Touch(CENTER, G3DLayer::Floating, 0, true, 1, kCard);
     s.Touch(SHEET, G3DLayer::Floating, 0, true, 1, kOtherCard); // overlaps the card, opened later
-    s.Touch(PALETTE, G3DLayer::Palette, 0, true, 1, kCard);     // covers it too, but cannot be beaten
+    s.Touch(PALETTE, G3DLayer::Palette, 0, true, 1, kCard);     // covers it too, unbeatable
     Check(s.IsObscured(CENTER), "obscured.by.later.card");
     Check(!s.IsObscured(SHEET), "top.card.not.obscured");
     s.Raise(CENTER);

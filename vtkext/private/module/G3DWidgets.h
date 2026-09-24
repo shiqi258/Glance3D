@@ -27,6 +27,7 @@
 #define G3DWidgets_h
 
 #include "G3DIcon.h"
+#include "G3DPlacement.h"
 
 #include <cstddef>
 #include <functional>
@@ -231,6 +232,9 @@ struct FloatingCardState
   bool dragging = false;                ///< the drag handle is held this frame
   bool moved = false;                   ///< the user has dragged this card at least once
   bool wasOpen = false;                 ///< the caller's `open` on the last frame it was seen
+  bool detached = false;                ///< an anchored card the user dragged away from its anchor
+  ImVec2 detachedPos = ImVec2(0.f, 0.f);  ///< where it was dragged to (px), while detached
+  ImVec2 detachedSize = ImVec2(0.f, 0.f); ///< the size it had when it was detached (px)
 };
 
 /// Per-frame description of a floating card. Only `id`, `title` and `size` are mandatory; the rest
@@ -250,12 +254,27 @@ struct FloatingCardDesc
   const ImVec4* background = nullptr;         ///< window fill override (null: ImGui WindowBg)
   ImGuiWindowFlags extraFlags = 0;            ///< extra window flags OR-ed in
   bool open = true;                           ///< the caller wants the card shown this frame
+
+  // Anchored placement (optional). With `placementCount > 0` the card belongs to a control: it is
+  // placed by G3DPlacement::Resolve next to `anchor`, inside `placementBounds` (all zero: `bounds`)
+  // with `margin` breathing room, clear of `obstacles`, shrinking down to `minSize` at most —
+  // `defaultPos` is then ignored. Every open starts back at the anchor; a drag detaches the card to
+  // where the user put it for the rest of that open, and a title-bar double-click re-attaches it.
+  G3DLayout::Rect anchor;
+  const G3DPlacement::Placement* placements = nullptr;
+  int placementCount = 0;
+  float placementOffset = 0.f;                         ///< gap between the anchor and the card
+  ImVec2 minSize = ImVec2(0.f, 0.f);                   ///< shrink floor (0: rigid on that axis)
+  ImVec4 placementBounds = ImVec4(0.f, 0.f, 0.f, 0.f); ///< where it opens: x,y = origin, z,w = size
+  const G3DPlacement::Obstacle* obstacles = nullptr;
+  int obstacleCount = 0;
 };
 
 /// What the card reported this frame.
 struct FloatingCardResult
 {
   bool visible = true;   ///< a window was submitted: draw the content, then EndFloatingCard()
+  ImVec2 size;           ///< the size it was given (an anchored card may be shrunk to fit)
   bool closed = false;   ///< the title-bar close button was clicked
   bool dragging = false; ///< the title bar is held — OR this into a force-render condition so the
                          ///< drag stays frame-continuous

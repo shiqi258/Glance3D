@@ -206,12 +206,26 @@ void vtkF3DImguiConsole::DisplayText(const char* text)
 }
 
 //----------------------------------------------------------------------------
+G3DLayout::Rect vtkF3DImguiConsole::MinimalRect(float topOffset, float rightInset)
+{
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  constexpr float margin = F3DStyle::GetDefaultMargin();
+  const float padding = ImGui::GetStyle().WindowPadding.x + ImGui::GetStyle().FramePadding.x;
+  // Stop short of the top-right chrome column. @p rightInset comes from the single owner of that
+  // corner (vtkF3DImguiActor::ViewportChromeReservedWidth), not from a local guess about what might
+  // be up there -- the previous version measured the console alert badge itself, and went wrong
+  // the moment anything else moved into the corner.
+  return { margin, margin + topOffset,
+    viewport->WorkSize.x - 2.f * margin - std::max(0.f, rightInset),
+    ImGui::CalcTextSize(">").y + 2.f * padding };
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset, float rightInset)
 {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
   constexpr float margin = F3DStyle::GetDefaultMargin();
-  const float padding = ImGui::GetStyle().WindowPadding.x + ImGui::GetStyle().FramePadding.x;
   const float fontH = ImGui::GetFontSize();
   // Shared by the candidate list and the log tail so the palette height is stable between modes.
   const float contentH = std::min(viewport->WorkSize.y * 0.5f, 16.f * fontH * 1.45f);
@@ -221,13 +235,9 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset, float rightI
 
   if (minimal)
   {
-    // Stop short of the top-right chrome column. @p rightInset comes from the single owner of that
-    // corner (vtkF3DImguiActor::ViewportChromeReservedWidth), not from a local guess about what might
-    // be up there -- the previous version measured the console alert badge itself, and went wrong
-    // the moment anything else moved into the corner.
-    const float windowWidth = viewport->WorkSize.x - 2.f * margin - std::max(0.f, rightInset);
-    ImGui::SetNextWindowPos(ImVec2(margin, margin + topOffset));
-    ImGui::SetNextWindowSize(ImVec2(windowWidth, ImGui::CalcTextSize(">").y + 2.f * padding));
+    const G3DLayout::Rect line = vtkF3DImguiConsole::MinimalRect(topOffset, rightInset);
+    ImGui::SetNextWindowPos(ImVec2(line.x, line.y));
+    ImGui::SetNextWindowSize(ImVec2(line.w, line.h));
     winFlags |= ImGuiWindowFlags_NoFocusOnAppearing;
   }
   else

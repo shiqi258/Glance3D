@@ -13,6 +13,7 @@
 #ifndef vtkF3DImguiConsole_h
 #define vtkF3DImguiConsole_h
 
+#include "G3DLayout.h"
 #include "vtkF3DConsoleOutputWindow.h"
 
 #include <vtkCommand.h>
@@ -44,6 +45,13 @@ public:
    * happens to be up there.
    */
   void ShowConsole(bool minimal, float topOffset = 0.f, float rightInset = 0.f);
+
+  /**
+   * Where the minimal line sits for the given offsets (ImGui pixels, y down). Pure layout on the
+   * current ImGui context, so a surface submitted BEFORE the console in the same frame (a floating
+   * card resolving its position) can keep clear of the line.
+   */
+  static G3DLayout::Rect MinimalRect(float topOffset, float rightInset);
 
   /**
    * Clear the console log.
