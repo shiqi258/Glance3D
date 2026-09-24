@@ -5156,6 +5156,11 @@ void vtkF3DImguiActor::RenderNotificationCenter()
   const float twisty = G3DTheme::Size::IconSm * scale;
   const float iconSize = G3DTheme::Size::Icon * scale;
   const float rowPadY = G3DTheme::Spacing::Sm * scale;
+  // The hover band spans the full row, so the content needs its own inset inside it: without one the
+  // chevron and the age stamp sit flush against the band's rounded ends. A row is a full-width ghost
+  // button (same radius), so it takes a compact button's padding, which also puts the age stamp on
+  // the same right rail as the "Clear all" label above it.
+  const float rowPadX = G3DTheme::Spacing::Sm * scale;
   const float lineH = ImGui::GetTextLineHeight();
   const float rowH = lineH + 2.f * rowPadY;
   std::string pendingCommand;
@@ -5191,7 +5196,7 @@ void vtkF3DImguiActor::RenderNotificationCenter()
         G3DTheme::U32(G3DTheme::SurfaceHover()), G3DTheme::Radius::Control * scale);
     }
 
-    float x = p0.x;
+    float x = p0.x + rowPadX;
     if (expandable)
     {
       G3DIcon::Draw(dl, open ? G3DIconId::ChevronDown : G3DIconId::ChevronRight,
@@ -5206,7 +5211,7 @@ void vtkF3DImguiActor::RenderNotificationCenter()
     // Right cluster measured first, so the title knows where it has to stop.
     const std::string age = RelativeTime(now - n.createdAt);
     const float ageW = G3DWidgets::CalcTextSizedPx(age.c_str(), 11.f * scale, false).x;
-    float rightX = p0.x + rowW;
+    float rightX = p0.x + rowW - rowPadX;
     rightX -= ageW;
     G3DWidgets::TextSized(dl, ImVec2(rightX, p0.y + (rowH - 11.f * scale) * 0.5f),
       G3DTheme::U32(G3DTheme::TextSubtle()), age.c_str(), 11.f * scale);
@@ -5231,10 +5236,12 @@ void vtkF3DImguiActor::RenderNotificationCenter()
     ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + rowH));
     if (open && expandable)
     {
-      const float indent = twisty + G3DTheme::Spacing::Xs * scale + iconSize +
+      const float indent = rowPadX + twisty + G3DTheme::Spacing::Xs * scale + iconSize +
         G3DTheme::Spacing::Sm * scale;
       ImGui::Indent(indent);
-      ImGui::PushTextWrapPos(0.f);
+      // Wrap on the row's right content rail, not the list edge: the open block keeps the same inset
+      // as the header above it on both sides. Window-local, like every PushTextWrapPos() argument.
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - rowPadX);
       if (!detailText.empty())
       {
         ImGui::TextColored(G3DTheme::TextMuted(), "%s", detailText.c_str());
