@@ -607,6 +607,16 @@ public:
     double duration,
     vtkF3DUIActor::BindingValueState state = vtkF3DUIActor::BindingValueState::Neutral);
 
+  /**
+   * See vtkF3DUIActor::RaiseFloatingIfObscured.
+   */
+  bool RaiseFloatingIfObscured(const std::string& option);
+
+  /**
+   * See vtkF3DUIActor::SetReducedMotion.
+   */
+  void SetUIReducedMotion(bool reduced);
+
 private:
   vtkF3DRenderer();
   ~vtkF3DRenderer() override;

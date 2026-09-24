@@ -104,6 +104,7 @@ namespace Motions
 inline constexpr Motion Micro{ 0.12, G3DEasing::EaseOutCubic };    ///< hover / focus
 inline constexpr Motion Press{ 0.09, G3DEasing::EaseOutCubic };    ///< press feedback
 inline constexpr Motion Standard{ 0.18, G3DEasing::SmoothStep };   ///< open / expand / slide
+inline constexpr Motion Enter{ 0.18, G3DEasing::EaseOutCubic };    ///< a floating surface appearing
 inline constexpr Motion Playful{ 0.22, G3DEasing::EaseOutBack };   ///< optional overshoot
 }
 

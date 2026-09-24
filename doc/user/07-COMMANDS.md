@@ -23,6 +23,8 @@ The libf3d provides a few commands, many related to manipulating libf3d (options
 
 `dismiss_or_toggle_console`: A command bound to Escape by default: closes the shortcuts cheatsheet if it is open, otherwise toggles the console. No argument.
 
+`raise_or_toggle option.name`: The command behind every floating card's button and shortcut (the bell, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>, <kbd>H</kbd>): when the card shown by the option is open but covered by another card, it is brought to the front; otherwise the boolean option is toggled like `toggle`. Supported cards: `ui.notification_center`, `ui.cheatsheet`; for any other option, or without a UI, it is exactly `toggle`. Eg: `raise_or_toggle ui.notification_center`.
+
 `print option.name`: A command to print the value of an libf3d option, eg: `print scene.up.direction`.
 
 `set_reader_option Reader.option_name value`: A specific command to set a [reader option](02-SUPPORTED_FORMATS.md#reader-options), eg: `set_reader_option QuakeMDL.skin_index 1`

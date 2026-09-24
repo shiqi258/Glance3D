@@ -321,6 +321,28 @@ public:
   void AddNotification(const std::string& desc, const std::string& value, const std::string& bind,
     double duration, BindingValueState state = BindingValueState::Neutral);
 
+  /**
+   * The trigger rule every floating card's button and shortcut share: when the card shown by
+   * @p option is open but buried under another card, bring it to the front and return true — the
+   * user pressed it to look at the card, not to make it go away (the taskbar rule). Returns false
+   * when there is nothing to raise (closed, already on top, not a floating card, no UI), and the
+   * caller toggles the option as usual.
+   */
+  virtual bool RaiseFloatingIfObscured(const std::string& option)
+  {
+    (void)option;
+    return false;
+  }
+
+  /**
+   * Reduced motion: floating surfaces appear and disappear without transitions (the
+   * prefers-reduced-motion convention; image tests turn it on so no capture lands mid-fade).
+   */
+  virtual void SetReducedMotion(bool reduced)
+  {
+    (void)reduced;
+  }
+
 protected:
   vtkF3DUIActor();
   ~vtkF3DUIActor() override;

@@ -187,6 +187,9 @@ Test Debug Coloring")
 if(F3D_MODULE_UI)
   set_tests_properties(libf3d::TestSDKDynamicHDRI PROPERTIES TIMEOUT 120)
   set_tests_properties(libf3d::TestSDKTriggerInteractions PROPERTIES TIMEOUT 120)
+  # It opens the cheat sheet and captures a few frames later: no fade may be in flight.
+  set_tests_properties(libf3d::TestSDKTriggerInteractions PROPERTIES
+    ENVIRONMENT "CTEST_G3D_REDUCED_MOTION=1")
   if(NOT F3D_TESTING_ENABLE_LONG_TIMEOUT_TESTS)
     set_tests_properties(libf3d::TestSDKDynamicHDRI PROPERTIES DISABLED ON)
     set_tests_properties(libf3d::TestSDKTriggerInteractions PROPERTIES DISABLED ON)

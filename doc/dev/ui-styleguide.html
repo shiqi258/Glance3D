@@ -116,6 +116,21 @@
         --t-micro: 120ms;
         --t-std: 180ms;
 
+        /* Layering (desktop mirror: the G3DLayer bands of G3DLayerStack.h, stacked once per frame
+           by G3DLayers). Bands never interleave; inside --z-floating the card opened or pressed
+           LAST is on top — recency, not a bigger number. Popups sit above every band, the
+           eyedropper's full-window capture above them, tooltips over everything. */
+        --z-backdrop: 0;
+        --z-docked: 100;
+        --z-hud: 200;
+        --z-chrome: 300;
+        --z-floating: 400;
+        --z-toast: 500;
+        --z-palette: 600;
+        --z-popup: 700;
+        --z-capture: 800;
+        --z-tooltip: 900;
+
         --ctrl-h: 27px; /* control height (desktop mirror: G3DTheme Size::Control 25 + 2) */
         /* Dual-font system (desktop mirror: Inter-Medium embedded as the UI face, Monaspace as
            the DATA face injected via G3DWidgets::SetDataFont — values / filenames / array names /
@@ -454,6 +469,38 @@
         font-size: var(--fs-overline);
         font-family: var(--mono);
         color: var(--text-subtle);
+      }
+      /* Layering demo: a mock viewport with the corner tool group, the message card anchored under
+         it (≡ G3DPlacement Bottom/End: 8px under the group, right edges flush, 5px corner inset)
+         and an older card behind it in the same band. */
+      .layerdemo {
+        position: relative;
+        height: 300px;
+        max-width: 600px;
+        background: #333333; /* the 3D canvas default */
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        overflow: hidden;
+      }
+      .layerdemo > .toolgroup {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        z-index: var(--z-chrome);
+      }
+      .layerdemo > .floatcard {
+        position: absolute;
+        z-index: var(--z-floating);
+      }
+      .layerdemo > .floatcard.anchored {
+        top: calc(5px + var(--ctrl-h) + var(--s-2) + var(--s-2)); /* group + its insets + 8px gap */
+        right: 5px;
+        width: 260px;
+      }
+      .layerdemo > .floatcard.behind {
+        top: 64px;
+        left: 24px;
+        width: 250px;
       }
 
       /* ============================================================
@@ -889,7 +936,7 @@
          while open. position:fixed → clipped only by the viewport. */
       .menu {
         position: fixed;
-        z-index: 1000;
+        z-index: var(--z-popup);
         background: var(--surface-3);
         border: 1px solid var(--border);
         border-radius: var(--r-popup);
@@ -2428,6 +2475,7 @@
         <a href="#type">字体</a>
         <a href="#scale">间距 / 圆角</a>
         <a href="#elevation">阴影 / 层级</a>
+        <a href="#layering">层级栈 / 浮层定位</a>
         <a href="#icons">图标</a>
         <div class="group">组件</div>
         <a href="#buttons">按钮</a>
@@ -2567,6 +2615,63 @@
               <div class="e" style="box-shadow: var(--shadow-lg)">lg</div>
               <div class="e" style="box-shadow: var(--shadow-accent); border-color: transparent">accent</div>
             </div>
+          </div>
+        </section>
+
+        <!-- ===================== LAYERING ===================== -->
+        <section class="block" id="layering">
+          <h2>层级栈 / 浮层定位 <span class="tag-impl">≡G3DLayers + G3DPlacement</span></h2>
+          <p class="desc">
+            显示顺序由<b>层级栈</b>统一决定：每个顶层窗口声明所属层带，每帧按「层带 → 层内顺序」重排一次，
+            <b>与创建时刻、键盘焦点都无关</b>（点击某个按钮只会把焦点给它，不会把它抬到浮层上面）。浮层卡片的位置由
+            <b>定位引擎</b>给出：锚在触发它的控件上、按偏好方位放置、放不下再翻转 / 平移 / 缩短，并避开固定交互区——
+            与网页端 Floating UI 的 placement → flip → shift → size 同一套管线。
+          </p>
+          <div class="panel">
+            <div class="sectiontitle">层带（自下而上）</div>
+            <div class="proprow"><span class="k"><code>--z-backdrop</code></span><span class="v">拖放区底图 · 固定</span></div>
+            <div class="proprow"><span class="k"><code>--z-docked</code></span><span class="v">四栏 + 分隔条 · 固定</span></div>
+            <div class="proprow"><span class="k"><code>--z-hud</code></span><span class="v">文件名胶囊 / FPS / gizmo 热区 · 固定（高于停靠栏：胶囊会滑进顶栏标题行）</span></div>
+            <div class="proprow"><span class="k"><code>--z-chrome</code></span><span class="v">视口右上角按钮组 · 固定，<b>点击永不自抬</b></span></div>
+            <div class="proprow"><span class="k"><code>--z-floating</code></span><span class="v">浮层卡片（消息中心 / 快捷键）· <b>打开即置顶、按下即置顶</b>，内容更新不抬</span></div>
+            <div class="proprow"><span class="k"><code>--z-toast</code></span><span class="v">消息条 / 快捷键 HUD · 固定（用户边读快捷键边按）</span></div>
+            <div class="proprow"><span class="k"><code>--z-palette</code></span><span class="v">命令面板 / 迷你控制台 · 固定，保留每帧取键盘焦点</span></div>
+            <div class="proprow"><span class="k"><code>--z-popup</code></span><span class="v">下拉 / 取色器 / 右键菜单（ImGui popup，压在所有层带之上）</span></div>
+            <div class="proprow"><span class="k"><code>--z-capture</code></span><span class="v">吸管全屏输入捕获（高于 popup）</span></div>
+            <div class="proprow"><span class="k"><code>--z-tooltip</code></span><span class="v">气泡（ImGui 上层绘制，天然最上）</span></div>
+          </div>
+          <div class="panel">
+            <div class="sectiontitle">锚定放置（消息中心）</div>
+            <div class="layerdemo">
+              <g3d-floatcard v="behind" ic="help" title="快捷键" noclose>
+                <div class="proprow"><span class="k">切换网格显示</span><span class="v"><g3d-badge>G</g3d-badge></span></div>
+                <div class="proprow"><span class="k">截图</span><span class="v"><g3d-badge>F12</g3d-badge></span></div>
+              </g3d-floatcard>
+              <g3d-toolgroup v="framed" items="folder|bell+2|sliders"></g3d-toolgroup>
+              <g3d-floatcard v="anchored" ic="bell" title="消息">
+                <div class="proprow"><span class="k">截图已保存</span><span class="v">刚刚</span></div>
+                <div class="proprow"><span class="k">找不到 scene.gltf</span><span class="v">刚刚</span></div>
+              </g3d-floatcard>
+            </div>
+            <p class="note">
+              铃铛所在按钮组下方 8px（<code>Spacing::Sm</code>）、右缘对齐；与视口边缘 5px，与按钮组同一内缩。后打开的消息中心压在
+              快捷键卡片之上——同一层带内比的是「最后打开 / 按下」，不是更大的数字。
+            </p>
+          </div>
+          <div class="panel">
+            <div class="sectiontitle">定位规则</div>
+            <div class="proprow"><span class="k">偏好方位</span><span class="v">按偏好顺序取第一个放得下的：可缩到最小尺寸、可被推过横在起点的硬障碍，都算「放得下」——锚在按钮下的列表少几行是预期，跳到按钮旁边完整显示反而像坏了。消息中心：下方右对齐 → 左侧顶对齐 → 下方左对齐，最小高度 220</span></div>
+            <div class="proprow"><span class="k">必须避开</span><span class="v">① 自己的触发按钮组（保证同一按钮能关掉它）② 层带高于浮层的固定区（迷你控制台），否则会被它盖住</span></div>
+            <div class="proprow"><span class="k">允许覆盖</span><span class="v">层带低于浮层的叠加物（坐标轴 gizmo、色标条）：浮层是临时的，也不会因开关 <code>-x</code> 而跳位</span></div>
+            <div class="proprow"><span class="k">占用区</span><span class="v">固定区每帧发布本帧真实矩形（<code>G3DPlacement::ZoneSet</code>）；只收常驻区，消息条 / HUD 这类瞬时读数不参与，否则按一次键卡片就跳一下</span></div>
+            <div class="proprow"><span class="k">拖动</span><span class="v">锚定卡片每次打开回到锚点；拖动后本次打开内停在用户放的位置（只做显示钳制、不回写）；双击标题栏重新吸附</span></div>
+          </div>
+          <div class="panel">
+            <div class="sectiontitle">触发与动效</div>
+            <div class="proprow"><span class="k">触发语义</span><span class="v"><code>raise_or_toggle</code>：卡片开着但被同层卡片盖住 → 置顶；已在最上 → 关闭（任务栏规则）。铃铛、<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>、帮助按钮与 <kbd>H</kbd> 同一语义</span></div>
+            <div class="proprow"><span class="k">入场</span><span class="v">透明度 0→1 + 从锚点一侧位移 6px→0，<code>--t-std</code> + <code>--ease</code>（桌面 <code>Motions::Enter</code>）；自由卡片从下方上浮</span></div>
+            <div class="proprow"><span class="k">退场</span><span class="v">原地淡出 <code>--t-micro</code>（<code>Motions::Micro</code>），退场期间不接收输入，也不再把消息标为已读</span></div>
+            <div class="proprow"><span class="k">减弱动效</span><span class="v"><code>G3DWidgets::SetReducedMotion</code> 关掉以上过渡；图像测试经 <code>CTEST_G3D_REDUCED_MOTION=1</code> 打开它。启动即打开的卡片首帧直接取终态，单帧 <code>--output</code> 也拍得到</span></div>
           </div>
         </section>
 
@@ -3142,7 +3247,8 @@
               EndFloatingCard()</code>，组件自带：锚点 + 拖拽偏移并按边界钳制、标题栏双击复位、常驻区与滚动正文分离（标题永不被滚走）、
               正文底缘渐隐、外投影与 1px 描边（浮层与停靠栏的层级区分）。<b>层级</b>：卡片属于 <code>Floating</code> 层带
               （<code>G3DLayers</code> 统一排序，与创建顺序、键盘焦点都无关）——永远压在停靠栏与视口按钮组之上、消息条与命令面板之下；
-              同层内<b>最后打开或按下</b>的卡片在最上。调用方每帧都调用（开关状态经 <code>desc.open</code> 传入），卡片据此识别「刚打开」。
+              同层内<b>最后打开或按下</b>的卡片在最上。调用方每帧都调用（开关状态经 <code>desc.open</code> 传入），卡片据此识别「刚打开」并完成入退场。
+              传入 <code>placements</code> 即成为<b>锚定卡片</b>（定位 / 避让 / 拖动规则见 <a href="#layering">层级栈 / 浮层定位</a>）。
             </div>
           </div>
         </section>

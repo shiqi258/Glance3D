@@ -1007,6 +1007,28 @@ interactor& interactor_impl::initCommands()
     command_documentation_t{ "toggle option.name", "toggle a boolean libf3d option" },
     complOptionNames);
 
+  // The trigger rule shared by every floating card's button and shortcut: an open card buried
+  // under another card is brought to the front instead of being closed (the taskbar rule: the user
+  // pressed it to look at the card), and only a card already on top is toggled. Only the UI knows
+  // what is drawn over what, so it is asked first; without a UI this is exactly `toggle`.
+  this->addCommand(
+    "raise_or_toggle",
+    [&](const std::vector<std::string>& args)
+    {
+      check_args(args, 1, "raise_or_toggle");
+      vtkRenderWindow* renWin = this->Internals->Window.GetRenderWindow();
+      vtkF3DRenderer* ren =
+        vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+      if (ren != nullptr && ren->RaiseFloatingIfObscured(args[0]))
+      {
+        return;
+      }
+      this->Internals->Options.toggle(args[0]);
+    },
+    command_documentation_t{ "raise_or_toggle option.name",
+      "bring a covered floating card to the front, else toggle its boolean option" },
+    complOptionNames);
+
   this->addCommand(
     "reset",
     [&](const std::vector<std::string>& args)
@@ -2203,11 +2225,11 @@ interactor& interactor_impl::initBindings()
   this->addBinding({mod_t::CTRL, "Y"}, "set scene.up_direction +Y", "Scene", std::bind(docStr, tr("Set scene up direction to +Y"), ""));
   this->addBinding({mod_t::CTRL, "Z"}, "set scene.up_direction +Z", "Scene", std::bind(docStr, tr("Set scene up direction to +Z"), ""));
 #if F3D_MODULE_UI
-  this->addBinding({mod_t::NONE, "H"}, "toggle ui.cheatsheet", "Others", std::bind(docStr, tr("Cheatsheet"), ""), f3d::interactor::BindingType::OTHER, true);
+  this->addBinding({mod_t::NONE, "H"}, "raise_or_toggle ui.cheatsheet", "Others", std::bind(docStr, tr("Cheatsheet"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::NONE, "Escape"}, "dismiss_or_toggle_console", "Others", std::bind(docStr, tr("Close help / Console"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::ANY, "Colon"}, "toggle ui.minimal_console", "Others", std::bind(docStr, tr("Minimal console"), ""), f3d::interactor::BindingType::OTHER, true);
   this->addBinding({mod_t::CTRL, "K"}, "toggle ui.notifications.enable", "Others", std::bind(docTgl, tr("Key hints"), std::cref(opts.ui.notifications.enable)), f3d::interactor::BindingType::TOGGLE);
-  this->addBinding({mod_t::CTRL_SHIFT, "K"}, "toggle ui.notification_center", "Others", std::bind(docTgl, tr("Message center"), std::cref(opts.ui.notification_center)), f3d::interactor::BindingType::TOGGLE);
+  this->addBinding({mod_t::CTRL_SHIFT, "K"}, "raise_or_toggle ui.notification_center", "Others", std::bind(docTgl, tr("Message center"), std::cref(opts.ui.notification_center)), f3d::interactor::BindingType::TOGGLE);
   this->addBinding({mod_t::NONE, "Grave"}, "toggle ui.control_panel", "Others", std::bind(docTgl, tr("Control panel"), std::cref(opts.ui.control_panel)), f3d::interactor::BindingType::TOGGLE);
 #endif
   this->addBinding({mod_t::CTRL, "Q"}, "stop_interactor", "Others", std::bind(docStr, tr("Stop the interactor"), ""), f3d::interactor::BindingType::OTHER, true);

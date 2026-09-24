@@ -2446,7 +2446,7 @@ void vtkF3DImguiActor::RenderViewportChrome(vtkOpenGLRenderWindow* renWin)
       this->SendCommand("open_file_dialog");
       break;
     case ::CHROME_MESSAGES:
-      this->SendCommand("toggle ui.notification_center");
+      this->SendCommand("raise_or_toggle ui.notification_center");
       break;
     case ::CHROME_PANEL:
       this->SendCommand("toggle ui.control_panel");
@@ -4310,10 +4310,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     switch (G3DWidgets::ToolGroup("##tb.right", rightDesc))
     {
       case TB_BELL:
-        this->SendCommand("toggle ui.notification_center");
+        this->SendCommand("raise_or_toggle ui.notification_center");
         break;
       case TB_HELP:
-        this->SendCommand("toggle ui.cheatsheet");
+        this->SendCommand("raise_or_toggle ui.cheatsheet");
         break;
       case TB_SHOT:
         this->SendCommand("take_screenshot");
@@ -4619,6 +4619,37 @@ void vtkF3DImguiActor::EndFrame(vtkOpenGLRenderWindow* renWin)
   // shortcuts reach the app raw under any input method) and turn it on only while ImGui wants text
   // input (so a focused field can compose CJK). io.WantTextInput now reflects this finished frame.
   G3DTextInputContext::Update(renWin->GetGenericWindowId(), ImGui::GetIO().WantTextInput);
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DImguiActor::RaiseFloatingIfObscured(const std::string& option)
+{
+  // The floating cards and the option that shows each one.
+  const char* window = nullptr;
+  bool open = false;
+  if (option == "ui.notification_center")
+  {
+    window = "NotificationCenter";
+    open = this->NotificationCenterVisible;
+  }
+  else if (option == "ui.cheatsheet")
+  {
+    window = "CheatSheet";
+    open = this->CheatSheetVisible;
+  }
+  if (window == nullptr || !open || ImGui::GetCurrentContext() == nullptr)
+  {
+    return false;
+  }
+  // Only what a raise can fix counts: another card drawn over it. It takes effect on the next
+  // frame, the one this command's render produces.
+  return G3DLayers::IsObscured(window) && G3DLayers::Raise(window);
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::SetReducedMotion(bool reduced)
+{
+  G3DWidgets::SetReducedMotion(reduced);
 }
 
 //----------------------------------------------------------------------------
@@ -5204,8 +5235,12 @@ void vtkF3DImguiActor::RenderNotificationCenter()
 
   // Snapshot BEFORE marking read, so the frame that opens the panel still shows which rows were
   // new. Reading the panel is what clears the bell: an unread counter that never clears is noise.
+  // Not while it fades out after being closed: a message arriving in those few frames was not seen.
   const std::vector<G3DNotification> history = center.History(200);
-  center.MarkAllRead();
+  if (!card.closing)
+  {
+    center.MarkAllRead();
+  }
   std::vector<const G3DNotification*> shown;
   shown.reserve(history.size());
   for (const G3DNotification& n : history)

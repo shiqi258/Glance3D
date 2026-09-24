@@ -26,6 +26,7 @@
 #ifndef G3DWidgets_h
 #define G3DWidgets_h
 
+#include "G3DAnimation.h"
 #include "G3DIcon.h"
 #include "G3DPlacement.h"
 
@@ -215,7 +216,10 @@ void EndScrollRegion();
 //   if (card.closed) { ...hide the card... }
 //
 // Call it every frame, open or not: the card needs to see itself close so that the next open is
-// recognized as one (an opened card is raised to the top of the floating band, see G3DLayers).
+// recognized as one (an opened card is raised to the top of the floating band, see G3DLayers), and
+// it keeps being drawn while it fades out. It enters with a fade and a short slide from the side
+// of its anchor (a free card rises from below) and leaves with a quicker fade, taking no input
+// while it does; SetReducedMotion() turns both off.
 //
 // The component owns: window setup (position/size/flags/rounding/rim/elevation shadow), its display
 // band (G3DLayer::Floating), the title bar anatomy (grip affordance, icon, title, close button),
@@ -235,6 +239,10 @@ struct FloatingCardState
   bool detached = false;                ///< an anchored card the user dragged away from its anchor
   ImVec2 detachedPos = ImVec2(0.f, 0.f);  ///< where it was dragged to (px), while detached
   ImVec2 detachedSize = ImVec2(0.f, 0.f); ///< the size it had when it was detached (px)
+  G3DAnimatedFloat presence;              ///< 0 = gone .. 1 = shown (the open / close transition)
+  bool presenceInit = false;              ///< evaluated at least once (a card open from the very
+                                          ///< first frame is shown at once, not faded in)
+  ImVec2 enterFrom = ImVec2(0.f, 1.f);    ///< unit direction it slides in from (toward its anchor)
 };
 
 /// Per-frame description of a floating card. Only `id`, `title` and `size` are mandatory; the rest
@@ -274,6 +282,8 @@ struct FloatingCardDesc
 struct FloatingCardResult
 {
   bool visible = true;   ///< a window was submitted: draw the content, then EndFloatingCard()
+  bool closing = false;  ///< fading out after being closed: drawn, but takes no input — skip side
+                         ///< effects that assume the user is looking at it
   ImVec2 size;           ///< the size it was given (an anchored card may be shrunk to fit)
   bool closed = false;   ///< the title-bar close button was clicked
   bool dragging = false; ///< the title bar is held — OR this into a force-render condition so the
@@ -281,8 +291,14 @@ struct FloatingCardResult
 };
 
 /// True when a card that the caller does not want open has nothing left to do this frame (it has
-/// already seen itself close): the caller may return before building the card's description.
-bool FloatingCardIdle(const FloatingCardState& st, bool open);
+/// seen itself close and finished fading out): the caller may return before building the card's
+/// description. Also settles a card on the first frame it is ever evaluated.
+bool FloatingCardIdle(FloatingCardState& st, bool open);
+
+/// Reduced motion (the prefers-reduced-motion convention): floating cards appear and disappear
+/// without transitions. Image tests turn it on so a capture never lands mid-fade.
+void SetReducedMotion(bool reduced);
+bool ReducedMotion();
 
 /// Open a floating card. Submits the window (positioned from the anchor + the user's drag, clamped
 /// into `bounds`) and its title bar, then leaves the cursor below the title bar ready for content.

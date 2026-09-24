@@ -4015,3 +4015,15 @@ void vtkF3DRenderer::AddNotification(const std::string& desc, const std::string&
 {
   this->UIActor->AddNotification(desc, value, bind, duration, state);
 }
+
+//----------------------------------------------------------------------------
+bool vtkF3DRenderer::RaiseFloatingIfObscured(const std::string& option)
+{
+  return this->UIActor->RaiseFloatingIfObscured(option);
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DRenderer::SetUIReducedMotion(bool reduced)
+{
+  this->UIActor->SetReducedMotion(reduced);
+}

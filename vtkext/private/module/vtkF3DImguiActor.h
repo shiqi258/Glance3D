@@ -42,6 +42,16 @@ public:
    */
   void SetDeltaTime(double time) override;
 
+  /**
+   * See vtkF3DUIActor::RaiseFloatingIfObscured. Knows which window each card option shows.
+   */
+  bool RaiseFloatingIfObscured(const std::string& option) override;
+
+  /**
+   * See vtkF3DUIActor::SetReducedMotion.
+   */
+  void SetReducedMotion(bool reduced) override;
+
 protected:
   vtkF3DImguiActor();
   ~vtkF3DImguiActor() override;

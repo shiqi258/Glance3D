@@ -960,6 +960,29 @@ void DrawGripDots(ImDrawList* dl, const ImVec2& center, float s, ImU32 col)
 // a time (floating cards do not nest — a card's popups are ImGui popups, not nested cards).
 ImVec4 gCardBg = ImVec4(0.f, 0.f, 0.f, 0.f);
 bool gCardHasBg = false;
+// Its presence (the open / close transition) and whether it is fading out, for the body helpers.
+float gCardAlpha = 1.f;
+bool gCardClosing = false;
+
+bool gReducedMotion = false;
+
+/// Fade everything the current window has drawn so far by @p alpha. ImGui's style Alpha only
+/// reaches what ImGui draws itself, while a card is mostly custom paint (title band, grip, rows,
+/// icons, the elevation shadow), so the transition works on the vertices instead.
+void FadeWindowDrawList(float alpha)
+{
+  if (alpha >= 0.999f)
+  {
+    return;
+  }
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  for (ImDrawVert& v : dl->VtxBuffer)
+  {
+    const float a = static_cast<float>((v.col >> IM_COL32_A_SHIFT) & 0xFFu) * alpha;
+    v.col = (v.col & ~IM_COL32_A_MASK) |
+      (static_cast<ImU32>(std::clamp(a + 0.5f, 0.f, 255.f)) << IM_COL32_A_SHIFT);
+  }
+}
 
 /// Outward elevation shadow for a floating layer: concentric rounded strokes fading out, drawn
 /// strictly OUTSIDE the card rect (strokes, not fills, so nothing paints over the card itself).
@@ -988,9 +1011,47 @@ float FloatingCardHeaderHeight()
 }
 
 //----------------------------------------------------------------------------
-bool FloatingCardIdle(const FloatingCardState& st, bool open)
+void SetReducedMotion(bool reduced)
 {
-  return !open && !st.wasOpen;
+  gReducedMotion = reduced;
+}
+
+//----------------------------------------------------------------------------
+bool ReducedMotion()
+{
+  return gReducedMotion;
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+/// Advance a card's open / close transition. A card evaluated for the first time is settled at
+/// once: one that is open from the very first frame (started with its option on) must be fully
+/// there in a single offscreen --output render, not a transparent first frame.
+void AdvancePresence(FloatingCardState& st, bool open)
+{
+  const float target = open ? 1.f : 0.f;
+  if (!st.presenceInit || gReducedMotion)
+  {
+    st.presence.Snap(target);
+    st.presenceInit = true;
+    return;
+  }
+  // Exits are quicker than entrances: the user already knows what is leaving.
+  G3DTheme::Configure(st.presence, open ? G3DTheme::Motions::Enter : G3DTheme::Motions::Micro);
+  st.presence.AnimateTo(target);
+  st.presence.Update(FrameDelta());
+}
+}
+
+//----------------------------------------------------------------------------
+bool FloatingCardIdle(FloatingCardState& st, bool open)
+{
+  if (!st.presenceInit)
+  {
+    AdvancePresence(st, open);
+  }
+  return !open && !st.wasOpen && st.presence.Value() <= 0.001f;
 }
 
 //----------------------------------------------------------------------------
@@ -1003,12 +1064,15 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
   // merely was not submitted in (a file load skips every overlay) and would reshuffle the stack.
   const bool opened = desc.open && !st.wasOpen;
   st.wasOpen = desc.open;
-  if (!desc.open)
+  AdvancePresence(st, desc.open);
+  const float presence = st.presence.Value();
+  if (!desc.open && presence <= 0.001f)
   {
     st.dragging = false;
     res.visible = false;
     return res;
   }
+  res.closing = !desc.open;
 
   const bool anchored = desc.placements != nullptr && desc.placementCount > 0;
   if (opened && anchored)
@@ -1042,6 +1106,22 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     const G3DPlacement::Result placed = G3DPlacement::Resolve(req);
     pos = ImVec2(placed.rect.x, placed.rect.y);
     size = ImVec2(placed.rect.w, placed.rect.h);
+    // It enters from its anchor's side: a card opening under its button drops a few px into place.
+    switch (placed.index >= 0 ? desc.placements[placed.index].side : G3DPlacement::Side::Bottom)
+    {
+      case G3DPlacement::Side::Bottom:
+        st.enterFrom = ImVec2(0.f, -1.f);
+        break;
+      case G3DPlacement::Side::Top:
+        st.enterFrom = ImVec2(0.f, 1.f);
+        break;
+      case G3DPlacement::Side::Left:
+        st.enterFrom = ImVec2(1.f, 0.f);
+        break;
+      case G3DPlacement::Side::Right:
+        st.enterFrom = ImVec2(-1.f, 0.f);
+        break;
+    }
   }
   else if (anchored)
   {
@@ -1057,8 +1137,19 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
   else
   {
     pos = FloatingCardPos(st, desc.defaultPos, desc.size, desc.bounds, desc.margin);
+    st.enterFrom = ImVec2(0.f, 1.f); // a free card rises into place, like a dialog
   }
   res.size = size;
+  // Entrance: the last few px of travel, the same 6px language as the dropdown menus. The exit
+  // only fades, in place.
+  if (desc.open)
+  {
+    const float travel = 6.f * s * (1.f - presence);
+    pos.x += st.enterFrom.x * travel;
+    pos.y += st.enterFrom.y * travel;
+  }
+  gCardAlpha = presence;
+  gCardClosing = res.closing;
   // Size must be set explicitly (offscreen rendering skips the auto-size frame — see the actor's
   // SetupNextWindow), and both are unconditional so a drag lands on the very next frame.
   ImGui::SetNextWindowPos(pos);
@@ -1085,6 +1176,10 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | desc.extraFlags;
+  if (res.closing)
+  {
+    flags |= ImGuiWindowFlags_NoInputs; // a card on its way out must not take the next click
+  }
 
   ImGui::Begin(desc.id, nullptr, flags);
   G3DLayers::Assign(G3DLayer::Floating, 0, opened);
@@ -1217,8 +1312,11 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
 //----------------------------------------------------------------------------
 void EndFloatingCard()
 {
+  FadeWindowDrawList(gCardAlpha);
   ImGui::End();
   ImGui::PopStyleVar(3); // WindowPadding + WindowRounding + WindowBorderSize
+  gCardAlpha = 1.f;
+  gCardClosing = false;
 }
 
 //----------------------------------------------------------------------------
@@ -1359,7 +1457,11 @@ bool BeginFloatingCardBody(const char* id, bool horizontalScroll)
   // (title bar, search field) stays pinned. max(1) guards the degenerate frame where the caller's
   // height math leaves nothing — a zero-height child asserts in ImGui.
   const float h = std::max(1.f, ImGui::GetContentRegionAvail().y);
-  const ImGuiWindowFlags flags = horizontalScroll ? ImGuiWindowFlags_HorizontalScrollbar : 0;
+  ImGuiWindowFlags flags = horizontalScroll ? ImGuiWindowFlags_HorizontalScrollbar : 0;
+  if (gCardClosing)
+  {
+    flags |= ImGuiWindowFlags_NoInputs; // the body is its own window: it needs the flag too
+  }
   return BeginScrollRegion(id, ImVec2(0.f, h), flags);
 }
 
@@ -1383,6 +1485,7 @@ void EndFloatingCardBody()
     dl->AddRectFilledMultiColor(
       ImVec2(wp.x, wp.y + ws.y - fadeH), ImVec2(wp.x + w, wp.y + ws.y), c0, c0, c1, c1);
   }
+  FadeWindowDrawList(gCardAlpha); // the body draws into its own list
   EndScrollRegion();
 }
 

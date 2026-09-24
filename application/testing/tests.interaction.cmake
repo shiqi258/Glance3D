@@ -253,6 +253,8 @@ f3d_test(NAME TestInteractionMinimalConsoleOverCheatSheetAndFilename DATA f3d.gl
 f3d_test(NAME TestInteractionNotificationCenterReopen DATA f3d.glb RESOLUTION 800,600 INTERACTION UI) #Bell;Close;Bell
 # A click on the gizmo head the card covers belongs to the card: the camera must not move.
 f3d_test(NAME TestInteractionNotificationCenterGizmoClick DATA f3d.glb ARGS -x RESOLUTION 800,600 INTERACTION UI) #Bell;Click the -Y head under the card
+# The bell raises the message center when another card covers it instead of closing it.
+f3d_test(NAME TestInteractionNotificationCenterRaise DATA f3d.glb RESOLUTION 800,600 INTERACTION UI) #H;Bell;Click the sheet;Bell
 
 ## HDRI
 f3d_test(NAME TestInteractionHDRIMove DATA suzanne.ply HDRI palermo_park_1k.hdr INTERACTION) #Shift+MouseRight;

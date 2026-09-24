@@ -194,6 +194,13 @@ window_impl::window_impl(const options& options, const std::optional<Type>& type
     G3DNotificationCenter::GetInstance().SetClockOverride([]() { return 0.0; });
   }
 
+  // Same reason for the floating cards' open / close transitions: they run on wall time, and a
+  // capture taken a few frames after pressing H must show the card, not a half-transparent one.
+  if (utils::getEnv("CTEST_G3D_REDUCED_MOTION").has_value())
+  {
+    this->Internals->Renderer->SetUIReducedMotion(true);
+  }
+
   this->Initialize();
 
   // Give the UI a read-only view of option values so the inspector controls reflect current state

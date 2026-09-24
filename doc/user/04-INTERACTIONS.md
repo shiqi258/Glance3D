@@ -96,12 +96,12 @@ Scene Hotkeys:
 
 Other hotkeys and interactions are available:
 
-- <kbd>H</kbd>: key to toggle the display of a cheat sheet showing all these hotkeys and their statuses.
+- <kbd>H</kbd>: key to toggle the display of a cheat sheet showing all these hotkeys and their statuses. When the sheet is open but covered by another floating card, the key brings it to the front instead.
 - <kbd>CTRL</kbd>+<kbd>Q</kbd>: close the window and quit F3D.
 - <kbd>Esc</kbd>: display the command palette (top-centered console with live command suggestions and the recent log tail) or hide it/the minimal console.
 - <kbd>:</kbd>: display the minimal console.
 - <kbd>CTRL</kbd>+<kbd>K</kbd>: toggle the key hints (the transient "Grid: ON" readouts raised by a binding).
-- <kbd>CTRL</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>: toggle the message center, listing everything Glance3D reported this session.
+- <kbd>CTRL</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>: toggle the message center, listing everything Glance3D reported this session. It opens under the bell it belongs to; when it is open but covered by another floating card, the key (like the bell) brings it to the front instead of closing it.
 - <kbd>Space</kbd>: play the animation if any.
 - <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd>: play the animation backward if any.
 - <kbd>Shift</kbd>+<kbd>V</kbd>: cycle between verbosity levels.
