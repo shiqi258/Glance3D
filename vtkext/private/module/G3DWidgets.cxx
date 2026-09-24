@@ -1,5 +1,6 @@
 #include "G3DWidgets.h"
 
+#include "G3DLayers.h"
 #include "G3DLocaleCore.h"
 #include "G3DTextInputContext.h"
 #include "G3DTheme.h"
@@ -987,10 +988,27 @@ float FloatingCardHeaderHeight()
 }
 
 //----------------------------------------------------------------------------
+bool FloatingCardIdle(const FloatingCardState& st, bool open)
+{
+  return !open && !st.wasOpen;
+}
+
+//----------------------------------------------------------------------------
 FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDesc& desc)
 {
   const float s = Scale();
   FloatingCardResult res;
+
+  // The card's own open edge — not ImGui's "appearing", which also fires after any frame the card
+  // merely was not submitted in (a file load skips every overlay) and would reshuffle the stack.
+  const bool opened = desc.open && !st.wasOpen;
+  st.wasOpen = desc.open;
+  if (!desc.open)
+  {
+    st.dragging = false;
+    res.visible = false;
+    return res;
+  }
 
   const ImVec2 pos = FloatingCardPos(st, desc.defaultPos, desc.size, desc.bounds, desc.margin);
   // Size must be set explicitly (offscreen rendering skips the auto-size frame — see the actor's
@@ -1011,19 +1029,17 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     ImGui::PushStyleColor(ImGuiCol_WindowBg, gCardBg);
   }
 
-  // Z-ORDER: a floating card must never sink under the docked chrome, so it is submitted WITHOUT
-  // NoBringToFrontOnFocus while every docked bar carries it. ImGui adds NoBringToFrontOnFocus
-  // windows at the BOTTOM of the display list *when they are created* — a card created on demand
-  // (the user presses a shortcut long after the bars exist) would therefore land under them no
-  // matter which order the frame submits them in. Staying focusable puts it on top at creation and
-  // raises it on click, while the bars can never raise themselves above it. The command palette
-  // still wins: it calls SetNextWindowFocus() every frame.
+  // Z-ORDER is not decided here: the card declares the Floating band and G3DLayers stacks it above
+  // the docked bars and the viewport tool group, below toasts and the command palette, with the
+  // card opened or pressed last on top. The flags below only carry focus semantics: the card does
+  // not take the keyboard when it opens (users keep pressing the shortcuts they are reading).
   ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | desc.extraFlags;
 
   ImGui::Begin(desc.id, nullptr, flags);
+  G3DLayers::Assign(G3DLayer::Floating, 0, opened);
   if (desc.background != nullptr)
   {
     ImGui::PopStyleColor();
@@ -5874,6 +5890,9 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground);
+  // Above every band and every popup (the picker panel that launched it included): while sampling,
+  // nothing else may take the click.
+  G3DLayers::Assign(G3DLayer::Capture);
   ImGui::SetCursorScreenPos(ImVec2(0.f, 0.f));
   // in-window input blocker only — the pick resolves through IsMouseClicked below so it also
   // works outside the window, where this button cannot be hovered

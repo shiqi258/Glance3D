@@ -56,7 +56,7 @@ if(F3D_MODULE_UI)
     BINARY)
 
   list(APPEND sources ${CMAKE_CURRENT_BINARY_DIR}/G3DUIFontBuffer.cxx ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.cxx)
-  list(APPEND private_headers F3DStyle.h G3DAnimation.h G3DLayout.h G3DTheme.h G3DLoupeRaster.h ${CMAKE_CURRENT_BINARY_DIR}/G3DUIFontBuffer.h ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.h)
+  list(APPEND private_headers F3DStyle.h G3DAnimation.h G3DLayerStack.h G3DLayout.h G3DTheme.h G3DLoupeRaster.h ${CMAKE_CURRENT_BINARY_DIR}/G3DUIFontBuffer.h ${CMAKE_CURRENT_BINARY_DIR}/F3DFontBuffer.h)
 
   set(F3D_DEFAULT_LOGO "${F3D_SOURCE_DIR}/resources/logo-black.png" CACHE PATH "logo")
   mark_as_advanced(F3D_DEFAULT_LOGO)
@@ -129,7 +129,7 @@ set(classes
   )
 
 if (F3D_MODULE_UI)
-  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DIconAtlas G3DWidgets G3DTextInputContext G3DScreenSampler)
+  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DIconAtlas G3DLayers G3DWidgets G3DTextInputContext G3DScreenSampler)
 endif ()
 
 if(WIN32)

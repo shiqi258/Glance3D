@@ -288,15 +288,15 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
   {
     this->RenderHDRIFileName();
   }
-  // The cheat sheet is a floating card the user may drag over the docked bars. Its z-order does NOT
-  // come from this submission order (the sheet is created on demand, long after the bars, and
-  // ImGui's display list is ordered by creation for NoBringToFrontOnFocus windows): the card stays
-  // focusable while the bars carry NoBringToFrontOnFocus, so it always floats above them — see
-  // G3DWidgets::BeginFloatingCard.
-  if (this->CheatSheetVisible)
-  {
-    this->RenderCheatSheet();
-  }
+
+  // DEPTH IS NOT DECIDED BY THIS ORDER. Every window declares a display band (G3DLayers) and the
+  // presenter stacks them once per frame, so this sequence only has to respect data dependencies:
+  // whatever a later widget reads (the tool group's rectangle, this frame's chrome opacity) must be
+  // submitted first. Two further constraints are real: overlays that rewrite ImGuiCol_WindowBg in
+  // place hand it on to whatever comes next, so their relative order is part of how things look;
+  // and the floating cards are dispatched every frame, open or not, because a card has to see
+  // itself close for its next open to raise it (each no-ops once settled closed).
+  this->RenderCheatSheet();
 
   if (this->FpsCounterVisible)
   {
@@ -310,7 +310,7 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
 
   // The docked panel and the floating chrome cluster that reopens it. Both are called
   // unconditionally so the presenter can animate the open AND close transitions (each no-ops once
-  // fully settled); the panel is submitted first so the cluster draws on top of it.
+  // fully settled).
   this->RenderControlPanel(renWin);
   this->RenderViewportChrome(renWin);
 
@@ -319,22 +319,15 @@ int vtkF3DUIActor::RenderOverlay(vtkViewport* vp)
     this->RenderBindingHud();
   }
 
-  // The message center: a floating card the user may drag, submitted before the toasts so a fresh
-  // message still reads on top of the history it was just added to.
-  if (this->NotificationCenterVisible)
-  {
-    this->RenderNotificationCenter();
-  }
+  // The message center: a floating card the user may drag.
+  this->RenderNotificationCenter();
 
-  // Problem messages sit above the docked chrome but below the console palette, which is why they
-  // are submitted here: for NoBringToFrontOnFocus windows ImGui orders by creation, and the
-  // palette (submitted next) also requests focus every frame.
+  // Problem messages (Toast band: above the cards, below the console).
   this->RenderMessages();
 
-  // The console renders LAST: the palette is a light, focused overlay that must sit above the
-  // docked chrome and every other overlay (its window also requests focus each frame; the bars
-  // are NoBringToFrontOnFocus, so it can never sink below them). The legacy full-screen console
-  // short-circuit is gone with the full-screen console itself.
+  // The console (Palette band, the top of the stack below the popups). It takes the keyboard every
+  // frame while it is up; the legacy full-screen console short-circuit is gone with the full-screen
+  // console itself.
   if (this->ConsoleVisible)
   {
     this->RenderConsole(false);

@@ -3140,8 +3140,9 @@
             <div class="note">
               桌面端对应 <code>G3DWidgets::BeginFloatingCard() / BeginFloatingCardBody() / EndFloatingCardBody() /
               EndFloatingCard()</code>，组件自带：锚点 + 拖拽偏移并按边界钳制、标题栏双击复位、常驻区与滚动正文分离（标题永不被滚走）、
-              正文底缘渐隐、外投影与 1px 描边（浮层与停靠栏的层级区分）。<b>层级</b>：浮层卡片保持可聚焦，停靠栏一律
-              <code>NoBringToFrontOnFocus</code>，因此卡片永远压在四栏之上，且与创建顺序无关。
+              正文底缘渐隐、外投影与 1px 描边（浮层与停靠栏的层级区分）。<b>层级</b>：卡片属于 <code>Floating</code> 层带
+              （<code>G3DLayers</code> 统一排序，与创建顺序、键盘焦点都无关）——永远压在停靠栏与视口按钮组之上、消息条与命令面板之下；
+              同层内<b>最后打开或按下</b>的卡片在最上。调用方每帧都调用（开关状态经 <code>desc.open</code> 传入），卡片据此识别「刚打开」。
             </div>
           </div>
         </section>

@@ -368,7 +368,8 @@ protected:
   }
 
   /**
-   * Render the cheatsheet UI widget
+   * Render the cheatsheet UI widget. Reads its own visibility option and is called every frame, so
+   * the card can see itself close (see G3DWidgets::FloatingCardIdle).
    */
   virtual void RenderCheatSheet()
   {

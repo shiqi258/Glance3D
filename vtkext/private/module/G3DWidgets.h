@@ -202,8 +202,10 @@ void EndScrollRegion();
 //
 // One component, three calls:
 //
-//   G3DWidgets::FloatingCardDesc d;  d.id = "MyCard"; d.title = ...; d.size = ...;
+//   if (G3DWidgets::FloatingCardIdle(state, isOpen)) return;     // settled closed: nothing to do
+//   G3DWidgets::FloatingCardDesc d;  d.id = "MyCard"; d.title = ...; d.size = ...; d.open = isOpen;
 //   const auto card = G3DWidgets::BeginFloatingCard(state, d);   // title bar: grip + drag + close
+//   if (!card.visible) return;                                   // nothing submitted: no End call
 //   ...pinned content (search field, toolbar) — stays put while the body scrolls...
 //   G3DWidgets::BeginFloatingCardBody();
 //   ...scrolling content...
@@ -211,11 +213,15 @@ void EndScrollRegion();
 //   G3DWidgets::EndFloatingCard();
 //   if (card.closed) { ...hide the card... }
 //
-// The component owns: window setup (position/size/flags/rounding/rim/elevation shadow), the title
-// bar anatomy (grip affordance, icon, title, close button), drag-to-move with clamping, and the
-// pinned-header / scrolling-body split. It deliberately knows nothing about the app layout: the
-// default anchor and the clamp bounds are injected per frame, the state only carries what the user
-// did. Reuse it for any new floating panel instead of hand-rolling a Begin() + drag handle.
+// Call it every frame, open or not: the card needs to see itself close so that the next open is
+// recognized as one (an opened card is raised to the top of the floating band, see G3DLayers).
+//
+// The component owns: window setup (position/size/flags/rounding/rim/elevation shadow), its display
+// band (G3DLayer::Floating), the title bar anatomy (grip affordance, icon, title, close button),
+// drag-to-move with clamping, and the pinned-header / scrolling-body split. It deliberately knows
+// nothing about the app layout: the default anchor and the clamp bounds are injected per frame, the
+// state only carries what the user did. Reuse it for any new floating panel instead of
+// hand-rolling a Begin() + drag handle.
 //----------------------------------------------------------------------------
 
 /// Session state of one floating card (owned by the caller, one instance per card).
@@ -224,6 +230,7 @@ struct FloatingCardState
   ImVec2 dragOffset = ImVec2(0.f, 0.f); ///< user drag, nominal px (divided by the UI scale)
   bool dragging = false;                ///< the drag handle is held this frame
   bool moved = false;                   ///< the user has dragged this card at least once
+  bool wasOpen = false;                 ///< the caller's `open` on the last frame it was seen
 };
 
 /// Per-frame description of a floating card. Only `id`, `title` and `size` are mandatory; the rest
@@ -242,19 +249,26 @@ struct FloatingCardDesc
   float padding = -1.f;                       ///< content padding (<= 0: theme default)
   const ImVec4* background = nullptr;         ///< window fill override (null: ImGui WindowBg)
   ImGuiWindowFlags extraFlags = 0;            ///< extra window flags OR-ed in
+  bool open = true;                           ///< the caller wants the card shown this frame
 };
 
 /// What the card reported this frame.
 struct FloatingCardResult
 {
+  bool visible = true;   ///< a window was submitted: draw the content, then EndFloatingCard()
   bool closed = false;   ///< the title-bar close button was clicked
   bool dragging = false; ///< the title bar is held — OR this into a force-render condition so the
                          ///< drag stays frame-continuous
 };
 
+/// True when a card that the caller does not want open has nothing left to do this frame (it has
+/// already seen itself close): the caller may return before building the card's description.
+bool FloatingCardIdle(const FloatingCardState& st, bool open);
+
 /// Open a floating card. Submits the window (positioned from the anchor + the user's drag, clamped
 /// into `bounds`) and its title bar, then leaves the cursor below the title bar ready for content.
-/// Always pair with EndFloatingCard().
+/// When the result is not `visible` nothing was submitted and EndFloatingCard() must NOT be called;
+/// otherwise always pair with EndFloatingCard().
 FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDesc& desc);
 void EndFloatingCard();
 

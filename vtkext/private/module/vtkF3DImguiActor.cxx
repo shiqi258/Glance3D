@@ -8,6 +8,7 @@
 #include "G3DIcon.h"
 #include "G3DIconAtlas.h"
 #include "G3DSceneTreeView.h"
+#include "G3DLayers.h"
 #include "G3DLayout.h"
 #include "G3DLocaleCore.h"
 #include "G3DNotificationCenter.h"
@@ -506,6 +507,7 @@ struct vtkF3DImguiActor::Internals
       // fail to resolve — it would quietly resolve to somebody else's rectangle.
       G3DIconAtlas::Invalidate();
       io.Fonts->Clear();
+      G3DLayers::Reset();
 
       io.BackendPlatformName = io.BackendRendererName = nullptr;
       ImGui::DestroyContext();
@@ -1225,6 +1227,7 @@ void vtkF3DImguiActor::RenderDropZone()
       ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoMouseInputs;
 
     ImGui::Begin("DropZoneText", nullptr, flags);
+    G3DLayers::Assign(G3DLayer::Backdrop);
     /* Use background draw list to prevent "ignoring" NoBringToFrontOnFocus */
     ImDrawList* drawList = ImGui::GetBackgroundDrawList();
 
@@ -1633,6 +1636,9 @@ void vtkF3DImguiActor::RenderFileName()
       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
     ImGui::Begin("FileName", nullptr, flags);
+    // Above the docked bars: while the panel slides open the pill glides onto the top bar's title
+    // line, and it must not vanish under the bar it is turning into.
+    G3DLayers::Assign(G3DLayer::Hud);
     // Same copy affordance as the docked top-bar title: the name is click-to-copy with a full-path
     // tooltip and a right-click variants menu. No inline glyph — the floating pill is sized exactly
     // to the text, so keep it text-only and let hover/tooltip carry the hint.
@@ -1762,6 +1768,7 @@ void vtkF3DImguiActor::RenderHDRIFileName()
       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
     ImGui::Begin("HDRIFileName", nullptr, flags);
+    G3DLayers::Assign(G3DLayer::Hud);
     ImGui::TextColored(G3DTheme::TextMuted(), "%s", this->HDRIFileName.c_str());
     ImGui::End();
   }
@@ -1770,6 +1777,13 @@ void vtkF3DImguiActor::RenderHDRIFileName()
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderCheatSheet()
 {
+  // Dispatched every frame (see vtkF3DUIActor::RenderOverlay): the card has to see itself close for
+  // its next open to count as one. Once it has, there is nothing to measure.
+  if (G3DWidgets::FloatingCardIdle(this->Pimpl->CheatSheetFloat, this->CheatSheetVisible))
+  {
+    return;
+  }
+
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
   constexpr float margin = F3DStyle::GetDefaultMargin();
@@ -1900,9 +1914,14 @@ void vtkF3DImguiActor::RenderCheatSheet()
   cardDesc.margin = margin;
   cardDesc.padding = padding;
   cardDesc.background = &sheetBg;
+  cardDesc.open = this->CheatSheetVisible;
 
   const G3DWidgets::FloatingCardResult card =
     G3DWidgets::BeginFloatingCard(this->Pimpl->CheatSheetFloat, cardDesc);
+  if (!card.visible)
+  {
+    return;
+  }
   if (card.closed)
   {
     this->SendCommand("set ui.cheatsheet false");
@@ -2125,6 +2144,7 @@ void vtkF3DImguiActor::RenderFpsCounter()
     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
 
   ImGui::Begin("FpsCounter", nullptr, flags);
+  G3DLayers::Assign(G3DLayer::Hud);
   ImGui::TextUnformatted(fpsString.c_str());
   ImGui::End();
 }
@@ -2381,6 +2401,10 @@ void vtkF3DImguiActor::RenderViewportChrome(vtkOpenGLRenderWindow* renWin)
     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
   ImGui::Begin("ViewportChrome", nullptr, flags);
+  // Its own band, below the floating cards: pressing a button here must never lift the group over
+  // the card that button just opened (the reopened message center used to lose its close button
+  // under it). See G3DLayers.
+  G3DLayers::Assign(G3DLayer::Chrome);
 
   switch (G3DWidgets::ToolGroup("##g3d.chrome", desc))
   {
@@ -3829,11 +3853,15 @@ void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
   }
 
   // Hover = nearest head within its grab radius. Only then does an input overlay exist, so the
-  // rest of the gizmo area stays drag-through for camera rotation.
+  // rest of the gizmo area stays drag-through for camera rotation. The hit test is plain geometry,
+  // so it first asks whether something drawn above the HUD (a floating card, the tool group, a
+  // popup) is under the pointer: a head hidden behind a card must neither light up nor take the
+  // click meant for the card.
   const ImVec2 mouse = ImGui::GetIO().MousePos;
   int hoverIdx = -1;
   float bestD = headR * 1.5f;
-  for (int i = 0; i < 6; i++)
+  const bool covered = G3DLayers::PointerOverLayerAbove(G3DLayer::Hud);
+  for (int i = 0; i < 6 && !covered; i++)
   {
     const float dx = mouse.x - heads[i].pos.x;
     const float dy = mouse.y - heads[i].pos.y;
@@ -3858,6 +3886,7 @@ void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
       ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
     ImGui::Begin("ViewGizmoHot", nullptr, flags);
+    G3DLayers::Assign(G3DLayer::Hud, 1);
     clicked = ImGui::InvisibleButton("##gzhot", ImVec2(2.f * grab, 2.f * grab));
     if (ImGui::IsItemHovered())
     {
@@ -4054,6 +4083,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, G3DTheme::Size::Border * scale);
     ImGui::PushStyleColor(ImGuiCol_Border, G3DTheme::Border());
     ImGui::Begin(id, nullptr, flags);
+    G3DLayers::Assign(G3DLayer::Docked);
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
     return true;
@@ -4432,6 +4462,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
       ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground;
     ImGui::Begin(id, nullptr, sflags);
+    G3DLayers::Assign(G3DLayer::Docked, 1); // over the bar edge it straddles
     ImGui::InvisibleButton("##h", ImVec2(splitterW, bar.h));
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
@@ -4526,6 +4557,12 @@ void vtkF3DImguiActor::StartFrame(vtkOpenGLRenderWindow* renWin)
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::EndFrame(vtkOpenGLRenderWindow* renWin)
 {
+  // The display order is settled between the two halves of ImGui's frame end: EndFrame() handles
+  // this frame's clicks (which may raise a window) and files child windows behind their parents,
+  // then G3DLayers stacks everything by band, then Render() — which skips the EndFrame it already
+  // saw — builds the draw data in that order.
+  ImGui::EndFrame();
+  G3DLayers::Apply();
   ImGui::Render();
   this->Pimpl->RenderDrawData(renWin, ImGui::GetDrawData());
 
@@ -4632,6 +4669,8 @@ void vtkF3DImguiActor::RenderBindingHud()
     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
   ImGui::Begin("##g3d.bindinghud", nullptr, flags);
+  // Above the floating cards: the user reads the shortcut sheet while pressing what it lists.
+  G3DLayers::Assign(G3DLayer::Toast);
 
   ImDrawList* dl = ImGui::GetWindowDrawList();
   const ImDrawListFlags savedFlags = dl->Flags;
@@ -4892,6 +4931,7 @@ void vtkF3DImguiActor::RenderMessages()
     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
   ImGui::Begin("##g3d.messages", nullptr, flags);
+  G3DLayers::Assign(G3DLayer::Toast, 1);
 
   const ImVec2 origin = ImGui::GetWindowPos();
   const double dt = this->ToastClock.Tick(ImGui::GetFrameCount());
@@ -5020,6 +5060,13 @@ std::string RelativeTime(double ageSec)
 //----------------------------------------------------------------------------
 void vtkF3DImguiActor::RenderNotificationCenter()
 {
+  // Dispatched every frame (see vtkF3DUIActor::RenderOverlay), like the cheat sheet. Returning here
+  // also keeps the unread count alive: reading the panel is what marks messages read, so a closed
+  // panel must not get anywhere near MarkAllRead() below.
+  if (G3DWidgets::FloatingCardIdle(this->Pimpl->NotifCenterFloat, this->NotificationCenterVisible))
+  {
+    return;
+  }
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   if (viewport->WorkSize.x < 80.f || viewport->WorkSize.y < 80.f)
   {
@@ -5066,9 +5113,14 @@ void vtkF3DImguiActor::RenderNotificationCenter()
   cardDesc.margin = margin;
   cardDesc.padding = padding;
   cardDesc.background = &cardBg;
+  cardDesc.open = this->NotificationCenterVisible;
 
   const G3DWidgets::FloatingCardResult card =
     G3DWidgets::BeginFloatingCard(this->Pimpl->NotifCenterFloat, cardDesc);
+  if (!card.visible)
+  {
+    return;
+  }
   if (card.closed)
   {
     this->SendCommand("set ui.notification_center false");

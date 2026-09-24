@@ -1,6 +1,7 @@
 #include "vtkF3DImguiConsole.h"
 
 #include "F3DStyle.h"
+#include "G3DLayers.h"
 #include "G3DLocaleCore.h"
 #include "G3DNotificationCenter.h"
 #include "G3DWidgets.h"
@@ -249,8 +250,8 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset, float rightI
       ImVec2(viewport->WorkPos.x + (viewport->WorkSize.x - paletteW) * 0.5f,
         viewport->WorkPos.y + paletteY));
     ImGui::SetNextWindowSize(ImVec2(paletteW, 0.f)); // height fits content
-    // Hard z-order guarantee: the docked bars are NoBringToFrontOnFocus, so the focused palette
-    // always sits above them regardless of window creation order.
+    // Keyboard focus only: the palette owns the keys while it is up. Its depth comes from the
+    // Palette band (G3DLayers), not from this call.
     ImGui::SetNextWindowFocus();
   }
 
@@ -265,6 +266,9 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset, float rightI
   }
 
   ImGui::Begin("Console", nullptr, winFlags);
+  // Both faces (palette and minimal line) share this window, and both sit above the floating cards
+  // and toasts: they are what the user is typing into.
+  G3DLayers::Assign(G3DLayer::Palette);
 
   // Input row first (palette anatomy: prompt on top, suggestions/log below).
   ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue |

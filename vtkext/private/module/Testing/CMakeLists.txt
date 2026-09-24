@@ -41,6 +41,8 @@ endif()
 if(F3D_MODULE_UI)
   # Needs ImDrawVert, so it only exists where the bundled/external ImGui does.
   list(APPEND test_sources TestG3DIconRaster.cxx)
+  # Pure models of the UI-only overlay code (headers that ship with the UI module).
+  list(APPEND test_sources TestG3DLayerStack.cxx)
 endif()
 
 vtk_add_test_cxx(vtkextPrivateTests tests
