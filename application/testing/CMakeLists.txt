@@ -8,6 +8,7 @@ include(tests.home.cmake)
 include(tests.screenshot.cmake)
 include(tests.gaussian.cmake)
 include(tests.interaction.cmake)
+include(tests.ui_layout.cmake)
 include(tests.plugins.cmake)
 
 if(F3D_PLUGIN_BUILD_ALEMBIC)

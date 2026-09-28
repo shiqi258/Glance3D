@@ -8,6 +8,7 @@
 #include "G3DSceneTreeView.h"
 #include "G3DLayers.h"
 #include "G3DLayout.h"
+#include "G3DLayoutProbe.h"
 #include "G3DLocaleCore.h"
 #include "G3DNotificationCenter.h"
 #include "G3DTextInputContext.h"
@@ -4489,6 +4490,8 @@ void vtkF3DImguiActor::StartFrame(vtkOpenGLRenderWindow* renWin)
   ImGui::GetStyle().Colors[ImGuiCol_WindowBg] = G3DTheme::Panel();
 
   ImGui::NewFrame();
+  // Layout tests only (G3D_LAYOUT_DUMP): records every item this frame registers.
+  G3DLayoutProbe::BeginFrame();
 
   // Transitions play only where something can watch them. A hidden window (a --output render) has
   // no audience until an interaction session drives it -- before that, any frame may be the one
@@ -4522,6 +4525,7 @@ void vtkF3DImguiActor::EndFrame(vtkOpenGLRenderWindow* renWin)
   ImGui::EndFrame();
   G3DLayers::Apply();
   ImGui::Render();
+  G3DLayoutProbe::EndFrame(this->FontScale);
   this->Pimpl->RenderDrawData(renWin, ImGui::GetDrawData());
 
   // Focus-scoped IME: keep the OS input method off while no text field is focused (so bare-key

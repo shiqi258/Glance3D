@@ -129,7 +129,7 @@ set(classes
   )
 
 if (F3D_MODULE_UI)
-  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DIconAtlas G3DLayers G3DWidgets G3DTextInputContext G3DScreenSampler G3DUiSetup)
+  set(classes ${classes} vtkF3DImguiActor vtkF3DImguiConsole vtkF3DImguiObserver F3DStyle G3DIcon G3DIconAtlas G3DLayers G3DWidgets G3DTextInputContext G3DScreenSampler G3DUiSetup G3DLayoutProbe)
 endif ()
 
 if(WIN32)
@@ -200,6 +200,10 @@ if (F3D_MODULE_UI)
     vtk_module_include(f3d::vtkextPrivate
       PRIVATE
         "${F3D_SOURCE_DIR}/external/imgui")
+    # Compiles in Dear ImGui's per-item test-engine hooks, which G3DLayoutProbe implements to record
+    # the layout for the DPI layout tests. They do nothing until the probe arms them
+    # (G3D_LAYOUT_DUMP); an external imgui is built without them, and those tests are skipped.
+    vtk_module_definitions(f3d::vtkextPrivate PRIVATE IMGUI_ENABLE_TEST_ENGINE)
   endif ()
   # G3DTextInputContext drives the Win32 IME (Imm* API) so shortcuts work under any input method.
   if(WIN32)
