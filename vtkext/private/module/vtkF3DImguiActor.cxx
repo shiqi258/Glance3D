@@ -1476,7 +1476,7 @@ ArrayMetaCell BuildArrayMetaCell(
   }
 
   const G3DDp px = G3DTheme::Type::Overline;         // styleguide .tree-meta overline
-  const float nameMin = 72_dp * scale;                // ~8 mono glyphs: below this the name is a stub
+  const float nameMin = 72_dp * scale;               // ~8 mono glyphs: below this the name is a stub
   const float gap = G3DTheme::Spacing::Sm * scale;
   auto join = [](const std::string& l, const std::string& r)
   { return l.empty() ? r : (r.empty() ? l : l + " \xc2\xb7 " + r); };
@@ -1799,7 +1799,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
 
   // Height caps at the center rect (content scrolls) with a usability floor for slit-thin
   // centers; the window itself stays the hard bound. Width is content-sized, window-clamped.
-  constexpr float minSheetH = 160.f;
+  constexpr G3DDp minSheetH{ 160.f };
   float sheetH = std::min(textHeight, std::max(center.h - 2.f * margin, minSheetH * uiScale));
   sheetH = std::min(sheetH, work.h - 2.f * margin);
   const float sheetW = std::min(this->Pimpl->CheatSheetWidth, work.w - 2.f * margin);
@@ -3702,7 +3702,7 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
     for (const float q : { 0.25f, 0.5f, 0.75f })
     {
       const float ty = p1.y + (p0.y - p1.y) * q; // q=fraction of the range, bottom(min) -> top(max)
-      const float tickW = (q == 0.5f ? 4.f : 2.5f) * scale;
+      const float tickW = (q == 0.5f ? 4_dp : 2.5_dp) * scale;
       dl->AddLine(ImVec2(p0.x - tickW - 1_dp * scale, ty), ImVec2(p0.x - 1_dp * scale, ty), tickCol,
         1_dp * scale);
     }
@@ -5185,8 +5185,8 @@ void vtkF3DImguiActor::RenderNotificationCenter()
 
   const float cardW = std::clamp(rc.w * 0.42f, std::min(320_dp * scale, rc.w - 2.f * margin),
     std::min(520_dp * scale, std::max(200_dp * scale, rc.w - 2.f * margin)));
-  const float cardH =
-    std::min(std::max(220_dp * scale, rc.h - 2.f * margin), std::min(440_dp * scale, work.h - 2.f * margin));
+  const float cardH = std::min(
+    std::max(220_dp * scale, rc.h - 2.f * margin), std::min(440_dp * scale, work.h - 2.f * margin));
 
   // Opens UNDER the bell it belongs to — the top-right tool group while the panel is closed, the
   // top bar's tool cluster while it is open — right edges flush, the group itself left uncovered so

@@ -530,7 +530,8 @@ bool IconButton(const char* id, G3DIconId icon, G3DDp size, bool round, const ch
     // Small accent underline dot hugging the button's bottom edge (scales with the press shrink).
     // Kept for Well too: a non-color cue that survives grayscale / color-blindness, so the on state
     // never rests on the accent tint alone.
-    dl->AddCircleFilled(ImVec2(ctr.x, r1.y - 3_dp * s), 1.75_dp * s, U32(G3DTheme::Accent(), alpha), 12);
+    dl->AddCircleFilled(
+      ImVec2(ctr.x, r1.y - 3_dp * s), 1.75_dp * s, U32(G3DTheme::Accent(), alpha), 12);
   }
 
   if (tooltip && tooltip[0])
@@ -1558,7 +1559,8 @@ bool CollapsingSection(const char* label, bool* open)
 
   const float fs = 13_dp * s;
   const ImVec2 ts = CalcTextSized(label, fs);
-  DrawTextSized(dl, ImVec2(hp.x + pad + 18_dp * s, cy - ts.y * 0.5f), U32(G3DTheme::Text()), label, fs);
+  DrawTextSized(
+    dl, ImVec2(hp.x + pad + 18_dp * s, cy - ts.y * 0.5f), U32(G3DTheme::Text()), label, fs);
 
   ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * s)); // gap between header and content
   ImGui::PopID();
@@ -1859,12 +1861,12 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
   // full-width row stays the hit target, so the pads below place content relative to the band edge
   // (band inset 8 + band-internal pad 8 = 16, on the 8px grid).
   const float flatInset = G3DTheme::Spacing::Sm * s;
-  const float headPadL = (desc.variant == CollapseVariant::Ghost ? 2.f
-      : desc.variant == CollapseVariant::Sub                     ? 6.f
-      : desc.variant == CollapseVariant::Flat                    ? 16.f
-                                                                 : 8.f) *
+  const float headPadL = (desc.variant == CollapseVariant::Ghost ? 2_dp
+      : desc.variant == CollapseVariant::Sub                     ? 6_dp
+      : desc.variant == CollapseVariant::Flat                    ? 16_dp
+                                                                 : 8_dp) *
     s;
-  const float headPadR = (desc.variant == CollapseVariant::Flat ? 16.f : 10.f) * s;
+  const float headPadR = (desc.variant == CollapseVariant::Flat ? 16_dp : 10_dp) * s;
 
   AAGuard aa(dl);
 
@@ -2698,9 +2700,9 @@ ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen)
     std::snprintf(chip, sizeof(chip), "x%d", std::min(desc.count, 999));
     gutterX -= BadgeWidth(chip);
     ImGui::SetCursorScreenPos(ImVec2(gutterX, p0.y + m.padY));
-    const int firstVtx = ImGui::GetWindowDrawList()->VtxBuffer.Size;
+    const int chipVtx = ImGui::GetWindowDrawList()->VtxBuffer.Size;
     Badge(chip, ToneBadge(desc.tone));
-    SwellLastItem(firstVtx, CountPulseScale(ImGui::GetID("##g3d.toast.count"), desc.count));
+    SwellLastItem(chipVtx, CountPulseScale(ImGui::GetID("##g3d.toast.count"), desc.count));
   }
 
   res.hovered = ImGui::IsMouseHoveringRect(p0, p1);
@@ -3043,7 +3045,7 @@ bool Toggle(const char* label, bool* v)
   const ImVec4 track = LerpColor(G3DTheme::SurfacePress(), G3DTheme::Accent(), w.value.Value());
   dl->AddRectFilled(t0, t1, U32(track, alpha), h * 0.5f);
 
-  const float knobR = h * 0.5f - 2_dp * s + w.hover.Value() * 1.f * s;
+  const float knobR = h * 0.5f - 2_dp * s + w.hover.Value() * 1_dp * s;
   const float kx = G3DLerp(t0.x + h * 0.5f, t1.x - h * 0.5f, w.value.Value());
   // Knob brightness carries state too (Fluent/Material): a resting OFF knob sits at mid grey so a
   // column of disabled switches is not the brightest thing on the panel; hover lifts it back up as
@@ -3362,8 +3364,8 @@ bool RangeSliderFloat(
   {
     if (glow > 0.01f)
     {
-      dl->AddCircleFilled(
-        ImVec2(gx, cy), thumbR + 3_dp * s * glow, U32(G3DTheme::Accent(), 0.25f * glow * alpha), 24);
+      dl->AddCircleFilled(ImVec2(gx, cy), thumbR + 3_dp * s * glow,
+        U32(G3DTheme::Accent(), 0.25f * glow * alpha), 24);
     }
     dl->AddCircleFilled(ImVec2(gx, cy), thumbR, U32(ImVec4(1.f, 1.f, 1.f, 1.f), alpha), 24);
     dl->AddCircle(
@@ -3453,7 +3455,8 @@ bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hi
       const ImVec2 ts = ImGui::CalcTextSize(preedit);
       dl->PushClipRect(p0, ImVec2(p0.x + width, p0.y + h), true);
       dl->AddText(ImVec2(cx, textY), U32(G3DTheme::Text()), preedit);
-      dl->AddLine(ImVec2(cx, underY), ImVec2(cx + ts.x, underY), U32(G3DTheme::Accent()), 1.5_dp * s);
+      dl->AddLine(
+        ImVec2(cx, underY), ImVec2(cx + ts.x, underY), U32(G3DTheme::Accent()), 1.5_dp * s);
       dl->PopClipRect();
     }
   }
@@ -3821,8 +3824,8 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
     {
       bar.w *= 0.40f;
     }
-    dl->AddRectFilled(ImVec2(p0.x, p0.y + 3_dp * s), ImVec2(p0.x + 2_dp * s, p0.y + rowH - 3_dp * s),
-      U32(bar), 1_dp * s);
+    dl->AddRectFilled(ImVec2(p0.x, p0.y + 3_dp * s),
+      ImVec2(p0.x + 2_dp * s, p0.y + rowH - 3_dp * s), U32(bar), 1_dp * s);
   }
 
   // Indentation rails (continuing guide lines), one per depth column. A rail hangs from the CHEVRON
@@ -4902,8 +4905,8 @@ bool ColorSwatch(const char* id, const float col[4], const ColorSwatchDesc& desc
   ImGui::PushID(id);
   const G3DScale s = G3DWidgets::UiScale();
   const float h = (desc.compact ? 26_dp : G3DTheme::Size::Control) * s;
-  const float chip = (desc.compact ? 16.f : 20.f) * s;
-  const float padX = (desc.compact ? 6.f : 8.f) * s;
+  const float chip = (desc.compact ? 16_dp : 20_dp) * s;
+  const float padX = (desc.compact ? 6_dp : 8_dp) * s;
   const float gap = G3DTheme::Spacing::Sm * s;
   const float chevSz = 14_dp * s;
 
@@ -5154,8 +5157,9 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
   };
 
   ImDrawList* dl = ImGui::GetWindowDrawList();
-  const float W = 288_dp * s; // content width (312 panel - 2*12 padding); wider so the regular-size
-                             // (14px) control row — format + space/float segments + copy — fits on one line
+  // Content width (312 panel - 2*12 padding): wide enough that the regular-size (14px) control
+  // row — format + space/float segments + copy — fits on one line.
+  const float W = 288_dp * s;
   const float G = G3DTheme::Spacing::Md * s;
   const float gap2 = G3DTheme::Spacing::Sm * s;
   const float kRowLabelW = 36_dp * s; // left label column (强度 / 预设 / 最近) at the regular 14px font
@@ -5324,7 +5328,7 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
     const ImVec2 pv0(px, ctrlMid), pv1(px + ctrl, ctrlMid + ctrl);
     if (st.intensity > 1.01f)
     {
-      const float glow = std::min((st.intensity - 1.f) * 4.f * s, 16_dp * s);
+      const float glow = std::min((st.intensity - 1.f) * 4_dp * s, 16_dp * s);
       dl->AddRectFilled(ImVec2(pv0.x - glow, pv0.y - glow), ImVec2(pv1.x + glow, pv1.y + glow),
         U32(ImVec4(base.r, base.g, base.b, 0.55f)), G3DTheme::Radius::Control * s + glow);
     }
@@ -5525,9 +5529,11 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
       dl->AddRect(ImVec2(cx, y), ImVec2(cx + fmtW, y + rowH), U32(G3DTheme::Border()),
         G3DTheme::Radius::Small * s, 0, G3DTheme::Size::Border * s);
       const ImVec4 fcol = LerpColor(G3DTheme::TextMuted(), G3DTheme::Text(), fa.hover.Value());
-      dl->AddText(ImVec2(cx + 8_dp * s, y + (rowH - ImGui::GetTextLineHeight()) * 0.5f), U32(fcol), fmtLbl);
+      dl->AddText(ImVec2(cx + 8_dp * s, y + (rowH - ImGui::GetTextLineHeight()) * 0.5f),
+        U32(fcol), fmtLbl);
       G3DIcon::Draw(dl, G3DIconId::UpDown,
-        ImVec2(cx + fmtW - 5_dp * s - fmtIc * 0.5f, y + rowH * 0.5f), fmtIc, U32(G3DTheme::TextSubtle()));
+        ImVec2(cx + fmtW - 5_dp * s - fmtIc * 0.5f, y + rowH * 0.5f), fmtIc,
+        U32(G3DTheme::TextSubtle()));
     }
     if (fmtClick)
     {
@@ -5592,8 +5598,9 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
         AAGuard aa(dl);
         if (on)
         {
-          dl->AddRectFilled(ImVec2(bx, segY + 2_dp * s), ImVec2(bx + widths[i], segY + segH - 2_dp * s),
-            U32(G3DTheme::SurfacePress()), 4_dp * s);
+          dl->AddRectFilled(ImVec2(bx, segY + 2_dp * s),
+            ImVec2(bx + widths[i], segY + segH - 2_dp * s), U32(G3DTheme::SurfacePress()),
+            4_dp * s);
         }
         const ImVec4 tc =
           on ? G3DTheme::Text() : LerpColor(G3DTheme::TextSubtle(), G3DTheme::Text(), sa.hover.Value());
@@ -5987,7 +5994,8 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
           G3DTheme::Radius::Small * s);
         DrawDashedRect(dl, ImVec2(addX, y), ImVec2(addX + sw, y + sw), G3DTheme::Radius::Small * s,
           U32(bc), G3DTheme::Size::Border * s, 3.5_dp * s, 2.5_dp * s);
-        G3DIcon::Draw(dl, G3DIconId::Plus, ImVec2(addX + sw * 0.5f, y + sw * 0.5f), 12_dp * s, U32(ic));
+        G3DIcon::Draw(
+          dl, G3DIconId::Plus, ImVec2(addX + sw * 0.5f, y + sw * 0.5f), 12_dp * s, U32(ic));
         if (addClick)
         {
           auto& rec = st.recents;
@@ -6612,7 +6620,7 @@ void DrawSelectChevron(ImDrawList* dl, const ImVec2& center, float size, ImU32 c
 void PushMenuStyle(float alpha)
 {
   const G3DScale s = G3DWidgets::UiScale();
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4_dp * s, 4_dp * s)); // .menu padding: 4px
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4_dp * s, 4_dp * s)); // .menu padding
   ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Popup * s); // floating layer
   // border drawn manually (DrawMenuChrome): ImGui strokes window borders without line AA (disabled
   // globally), which staircases the rounded corners
@@ -6799,7 +6807,7 @@ static bool BeginSelectImpl(const char* id, const char* preview, const char* hin
   if (estH > 1.f && pos.y + estH > disp.y - margin)
   {
     pos.y = std::max(margin, p0.y - gapY - estH); // flip above
-    pos.y += 6_dp * s * (1.f - mt);                // slide into place (mirrored)
+    pos.y += 6_dp * s * (1.f - mt);               // slide into place (mirrored)
   }
   else
   {
@@ -6991,7 +6999,7 @@ bool MenuAction(const char* label)
   {
     const G3DScale s = G3DWidgets::UiScale();
     ContextMenuState& st = gContextMenus[gContextMenuStack.back()];
-    st.measuring = std::max(st.measuring, ImGui::CalcTextSize(label).x + 2.f * 10.f * s);
+    st.measuring = std::max(st.measuring, ImGui::CalcTextSize(label).x + 2.f * 10_dp * s);
   }
   return SelectItemImpl(label, false, nullptr); // no check, plain Text() row — same as a dropdown item
 }
@@ -7003,7 +7011,7 @@ void EndContextMenu()
   {
     const G3DScale s = G3DWidgets::UiScale();
     ContextMenuState& st = gContextMenus[gContextMenuStack.back()];
-    st.width = std::max(st.measuring + 2.f * 4.f * s, 120_dp * s); // + window padding, min width
+    st.width = std::max(st.measuring + 2.f * 4_dp * s, 120_dp * s); // + window padding, min width
     gContextMenuStack.pop_back();
   }
   ImGui::EndPopup();

@@ -20,10 +20,6 @@
 
 #include <compare>
 
-/// TRANSITIONAL: while call sites migrate from `12.f * s` to `12_dp * s`, a bare float may still be
-/// multiplied by a G3DScale. Removed once they have; the deletions below then take effect again.
-#define G3D_UNITS_TRANSITION 1
-
 /// A length in logical px (at UI scale 1).
 class G3DDp
 {
@@ -153,26 +149,11 @@ public:
     return scale.Value * length.Raw();
   }
 
-#if G3D_UNITS_TRANSITION
-  friend constexpr float operator*(float px, G3DScale scale) noexcept
-  {
-    return px * scale.Value;
-  }
-  friend constexpr float operator*(G3DScale scale, float px) noexcept
-  {
-    return scale.Value * px;
-  }
-  friend constexpr float operator/(float px, G3DScale scale) noexcept
-  {
-    return px / scale.Value;
-  }
-#else
   // A physical length scaled again is the double-scaling bug. These exist so that no float overload
   // can be added to "fix" the compile error: convert the operand to a G3DDp where it originates.
   friend float operator*(float, G3DScale) = delete;
   friend float operator*(G3DScale, float) = delete;
   friend float operator/(float, G3DScale) = delete;
-#endif
 
   constexpr bool operator==(const G3DScale&) const noexcept = default;
 

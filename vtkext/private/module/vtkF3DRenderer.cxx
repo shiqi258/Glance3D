@@ -2238,7 +2238,7 @@ void vtkF3DRenderer::UpdateG3DFaceHighlight()
   vtkProp3D* prop = node >= 0 ? graph->FaceProp(node) : nullptr;
   vtkActor* actor = vtkActor::SafeDownCast(prop);
   vtkMapper* mapper = actor != nullptr ? actor->GetMapper() : nullptr;
-  vtkDataSet* dataset = mapper != nullptr ? mapper->GetInputAsDataSet() : nullptr;
+  vtkDataSet* dataset = mapper != nullptr ? mapper->GetInput() : nullptr;
   const int faceId = dataset != nullptr ? graph->RenderableLocalIndex(node) : -1;
 
   if (faceId < 0 || actor->GetVisibility() == 0)

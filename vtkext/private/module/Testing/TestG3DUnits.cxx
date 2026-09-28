@@ -67,7 +67,6 @@ static_assert(!std::is_convertible_v<float, G3DScale>);
 static_assert(!std::is_convertible_v<G3DDp, G3DScale>);
 
 // Double scaling: a physical length cannot be scaled again, whatever arithmetic type it is in.
-#if !G3D_UNITS_TRANSITION
 static_assert(!Multipliable<float, G3DScale>);
 static_assert(!Multipliable<G3DScale, float>);
 static_assert(!Multipliable<double, G3DScale>);
@@ -76,7 +75,6 @@ static_assert(!Multipliable<int, G3DScale>);
 static_assert(!Multipliable<G3DScale, int>);
 static_assert(!Divisible<float, G3DScale>);
 static_assert(!Divisible<int, G3DScale>);
-#endif
 static_assert(!Divisible<G3DDp, G3DScale>);
 static_assert(!Multipliable<G3DScale, G3DScale>);
 

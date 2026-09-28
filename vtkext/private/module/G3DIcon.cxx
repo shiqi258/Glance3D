@@ -634,7 +634,6 @@ void DrawEyedropper(const IconCanvas& c)
   ImDrawList* dl = c.dl;
   auto S = [&](float x, float y) { return c.P(x / 24.f, y / 24.f); };
   const float r = c.R(2.12132f / 24.f);
-  constexpr float kPi = 3.14159265f;
 
   dl->PathClear(); // path1 (open stroke)
   dl->PathLineTo(S(2.f, 22.f));
