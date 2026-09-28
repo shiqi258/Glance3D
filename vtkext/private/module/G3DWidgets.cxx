@@ -38,17 +38,13 @@ void CpTrace(const char* fmt, ...)
 // The live UI scale (see G3DWidgets::SetUiScale): one value for every widget, the same one the host
 // loaded the fonts and scaled the style with.
 G3DScale gUiScale;
-float Scale()
-{
-  return gUiScale.Factor();
-}
 
 // Data font (monospace) registered by the host — see G3DWidgets::SetDataFont(). Null until set.
 ImFont* gDataFont = nullptr;
 
 // RAII: switch to the data font (values / filenames / array names / counts) at the current size,
-// so Scale() and every text metric stay consistent inside the scope. No-op when no data font is
-// registered — widgets keep working in hosts that never inject one.
+// so the ambient size and every text metric stay consistent inside the scope. No-op when no data
+// font is registered — widgets keep working in hosts that never inject one.
 struct DataFontScope
 {
   bool pushed;
@@ -194,7 +190,7 @@ inline ImVec2 PxSnap(const ImVec2& p)
 // drift apart in size or shape — that divergence (one handle clipped, another not) is what made a
 // handle look oval. Draw it UNCLIPPED (see call sites): the handle is taller than its track, so a
 // track-height clip would shave its top/bottom into a flat-sided oval.
-inline void DrawSliderThumb(ImDrawList* dl, const ImVec2& center, float r, float s)
+inline void DrawSliderThumb(ImDrawList* dl, const ImVec2& center, float r, G3DScale s)
 {
   const ImVec2 c = PxSnap(center);
   // Soft drop shadow, mirroring the styleguide .cp-thumb `box-shadow: 0 1px 3px rgba(0,0,0,.4)`
@@ -226,7 +222,7 @@ std::string Tr(const char* key)
 // never disagree with the button that lands in it.
 float ButtonBoxHeight(bool withIcon, G3DWidgets::ButtonDensity density)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float iconSz = withIcon ? G3DTheme::Size::Icon * s : 0.f;
   const float content = std::max(ImGui::GetTextLineHeight(), iconSz);
   if (density == G3DWidgets::ButtonDensity::Compact)
@@ -246,13 +242,13 @@ float ButtonPadX(G3DWidgets::ButtonDensity density)
 {
   return (density == G3DWidgets::ButtonDensity::Compact ? G3DTheme::Spacing::Sm
                                                         : G3DTheme::Spacing::Md) *
-    Scale();
+    G3DWidgets::UiScale();
 }
 
 // Glyph + gap + label, without the padding — what the box centers its content on.
 float ButtonContentWidth(const char* label, bool withIcon)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float iconSz = withIcon ? G3DTheme::Size::Icon * s : 0.f;
   const bool hasText = label != nullptr && label[0] != '\0';
   const float textW = hasText ? ImGui::CalcTextSize(label).x : 0.f;
@@ -271,7 +267,7 @@ bool ButtonImpl(const char* label, G3DWidgets::ButtonVariant variant, const G3DI
   G3DWidgets::ButtonDensity density)
 {
   ImGui::PushID(label);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float padX = ButtonPadX(density);
   const float gap = G3DTheme::Spacing::Sm * s;
   const float iconSz = icon ? G3DTheme::Size::Icon * s : 0.f;
@@ -419,12 +415,12 @@ float ButtonWidth(const char* label, ButtonDensity density, bool withIcon)
 }
 
 //----------------------------------------------------------------------------
-bool IconButton(const char* id, G3DIconId icon, float size, bool round, const char* tooltip, bool on,
-  IconOnStyle onStyle, const char* shortcut)
+bool IconButton(const char* id, G3DIconId icon, G3DDp size, bool round, const char* tooltip,
+  bool on, IconOnStyle onStyle, const char* shortcut)
 {
   ImGui::PushID(id);
-  const float s = Scale();
-  const float sz = (size > 0.f ? size : G3DTheme::Size::IconButton) * s;
+  const G3DScale s = G3DWidgets::UiScale();
+  const float sz = size * s;
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const bool clicked = ImGui::InvisibleButton("##ib", ImVec2(sz, sz));
   const bool hovered = ImGui::IsItemHovered();
@@ -579,9 +575,9 @@ int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count)
     return clicked;
   }
   ImGui::PushID(id);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float h = G3DTheme::Size::IconButton * s;
-  const float segW = (G3DTheme::Size::IconButton + 4.f) * s; // a touch wider than tall
+  const float segW = (G3DTheme::Size::IconButton + 4_dp) * s; // a touch wider than tall
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const ImVec2 g1(p0.x + segW * count, p0.y + h);
   const float radius = G3DTheme::Radius::Control * s;
@@ -708,11 +704,11 @@ std::vector<CardFrame> gCardStack;
 // LEGACY (no current callers): manual-padding card predating the BeginCollapse child-window content
 // box, with an unguarded ChannelsSplit (no gChannelDepth) -- must NOT be nested inside BeginCollapse
 // or BeginAccordion. Migrate to the child-window mechanism (or delete) before reviving it.
-bool BeginCard(const char* id, bool hoverable, float padding)
+bool BeginCard(const char* id, bool hoverable, G3DDp padding)
 {
   ImGui::PushID(id);
-  const float s = Scale();
-  const float pad = (padding > 0.f ? padding : G3DTheme::Spacing::Md) * s;
+  const G3DScale s = G3DWidgets::UiScale();
+  const float pad = padding * s;
   const float width = ImGui::GetContentRegionAvail().x;
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
 
@@ -743,7 +739,7 @@ bool EndCard()
   ImGui::PopTextWrapPos();
   ImGui::EndGroup();
 
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const ImVec2 mn = cf.p0;
   const ImVec2 mx(cf.p0.x + cf.width, ImGui::GetItemRectMax().y + cf.pad);
 
@@ -787,10 +783,10 @@ bool EndCard()
 
 namespace
 {
-// Overline type size (styleguide --fs-overline 11px), proportional to the live DPI scale.
+// Overline type size (G3DTheme::Type::Overline) at the live UI scale.
 float OverlineSize()
 {
-  return 11.f * Scale();
+  return G3DTheme::Type::Overline * G3DWidgets::UiScale();
 }
 
 // Draw text at an explicit pixel size (the design system uses smaller sizes for overlines / badges
@@ -809,7 +805,7 @@ ImVec2 CalcTextSized(const char* text, float px)
 //----------------------------------------------------------------------------
 void SectionTitle(const char* text)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   // Overline: one step below the 14px base, in muted (not subtle) text so the group label stays
   // clearly legible at small size while still reading quieter than the content it heads.
   const float fs = 12.f * s;
@@ -824,7 +820,7 @@ void SectionTitle(const char* text)
 //----------------------------------------------------------------------------
 void Divider()
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float m = G3DTheme::Spacing::Md * s;
   ImGui::Dummy(ImVec2(0.f, m));
   ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -839,7 +835,7 @@ namespace
 {
 bool PanelHeaderImpl(const char* title, const G3DIconId* icon, bool closable)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   // The panel header is the strongest label in the panel: 13px and near-full-strength text, so each
   // docked panel is clearly and confidently titled (louder than the in-content section overlines).
   const float fs = 13.f * s;
@@ -872,7 +868,7 @@ bool PanelHeaderImpl(const char* title, const G3DIconId* icon, bool closable)
   bool closed = false;
   if (closable)
   {
-    constexpr float btn = 18.f;         // nominal — IconButton applies the UI scale itself
+    constexpr G3DDp btn{ 18.f };        // logical — IconButton applies the UI scale itself
     const float btnPx = btn * s;        // on-screen square, for placement math
     const ImVec2 keep = ImGui::GetCursorScreenPos();
     const float bx = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - 10.f * s - btnPx;
@@ -914,7 +910,7 @@ bool PanelHeader(const char* title, G3DIconId icon, bool closable)
 ImVec2 FloatingCardPos(
   FloatingCardState& st, ImVec2 defaultPos, ImVec2 size, const ImVec4& bounds, float margin)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   ImVec2 pos(defaultPos.x + st.dragOffset.x * s, defaultPos.y + st.dragOffset.y * s);
   // std::max guards the clamp range against inversion when the bounds are smaller than the card.
   pos.x = std::clamp(
@@ -923,25 +919,25 @@ ImVec2 FloatingCardPos(
     pos.y, bounds.y + margin, std::max(bounds.y + margin, bounds.y + bounds.w - margin - size.y));
   // Write the clamped result back: the stored offset must never exceed what is actually shown, or
   // shrinking the window leaves a dead zone where reverse dragging has no visible effect.
-  st.dragOffset = ImVec2((pos.x - defaultPos.x) / s, (pos.y - defaultPos.y) / s);
+  st.dragOffset = G3DDp2{ s.ToDp(pos.x - defaultPos.x), s.ToDp(pos.y - defaultPos.y) };
   return pos;
 }
 
 //----------------------------------------------------------------------------
 namespace
 {
-// Title-bar band height (nominal px) — fixed, unlike the docked PanelHeader whose height falls out
-// of the layout: the drag hot zone, the band fill and the content offset must agree exactly.
-constexpr float kCardHeaderH = 32.f;
-// Close button edge (nominal — IconButton applies the UI scale itself).
-constexpr float kCardCloseBtn = 18.f;
+// Title-bar band height — fixed, unlike the docked PanelHeader whose height falls out of the
+// layout: the drag hot zone, the band fill and the content offset must agree exactly.
+constexpr G3DDp kCardHeaderH{ 32.f };
+// Close button edge (IconButton applies the UI scale itself).
+constexpr G3DDp kCardCloseBtn{ 18.f };
 // Horizontal inset of the title bar's first/last element from the card edge.
-constexpr float kCardInset = 10.f;
+constexpr G3DDp kCardInset{ 10.f };
 
 /// The "grab me" texture every draggable handle in the industry wears (Figma panels, VS Code views,
 /// Blender headers): a 2x3 dot grid. Drawn muted at rest and brightened on hover, so the title bar
 /// advertises the drag before the cursor ever changes.
-void DrawGripDots(ImDrawList* dl, const ImVec2& center, float s, ImU32 col)
+void DrawGripDots(ImDrawList* dl, const ImVec2& center, G3DScale s, ImU32 col)
 {
   const float step = 3.8f * s;
   const float r = 1.3f * s;
@@ -992,7 +988,8 @@ void FadeWindowDrawList(float alpha)
 /// Outward elevation shadow for a floating layer: concentric rounded strokes fading out, drawn
 /// strictly OUTSIDE the card rect (strokes, not fills, so nothing paints over the card itself).
 /// This is what separates the card from the opaque docked chrome it may overlap.
-void DrawCardShadow(ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, float rounding, float s)
+void DrawCardShadow(
+  ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, float rounding, G3DScale s)
 {
   const AAGuard aa(dl);
   constexpr int kRings = 5;
@@ -1012,7 +1009,7 @@ void DrawCardShadow(ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, float ro
 //----------------------------------------------------------------------------
 float FloatingCardHeaderHeight()
 {
-  return kCardHeaderH * Scale();
+  return kCardHeaderH * G3DWidgets::UiScale();
 }
 
 //----------------------------------------------------------------------------
@@ -1062,7 +1059,7 @@ bool FloatingCardIdle(FloatingCardState& st, bool open)
 //----------------------------------------------------------------------------
 FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDesc& desc)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   FloatingCardResult res;
 
   // The card's own open edge — not ImGui's "appearing", which also fires after any frame the card
@@ -1086,7 +1083,7 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     // where the last open was dragged to says nothing about where this one is wanted.
     st.detached = false;
     st.moved = false;
-    st.dragOffset = ImVec2(0.f, 0.f);
+    st.dragOffset = G3DDp2{};
   }
 
   ImVec2 pos;
@@ -1099,11 +1096,11 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     req.anchor = desc.anchor;
     req.w = desc.size.x;
     req.h = desc.size.y;
-    req.minW = desc.minSize.x;
-    req.minH = desc.minSize.y;
+    req.minW = desc.minSize.x * s;
+    req.minH = desc.minSize.y * s;
     req.prefs = desc.placements;
     req.prefCount = desc.placementCount;
-    req.offset = desc.placementOffset;
+    req.offset = desc.placementOffset * s;
     req.boundary = { pb.x, pb.y, pb.z, pb.w };
     req.padding = desc.margin;
     req.obstacles = desc.obstacles;
@@ -1243,8 +1240,8 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     }
     else
     {
-      st.dragOffset.x += delta.x / s;
-      st.dragOffset.y += delta.y / s;
+      st.dragOffset.x += s.ToDp(delta.x);
+      st.dragOffset.y += s.ToDp(delta.y);
     }
     if (delta.x != 0.f || delta.y != 0.f)
     {
@@ -1255,7 +1252,7 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
   // "I dragged it somewhere silly" (applies on the next frame, the position is already resolved).
   if (bandHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
   {
-    st.dragOffset = ImVec2(0.f, 0.f);
+    st.dragOffset = G3DDp2{};
     st.detached = false;
     st.moved = false;
   }
@@ -1481,7 +1478,7 @@ void EndFloatingCardBody()
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 wp = ImGui::GetWindowPos();
     const ImVec2 ws = ImGui::GetWindowSize();
-    const float fadeH = 18.f * Scale();
+    const float fadeH = 18.f * G3DWidgets::UiScale();
     const float w = ws.x - ImGui::GetStyle().ScrollbarSize; // keep the scrollbar gutter crisp
     ImVec4 bg = gCardHasBg ? gCardBg : ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
     bg.w = 1.f;
@@ -1497,7 +1494,7 @@ void EndFloatingCardBody()
 //----------------------------------------------------------------------------
 void StatRow(const char* key, const char* value)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   ImDrawList* dl = ImGui::GetWindowDrawList();
   const float pad = 4.f * s;
   ImGui::Dummy(ImVec2(0.f, pad));
@@ -1524,7 +1521,7 @@ void StatRow(const char* key, const char* value)
 bool CollapsingSection(const char* label, bool* open)
 {
   ImGui::PushID(label);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float h = 26.f * s;
   const float w = ImGui::GetContentRegionAvail().x;
 
@@ -1584,7 +1581,7 @@ struct CollapseFrame
   ImVec2 p0;
   float width;
   float headerH;
-  float scale;
+  G3DScale scale;
   bool showBody;     // body is drawn this frame (open OR mid open/close animation)
   bool hasBorder;    // draws a wrapping card bg + border (Card / Overline, standalone)
   bool ownsChannels; // this panel split the draw list (must merge in EndCollapse)
@@ -1615,7 +1612,7 @@ struct AccordionFrame
 {
   ImVec2 p0;
   float width;
-  float scale;
+  G3DScale scale;
   bool exclusive;
   bool ownsChannels;        // this accordion split the draw list (must merge in EndAccordion)
   int itemCount;
@@ -1624,7 +1621,8 @@ struct AccordionFrame
 };
 std::vector<AccordionFrame> gAccordionStack;
 
-float CollapseHeaderHeight(G3DWidgets::CollapseDensity d, G3DWidgets::CollapseVariant v, float s)
+float CollapseHeaderHeight(
+  G3DWidgets::CollapseDensity d, G3DWidgets::CollapseVariant v, G3DScale s)
 {
   if (v == G3DWidgets::CollapseVariant::Sub)
   {
@@ -1673,7 +1671,7 @@ ImVec4 CollapseIconColor(G3DWidgets::TreeIconVariant v)
 void BeginAccordion(const char* id, bool exclusive)
 {
   ImGui::PushID(id);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const float width = ImGui::GetContentRegionAvail().x;
 
@@ -1707,7 +1705,7 @@ void EndAccordion()
   const AccordionFrame f = gAccordionStack.back();
   gAccordionStack.pop_back();
 
-  const float s = f.scale;
+  const G3DScale s = f.scale;
   const float bottomY = ImGui::GetCursorScreenPos().y;
   const ImVec2 mn = f.p0;
   const ImVec2 mx(f.p0.x + f.width, bottomY);
@@ -1771,7 +1769,7 @@ CollapseResult BeginCollapse(const char* id, const CollapseDesc& desc)
 {
   CollapseResult res;
   ImGui::PushID(id);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
 
   const bool inAccordion = !gAccordionStack.empty();
   const float width =
@@ -2177,7 +2175,7 @@ void EndCollapse()
   }
   const CollapseFrame cf = gCollapseStack.back();
   gCollapseStack.pop_back();
-  const float s = cf.scale;
+  const G3DScale s = cf.scale;
 
   if (cf.showBody)
   {
@@ -2253,7 +2251,7 @@ namespace
 {
 ImVec2 BadgeMetrics(const char* text, float& padX, float& padY, float& fs)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   fs = OverlineSize();
   padX = G3DTheme::Spacing::Sm * s; // styleguide .badge padding: 2px 8px
   padY = 2.f * s;
@@ -2315,7 +2313,8 @@ void Badge(const char* text, BadgeVariant variant)
   dl->AddRectFilled(p0, p1, U32(bg), r);
   if (border)
   {
-    dl->AddRect(p0, p1, U32(G3DTheme::Border()), r, 0, G3DTheme::Size::Border * Scale());
+    dl->AddRect(
+      p0, p1, U32(G3DTheme::Border()), r, 0, G3DTheme::Size::Border * G3DWidgets::UiScale());
   }
   DrawTextSized(dl, ImVec2(p0.x + padX, p0.y + padY), U32(fg), text, fs);
 }
@@ -2380,7 +2379,7 @@ namespace
 // (BeginToast) so a stack can size its window ahead of submitting without the two disagreeing.
 struct ToastMetrics
 {
-  float s = 1.f;
+  G3DScale s;
   float padX = 0.f;
   float padY = 0.f;      ///< top inset — a TEXT inset
   float padBottom = 0.f; ///< bottom inset — a CONTROL inset once an action row lands on it
@@ -2412,7 +2411,7 @@ float WrappedHeight(const char* text, float wrapW, float lineH)
 ToastMetrics MeasureToast(const G3DWidgets::ToastDesc& desc, bool detailsOpen, bool disclosure)
 {
   ToastMetrics m;
-  m.s = Scale();
+  m.s = G3DWidgets::UiScale();
   m.padX = G3DTheme::Spacing::Md * m.s;
   // Optical, not arithmetic, balance: text sits on a TEXT inset, a control sits on a CONTROL inset.
   // A button paints a hard fill right out to its box, whereas a line of text carries its own
@@ -2729,7 +2728,7 @@ bool ToastAction(const char* label, bool primary)
   ToastFrame& frame = gToasts.back();
   if (frame.actionIndex > 0)
   {
-    ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * Scale());
+    ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * G3DWidgets::UiScale());
   }
   ImGui::PushID(frame.actionIndex++);
   // Compact: these are secondary actions riding inside a card that is itself an interruption. At
@@ -2762,7 +2761,7 @@ void EndToast()
 //----------------------------------------------------------------------------
 bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float padX = G3DTheme::Spacing::Md * s;
   const float padY = G3DTheme::Spacing::Sm * s;
   const float railW = 3.f * s;
@@ -2835,7 +2834,7 @@ namespace
 /// by any badged tool-group item, so a count never renders two ways.
 void DrawCountChip(ImGuiID pulseId, int count, ToneVariant tone)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const ImVec2 mn = ImGui::GetItemRectMin();
   const ImVec2 mx = ImGui::GetItemRectMax();
   char txt[8];
@@ -2861,7 +2860,8 @@ void DrawCountChip(ImGuiID pulseId, int count, ToneVariant tone)
   ImDrawList* dl = ImGui::GetWindowDrawList();
   AAGuard aa(dl);
   // A hairline of the panel color around the chip keeps it legible over the glyph's own strokes.
-  dl->AddRectFilled(ImVec2(d0.x - s, d0.y - s), ImVec2(d1.x + s, d1.y + s),
+  const float hair = G3DTheme::Size::Border * s;
+  dl->AddRectFilled(ImVec2(d0.x - hair, d0.y - hair), ImVec2(d1.x + hair, d1.y + hair),
     U32(G3DTheme::Panel(), alpha), dotH);
   dl->AddRectFilled(d0, d1, U32(ToneColor(tone), alpha), dotH);
   DrawTextSized(dl, ImVec2((d0.x + d1.x) * 0.5f - ts.x * 0.5f, (d0.y + d1.y) * 0.5f - ts.y * 0.5f),
@@ -2869,7 +2869,7 @@ void DrawCountChip(ImGuiID pulseId, int count, ToneVariant tone)
 }
 } // namespace
 
-bool BellButton(const char* id, int unread, ToneVariant tone, float size, const char* tooltip,
+bool BellButton(const char* id, int unread, ToneVariant tone, G3DDp size, const char* tooltip,
   const char* shortcut)
 {
   const bool clicked = IconButton(id, unread > 0 ? G3DIconId::BellDot : G3DIconId::Bell, size,
@@ -2898,9 +2898,9 @@ struct ToolGroupGeom
 
 ToolGroupGeom ComputeToolGroupGeom(const ToolGroupDesc& desc)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   ToolGroupGeom g;
-  g.item = (desc.size > 0.f ? desc.size : G3DTheme::Size::IconButton) * s;
+  g.item = desc.size * s;
   g.gap = G3DTheme::Spacing::Xs * s;
   // Matches the top bar's rule: the line occupies Spacing::Sm and sits between two Xs gaps, so it
   // costs one extra gap plus its own width over a plain neighbour.
@@ -2938,7 +2938,7 @@ int ToolGroup(const char* id, const ToolGroupDesc& desc)
   {
     return -1;
   }
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const ToolGroupGeom g = ComputeToolGroupGeom(desc);
   const ImVec2 total = ToolGroupSize(desc);
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -3011,7 +3011,7 @@ int ToolGroup(const char* id, const ToolGroupDesc& desc)
 bool Toggle(const char* label, bool* v)
 {
   ImGui::PushID(label);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float h = G3DTheme::Size::Icon * s;
   const float trackW = h * 1.8f;
   const bool hasText = label[0] != '\0';
@@ -3066,7 +3066,7 @@ bool Toggle(const char* label, bool* v)
 bool Checkbox(const char* label, bool* v)
 {
   ImGui::PushID(label);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float box = G3DTheme::Size::Icon * s;
   const bool hasText = label[0] != '\0';
   const ImVec2 textSize = hasText ? ImGui::CalcTextSize(label) : ImVec2(0.f, 0.f);
@@ -3097,7 +3097,8 @@ bool Checkbox(const char* label, bool* v)
   const ImVec4 boxBg = LerpColor(G3DTheme::Surface(), G3DTheme::Accent(), w.value.Value());
   dl->AddRectFilled(b0, b1, U32(boxBg), rad);
   const float borderT = std::max(w.value.Value(), w.hover.Value() * 0.7f);
-  dl->AddRect(b0, b1, U32(LerpColor(G3DTheme::Border(), G3DTheme::Accent(), borderT)), rad, 0, s);
+  dl->AddRect(b0, b1, U32(LerpColor(G3DTheme::Border(), G3DTheme::Accent(), borderT)), rad, 0,
+    G3DTheme::Size::Border * s);
 
   if (w.value.Value() > 0.05f)
   {
@@ -3124,7 +3125,7 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
   ImGui::PushID(label);
   // The only text this widget draws is the numeric readout — data font for the whole scope.
   const DataFontScope dataFont;
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float h = G3DTheme::Size::Control * s;
   const float width = ImGui::CalcItemWidth();
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -3248,7 +3249,7 @@ bool RangeSliderFloat(
   ImGui::PushID(label);
   // Numeric range readout only — data font for the whole scope (SliderFloat pattern).
   const DataFontScope dataFont;
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float h = G3DTheme::Size::Control * s;
   const float width = ImGui::CalcItemWidth();
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -3384,7 +3385,7 @@ bool RangeSliderFloat(
 bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hint)
 {
   ImGui::PushID(label);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float h = G3DTheme::Size::Control * s;
   const float width = ImGui::CalcItemWidth();
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -3477,17 +3478,16 @@ bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hi
 //----------------------------------------------------------------------------
 namespace
 {
-// Nominal px -> device px, per axis, with the theme default filling in for negative components.
-ImVec2 ResolveTooltipPadding(const ImVec2& padding)
+// Logical px -> physical px.
+ImVec2 ResolveTooltipPadding(G3DDp2 padding)
 {
-  const float s = Scale();
-  return ImVec2((padding.x >= 0.f ? padding.x : G3DTheme::Tooltip::PadX) * s,
-    (padding.y >= 0.f ? padding.y : G3DTheme::Tooltip::PadY) * s);
+  const G3DScale s = G3DWidgets::UiScale();
+  return ImVec2(padding.x * s, padding.y * s);
 }
 } // namespace
 
 //----------------------------------------------------------------------------
-bool BeginTooltip(const ImVec2& padding)
+bool BeginTooltip(G3DDp2 padding)
 {
   // Pushed across Begin..End rather than popped right after Begin: the auto-fit pass that sizes the
   // bubble around its content runs inside the tooltip window, and this keeps the pair symmetric.
@@ -3497,7 +3497,7 @@ bool BeginTooltip(const ImVec2& padding)
 }
 
 //----------------------------------------------------------------------------
-bool BeginItemTooltip(const ImVec2& padding, ImGuiHoveredFlags extraHoveredFlags)
+bool BeginItemTooltip(G3DDp2 padding, ImGuiHoveredFlags extraHoveredFlags)
 {
   if (!ImGui::IsItemHovered(TooltipHoveredFlags | extraHoveredFlags))
   {
@@ -3514,7 +3514,7 @@ void EndTooltip()
 }
 
 //----------------------------------------------------------------------------
-void SetTooltip(const char* text, const ImVec2& padding)
+void SetTooltip(const char* text, G3DDp2 padding)
 {
   // ImGui::SetTooltip opens and closes its own window, so wrapping the call covers it whole.
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ResolveTooltipPadding(padding));
@@ -3523,7 +3523,7 @@ void SetTooltip(const char* text, const ImVec2& padding)
 }
 
 //----------------------------------------------------------------------------
-void ItemTooltip(const char* text, const ImVec2& padding)
+void ItemTooltip(const char* text, G3DDp2 padding)
 {
   if (ImGui::IsItemHovered(TooltipHoveredFlags))
   {
@@ -3556,7 +3556,7 @@ struct TreeRowFrame
   ImVec2 p0;       // row top-left (screen)
   float width;     // row width
   float rowH;      // row height
-  float scale;     // DPI/scale factor
+  G3DScale scale;  // UI scale
   float contentX;  // advancing left content cursor (screen x)
   float rightX;    // receding right content cursor (screen x) for right-aligned cells
   float hoverT;    // row hover animation value (0..1)
@@ -3598,9 +3598,9 @@ ImVec4 TreeIconColor(TreeIconVariant v)
 } // namespace
 
 //----------------------------------------------------------------------------
-float TreeRowHeight(TreeDensity density, float scale)
+float TreeRowHeight(TreeDensity density, G3DScale scale)
 {
-  const float s = scale > 0.f ? scale : Scale();
+  const G3DScale s = scale;
   switch (density)
   {
     case TreeDensity::Standard:
@@ -3627,7 +3627,7 @@ namespace
 //
 // kIndentMin must stay >= 8: below that a column's guide rail crosses into the chevron glyph of the
 // row indented under it. 8 is also what VS Code gives an entire tree.
-constexpr float kIndentMin = G3DTheme::Spacing::Sm;
+constexpr G3DDp kIndentMin = G3DTheme::Spacing::Sm;
 constexpr int kIndentFullLevels = 4;
 constexpr int kIndentFloorLevels = 2;   // the ceiling never falls below this many full steps
 constexpr float kIndentMaxRatio = 0.4f; // ceiling as a share of the tree's content width
@@ -3680,7 +3680,7 @@ TreeFrame ActiveTreeFrame()
   {
     return gTreeStack.back();
   }
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   return TreeFrame{ 22.f * s, G3DTheme::Spacing::Lg * s, kIndentMin * s, FLT_MAX,
     kIndentFullLevels, INT_MAX };
 }
@@ -3689,7 +3689,7 @@ TreeFrame ActiveTreeFrame()
 //----------------------------------------------------------------------------
 void BeginTree(TreeDensity density)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   // Rows stack flush (zero inter-row gap) so each row consumes exactly its row height — required for
   // ImGuiListClipper virtualization (TreeVirtual) to position rows correctly and for contiguous rails.
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.f));
@@ -3726,7 +3726,7 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   TreeRowResult res;
   ImGui::PushID(id);
 
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const TreeFrame tf = ActiveTreeFrame();
   const float rowH = chrome.height > 0.f ? chrome.height : tf.rowH;
   const float indent = tf.indent;
@@ -3737,15 +3737,16 @@ TreeRowResult BeginTreeRow(const char* id, const TreeRowChrome& chrome)
   // it belongs to — that is what keeps "band == hit rect == content extent" true at any bleed.
   const ImVec2 rail = ImGui::GetCursorScreenPos();
   const float railW = std::max(rowH, ImGui::GetContentRegionAvail().x);
-  const ImVec2 p0(rail.x - chrome.bleed, rail.y);
-  const float width = railW + 2.f * chrome.bleed;
+  const float bleed = chrome.bleed * s;
+  const ImVec2 p0(rail.x - bleed, rail.y);
+  const float width = railW + 2.f * bleed;
 
   // One item for the whole row (twisty + trailing actions are hit-routed manually so the row stays
   // the single ImGui item — a stable anchor for ImGui drag-drop). Rows tile flush by construction:
   // the advance carries zero vertical item spacing whether or not a BeginTree() scope set it, so a
   // run of rows is contiguous and the hit rect is exactly the painted band, bleed included.
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 0.f));
-  if (chrome.bleed > 0.f)
+  if (bleed > 0.f)
   {
     ImGui::SetCursorScreenPos(p0);
   }
@@ -3977,7 +3978,7 @@ bool TreeRowLabel(const char* text, bool group, bool dim)
 }
 
 //----------------------------------------------------------------------------
-bool TreeRowMeta(const char* text, float px)
+bool TreeRowMeta(const char* text, G3DDp size)
 {
   if (gRowStack.empty() || !text || !text[0])
   {
@@ -3987,11 +3988,12 @@ bool TreeRowMeta(const char* text, float px)
   const DataFontScope dataFont;
   TreeRowFrame& f = gRowStack.back();
   const float cy = f.p0.y + f.rowH * 0.5f;
-  const float fs = px > 0.f ? px : ImGui::GetFontSize();
+  const bool sized = size > G3DDp();
+  const float fs = sized ? size * f.scale : ImGui::GetFontSize();
   // Measure the way the size was requested: ImGui::CalcTextSize rounds x UP to the next pixel while
   // CalcTextSizeA does not, and this width right-aligns the cell — mixing them would nudge every
   // ambient-size meta cell by up to a pixel.
-  const ImVec2 ts = px > 0.f ? CalcTextSized(text, fs) : ImGui::CalcTextSize(text);
+  const ImVec2 ts = sized ? CalcTextSized(text, fs) : ImGui::CalcTextSize(text);
   ImVec4 col = G3DTheme::Text();
   col.w *= 0.42f; // text-subtle
   ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -4000,7 +4002,7 @@ bool TreeRowMeta(const char* text, float px)
   // two share. A count never comes close; a name does (an instance names the product it points at),
   // and without a ceiling one long value would ellipsize a whole column of names down to a letter.
   const float budget = std::max(0.f, (f.rightX - f.contentX) * 0.40f);
-  if (px > 0.f || ts.x <= budget)
+  if (sized || ts.x <= budget)
   {
     const float x = std::max(f.contentX, f.rightX - ts.x);
     DrawTextSized(dl, ImVec2(x, cy - ts.y * 0.5f), U32(col), text, fs);
@@ -4149,7 +4151,7 @@ void TreeVirtual(int rowCount, const std::function<void(int)>& drawRow)
   {
     return;
   }
-  const float rowH = gTreeStack.empty() ? 22.f * Scale() : gTreeStack.back().rowH;
+  const float rowH = gTreeStack.empty() ? 22.f * G3DWidgets::UiScale() : gTreeStack.back().rowH;
   // Uniform-height clipping: only rows inside the scroll viewport are emitted, so cost is O(on-screen
   // rows) regardless of total node count. rowH must match the height each BeginTreeRow/EndTreeRow
   // consumes (it does — EndTreeRow stacks rows flush at exactly rowH).
@@ -4530,7 +4532,7 @@ void CarveRoundedCorners(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, flo
 void DrawColorChip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, const ImVec4& color,
   float rounding, const ImVec4& bgUnder)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   if (color.w < 0.996f) // ~254/255: only a genuinely translucent color needs the transparency checker
   {
     DrawCheckerboard(dl, p0, p1, 4.f * s);
@@ -4703,17 +4705,18 @@ bool TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, cons
 }
 
 //----------------------------------------------------------------------------
-void TextSized(ImDrawList* dl, const ImVec2& pos, ImU32 col, const char* text, float px, bool mono)
+void TextSized(
+  ImDrawList* dl, const ImVec2& pos, ImU32 col, const char* text, G3DDp size, bool mono)
 {
   const DataFontScope dataFont(mono);
-  DrawTextSized(dl, pos, col, text, px);
+  DrawTextSized(dl, pos, col, text, size * UiScale());
 }
 
 //----------------------------------------------------------------------------
-ImVec2 CalcTextSizedPx(const char* text, float px, bool mono)
+ImVec2 CalcTextSizedPx(const char* text, G3DDp size, bool mono)
 {
   const DataFontScope dataFont(mono);
-  return CalcTextSized(text, px);
+  return CalcTextSized(text, size * UiScale());
 }
 
 //----------------------------------------------------------------------------
@@ -4728,13 +4731,13 @@ struct PropRowFrame
 std::vector<PropRowFrame> gPropRows;
 } // namespace
 
-void BeginPropRow(const char* label, float labelW, float ctrlH)
+void BeginPropRow(const char* label, G3DDp labelW, G3DDp ctrlH)
 {
   ImGui::PushID(label);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   PropRowFrame f;
   f.p0 = ImGui::GetCursorScreenPos();
-  f.labelW = (labelW > 0.f ? labelW : 88.f) * s; // styleguide .collapse-body-inner .proprow > .k
+  f.labelW = labelW * s;
   // Narrow-panel breakpoint: the CONTROL is the row's working part — when the row is too tight for
   // label column + a usable control, shrink the label column (its text ellipsizes) before letting
   // the control degrade to "...". Floor keeps at least a hint of the label.
@@ -4749,9 +4752,8 @@ void BeginPropRow(const char* label, float labelW, float ctrlH)
   f.label = label;
 
   // Value column: controls shorter than the control row (Toggle) are nudged down to sit centered.
-  const float nudge = (ctrlH > 0.f && ctrlH < G3DTheme::Size::Control)
-    ? (G3DTheme::Size::Control - ctrlH) * 0.5f * s
-    : 0.f;
+  const float nudge =
+    ctrlH < G3DTheme::Size::Control ? (G3DTheme::Size::Control - ctrlH) * 0.5f * s : 0.f;
   ImGui::SetCursorScreenPos(ImVec2(f.p0.x + f.labelW, f.p0.y + nudge));
   ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x));
   gPropRows.push_back(std::move(f));
@@ -4765,7 +4767,7 @@ void EndPropRow()
   }
   const PropRowFrame f = std::move(gPropRows.back());
   gPropRows.pop_back();
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float spacingY = ImGui::GetStyle().ItemSpacing.y;
   const float ctrlBottom = ImGui::GetCursorScreenPos().y - spacingY;
   const float rowBottom = std::max(ctrlBottom, f.p0.y + G3DTheme::Size::Control * s);
@@ -4793,7 +4795,7 @@ void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
 {
   // Dark inset ring, same convention as the color chips (never a light outer border on dark UI).
   const ImU32 ring = U32(ImVec4(0.f, 0.f, 0.f, 0.28f), alpha);
-  const float ringW = G3DTheme::Size::Border * Scale();
+  const float ringW = G3DTheme::Size::Border * G3DWidgets::UiScale();
   const int n =
     (stops.data != nullptr && stops.count >= 8 && stops.count % 4 == 0) ? stops.count / 4 : 0;
   if (n < 2)
@@ -4860,7 +4862,7 @@ void DrawGradientStrip(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
 //----------------------------------------------------------------------------
 void ColormapLegend(const GradientStops& stops, const char* lo, const char* hi)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float w = ImGui::GetContentRegionAvail().x;
   if (w <= 1.f)
   {
@@ -4868,7 +4870,6 @@ void ColormapLegend(const GradientStops& stops, const char* lo, const char* hi)
   }
   const float barH = 4.f * s;
   const float gap = G3DTheme::Spacing::Xs * s;
-  const float px = OverlineSize();
   const bool labeled = lo != nullptr && hi != nullptr;
 
   // On the content rail, not the row band's bled rail: the bleed is a hover-surface affordance (it
@@ -4882,13 +4883,14 @@ void ColormapLegend(const GradientStops& stops, const char* lo, const char* hi)
   if (labeled)
   {
     const ImU32 col = U32(G3DTheme::TextSubtle());
-    const ImVec2 loTs = CalcTextSizedPx(lo, px, true);
-    const ImVec2 hiTs = CalcTextSizedPx(hi, px, true);
+    const ImVec2 loTs = CalcTextSizedPx(lo, G3DTheme::Type::Overline, true);
+    const ImVec2 hiTs = CalcTextSizedPx(hi, G3DTheme::Type::Overline, true);
     const float ty = p.y + barH + gap;
-    TextSized(dl, ImVec2(p.x, ty), col, lo, px, true);
+    TextSized(dl, ImVec2(p.x, ty), col, lo, G3DTheme::Type::Overline, true);
     // Right-aligned, and clamped so a long pair collides into an ellipsis-free abut rather than
     // overprinting (both ends are already %.3g — at most a few glyphs each).
-    TextSized(dl, ImVec2(std::max(p.x + loTs.x + gap, p.x + w - hiTs.x), ty), col, hi, px, true);
+    TextSized(dl, ImVec2(std::max(p.x + loTs.x + gap, p.x + w - hiTs.x), ty), col, hi,
+      G3DTheme::Type::Overline, true);
     labelH = gap + std::max(loTs.y, hiTs.y);
   }
   ImGui::Dummy(ImVec2(w, barH + labelH));
@@ -4898,8 +4900,8 @@ void ColormapLegend(const GradientStops& stops, const char* lo, const char* hi)
 bool ColorSwatch(const char* id, const float col[4], const ColorSwatchDesc& desc)
 {
   ImGui::PushID(id);
-  const float s = Scale();
-  const float h = (desc.compact ? 26.f : G3DTheme::Size::Control) * s;
+  const G3DScale s = G3DWidgets::UiScale();
+  const float h = (desc.compact ? 26_dp : G3DTheme::Size::Control) * s;
   const float chip = (desc.compact ? 16.f : 20.f) * s;
   const float padX = (desc.compact ? 6.f : 8.f) * s;
   const float gap = G3DTheme::Spacing::Sm * s;
@@ -5019,7 +5021,7 @@ namespace
 bool PickerField(const char* idStr, char* buf, std::size_t bufSize, float x, float y, float wdt,
   ImGuiInputTextFlags flags, bool centered = false)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float h = 28.f * s;
   ImDrawList* dl = ImGui::GetWindowDrawList();
 
@@ -5089,7 +5091,7 @@ bool DrawPickerPanel(ImGuiID stateId, float col[4], const G3DWidgets::ColorEditD
 {
   using G3DWidgets::ColorFormat;
   using G3DWidgets::ColorSpace;
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   ColorPickerState& st = gColorPickers[stateId];
 
   // ---- sync working state from the caller's color (init, or an external edit) ----
@@ -6059,7 +6061,7 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
   ColorPickerState& st = gColorPickers[stateId];
   gEyedrop.lastTouchFrame = ImGui::GetFrameCount();
   ImGuiIO& io = ImGui::GetIO();
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
 
   // keyboard capture keeps app bindings (console toggle, camera keys) quiet while sampling; mouse
   // capture keeps the camera style blind even where no ImGui window can be hovered (the cursor
@@ -6392,7 +6394,7 @@ int DrawEyedropOverlay(ImGuiID stateId, float col[4], const G3DWidgets::ColorEdi
 bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
 {
   ImGui::PushID(id);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
 
   ColorSwatchDesc sd;
   sd.compact = desc.compact;
@@ -6433,7 +6435,7 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
     const ImVec2 disp = ImGui::GetIO().DisplaySize;
     const float margin = 8.f * s;
     const float gapY = 4.f * s;
-    const float panelW = (288.f + 2.f * G3DTheme::Spacing::Md) * s; // content + window padding
+    const float panelW = (288_dp + 2.f * G3DTheme::Spacing::Md) * s; // content + window padding
     const ImVec2 lastSize = gColorPickers[stateId].panelSize;
     const float panelH = lastSize.y > 1.f ? lastSize.y : 420.f * s; // first-open estimate
     ImVec2 pos(anchorMin.x, anchorMax.y + gapY);
@@ -6561,7 +6563,7 @@ std::vector<SelectMenuFrame> gSelectMenuStack;
 // falls off quadratically, biased downward for the 6px offset. Every ring sits OUTSIDE the window
 // rect (full-screen clip), so nothing tints the opaque menu fill: rings render above the panels
 // beneath but below the menu content that follows in the same draw list.
-void DrawMenuShadow(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float rounding, float s,
+void DrawMenuShadow(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, float rounding, G3DScale s,
   float alphaMul)
 {
   dl->PushClipRectFullScreen();
@@ -6609,7 +6611,7 @@ void DrawSelectChevron(ImDrawList* dl, const ImVec2& center, float size, ImU32 c
 // DrawMenuChrome right after it opens, PopMenuStyle after EndPopup. @p alpha carries the open fade-in.
 void PushMenuStyle(float alpha)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.f * s, 4.f * s)); // .menu padding: 4px
   ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Popup * s); // floating layer
   // border drawn manually (DrawMenuChrome): ImGui strokes window borders without line AA (disabled
@@ -6631,7 +6633,7 @@ void PopMenuStyle()
 // after BeginPopup returns true).
 void DrawMenuChrome(float alpha)
 {
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   ImDrawList* pdl = ImGui::GetWindowDrawList();
   AAGuard aa(pdl);
   const ImVec2 wp = ImGui::GetWindowPos();
@@ -6661,7 +6663,7 @@ static bool BeginSelectImpl(const char* id, const char* preview, const char* hin
   const GradientStops* strip, bool mutedStrip = false)
 {
   ImGui::PushID(id);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float h = G3DTheme::Size::Control * s;
   const float width = ImGui::CalcItemWidth();
   const float padX = 10.f * s;   // styleguide .input padding: 0 10px
@@ -6841,7 +6843,7 @@ bool BeginSelectColormap(
 static bool SelectItemImpl(const char* label, bool selected, const GradientStops* strip)
 {
   ImGui::PushID(label);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const float padX = 10.f * s; // .menu-item padding: 7px 10px
   const float padY = 7.f * s;
   const float checkSz = 14.f * s; // .check-spot font-size: 14px
@@ -6934,7 +6936,7 @@ void EndSelect()
 bool BeginContextMenu(const char* id)
 {
   ImGui::PushID(id);
-  const float s = Scale();
+  const G3DScale s = G3DWidgets::UiScale();
   const ImGuiID stateId = ImGui::GetID("##ctxstate");
   ContextMenuState& st = gContextMenus[stateId];
 
@@ -6987,7 +6989,7 @@ bool MenuAction(const char* label)
   // intrinsic width (text + item padding) this frame; EndContextMenu commits it (+ window padding).
   if (!gContextMenuStack.empty())
   {
-    const float s = Scale();
+    const G3DScale s = G3DWidgets::UiScale();
     ContextMenuState& st = gContextMenus[gContextMenuStack.back()];
     st.measuring = std::max(st.measuring, ImGui::CalcTextSize(label).x + 2.f * 10.f * s);
   }
@@ -6999,7 +7001,7 @@ void EndContextMenu()
 {
   if (!gContextMenuStack.empty())
   {
-    const float s = Scale();
+    const G3DScale s = G3DWidgets::UiScale();
     ContextMenuState& st = gContextMenus[gContextMenuStack.back()];
     st.width = std::max(st.measuring + 2.f * 4.f * s, 120.f * s); // + window padding, min width
     gContextMenuStack.pop_back();
@@ -7042,11 +7044,12 @@ G3DScale UiScale()
 //----------------------------------------------------------------------------
 void ApplyStyleMetrics(ImGuiStyle& style, G3DScale scale)
 {
+  // Logical values in (Raw): ScaleAllSizes below is what scales them.
   style.FrameBorderSize = 0.f;
-  style.FramePadding = ImVec2(G3DTheme::Spacing::Xs, 2.f);
+  style.FramePadding = ImVec2(G3DTheme::Spacing::Xs.Raw(), 2.f);
   // Native frames and G3D widgets share one corner vocabulary.
-  style.FrameRounding = G3DTheme::Radius::Control;
-  style.GrabRounding = G3DTheme::Radius::Control;
+  style.FrameRounding = G3DTheme::Radius::Control.Raw();
+  style.GrabRounding = G3DTheme::Radius::Control.Raw();
   // Slim, quiet scrollbar: ImGui's 14px default reads as a bright slab pinned to the panel edge on
   // the dark theme. The gutter is deliberately wider than the resting thumb: it is the constant
   // ImGui carves out of the content region *and* the grab hit box, so it is sized for the pointer
@@ -7054,13 +7057,13 @@ void ApplyStyleMetrics(ImGuiStyle& style, G3DScale scale)
   // (see InstallScrollbarStyle), which animates it open under the pointer for every scrollbar in the
   // app; ScrollbarPadding is left as what it now solely means — the thumb's margin from the two
   // ENDS of its track.
-  style.ScrollbarSize = G3DTheme::Scrollbar::Gutter;
-  style.ScrollbarRounding = G3DTheme::Scrollbar::ThumbHover * 0.5f; // capsule at either width
-  style.ScrollbarPadding = G3DTheme::Scrollbar::TrackEndMargin;
+  style.ScrollbarSize = G3DTheme::Scrollbar::Gutter.Raw();
+  style.ScrollbarRounding = (G3DTheme::Scrollbar::ThumbHover * 0.5f).Raw(); // capsule, both widths
+  style.ScrollbarPadding = G3DTheme::Scrollbar::TrackEndMargin.Raw();
   style.WindowBorderSize = 0.f;
   style.WindowPadding = ImVec2(10.f, 10.f);
   // Every window is a floating layer unless its host says otherwise (the docked bars push Card).
-  style.WindowRounding = G3DTheme::Radius::Popup;
+  style.WindowRounding = G3DTheme::Radius::Popup.Raw();
   // Unscaled tokens in, ImGui's own scaling out: one factor for the metrics set above and for
   // every one ImGui owns that the tokens do not name.
   style.ScaleAllSizes(scale.Factor());

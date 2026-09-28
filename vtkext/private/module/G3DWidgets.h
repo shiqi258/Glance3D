@@ -29,6 +29,7 @@
 #include "G3DAnimation.h"
 #include "G3DIcon.h"
 #include "G3DPlacement.h"
+#include "G3DTheme.h"
 #include "G3DUnits.h"
 
 #include <cstddef>
@@ -139,15 +140,20 @@ enum class IconOnStyle
          ///< bar (e.g. transport play); everything around it stays ghost-quiet
 };
 
-/// Square icon-only button (toolbar / FAB style). @p size <= 0 uses the icon-button token; @p round
-/// makes it a pill/circle. @p on renders the persistent active state for toggle-style toolbar
-/// buttons — mirrors styleguide .iconbtn.on; @p onStyle picks the emphasis (filled chip vs accent
-/// icon + underline dot). @p shortcut, when non-null, appends a dimmed keycap to the tooltip (the
+/// Square icon-only button (toolbar / FAB style), @p size on each side — a logical length the
+/// button scales itself, so pass the token, never an already scaled edge. @p round makes it a
+/// pill/circle. @p on renders the persistent active state for toggle-style toolbar buttons — mirrors
+/// styleguide .iconbtn.on; @p onStyle picks the emphasis (filled chip vs accent icon + underline
+/// dot). @p shortcut, when non-null, appends a dimmed keycap to the tooltip (the
 /// keyboard accelerator) — turns the icon-only bar into an on-ramp for the keyboard-first workflow.
 /// Returns true on click.
-bool IconButton(const char* id, G3DIconId icon, float size = -1.f, bool round = false,
+bool IconButton(const char* id, G3DIconId icon, G3DDp size = G3DTheme::Size::IconButton,
+  bool round = false, const char* tooltip = nullptr, bool on = false,
+  IconOnStyle onStyle = IconOnStyle::Fill, const char* shortcut = nullptr);
+/// A physical edge would be scaled twice: pass the G3DDp token.
+bool IconButton(const char* id, G3DIconId icon, float size, bool round = false,
   const char* tooltip = nullptr, bool on = false, IconOnStyle onStyle = IconOnStyle::Fill,
-  const char* shortcut = nullptr);
+  const char* shortcut = nullptr) = delete;
 
 /// One segment of a SegmentedIcon group.
 struct SegmentedIconItem
@@ -166,7 +172,8 @@ int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count);
 
 /// Styled card container. Call EndCard() exactly once for each BeginCard(). @p hoverable adds a hover
 /// tint and makes EndCard() return whether the card was clicked. Always returns true (draw content).
-bool BeginCard(const char* id, bool hoverable = false, float padding = -1.f);
+bool BeginCard(const char* id, bool hoverable = false, G3DDp padding = G3DTheme::Spacing::Md);
+bool BeginCard(const char* id, bool hoverable, float padding) = delete;
 bool EndCard();
 
 /// Overline group heading (uppercase-feeling, subtle, letter-spaced) — mirrors styleguide
@@ -264,7 +271,7 @@ void EndScrollRegion();
 /// Session state of one floating card (owned by the caller, one instance per card).
 struct FloatingCardState
 {
-  ImVec2 dragOffset = ImVec2(0.f, 0.f); ///< user drag, nominal px (divided by the UI scale)
+  G3DDp2 dragOffset;                    ///< user drag, logical px (survives a UI scale change)
   bool dragging = false;                ///< the drag handle is held this frame
   bool moved = false;                   ///< the user has dragged this card at least once
   bool wasOpen = false;                 ///< the caller's `open` on the last frame it was seen
@@ -303,8 +310,8 @@ struct FloatingCardDesc
   G3DLayout::Rect anchor;
   const G3DPlacement::Placement* placements = nullptr;
   int placementCount = 0;
-  float placementOffset = 0.f;                         ///< gap between the anchor and the card
-  ImVec2 minSize = ImVec2(0.f, 0.f);                   ///< shrink floor (0: rigid on that axis)
+  G3DDp placementOffset;                               ///< gap between the anchor and the card
+  G3DDp2 minSize;                                      ///< shrink floor (0: rigid on that axis)
   ImVec4 placementBounds = ImVec4(0.f, 0.f, 0.f, 0.f); ///< where it opens: x,y = origin, z,w = size
   const G3DPlacement::Obstacle* obstacles = nullptr;
   int obstacleCount = 0;
@@ -370,10 +377,12 @@ void StatRow(const char* key, const char* value);
 /// BeginPropRow positions the cursor at the value column and pre-sets the next item width to fill
 /// it; EndPropRow draws the label vertically centered on the resulting row, normalizes the row to
 /// at least the control-height rhythm, and returns the cursor to the row's left edge.
-/// @p labelW <= 0 uses the styleguide collapse-body label column (88). Pass the control's height as
-/// @p ctrlH (e.g. G3DTheme::Size::Icon for Toggle) to vertically center controls shorter than the
-/// standard control row; <= 0 assumes standard control height (no centering offset).
-void BeginPropRow(const char* label, float labelW = -1.f, float ctrlH = -1.f);
+/// @p labelW is the label column (the styleguide collapse-body column by default). Pass the
+/// control's height as @p ctrlH (e.g. G3DTheme::Size::Icon for Toggle) to vertically center
+/// controls shorter than the standard control row. Both are logical lengths.
+void BeginPropRow(const char* label, G3DDp labelW = G3DTheme::Size::PropLabel,
+  G3DDp ctrlH = G3DTheme::Size::Control);
+void BeginPropRow(const char* label, float labelW, float ctrlH = 0.f) = delete;
 void EndPropRow();
 
 /// Collapsible property-panel header (the signature DCC inspector panel, e.g. Blender's Transform /
@@ -444,9 +453,8 @@ bool InputText(const char* label, char* buf, std::size_t bufSize, const char* hi
 // tooltip window, and takes an optional per-call override.
 //----------------------------------------------------------------------------
 
-/// Padding sentinel meaning "use the theme default" (G3DTheme::Tooltip::PadX / PadY). Resolved per
-/// axis, so a caller may override only x or only y and leave the other on the default.
-constexpr ImVec2 TooltipThemePadding = ImVec2(-1.f, -1.f);
+/// The house tooltip padding (G3DTheme::Tooltip), logical px.
+constexpr G3DDp2 TooltipThemePadding{ G3DTheme::Tooltip::PadX, G3DTheme::Tooltip::PadY };
 
 /// Hover flags every G3D tooltip triggers on — the unified delay, not shared with neighbours (each
 /// item earns its own dwell, so sweeping the pointer across a toolbar does not flash tooltips).
@@ -454,25 +462,29 @@ constexpr ImGuiHoveredFlags TooltipHoveredFlags =
   ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_NoSharedDelay;
 
 /// Open a tooltip window with the house padding; submit any widgets, then call EndTooltip().
-/// @p padding is nominal px (scaled here); negative components fall back to the theme default.
-/// Always returns true — the bool mirrors ImGui::BeginTooltip() so call sites read the same.
-bool BeginTooltip(const ImVec2& padding = TooltipThemePadding);
+/// @p padding is logical px (scaled here). Always returns true — the bool mirrors
+/// ImGui::BeginTooltip() so call sites read the same.
+bool BeginTooltip(G3DDp2 padding = TooltipThemePadding);
+bool BeginTooltip(const ImVec2& padding) = delete;
 
 /// BeginTooltip() gated on the last item being hovered on the house delay (TooltipHoveredFlags).
 /// @p extraHoveredFlags is OR-ed in — e.g. ImGuiHoveredFlags_AllowWhenDisabled to explain why a
 /// grayed control is inert. Call EndTooltip() only when this returned true.
 bool BeginItemTooltip(
-  const ImVec2& padding = TooltipThemePadding, ImGuiHoveredFlags extraHoveredFlags = 0);
+  G3DDp2 padding = TooltipThemePadding, ImGuiHoveredFlags extraHoveredFlags = 0);
+bool BeginItemTooltip(const ImVec2& padding, ImGuiHoveredFlags extraHoveredFlags = 0) = delete;
 
 /// Close a tooltip opened by BeginTooltip() / BeginItemTooltip().
 void EndTooltip();
 
 /// Padded drop-in for ImGui::SetTooltip("%s", text): opens the tooltip unconditionally, for callers
 /// that own the hover test (custom hit boxes, disabled items, flash states).
-void SetTooltip(const char* text, const ImVec2& padding = TooltipThemePadding);
+void SetTooltip(const char* text, G3DDp2 padding = TooltipThemePadding);
+void SetTooltip(const char* text, const ImVec2& padding) = delete;
 
 /// Tooltip for the last item, with a unified hover delay.
-void ItemTooltip(const char* text, const ImVec2& padding = TooltipThemePadding);
+void ItemTooltip(const char* text, G3DDp2 padding = TooltipThemePadding);
+void ItemTooltip(const char* text, const ImVec2& padding) = delete;
 
 /// Draw @p text at @p pos, truncated with a trailing "..." when wider than @p maxW (UTF-8 safe —
 /// never splits a multi-byte glyph). Pure draw helper: does not advance the layout cursor.
@@ -488,13 +500,16 @@ void ItemTooltip(const char* text, const ImVec2& padding = TooltipThemePadding);
 bool TextEllipsis(ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text,
   bool dropWhenUnreadable = false);
 
-/// Draw @p text at an explicit pixel size — the design system's 11px overline / badge sizes, below
-/// the base UI font (ImGui scales the glyphs to it). @p mono uses the DATA font. Pure draw helper:
-/// does not advance the layout cursor.
-void TextSized(ImDrawList* dl, const ImVec2& pos, ImU32 col, const char* text, float px,
+/// Draw @p text at an explicit type size — the design system's 11px overline / badge sizes, below
+/// the base UI font (ImGui scales the glyphs to it). @p size is logical (scaled here). @p mono uses
+/// the DATA font. Pure draw helper: does not advance the layout cursor.
+void TextSized(ImDrawList* dl, const ImVec2& pos, ImU32 col, const char* text, G3DDp size,
   bool mono = false);
-/// Size TextSized() would occupy — for fit tests and right-alignment before drawing.
-ImVec2 CalcTextSizedPx(const char* text, float px, bool mono = false);
+void TextSized(ImDrawList* dl, const ImVec2& pos, ImU32 col, const char* text, float size,
+  bool mono = false) = delete;
+/// Size TextSized() would occupy (physical px): for fit tests and right-alignment before drawing.
+ImVec2 CalcTextSizedPx(const char* text, G3DDp size, bool mono = false);
+ImVec2 CalcTextSizedPx(const char* text, float size, bool mono = false) = delete;
 
 //----------------------------------------------------------------------------
 // Select / dropdown
@@ -644,10 +659,10 @@ enum class TreeIconVariant
 void BeginTree(TreeDensity density = TreeDensity::Compact);
 void EndTree();
 
-/// Row height for @p density in scaled px (what BeginTree() pushes). @p scale <= 0 uses the live UI
-/// scale. For callers that need the height before drawing — an explicit TreeRowChrome::height, or
-/// reserving exactly one row for an empty state so a list does not jump when it empties.
-float TreeRowHeight(TreeDensity density, float scale = 0.f);
+/// Row height for @p density in physical px (what BeginTree() pushes), at @p scale. For callers
+/// that need the height before drawing — an explicit TreeRowChrome::height, or reserving exactly
+/// one row for an empty state so a list does not jump when it empties.
+float TreeRowHeight(TreeDensity density, G3DScale scale = UiScale());
 
 /// Structural description of a row — everything the headless row owns (no cell content).
 struct TreeRowChrome
@@ -680,11 +695,12 @@ struct TreeRowChrome
   /// list); the outliner keeps the default. `twisty` must stay Leaf: there is no column to draw in.
   bool contentRail = false;
 
-  /// Paint AND hit the row band this many scaled px wider on each side than the content rails, so the
-  /// band edges can land on the container's own chrome edges (a Flat section body pads by 12 while
-  /// its header band insets by 8 — bleed 4 makes the two flush). The band, the hit rect and the
-  /// content extent stay one rectangle, which is the whole point. 0 = band == row box (the outliner).
-  float bleed = 0.f;
+  /// Paint AND hit the row band this much wider on each side than the content rails (logical px),
+  /// so the band edges can land on the container's own chrome edges (a Flat section body pads by
+  /// 12 while its header band insets by 8 — bleed 4 makes the two flush). The band, the hit rect
+  /// and the content extent stay one rectangle, which is the whole point. 0 = band == row box (the
+  /// outliner).
+  G3DDp bleed;
 };
 
 /// What the user clicked on a row this frame.
@@ -712,11 +728,12 @@ void TreeRowIcon(G3DIconId icon, TreeIconVariant variant = TreeIconVariant::Defa
 /// headless row leaves that to its caller (TreeRow() reveals the full name; a list row that
 /// composes one tooltip from several facts folds it in there instead).
 bool TreeRowLabel(const char* text, bool group = false, bool dim = false);
-/// Right-aligned metadata (e.g. child count). Place after the label. @p px draws at an explicit
-/// pixel size (styleguide .tree-meta is 11px overline); 0 = the ambient font size.
+/// Right-aligned metadata (e.g. child count). Place after the label. @p size draws at an explicit
+/// type size (styleguide .tree-meta is the 11px overline); 0 = the ambient font size.
 /// Trailing value cell (a child count, an instance's product). Returns true when it had to be
 /// ellipsized to keep the label readable, so a caller can reveal it on hover.
-bool TreeRowMeta(const char* text, float px = 0.f);
+bool TreeRowMeta(const char* text, G3DDp size = G3DDp());
+bool TreeRowMeta(const char* text, float size) = delete;
 /// Trailing icon action button (right-aligned, reveals on row hover). @p on tints it with the accent.
 /// Returns true when clicked. @p id unique within the row.
 bool TreeRowAction(const char* id, G3DIconId icon, bool on = false);
@@ -944,8 +961,11 @@ bool Banner(const char* text, ToneVariant tone, const char* actionLabel = nullpt
 
 /// Bell button carrying an unread count. @p unread <= 0 draws the plain bell; otherwise the dotted
 /// bell plus a tone-colored count chip on its upper-right corner (clamped at "99+").
-bool BellButton(const char* id, int unread, ToneVariant tone, float size = -1.f,
-  const char* tooltip = nullptr, const char* shortcut = nullptr);
+bool BellButton(const char* id, int unread, ToneVariant tone,
+  G3DDp size = G3DTheme::Size::IconButton, const char* tooltip = nullptr,
+  const char* shortcut = nullptr);
+bool BellButton(const char* id, int unread, ToneVariant tone, float size,
+  const char* tooltip = nullptr, const char* shortcut = nullptr) = delete;
 
 //----------------------------------------------------------------------------
 // Tool group
@@ -980,7 +1000,7 @@ struct ToolGroupDesc
 {
   const ToolItem* items = nullptr;
   int count = 0;
-  float size = -1.f;      ///< per-item edge; <= 0 uses the icon-button token
+  G3DDp size = G3DTheme::Size::IconButton; ///< per-item edge (logical: the group scales it)
   bool framed = false;    ///< draw the floating glass shell (over the 3D view)
   ImVec4 frameColor = ImVec4(0.f, 0.f, 0.f, 1.f); ///< shell backdrop tint (rgb used, alpha ignored)
   float alpha = 1.f;      ///< whole-group opacity, multiplied into every item's presence

@@ -165,7 +165,7 @@ void G3DLayoutProbe::BeginFrame()
 }
 
 //----------------------------------------------------------------------------
-void G3DLayoutProbe::EndFrame(double uiScale)
+void G3DLayoutProbe::EndFrame(G3DScale uiScale)
 {
   if (!gRecording)
   {
@@ -182,7 +182,7 @@ void G3DLayoutProbe::EndFrame(double uiScale)
   out += "{\n\"format\": 1,\n\"frame\": ";
   out += std::to_string(ImGui::GetFrameCount());
   out += ",\n\"uiScale\": ";
-  out += std::to_string(uiScale);
+  out += std::to_string(uiScale.Factor());
   out += ",\n\"fontSize\": ";
   AppendFloat(out, gFontSize);
   out += ",\n\"display\": [";

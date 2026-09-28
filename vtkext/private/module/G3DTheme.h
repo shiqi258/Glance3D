@@ -7,6 +7,10 @@
  * style (which the actor fills from `ui.font_color` / `ui.backdrop.color`) and from F3DStyle, so no
  * mutable global theme state is needed and components automatically follow user color choices.
  *
+ * Every length is a G3DDp (logical px, see G3DUnits.h): scale it right where it becomes a physical
+ * length, `Spacing::Md * s` with the UI scale in hand (G3DWidgets::UiScale()) — never before, never
+ * twice.
+ *
  * Dark-first (matching the current viewer); a light theme can later be added by branching the role
  * functions on a single flag without touching component code.
  *
@@ -19,66 +23,79 @@
 
 #include "F3DStyle.h"
 #include "G3DAnimation.h"
+#include "G3DUnits.h"
 
 #include <imgui.h>
 
 namespace G3DTheme
 {
 
-/// Spacing scale (px, 4-based). Use instead of magic numbers; multiply by FontScale at use sites.
+/// Spacing scale (4-based). Use instead of magic numbers.
 namespace Spacing
 {
-constexpr float Xs = 4.f;
-constexpr float Sm = 8.f;
-constexpr float Md = 12.f;
-constexpr float Lg = 16.f;
-constexpr float Xl = 24.f;
+constexpr G3DDp Xs{ 4.f };
+constexpr G3DDp Sm{ 8.f };
+constexpr G3DDp Md{ 12.f };
+constexpr G3DDp Lg{ 16.f };
+constexpr G3DDp Xl{ 24.f };
 }
 
-/// Corner radii (px). Mirrors the styleguide (sm/md/lg/popup). Docked-tool scale: keep small —
+/// Corner radii. Mirrors the styleguide (sm/md/lg/popup). Docked-tool scale: keep small —
 /// large radii read as web dashboard, not pro desktop chrome; generous rounding is reserved for
 /// floating layers (Popup).
 namespace Radius
 {
-constexpr float Small = 3.f;   ///< small controls (checkbox)
-constexpr float Control = 4.f; ///< buttons, inputs, icon buttons, sliders
-constexpr float Card = 6.f;    ///< cards
-constexpr float Popup = 8.f;   ///< floating layers: menus, popovers, tooltips
-constexpr float Pill = 999.f;  ///< fully rounded (toggles, round icon buttons)
+constexpr G3DDp Small{ 3.f };   ///< small controls (checkbox)
+constexpr G3DDp Control{ 4.f }; ///< buttons, inputs, icon buttons, sliders
+constexpr G3DDp Card{ 6.f };    ///< cards
+constexpr G3DDp Popup{ 8.f };   ///< floating layers: menus, popovers, tooltips
+constexpr G3DDp Pill{ 999.f };  ///< fully rounded (toggles, round icon buttons)
 }
 
-/// Nominal control sizes (px at FontScale 1.0).
+/// Control sizes.
 namespace Size
 {
-constexpr float Control = 25.f;    ///< standard control height (inputs, sliders)
-constexpr float IconButton = 27.f; ///< square icon button
+constexpr G3DDp Control{ 25.f };    ///< standard control height (inputs, sliders)
+constexpr G3DDp IconButton{ 27.f }; ///< square icon button
 /// Compact square icon button: the smallest pointer target still worth aiming at, for the
 /// close/dismiss affordance tucked into a card corner. Deliberately NOT `IconSm` — that is a
 /// *glyph* edge, and using it as a button edge yields a 14px target wrapping a 9px glyph, which is
 /// what a dismiss control must never be: a toast that outlives a missed click is worse than one
 /// that was never shown. Pair it with `IconSm` as the glyph box so the target grows outward (see
 /// the toast gutter) and the ✕ keeps its optical inset from the corner.
-constexpr float IconButtonSm = 22.f;
-constexpr float Fab = 32.f;    ///< floating action button (the reopen handle uses this)
-constexpr float Icon = 18.f;   ///< default icon edge (== base font size)
-constexpr float IconSm = 14.f; ///< small icon edge
-constexpr float Border = 1.f;  ///< hairline border / divider thickness
+constexpr G3DDp IconButtonSm{ 22.f };
+constexpr G3DDp Fab{ 32.f };    ///< floating action button (the transport's play button uses this)
+constexpr G3DDp Icon{ 18.f };   ///< default icon edge
+constexpr G3DDp IconSm{ 14.f }; ///< small icon edge
+constexpr G3DDp Border{ 1.f };  ///< hairline border / divider thickness
+/// Label column of a property row (styleguide `.collapse-body-inner .proprow > .k`).
+constexpr G3DDp PropLabel{ 88.f };
 }
 
-/// Tooltip bubble geometry (px at FontScale 1.0). Mirrors the styleguide `.tip .bubble`
-/// (`padding: 6px 10px`): a hint reads as a compact bubble, tighter than a panel — but never at
-/// zero. A tooltip is a floating layer, so it must NOT inherit the trigger window's padding: the
-/// inspector bar runs at WindowPadding.x = 0 (full-bleed sections), which glued tooltip text to the
-/// bubble edge. G3DWidgets pushes these tokens for every tooltip it opens; callers that need a
-/// different inset pass their own padding to the tooltip helpers.
+/// Type scale.
+namespace Type
+{
+/// The regular UI font size (styleguide --fs-base). The same value G3DQuantizeUiScale is defined
+/// against, so text and every other length share one scale.
+constexpr G3DDp Base = G3DBaseFontSize;
+/// Overline / badge / meta size (styleguide --fs-overline): section sub-headings, counts, chips.
+constexpr G3DDp Overline{ 11.f };
+}
+
+/// Tooltip bubble geometry. Mirrors the styleguide `.tip .bubble` (`padding: 6px 10px`): a hint
+/// reads as a compact bubble, tighter than a panel — but never at zero. A tooltip is a floating
+/// layer, so it must NOT inherit the trigger window's padding: the inspector bar runs at
+/// WindowPadding.x = 0 (full-bleed sections), which glued tooltip text to the bubble edge.
+/// G3DWidgets pushes these tokens for every tooltip it opens; callers that need a different inset
+/// pass their own padding to the tooltip helpers.
 namespace Tooltip
 {
-constexpr float PadX = 10.f; ///< horizontal content inset
-constexpr float PadY = 6.f;  ///< vertical content inset
+constexpr G3DDp PadX{ 10.f }; ///< horizontal content inset
+constexpr G3DDp PadY{ 6.f };  ///< vertical content inset
 }
 
-/// Scrollbar geometry (px at FontScale 1.0), following the desktop convention shared by macOS
-/// overlay scrollbars / VS Code / browsers: a thin resting thumb that widens under the pointer.
+/// Scrollbar geometry, following the desktop convention shared by macOS overlay scrollbars /
+/// VS Code / browsers: a thin resting thumb that widens under the pointer.
 ///
 /// The invariant that makes it work: the *gutter* is a constant. It is what ImGui reserves from the
 /// content region, so animating it would re-wrap text and shift right-aligned values on mouse-over.
@@ -86,10 +103,10 @@ constexpr float PadY = 6.f;  ///< vertical content inset
 /// so it is sized for the pointer (Fitts) rather than for the resting thumb.
 namespace Scrollbar
 {
-constexpr float Gutter = 12.f;        ///< reserved track width == hit target; never animated
-constexpr float ThumbRest = 4.f;      ///< resting thumb: sensed, not read
-constexpr float ThumbHover = 8.f;     ///< expanded thumb: doubled, still inset from the panel edge
-constexpr float TrackEndMargin = 2.f; ///< thumb's clearance from the two ends of its track
+constexpr G3DDp Gutter{ 12.f };        ///< reserved track width == hit target; never animated
+constexpr G3DDp ThumbRest{ 4.f };      ///< resting thumb: sensed, not read
+constexpr G3DDp ThumbHover{ 8.f };     ///< expanded thumb: doubled, still inset from the panel edge
+constexpr G3DDp TrackEndMargin{ 2.f }; ///< thumb's clearance from the two ends of its track
 }
 
 /// A motion preset: duration (seconds) + easing curve, fed straight into a G3DAnimatedFloat.

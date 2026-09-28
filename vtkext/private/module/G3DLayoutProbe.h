@@ -17,6 +17,8 @@
 #ifndef G3DLayoutProbe_h
 #define G3DLayoutProbe_h
 
+#include "G3DUnits.h"
+
 namespace G3DLayoutProbe
 {
 /// True when `G3D_LAYOUT_DUMP` is set (read once per process).
@@ -27,7 +29,7 @@ void BeginFrame();
 
 /// Call after ImGui::Render(): writes the recorded frame. @p uiScale is the scale the host built
 /// the UI at, stored alongside the items for the report.
-void EndFrame(double uiScale);
+void EndFrame(G3DScale uiScale);
 }
 
 #endif
