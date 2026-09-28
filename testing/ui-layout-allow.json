@@ -20,18 +20,5 @@
       "reason": "the message center's corner margin (5) is unscaled (vtkF3DImguiActor.cxx, message center card); at 1.5 the error stays within the tolerance"
     }
   ],
-  "Coloring": [
-    {
-      "match": "*/##g3d.scivis.autorange/##ib",
-      "check": "size",
-      "bug": true,
-      "reason": "the inspector's Range row hands IconButton an already scaled size (vtkF3DImguiActor.cxx, auto-range button), which IconButton scales again"
-    },
-    {
-      "match": "*/g3d.sec.coloring/##body",
-      "check": "size",
-      "bug": true,
-      "reason": "the Coloring section grows with the auto-range button"
-    }
-  ]
+  "Coloring": []
 }

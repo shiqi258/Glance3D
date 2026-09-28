@@ -35,13 +35,12 @@ void CpTrace(const char* fmt, ...)
   va_end(args);
   gTraceSink(buf);
 }
-// Regular UI font size (logical px) — the design-system base, mirrored in ui-styleguide.html
-// (--fs-base) and used as the load size in vtkF3DImguiActor. Scale() = liveFont / BASE_FONT then
-// equals the DPI/user scale, so spacing tokens stay on their fixed grid and only scale with DPI.
-constexpr float BASE_FONT = 14.f;
+// The live UI scale (see G3DWidgets::SetUiScale): one value for every widget, the same one the host
+// loaded the fonts and scaled the style with.
+G3DScale gUiScale;
 float Scale()
 {
-  return ImGui::GetFontSize() / BASE_FONT;
+  return gUiScale.Factor();
 }
 
 // Data font (monospace) registered by the host — see G3DWidgets::SetDataFont(). Null until set.
@@ -7026,6 +7025,45 @@ void SetDataFont(ImFont* font)
 ImFont* DataFont()
 {
   return gDataFont;
+}
+
+//----------------------------------------------------------------------------
+void SetUiScale(G3DScale scale)
+{
+  gUiScale = scale;
+}
+
+//----------------------------------------------------------------------------
+G3DScale UiScale()
+{
+  return gUiScale;
+}
+
+//----------------------------------------------------------------------------
+void ApplyStyleMetrics(ImGuiStyle& style, G3DScale scale)
+{
+  style.FrameBorderSize = 0.f;
+  style.FramePadding = ImVec2(G3DTheme::Spacing::Xs, 2.f);
+  // Native frames and G3D widgets share one corner vocabulary.
+  style.FrameRounding = G3DTheme::Radius::Control;
+  style.GrabRounding = G3DTheme::Radius::Control;
+  // Slim, quiet scrollbar: ImGui's 14px default reads as a bright slab pinned to the panel edge on
+  // the dark theme. The gutter is deliberately wider than the resting thumb: it is the constant
+  // ImGui carves out of the content region *and* the grab hit box, so it is sized for the pointer
+  // while the thumb inside it stays thin. The thumb's thickness itself is owned by ScrollbarStyle()
+  // (see InstallScrollbarStyle), which animates it open under the pointer for every scrollbar in the
+  // app; ScrollbarPadding is left as what it now solely means — the thumb's margin from the two
+  // ENDS of its track.
+  style.ScrollbarSize = G3DTheme::Scrollbar::Gutter;
+  style.ScrollbarRounding = G3DTheme::Scrollbar::ThumbHover * 0.5f; // capsule at either width
+  style.ScrollbarPadding = G3DTheme::Scrollbar::TrackEndMargin;
+  style.WindowBorderSize = 0.f;
+  style.WindowPadding = ImVec2(10.f, 10.f);
+  // Every window is a floating layer unless its host says otherwise (the docked bars push Card).
+  style.WindowRounding = G3DTheme::Radius::Popup;
+  // Unscaled tokens in, ImGui's own scaling out: one factor for the metrics set above and for
+  // every one ImGui owns that the tokens do not name.
+  style.ScaleAllSizes(scale.Factor());
 }
 
 //----------------------------------------------------------------------------

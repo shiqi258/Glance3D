@@ -215,6 +215,12 @@ void vtkF3DUIActor::SetFontScale(const double fontScale)
 }
 
 //----------------------------------------------------------------------------
+G3DScale vtkF3DUIActor::GetUiScale() const
+{
+  return G3DQuantizeUiScale(this->FontScale);
+}
+
+//----------------------------------------------------------------------------
 void vtkF3DUIActor::SetFontColor(const std::array<double, 3>& color)
 {
   if (this->FontColor != color)

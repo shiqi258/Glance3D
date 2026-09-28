@@ -143,10 +143,10 @@ float ViewportChromeZoneH(float fontScale)
 /// Where the console keeps clear of the docked chrome: below the top bar (as far as it has slid in)
 /// and, while the panel is not fully open, short of the top-right tool group. Shared by the console
 /// itself and by the zone it publishes for the floating cards, which are drawn before it.
-void ConsoleInsets(float panelEased, float fontScale, float& topOffset, float& rightInset)
+void ConsoleInsets(float panelEased, G3DScale uiScale, float& topOffset, float& rightInset)
 {
-  topOffset = G3DLayout::DefaultBarSizes(fontScale).topH * panelEased;
-  rightInset = panelEased < 0.999f ? ViewportChromeReservedWidth(fontScale) : 0.f;
+  topOffset = G3DLayout::DefaultBarSizes(uiScale).topH * panelEased;
+  rightInset = panelEased < 0.999f ? ViewportChromeReservedWidth(uiScale.Factor()) : 0.f;
 }
 
 /// Severity -> the design system's tone ladder. One mapping, so the toast stack, the message
@@ -789,11 +789,11 @@ void vtkF3DImguiActor::Initialize(vtkOpenGLRenderWindow* renWin)
   {
     fontOptions.cjkFontPath = cjkFontPath;
   }
-  const G3DUiSetup::Fonts fonts = G3DUiSetup::AddFonts(io, this->FontScale, fontOptions);
+  const G3DUiSetup::Fonts fonts = G3DUiSetup::AddFonts(io, this->GetUiScale(), fontOptions);
   Pimpl->ExtraFonts["dataFont"] = fonts.data;
 
   // The same metrics the headless widget tests build their context with (G3DUiSetup).
-  G3DUiSetup::ApplyStyle(ImGui::GetStyle(), this->FontScale, ::ColorToImVec4(this->FontColor));
+  G3DUiSetup::ApplyStyle(ImGui::GetStyle(), this->GetUiScale(), ::ColorToImVec4(this->FontColor));
 
   // Setup backend name
   io.BackendPlatformName = io.BackendRendererName = "F3D/VTK";
@@ -858,7 +858,7 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   const int scopeNode = view.Scope();
   if (scopeNode > 0)
   {
-    const float scale = static_cast<float>(this->FontScale);
+    const float scale = this->GetUiScale().Factor();
     // IconButton scales the size it is given, so it takes the token; `btn` is the laid-out edge.
     // Handing it the scaled value scaled the buttons twice at any DPI but 1x.
     const float btn = G3DTheme::Size::Control * scale;
@@ -909,7 +909,7 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   static constexpr int kSceneTreeToolbarMinNodes = 20;
   if (graph.NodeCount() > kSceneTreeToolbarMinNodes || view.Filter().Active())
   {
-    const float scale = static_cast<float>(this->FontScale);
+    const float scale = this->GetUiScale().Factor();
     // The field is a scratch buffer, not the state: the filter itself lives in the view, where the
     // SDK and `scene_tree_filter` also write it. Resynced below whenever the box is idle, so a
     // filter set from a script does not leave the box telling a different story.
@@ -1101,12 +1101,12 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   // than "your query is". Say which.
   if (view.RowCount() == 0 && view.Filter().Active())
   {
-    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Md * static_cast<float>(this->FontScale)));
+    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Md * this->GetUiScale().Factor()));
     ImGui::TextColored(G3DTheme::TextMuted(), "%s", loc.Translate("No matching node").c_str());
   }
   // Same bottom breathing room as the inspector: keep the scroll end off the bottom seam.
-  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * static_cast<float>(this->FontScale)));
-  ::DrawScrollEndFade(static_cast<float>(this->FontScale));
+  ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * this->GetUiScale().Factor()));
+  ::DrawScrollEndFade(this->GetUiScale().Factor());
   G3DWidgets::EndScrollRegion();
 }
 
@@ -1516,7 +1516,8 @@ void vtkF3DImguiActor::RenderFileName()
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
     constexpr float margin = F3DStyle::GetDefaultMargin();
-    const float scale = static_cast<float>(this->FontScale);
+    const G3DScale uiScale = this->GetUiScale();
+    const float scale = uiScale.Factor();
     const float eased = this->PanelAnim.Value();
 
     // Once the panel chrome settles, the top bar draws the title itself (fitted to the real free
@@ -1549,7 +1550,7 @@ void vtkF3DImguiActor::RenderFileName()
 
     // With the panel open the name sits centered on the top toolbar line, backgroundless (the
     // opaque bar carries it); closed, it is the familiar floating pill. eased interpolates both.
-    const float topH = G3DLayout::DefaultBarSizes(scale).topH;
+    const float topH = G3DLayout::DefaultBarSizes(uiScale).topH;
     const float y = margin + ((topH - winSize.y) * 0.5f - margin) * eased;
     ::SetupNextWindow(ImVec2(viewport->GetWorkCenter().x - 0.5f * totalWidth, y), winSize);
     ImGuiStyle& style = ImGui::GetStyle();
@@ -1680,7 +1681,7 @@ void vtkF3DImguiActor::RenderHDRIFileName()
     // Same chrome treatment as the file name: toolbar-line alignment + backgroundless when the
     // panel is open, muted text always.
     const float eased = this->PanelAnim.Value();
-    const float topH = G3DLayout::DefaultBarSizes(static_cast<float>(this->FontScale)).topH;
+    const float topH = G3DLayout::DefaultBarSizes(this->GetUiScale()).topH;
     const float y = margin + ((topH - winSize.y) * 0.5f - margin) * eased;
     ::SetupNextWindow(
       ImVec2(viewport->GetWorkCenter().x - 0.5f * totalWidth + winOffsetX, y), winSize);
@@ -1784,7 +1785,8 @@ void vtkF3DImguiActor::RenderCheatSheet()
   }
 
   this->Pimpl->CheatSheetWidth += ImGui::GetStyle().ScrollbarSize + 4.f * padding;
-  const float uiScale = static_cast<float>(this->FontScale);
+  const G3DScale layoutScale = this->GetUiScale();
+  const float uiScale = layoutScale.Factor();
   textHeight += 2.f * padding;                         // card content padding, top + bottom
   textHeight += G3DWidgets::FloatingCardHeaderHeight(); // title bar band
 
@@ -1794,7 +1796,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
   const G3DLayout::Rect center =
-    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(), uiScale)
+    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(), layoutScale)
       .center;
 
   // Height caps at the center rect (content scrolls) with a usability floor for slit-thin
@@ -2055,7 +2057,7 @@ void vtkF3DImguiActor::RenderFpsCounter()
     viewport->WorkSize.y };
   const G3DLayout::Rect rc =
     G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(),
-      static_cast<float>(this->FontScale))
+      this->GetUiScale())
       .center;
   const ImVec2 position(rc.x + margin, rc.y + margin);
 
@@ -2136,7 +2138,7 @@ bool vtkF3DImguiActor::IsControlPanelAnimating()
 //----------------------------------------------------------------------------
 vtkF3DImguiActor::BarsResolution vtkF3DImguiActor::ResolveBars(float workW)
 {
-  const float scale = static_cast<float>(this->FontScale);
+  const G3DScale scale = this->GetUiScale();
   BarsResolution rb;
   // The legacy scene-hierarchy / metadata toggles force their side open: their floating widgets
   // are retired, the docked tree/inspector is the single presenter of that information.
@@ -2163,11 +2165,11 @@ vtkF3DImguiActor::BarsResolution vtkF3DImguiActor::ResolveBars(float workW)
   }
 
   rb.sizes = G3DLayout::DefaultBarSizes(scale);
-  if (this->ControlBarLeftW > 0.f)
+  if (this->ControlBarLeftW > 0_dp)
   {
     rb.sizes.leftW = this->ControlBarLeftW * scale;
   }
-  if (this->ControlBarRightW > 0.f)
+  if (this->ControlBarRightW > 0_dp)
   {
     rb.sizes.rightW = this->ControlBarRightW * scale;
   }
@@ -2201,7 +2203,7 @@ void vtkF3DImguiActor::GetControlPanelViewport(const int windowSize[2], double v
     return;
   }
 
-  const float scale = static_cast<float>(this->FontScale);
+  const G3DScale scale = this->GetUiScale();
   const G3DLayout::Rect work{ 0.f, 0.f, static_cast<float>(W), static_cast<float>(H) };
   const G3DLayout::Result r =
     G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, eased, scale);
@@ -2376,7 +2378,7 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
   }
 
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const float scale = static_cast<float>(this->FontScale);
+  const float scale = this->GetUiScale().Factor();
 
   // Collapsible inspector panels — each is a styleguide collapse card (G3DWidgets::BeginCollapse).
   // Open state persists across frames; the host (right inspector bar) owns the shared scroll region.
@@ -2792,7 +2794,7 @@ void vtkF3DImguiActor::DrawAppearanceContent()
 void vtkF3DImguiActor::DrawLightingContent()
 {
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const float scale = static_cast<float>(this->FontScale);
+  const float scale = this->GetUiScale().Factor();
   static bool lightingOpen = true;
   const std::string title = loc.Translate("Lighting & environment");
   G3DWidgets::CollapseDesc d;
@@ -3034,7 +3036,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
   }
 
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const float scale = static_cast<float>(this->FontScale);
+  const float scale = this->GetUiScale().Factor();
   static bool coloringOpen = true;
   const std::string title = loc.Translate("Coloring");
   G3DWidgets::CollapseDesc d;
@@ -3314,8 +3316,10 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
         this->SendCommand(std::string("set model.scivis.range ") + buf);
       }
       ImGui::SameLine(0.f, rangeGap);
-      if (G3DWidgets::IconButton("##g3d.scivis.autorange", G3DIconId::Fit, autoBtnW, false,
-            loc.Translate("Auto range").c_str()))
+      // The token, not autoBtnW: IconButton scales the edge it is given, and autoBtnW (the width
+      // the slider leaves room for) is already scaled.
+      if (G3DWidgets::IconButton("##g3d.scivis.autorange", G3DIconId::Fit, G3DTheme::Size::Control,
+            false, loc.Translate("Auto range").c_str()))
       {
         this->SendCommand("reset model.scivis.range");
       }
@@ -3340,7 +3344,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
 void vtkF3DImguiActor::DrawTimelineContent()
 {
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const float scale = static_cast<float>(this->FontScale);
+  const float scale = this->GetUiScale().Factor();
 
   if (this->AnimState.count == 0)
   {
@@ -3621,7 +3625,7 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
   float yTop = (1.f - static_cast<float>(vp[3])) * H;
   const float yBot = (1.f - static_cast<float>(vp[1])) * H;
 
-  const float scale = static_cast<float>(this->FontScale);
+  const float scale = this->GetUiScale().Factor();
   const float lineH = ImGui::GetTextLineHeight();
   const float pad = 4.f * scale;
 
@@ -3740,7 +3744,7 @@ void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
   // central viewport's UPPER-right corner — the industry spot (Blender & co.), clear of the
   // timeline bar and of the scalar bar's numeric endpoints (the legend shifts below the gizmo,
   // see ::ViewGizmoMetrics shared with RenderScalarBar).
-  const float scale = static_cast<float>(this->FontScale);
+  const float scale = this->GetUiScale().Factor();
   const ::GizmoMetrics gm =
     ::ViewGizmoMetrics(W, H, scale, ::ViewGizmoTopInset(this->PanelAnim.Value(), scale));
   const float R = gm.radius;
@@ -3929,13 +3933,14 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     return; // nothing to draw while fully closed
   }
 
-  const float scale = static_cast<float>(this->FontScale);
+  const G3DScale uiScale = this->GetUiScale();
+  const float scale = uiScale.Factor();
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
   // ResolveBars is the single source of the per-bar visibility rules, shared with
   // GetControlPanelViewport so the pushed 3D viewport and the bars can never disagree.
   const BarsResolution rb = this->ResolveBars(work.w);
-  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, eased, scale);
+  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, eased, uiScale);
 
   // Docked bars are opaque chrome that frame the 3D viewport. The scene is physically pushed into
   // the central gap: the renderer derives its VTK viewport from this same G3DLayout `center` rect
@@ -4382,12 +4387,13 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // (ControlBarDragging forces a full render while held).
   this->ControlBarDragging = false;
   const float splitterW = 8.f * scale;
-  const float minBarW = 180.f;
+  const G3DDp minBarW = 180_dp;
   // Mirror Compute()'s per-side cap so the STORED drag override can never exceed what is drawn —
   // otherwise the bar pins at the cap while the override keeps growing and reverse-dragging gets a
-  // dead zone. MaxSideWidth is in device px; the override is stored nominal, hence the /scale.
+  // dead zone. MaxSideWidth is in physical px; the override is stored logical, hence ToDp.
   // max() guards tiny windows where the cap would fall below the minimum width.
-  const float maxBarW = std::max(minBarW, G3DLayout::MaxSideWidth(work.w, scale) / scale);
+  const G3DDp maxBarW =
+    std::max(minBarW, uiScale.ToDp(G3DLayout::MaxSideWidth(work.w, uiScale)));
   auto drawSplitter = [&](const char* id, float boundaryX, const G3DLayout::Rect& bar, bool isLeft)
   {
     if (bar.w < 1.f || bar.h < 1.f)
@@ -4412,10 +4418,10 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     if (active)
     {
       this->ControlBarDragging = true;
-      const float d = ImGui::GetIO().MouseDelta.x / scale; // drag right widens the left bar
+      const G3DDp d = uiScale.ToDp(ImGui::GetIO().MouseDelta.x); // right widens the left bar
       if (isLeft)
       {
-        if (this->ControlBarLeftW < 0.f)
+        if (this->ControlBarLeftW < 0_dp)
         {
           this->ControlBarLeftW = G3DLayout::BAR_LEFT_W;
         }
@@ -4423,7 +4429,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
       }
       else
       {
-        if (this->ControlBarRightW < 0.f)
+        if (this->ControlBarRightW < 0_dp)
         {
           this->ControlBarRightW = G3DLayout::BAR_RIGHT_W;
         }
@@ -4460,8 +4466,7 @@ void vtkF3DImguiActor::RenderConsole(bool minimal)
   // then (with the chrome open the top bar carries them instead).
   float topOffset = 0.f;
   float rightInset = 0.f;
-  ::ConsoleInsets(
-    this->PanelAnim.Value(), static_cast<float>(this->FontScale), topOffset, rightInset);
+  ::ConsoleInsets(this->PanelAnim.Value(), this->GetUiScale(), topOffset, rightInset);
   console->ShowConsole(minimal, topOffset, rightInset);
 }
 
@@ -4508,8 +4513,7 @@ void vtkF3DImguiActor::StartFrame(vtkOpenGLRenderWindow* renWin)
   {
     float topOffset = 0.f;
     float rightInset = 0.f;
-    ::ConsoleInsets(
-      this->PanelAnim.Value(), static_cast<float>(this->FontScale), topOffset, rightInset);
+    ::ConsoleInsets(this->PanelAnim.Value(), this->GetUiScale(), topOffset, rightInset);
     this->Pimpl->Zones.Publish(G3DPlacement::ZoneId::MiniConsole,
       vtkF3DImguiConsole::MinimalRect(topOffset, rightInset), G3DLayer::Palette);
   }
@@ -4525,7 +4529,7 @@ void vtkF3DImguiActor::EndFrame(vtkOpenGLRenderWindow* renWin)
   ImGui::EndFrame();
   G3DLayers::Apply();
   ImGui::Render();
-  G3DLayoutProbe::EndFrame(this->FontScale);
+  G3DLayoutProbe::EndFrame(this->GetUiScale().Factor());
   this->Pimpl->RenderDrawData(renWin, ImGui::GetDrawData());
 
   // Focus-scoped IME: keep the OS input method off while no text field is focused (so bare-key
@@ -4683,11 +4687,12 @@ void vtkF3DImguiActor::RenderBindingHud()
     return;
   }
 
-  const float scale = static_cast<float>(this->FontScale);
+  const G3DScale uiScale = this->GetUiScale();
+  const float scale = uiScale.Factor();
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
   const BarsResolution rb = this->ResolveBars(work.w);
-  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, this->PanelAnim.Value(), scale);
+  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, this->PanelAnim.Value(), uiScale);
 
   const float margin = G3DTheme::Spacing::Md * scale;
   const float padX = G3DTheme::Spacing::Md * scale;
@@ -4880,7 +4885,8 @@ void vtkF3DImguiActor::RenderMessages()
     return;
   }
 
-  const float scale = static_cast<float>(this->FontScale);
+  const G3DScale uiScale = this->GetUiScale();
+  const float scale = uiScale.Factor();
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
 
   // The canonical layout resolution: anchor inside the CENTRAL viewport so the stack clears the
@@ -4888,7 +4894,7 @@ void vtkF3DImguiActor::RenderMessages()
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
   const BarsResolution rb = this->ResolveBars(work.w);
-  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, this->PanelAnim.Value(), scale);
+  const G3DLayout::Result r = G3DLayout::Compute(work, rb.sizes, this->PanelAnim.Value(), uiScale);
 
   const float margin = G3DTheme::Spacing::Md * scale;
   const float gap = G3DTheme::Spacing::Sm * scale;
@@ -5169,14 +5175,15 @@ void vtkF3DImguiActor::RenderNotificationCenter()
 
   G3DNotificationCenter& center = G3DNotificationCenter::GetInstance();
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-  const float scale = static_cast<float>(this->FontScale);
+  const G3DScale uiScale = this->GetUiScale();
+  const float scale = uiScale.Factor();
   const float margin = G3DTheme::Spacing::Md * scale;
   const float padding = G3DTheme::Spacing::Md * scale;
 
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
   const G3DLayout::Rect rc =
-    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(), scale)
+    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(), uiScale)
       .center;
 
   const float cardW = std::clamp(rc.w * 0.42f, std::min(320.f * scale, rc.w - 2.f * margin),
@@ -5500,51 +5507,4 @@ void vtkF3DImguiActor::RenderNotificationCenter()
       it = alive ? std::next(it) : this->Pimpl->NotifCenterOpen.erase(it);
     }
   }
-}
-
-//----------------------------------------------------------------------------
-float vtkF3DImguiActor::CalcBadgeWidth(const std::string& text)
-{
-  ImVec2 textSize = ImGui::CalcTextSize(text.c_str());
-  const float paddingX = F3DStyle::GetDefaultMargin() * this->FontScale;
-  return textSize.x + paddingX * 2.f;
-}
-
-//----------------------------------------------------------------------------
-void vtkF3DImguiActor::RenderBadge(const std::string& text, float alpha)
-{
-  ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-  ImVec2 pos = ImGui::GetCursorScreenPos();
-  ImVec2 textSize = ImGui::CalcTextSize(text.c_str());
-
-  const float paddingX = F3DStyle::GetDefaultMargin() * this->FontScale;
-  const float paddingY = F3DStyle::GetDefaultMargin() * this->FontScale * 0.5f;
-
-  ImVec2 badgeSize = ImVec2(textSize.x + paddingX * 2.f, textSize.y + paddingY * 2.f);
-
-  // Align badge vertically
-  pos.y += (ImGui::GetTextLineHeight() - badgeSize.y) * 0.5f;
-
-  ImVec2 rectMin = pos;
-  ImVec2 rectMax = ImVec2(pos.x + badgeSize.x, pos.y + badgeSize.y);
-
-  float rounding = 4.f * this->FontScale;
-
-  ImVec4 bindingTextColor = ::ColorToImVec4(this->FontColor);
-  ImVec4 bindingRectColor = F3DStyle::imgui::GetMidColor();
-  bindingTextColor.w = alpha;
-  bindingRectColor.w = alpha;
-
-  // Background
-  drawList->AddRectFilled(
-    rectMin, rectMax, ImGui::ColorConvertFloat4ToU32(bindingRectColor), rounding);
-
-  // Text
-  ImVec2 textPos = ImVec2(pos.x + paddingX, pos.y + paddingY);
-
-  drawList->AddText(textPos, ImGui::ColorConvertFloat4ToU32(bindingTextColor), text.c_str());
-
-  // Advance layout cursor
-  ImGui::Dummy(badgeSize);
 }

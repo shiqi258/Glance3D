@@ -203,20 +203,31 @@ void CheckQuantizeAtRuntime()
 }
 
 #if F3D_MODULE_UI
-// End to end: a context built the way the app builds its own renders the UI face at the base font
-// size times the quantized scale.
-void CheckRenderedFontSize()
+// End to end: a context built the way the app builds its own gives the text, the style and the
+// widgets one and the same scale -- the UI face renders at the base font size times the quantized
+// scale, ScaleAllSizes ran with that factor, and the widget library lays out with it.
+void CheckOneScaleEverywhere()
 {
   for (const double requested : { 1.0, 1.25, 1.5, 1.75, 2.0 })
   {
+    const G3DScale want = G3DQuantizeUiScale(requested);
     G3DWidgetHarness harness(requested);
     harness.Begin();
     const float rendered = ImGui::GetFontSize();
+    const float styleScale = ImGui::GetStyle()._MainScale;
+    const G3DScale widgets = G3DWidgets::UiScale();
     harness.End();
-    const float want = G3DBaseFontSize * G3DQuantizeUiScale(requested);
-    if (rendered != want)
+    if (rendered != G3DBaseFontSize * want)
     {
-      Fail("rendered_font", requested, rendered, want);
+      Fail("rendered_font", requested, rendered, G3DBaseFontSize * want);
+    }
+    if (styleScale != want.Factor())
+    {
+      Fail("style_scale", requested, styleScale, want.Factor());
+    }
+    if (!(widgets == want))
+    {
+      Fail("widget_scale", requested, widgets.Factor(), want.Factor());
     }
   }
 }
@@ -227,7 +238,7 @@ int TestG3DUnits(int, char*[])
 {
   CheckQuantizeAtRuntime();
 #if F3D_MODULE_UI
-  CheckRenderedFontSize();
+  CheckOneScaleEverywhere();
 #endif
   if (failures > 0)
   {

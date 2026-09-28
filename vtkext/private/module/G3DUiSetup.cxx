@@ -7,7 +7,7 @@
 #include "G3DWidgets.h"
 
 //----------------------------------------------------------------------------
-G3DUiSetup::Fonts G3DUiSetup::AddFonts(ImGuiIO& io, double uiScale, const FontOptions& options)
+G3DUiSetup::Fonts G3DUiSetup::AddFonts(ImGuiIO& io, G3DScale uiScale, const FontOptions& options)
 {
   ImFontConfig fontConfig;
 
@@ -44,9 +44,9 @@ G3DUiSetup::Fonts G3DUiSetup::AddFonts(ImGuiIO& io, double uiScale, const FontOp
   // CJK reads better at 14 than the 13px Latin-IDE norm). Exactly two atlases are burned, UI and
   // data: the binding HUD used to carry a private 0.8x copy of the UI face — a third atlas plus a
   // third CJK merge, for one call site, against the single-type-scale rule.
-  // Spacing keeps the fixed 4-grid because G3DWidgets BASE_FONT == this size, so Scale() carries
-  // DPI only (see G3DWidgets.cxx). @p uiScale is the DPI/user scale.
-  const float uiFont = static_cast<float>(14.f * uiScale);
+  // @p uiScale is quantized (G3DQuantizeUiScale), so this is a whole number of pixels: the size
+  // ImGui renders the face at, and the one the style and the widgets scale with.
+  const float uiFont = G3DBaseFontSize * uiScale;
 
   // Dual-font system: UI text = proportional sans (Inter, embedded; --font-file overrides it),
   // data = Monaspace (always embedded), pushed by widgets for values / filenames / array names /
@@ -85,31 +85,14 @@ G3DUiSetup::Fonts G3DUiSetup::AddFonts(ImGuiIO& io, double uiScale, const FontOp
 }
 
 //----------------------------------------------------------------------------
-void G3DUiSetup::ApplyStyle(ImGuiStyle& style, double uiScale, const ImVec4& textColor)
+void G3DUiSetup::ApplyStyle(ImGuiStyle& style, G3DScale uiScale, const ImVec4& textColor)
 {
   ImVec4 colTransparent = ImVec4(0.0f, 0.0f, 0.0f, 0.0f); // #000000
 
   style.AntiAliasedLines = false;
-  style.FrameBorderSize = 0.f;
-  style.FramePadding = ImVec2(4, 2);
-  style.FrameRounding = 4.f; // == G3DTheme::Radius::Control, so native frames match G3D widgets
-  style.GrabRounding = 4.0f;
-  // Slim, quiet scrollbar: ImGui's 14px default reads as a bright slab pinned to the panel edge on
-  // the dark theme. A hairline capsule in low-alpha white keeps it discoverable but recessive;
-  // hover/drag brighten it (no accent — it is chrome, not a control).
-  // The gutter is deliberately wider than the resting thumb: it is the constant ImGui carves out of
-  // the content region *and* the grab hit box, so it is sized for the pointer while the thumb
-  // inside it stays thin. The thumb's thickness itself is owned by
-  // G3DWidgets::InstallScrollbarStyle() below, which animates it open under the pointer for every
-  // scrollbar in the app; ScrollbarPadding is left as what it now solely means — the thumb's margin
-  // from the two ENDS of its track.
-  style.ScrollbarSize = G3DTheme::Scrollbar::Gutter;
-  style.ScrollbarRounding = G3DTheme::Scrollbar::ThumbHover * 0.5f; // capsule at either width
-  style.ScrollbarPadding = G3DTheme::Scrollbar::TrackEndMargin;
-  style.WindowBorderSize = 0.f;
-  style.WindowPadding = ImVec2(10, 10);
-  style.WindowRounding = 8.f;
-  style.ScaleAllSizes(static_cast<float>(uiScale));
+  G3DWidgets::ApplyStyleMetrics(style, uiScale);
+  // One scale for the fonts (AddFonts), the style and every widget.
+  G3DWidgets::SetUiScale(uiScale);
   style.Colors[ImGuiCol_Text] = textColor;
   // Docked chrome base = the styleguide Panel token, one source of truth with the G3D surface
   // ramp (#181b21/#20242c/#282d36 all assume this base). F3D_BLACK stays for in-scene elements.
@@ -117,8 +100,9 @@ void G3DUiSetup::ApplyStyle(ImGuiStyle& style, double uiScale, const ImVec4& tex
   style.Colors[ImGuiCol_FrameBg] = colTransparent;
   style.Colors[ImGuiCol_FrameBgActive] = colTransparent;
   style.Colors[ImGuiCol_ScrollbarBg] = colTransparent;
-  // Scrollbar grab stays quieter than the hairline vocabulary (a resting rail pinned to the panel
-  // edge should be sensed, not read); hover/active lift it back into reach.
+  // A hairline capsule in low-alpha white keeps the scrollbar discoverable but recessive, quieter
+  // than the hairline vocabulary (a resting rail pinned to the panel edge should be sensed, not
+  // read); hover/active lift it back into reach (no accent — it is chrome, not a control).
   style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(1.f, 1.f, 1.f, 0.08f);
   style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1.f, 1.f, 1.f, 0.17f);
   style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(1.f, 1.f, 1.f, 0.21f);

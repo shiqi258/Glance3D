@@ -302,8 +302,10 @@ void UpdateLoupe(HWND renderHwnd, const POINT& cur, const std::vector<unsigned c
     return;
   }
 
-  const UINT dpi = GetDpiForWindow(renderHwnd);
-  const double s = dpi > 0 ? dpi / 96.0 : 1.0;
+  // The UI scale, not the monitor's DPI: this loupe takes over from the ImGui one at the window
+  // edge, and the two must be the same size (the UI scale is DPI x ui.scale when DPI-aware, and
+  // ui.scale alone otherwise).
+  const double s = G3DWidgets::UiScale().Factor();
   const int cell = std::max(6, static_cast<int>(9.0 * s + 0.5));
   const int gridR = cell * LOUPE_HALF + cell / 2;
   const int hair = std::max(1, static_cast<int>(1.25 * s + 0.5));

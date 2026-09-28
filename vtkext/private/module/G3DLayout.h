@@ -19,6 +19,8 @@
 #ifndef G3DLayout_h
 #define G3DLayout_h
 
+#include "G3DUnits.h"
+
 #include <algorithm>
 
 namespace G3DLayout
@@ -33,7 +35,7 @@ struct Rect
   float h = 0.f;
 };
 
-/// Fully-open sizes of each bar in pixels (already multiplied by the UI scale at the call site).
+/// Fully-open sizes of each bar in physical pixels (already multiplied by the UI scale).
 struct Sizes
 {
   float topH = 0.f;
@@ -58,28 +60,28 @@ struct Result
 /// drag clamp in the ImGui actor so the stored drag override can never exceed what is drawn.
 inline constexpr float MAX_SIDE_FRAC = 0.22f;
 
-/// Minimum usable side-panel content width in NOMINAL px (UI scale 1.0): label column + a control
-/// that still reads (not "..."), plus paddings. The proportional cap yields to this so a small
-/// window or a large font scale squeezes the VIEWPORT before it degrades the panel content.
-inline constexpr float MIN_SIDE_CONTENT_W = 240.f;
+/// Minimum usable side-panel content width: label column + a control that still reads (not "..."),
+/// plus paddings. The proportional cap yields to this so a small window or a large font scale
+/// squeezes the VIEWPORT before it degrades the panel content.
+inline constexpr G3DDp MIN_SIDE_CONTENT_W{ 240.f };
 
 /// Hard per-side ceiling: even honoring MIN_SIDE_CONTENT_W, one panel never takes more than this
 /// fraction of the window (two panels then leave >= 30% for the live viewport).
 inline constexpr float MAX_SIDE_FRAC_HARD = 0.35f;
 
-/// Below this work width (nominal px — multiply by the UI scale) the two side bars go mutually
-/// exclusive: only the most recently opened one is drawn, the other stays requested and comes back
-/// when the window widens. At 900 a single default bar still leaves ~2/3 of the window to the live
+/// Below this work width (at the UI scale) the two side bars go mutually exclusive: only the most
+/// recently opened one is drawn, the other stays requested and comes back when the window widens.
+/// At 900 a single default bar still leaves ~2/3 of the window to the live
 /// viewport, while both bars would leave barely half; 960 keeps the common 900-wide window in the
 /// exclusive mode while the 1000-wide default resolution stays two-bar. Keep this comfortably above
 /// 2*MIN_SIDE_CONTENT_W or the per-side caps would degrade both panels before exclusivity engages.
-inline constexpr float NARROW_BREAKPOINT_W = 960.f;
+inline constexpr G3DDp NARROW_BREAKPOINT_W{ 960.f };
 
-/// The effective per-side width cap in DEVICE px. Proportional by default; floored by the scaled
+/// The effective per-side width cap in physical px. Proportional by default; floored by the scaled
 /// minimum content width; hard-capped so the viewport survives. Shared by Compute() and the
-/// panel-edge drag clamp in the ImGui actor (which mirrors it in nominal space) — the two MUST
-/// agree or reverse-dragging a pinned bar gets a dead zone.
-inline float MaxSideWidth(float workW, float scale)
+/// panel-edge drag clamp in the ImGui actor (which mirrors it in logical px) — the two MUST agree
+/// or reverse-dragging a pinned bar gets a dead zone.
+inline float MaxSideWidth(float workW, G3DScale scale)
 {
   return std::min(std::max(workW * MAX_SIDE_FRAC, MIN_SIDE_CONTENT_W * scale),
     workW * MAX_SIDE_FRAC_HARD);
@@ -95,7 +97,7 @@ inline float MaxSideWidth(float workW, float scale)
  * viewport invalid). @p scale is the UI scale the Sizes were built with (MaxSideWidth needs it
  * to floor the cap at a usable scaled content width).
  */
-inline Result Compute(const Rect& work, const Sizes& s, float frac, float scale = 1.f)
+inline Result Compute(const Rect& work, const Sizes& s, float frac, G3DScale scale)
 {
   frac = std::clamp(frac, 0.f, 1.f);
 
@@ -133,12 +135,12 @@ inline Result Compute(const Rect& work, const Sizes& s, float frac, float scale 
   return o;
 }
 
-/// Fully-open thicknesses of the four docked bars, in pixels at UI scale 1.0. Kept here (not in the
+/// Fully-open thicknesses of the four docked bars. Kept here (not in the
 /// ImGui actor) so the renderer derives the central VTK viewport from the SAME numbers the bars are
 /// drawn with — a single source of truth for both presenters. The right bar matches the inspector
 /// panel width.
-inline constexpr float BAR_TOP_H = 44.f;
-inline constexpr float BAR_BOTTOM_H = 40.f;
+inline constexpr G3DDp BAR_TOP_H{ 44.f };
+inline constexpr G3DDp BAR_BOTTOM_H{ 40.f };
 // Both side bars open at the same width: the tree is a first-class panel, not a strip beside the
 // inspector, and a symmetric frame is what a docked editor layout reads as. The number is also the
 // floor of what the CONTENT needs — a node name sits behind (depth * 16px) of indent rails, so a
@@ -146,11 +148,11 @@ inline constexpr float BAR_BOTTOM_H = 40.f;
 // assemblies down to B-rep faces). Never take it below MIN_SIDE_CONTENT_W, which is the same
 // "still readable, not '...'" budget expressed as a cap floor. Users still drag either bar (floor
 // is the splitter's 180, ceiling is MaxSideWidth).
-inline constexpr float BAR_LEFT_W = 300.f;
-inline constexpr float BAR_RIGHT_W = 300.f;
+inline constexpr G3DDp BAR_LEFT_W{ 300.f };
+inline constexpr G3DDp BAR_RIGHT_W{ 300.f };
 
 /// Build the (scale-multiplied) fully-open bar sizes for the layout solver.
-inline Sizes DefaultBarSizes(float scale)
+inline Sizes DefaultBarSizes(G3DScale scale)
 {
   return Sizes{ BAR_TOP_H * scale, BAR_LEFT_W * scale, BAR_RIGHT_W * scale, BAR_BOTTOM_H * scale };
 }

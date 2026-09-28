@@ -47,7 +47,7 @@ void CheckScale(double uiScale)
   {
     const bool measure = frame == 1;
     harness.Begin();
-    const float s = G3DWidgetHarness::UiScale();
+    const float s = G3DWidgets::UiScale().Factor();
 
     for (G3DWidgets::ButtonDensity density : densities)
     {

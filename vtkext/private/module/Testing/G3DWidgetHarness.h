@@ -2,8 +2,8 @@
  * @file G3DWidgetHarness.h
  * @brief A headless ImGui context for widget tests, built the way the app builds its own.
  *
- * Fonts and style come from G3DUiSetup, the code vtkF3DImguiActor initializes with, so a test
- * measures exactly the metrics the app draws with. There is no window and no GPU: the font atlas is
+ * Fonts, style and the widgets' UI scale come from G3DUiSetup, the code vtkF3DImguiActor
+ * initializes with, so a test measures exactly the metrics the app draws with. There is no window and no GPU: the font atlas is
  * rasterized on the CPU (ImGuiBackendFlags_RendererHasTextures) and each texture request is
  * acknowledged without uploading anything.
  *
@@ -23,8 +23,11 @@
 class G3DWidgetHarness
 {
 public:
-  explicit G3DWidgetHarness(double uiScale, ImVec2 display = ImVec2(1280.f, 800.f))
+  /// @p requestedScale is what the app would be asked for (DPI x ui.scale); like the app, the
+  /// harness quantizes it (G3DQuantizeUiScale) before building anything with it.
+  explicit G3DWidgetHarness(double requestedScale, ImVec2 display = ImVec2(1280.f, 800.f))
   {
+    const G3DScale uiScale = G3DQuantizeUiScale(requestedScale);
     G3DIconAtlas::Invalidate();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -51,6 +54,7 @@ public:
 
   G3DWidgetHarness(const G3DWidgetHarness&) = delete;
   G3DWidgetHarness& operator=(const G3DWidgetHarness&) = delete;
+
 
   /// Start a frame with one borderless window over the whole display; submit widgets, then End().
   void Begin()
@@ -88,9 +92,6 @@ public:
       }
     }
   }
-
-  /// The scale the widget library draws at: the font it was given, over the 14px base.
-  static float UiScale() { return ImGui::GetFontSize() / 14.f; }
 };
 
 #endif

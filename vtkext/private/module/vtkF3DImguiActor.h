@@ -176,16 +176,6 @@ private:
   void operator=(const vtkF3DImguiActor&) = delete;
 
   /**
-   * Render the text as a grey badge with the provided alpha value
-   */
-  void RenderBadge(const std::string& text, float alpha);
-
-  /**
-   * Compute the width of a badge
-   */
-  float CalcBadgeWidth(const std::string& text);
-
-  /**
    * Advance the viewport chrome cluster's opacity once per frame. Called from RenderViewportChrome,
    * inside the ImGui frame. The panel slide is advanced separately, pre-pass, in
    * UpdateControlPanelSlide so the bars and the 3D viewport read the same eased fraction.
@@ -302,12 +292,12 @@ private:
 
   ///@{
   /**
-   * Draggable left/right bar widths (nominal px, < 0 = use the G3DLayout default). Both the bars and
+   * Draggable left/right bar widths (logical px, < 0 = use the G3DLayout default). Both the bars and
    * the central viewport derive from these, so resizing a bar re-fits the 3D in lockstep.
    * ControlBarDragging is true while a splitter is held (forces a full render so the push tracks).
    */
-  float ControlBarLeftW = -1.f;
-  float ControlBarRightW = -1.f;
+  G3DDp ControlBarLeftW{ -1.f };
+  G3DDp ControlBarRightW{ -1.f };
   bool ControlBarDragging = false;
   ///@}
 

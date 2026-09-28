@@ -8,6 +8,8 @@
 #ifndef vtkF3DUIActor_h
 #define vtkF3DUIActor_h
 
+#include "G3DUnits.h"
+
 #include <F3DStyle.h>
 #include <array>
 #include <chrono>
@@ -246,9 +248,16 @@ public:
   void SetFontFile(const std::string& font);
 
   /**
-   * Set the font scale
+   * Set the font scale (ui.scale, times the monitor DPI scale when DPI-aware)
    */
   void SetFontScale(const double fontScale);
+
+  /**
+   * The UI scale: the font scale quantized to what the text renders at (see G3DQuantizeUiScale).
+   * The one scale the fonts, the style, the widgets and the docked layout all use. Available before
+   * the UI context exists: the renderer asks for the central viewport ahead of the first UI frame.
+   */
+  G3DScale GetUiScale() const;
 
   /**
    * Set the font color
@@ -541,7 +550,6 @@ protected:
   int FpsValue = 0;
 
   std::string FontFile = "";
-  double FontScale = 1.0;
 
   /**
    * Initializing the vector here because its needed in the initialization function,
@@ -561,6 +569,10 @@ private:
   void operator=(const vtkF3DUIActor&) = delete;
 
   bool Initialized = false;
+
+  /// Only ever read through GetUiScale(): a raw factor next to the quantized one would be a second
+  /// scale the moment someone multiplied by it.
+  double FontScale = 1.0;
 };
 
 #endif

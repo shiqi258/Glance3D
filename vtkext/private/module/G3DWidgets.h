@@ -29,6 +29,7 @@
 #include "G3DAnimation.h"
 #include "G3DIcon.h"
 #include "G3DPlacement.h"
+#include "G3DUnits.h"
 
 #include <cstddef>
 #include <functional>
@@ -45,6 +46,37 @@ namespace G3DWidgets
 void SetDataFont(ImFont* font);
 /// The registered data font, or null when none.
 ImFont* DataFont();
+
+/// The UI scale every widget lays out at: DPI x ui.scale, quantized to what the text renders at
+/// (G3DQuantizeUiScale). The host sets it once per context from the same value it loads the fonts
+/// and scales the style with — G3DUiSetup::ApplyStyle does all three — so geometry and text
+/// cannot drift apart. 1 until set.
+void SetUiScale(G3DScale scale);
+G3DScale UiScale();
+
+/// A logical length at the live UI scale, in physical px: the conversion to apply right before a
+/// native ImGui call. Code that already holds a G3DScale multiplies by it instead.
+inline float Px(G3DDp length)
+{
+  return length * UiScale();
+}
+inline ImVec2 Px(G3DDp2 length)
+{
+  const G3DScale s = UiScale();
+  return ImVec2(length.x * s, length.y * s);
+}
+/// Px() truncated to whole pixels, the rounding ImGuiStyle::ScaleAllSizes applies (ImTrunc): for a
+/// value pushed in place of a style metric, so it lands where the scaled style would have put it.
+inline float PxTrunc(G3DDp length)
+{
+  return static_cast<float>(static_cast<int>(Px(length)));
+}
+
+/// Write the Glance3D style metrics (paddings, roundings, scrollbar geometry) into @p style from
+/// the design tokens, scaled by @p scale the way ImGuiStyle::ScaleAllSizes scales them — which also
+/// scales every metric the tokens do not name (item spacing, indent...). Call it once per fresh
+/// style: ScaleAllSizes compounds. Colors are the host's (see G3DUiSetup::ApplyStyle).
+void ApplyStyleMetrics(ImGuiStyle& style, G3DScale scale);
 
 /// Visual emphasis of a button.
 enum class ButtonVariant
