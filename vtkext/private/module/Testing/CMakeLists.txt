@@ -5,6 +5,7 @@ set(test_sources
   TestG3DSceneGraph.cxx
   TestG3DSceneGraphFromFile.cxx
   TestG3DSceneTreeView.cxx
+  TestG3DUnits.cxx
   TestF3DCachedTexturesPrint.cxx
   TestF3DGenericImporter.cxx
   TestF3DInteractorEventRecorder.cxx
