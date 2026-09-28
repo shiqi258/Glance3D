@@ -186,12 +186,15 @@ struct RowPlace
  * highest `drop` first, the later slot on a tie — until the rest fits. If nothing droppable is
  * left, the fill slot keeps its minimum and the row flows on past @p width rather than squeezing a
  * control into an unusable sliver or stacking the trailing slots over it; the return value is then
- * false.
+ * false. With @p anchorEnd the slots after the fill stay on the right edge even then, over what
+ * comes before them: for trailing controls that must remain reachable in any window (the top bar's
+ * panel toggle).
  *
  * Pure geometry: the FieldRow widget and hand-drawn rows (a message list row) share it, and it is
  * unit tested without ImGui.
  */
-inline bool SolveRow(const RowSlot* slots, int count, float width, float gap, RowPlace* out)
+inline bool SolveRow(
+  const RowSlot* slots, int count, float width, float gap, RowPlace* out, bool anchorEnd = false)
 {
   int fillIndex = -1;
   for (int i = 0; i < count; ++i)
@@ -271,7 +274,7 @@ inline bool SolveRow(const RowSlot* slots, int count, float width, float gap, Ro
   // A row that fits anchors the slots after the fill to its right edge, measured from that edge:
   // a trailing control ends exactly on it, and whatever the fill does not use (a control that
   // rounds its width down to whole pixels) stays on the fill's side of the gap.
-  if (fits && fillIndex >= 0)
+  if ((fits || anchorEnd) && fillIndex >= 0)
   {
     float right = width;
     for (int i = count - 1; i > fillIndex; --i)

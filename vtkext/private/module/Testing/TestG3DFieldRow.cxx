@@ -93,6 +93,15 @@ void TestSolver()
     ExpectNear(out[2].x, 150.f, "solver.overflow.no.overlap");
   }
   {
+    // Pinned end: in a row too narrow for everything the trailing slot still ends on the right
+    // edge (over what precedes it) — the top bar's panel toggle must stay reachable.
+    const RowSlot slots[] = { Fixed(100.f), Fill(), Fixed(100.f) };
+    RowPlace out[3];
+    Expect(!G3DLayout::SolveRow(slots, 3, 150.f, 0.f, out, true), "solver.pinned.reported");
+    ExpectNear(out[2].x + out[2].w, 150.f, "solver.pinned.right");
+    ExpectNear(out[1].w, 0.f, "solver.pinned.fill.w");
+  }
+  {
     // No fill slot: left-aligned, and an overflow drops the droppable slot.
     const RowSlot slots[] = { Fixed(50.f), Fixed(50.f, 1), Fixed(50.f) };
     RowPlace out[3];

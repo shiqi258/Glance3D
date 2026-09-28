@@ -468,6 +468,10 @@ struct FieldRowDesc
   G3DDp gap = G3DTheme::Spacing::Xs;         ///< between neighbouring slots
   G3DDp minHeight = G3DTheme::Size::Control; ///< the row is at least this tall
   G3DDp endInset;                            ///< room kept free after the last slot
+  /// The slots after the fill keep to the right edge even in a row too narrow for everything,
+  /// over the slots before them, instead of flowing out of the row: for trailing controls that
+  /// must stay reachable in any window (the top bar's panel toggle).
+  bool pinEnd = false;
 };
 
 /// Open a field row at the cursor, as wide as the content region left of it. Always pair with
@@ -486,6 +490,13 @@ G3DLayout::Rect FieldRowSlotRect();
 
 /// Close the row and leave the cursor on the line below it.
 void EndFieldRow();
+
+/// The measuring twin of BeginFieldRow: where a row @p width wide (the content region it would
+/// start in) puts @p slots, exactly as the row itself will — one RowPlace per slot in @p out,
+/// relative to the row's left edge. For a caller that must know the layout before it is drawn, or
+/// without drawing it (something else that has to keep clear of the row's clusters).
+void MeasureFieldRow(std::span<const FieldSlot> slots, float width, const FieldRowDesc& desc,
+  G3DLayout::RowPlace* out);
 
 /// Collapsible property-panel header (the signature DCC inspector panel, e.g. Blender's Transform /
 /// Relations): a full-width clickable header with a disclosure triangle + title on a subtle raised

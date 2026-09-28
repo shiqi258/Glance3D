@@ -271,6 +271,16 @@ private:
   };
   BarsResolution ResolveBars(float workW);
 
+  /**
+   * What the docked top bar shows and how its width is shared: its button clusters, the file pager
+   * and the title, as ONE field row. Built by BuildTopBarModel for the two consumers that must
+   * agree on it — the bar itself, and the floating file-name pill, which glides onto the bar's title
+   * line while the panel slides and has to keep clear of the very same clusters. Defined in the
+   * .cxx.
+   */
+  struct TopBarModel;
+  void BuildTopBarModel(TopBarModel& model, const BarsResolution& rb);
+
   ///@{
   /**
    * Animation state for the floating viewport chrome cluster and the sliding panel, built on the

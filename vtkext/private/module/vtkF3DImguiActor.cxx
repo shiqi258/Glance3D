@@ -1539,6 +1539,249 @@ void DrawInspectorOverline(const char* text, float w, float lineH, G3DScale scal
 }
 } // namespace
 
+//----------------------------------------------------------------------------
+struct vtkF3DImguiActor::TopBarModel
+{
+  enum SlotKind
+  {
+    SLOT_ACTIONS, ///< open | reset view, isometric | grid, axes, edges
+    SLOT_RULE,    ///< the grouping rule before the layout switch
+    SLOT_LAYOUT,  ///< scene / inspector / timeline visibility
+    SLOT_TITLE,   ///< the file name, centered in the free span (the row's fill)
+    SLOT_PREV,    ///< ‹  the file pager, multi-file groups only
+    SLOT_COUNTER, ///< i/m
+    SLOT_NEXT,    ///< ›
+    SLOT_TOOLS,   ///< messages, shortcuts, screenshot, collapse
+    SLOT_MAX
+  };
+  enum
+  {
+    ACT_OPEN = 0,
+    ACT_FIT,
+    ACT_ISO,
+    ACT_GRID,
+    ACT_AXIS,
+    ACT_EDGES,
+    ACT_COUNT
+  };
+  enum
+  {
+    TOOL_BELL = 0,
+    TOOL_HELP,
+    TOOL_SHOT,
+    TOOL_COLLAPSE,
+    TOOL_COUNT
+  };
+
+  TopBarModel() = default;
+  // The items point into the strings below: build a model in place, never copy one.
+  TopBarModel(const TopBarModel&) = delete;
+  TopBarModel& operator=(const TopBarModel&) = delete;
+
+  std::string actionTips[ACT_COUNT];
+  std::string layoutTips[3];
+  std::string toolTips[TOOL_COUNT];
+  std::string prevTip;
+  std::string nextTip;
+
+  G3DWidgets::ToolItem actions[ACT_COUNT];
+  const char* actionCommands[ACT_COUNT] = {};
+  G3DWidgets::ToolGroupDesc actionsDesc;
+  G3DWidgets::SegmentedIconItem layout[3];
+  G3DWidgets::ToolItem tools[TOOL_COUNT];
+  G3DWidgets::ToolGroupDesc toolsDesc;
+  ImVec2 toolsSize;
+
+  std::string title; ///< the bare file name, the "(i/m) " group prefix parsed off
+  int fileIndex = 0;
+  int fileTotal = 0; ///< > 1: the pager shows
+  char counter[32] = "";
+
+  SlotKind kinds[SLOT_MAX] = {};
+  G3DWidgets::FieldSlot slots[SLOT_MAX];
+  std::size_t slotCount = 0;
+  std::size_t titleSlot = 0;
+  G3DWidgets::FieldRowDesc row;
+};
+
+//----------------------------------------------------------------------------
+void vtkF3DImguiActor::BuildTopBarModel(TopBarModel& m, const BarsResolution& rb)
+{
+  using G3DWidgets::FieldSlot;
+  using M = TopBarModel;
+  G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+  const G3DScale scale = this->GetUiScale();
+
+  // Actions: the previewer's entry action (backed by the app-level tinyfiledialogs command; builds
+  // without that module just log an unknown command on click), the two view resets, then the
+  // display toggles. Those reflect the live option value as a persistent "on" state in the Well
+  // style — a recessed key + hairline rim carried in BOTH states, so a toggle still reads as a
+  // switch when OFF instead of being pixel-identical to the momentary buttons beside it; ON adds an
+  // accent wash + accent icon + underline dot. A rule separates each cluster.
+  struct Action
+  {
+    const char* id;
+    G3DIconId icon;
+    const char* command;
+    const char* shortcut;
+    bool ruleBefore;
+    const char* option; ///< the option a display toggle reflects; null: a momentary action
+  };
+  static constexpr Action kActions[M::ACT_COUNT] = {
+    { "##tb.open", G3DIconId::Folder, "open_file_dialog", "Ctrl+O", false, nullptr },
+    { "##tb.fit", G3DIconId::Home, "reset_camera", "Enter", true, nullptr },
+    { "##tb.iso", G3DIconId::Cube, "set_camera isometric", "9", false, nullptr },
+    { "##tb.grid", G3DIconId::Grid, "toggle render.grid.enable", "G", true, "render.grid.enable" },
+    { "##tb.axis", G3DIconId::Axis, "toggle ui.axis", "X", false, "ui.axis" },
+    { "##tb.edges", G3DIconId::Edges, "toggle render.show_edges", "E", false, "render.show_edges" },
+  };
+  // Literal Translate() calls, so scripts/check-locales.mjs sees every key.
+  m.actionTips[M::ACT_OPEN] = loc.Translate("Open file...");
+  m.actionTips[M::ACT_FIT] = loc.Translate("Reset view");
+  m.actionTips[M::ACT_ISO] = loc.Translate("Isometric view");
+  m.actionTips[M::ACT_GRID] = loc.Translate("Grid");
+  m.actionTips[M::ACT_AXIS] = loc.Translate("Axes");
+  m.actionTips[M::ACT_EDGES] = loc.Translate("Edges");
+  for (int i = 0; i < M::ACT_COUNT; ++i)
+  {
+    const Action& a = kActions[i];
+    G3DWidgets::ToolItem& item = m.actions[i];
+    item.id = a.id;
+    item.icon = a.icon;
+    item.tooltip = m.actionTips[i].c_str();
+    item.shortcut = a.shortcut;
+    item.separatorBefore = a.ruleBefore;
+    if (a.option != nullptr)
+    {
+      item.on = this->ReadOptionBool(a.option, false);
+      item.onStyle = G3DWidgets::IconOnStyle::Well;
+    }
+    m.actionCommands[i] = a.command;
+  }
+  m.actionsDesc.items = m.actions;
+  m.actionsDesc.count = M::ACT_COUNT;
+
+  // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits). One
+  // segmented group instead of three chips: the related layout switches read as a single quiet
+  // control (Figma top bar / UE viewport toolbar), not the loudest thing in the chrome. The
+  // segments reflect what is actually DRAWN (rb.*Shown), not the raw options: in the narrow-window
+  // exclusive mode one side is suppressed while its option stays true, and showing it lit would
+  // promise a panel that isn't there. The timeline segment is a dead switch without animations —
+  // disabled, and its tooltip says why.
+  const bool hasAnim = this->AnimState.count > 0;
+  m.layoutTips[0] = loc.Translate("Scene");
+  m.layoutTips[1] = loc.Translate("Inspector");
+  m.layoutTips[2] = hasAnim ? loc.Translate("Timeline") : loc.Translate("No animation");
+  m.layout[0] = { G3DIconId::PanelLeft, m.layoutTips[0].c_str(), rb.leftShown, false };
+  m.layout[1] = { G3DIconId::PanelRight, m.layoutTips[1].c_str(), rb.rightShown, false };
+  m.layout[2] = { G3DIconId::PanelBottom, m.layoutTips[2].c_str(), rb.bottomShown, !hasAnim };
+
+  // Tools: bell, shortcuts, screenshot, collapse (the VS Code layout-toggle spot; the floating
+  // chrome cluster carries the mirrored reopen handle once the panel is closed). The SAME
+  // G3DWidgets::ToolGroup the floating cluster uses, so the buttons cannot drift apart between the
+  // panel's open and closed states. Screenshot / pager / open are app-level commands: embedding
+  // contexts without them just log an unknown-command warning on click.
+  G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
+  const int unread = nc.UnreadCount(G3DSeverity::Info);
+  m.toolTips[M::TOOL_BELL] = unread > 0
+    ? loc.Translate("{n} unread", { { "n", std::to_string(unread) } })
+    : loc.Translate("Messages");
+  m.toolTips[M::TOOL_HELP] = loc.Translate("Shortcuts");
+  m.toolTips[M::TOOL_SHOT] = loc.Translate("Screenshot");
+  m.toolTips[M::TOOL_COLLAPSE] = loc.Translate("Collapse panel");
+  // Message bell — the formal entrance to what the app has to say. The dot is tinted by the
+  // loudest unread message, so a glance says whether it is worth opening.
+  G3DWidgets::ToolItem& bell = m.tools[M::TOOL_BELL];
+  bell.id = "##tb.bell";
+  bell.icon = unread > 0 ? G3DIconId::BellDot : G3DIconId::Bell;
+  bell.shortcut = "Ctrl+Shift+K";
+  bell.badge = unread;
+  bell.badgeTone = ToneFor(nc.TopUnreadSeverity());
+  // Help — surface the cheatsheet, the keyboard-driven feature set the icon-only bar otherwise
+  // hides (a single low-cost on-ramp to every shortcut). Stateful toggle: the Well reads as
+  // pressed while the sheet is open ('H' toggles it as well).
+  G3DWidgets::ToolItem& help = m.tools[M::TOOL_HELP];
+  help.id = "##tb.help";
+  help.icon = G3DIconId::Help;
+  help.shortcut = "H";
+  help.on = this->CheatSheetVisible;
+  help.onStyle = G3DWidgets::IconOnStyle::Well;
+  G3DWidgets::ToolItem& shot = m.tools[M::TOOL_SHOT];
+  shot.id = "##tb.shot";
+  shot.icon = G3DIconId::Camera;
+  shot.shortcut = "F12";
+  G3DWidgets::ToolItem& collapse = m.tools[M::TOOL_COLLAPSE];
+  collapse.id = "##tb.collapse";
+  collapse.icon = G3DIconId::PanelClose;
+  collapse.shortcut = "`";
+  for (int i = 0; i < M::TOOL_COUNT; ++i)
+  {
+    m.tools[i].tooltip = m.toolTips[i].c_str();
+  }
+  m.toolsDesc.items = m.tools;
+  m.toolsDesc.count = M::TOOL_COUNT;
+  m.toolsSize = G3DWidgets::ToolGroupSize(m.toolsDesc);
+
+  // Parse the app-composed "(i/m) " prefix out of the title (F3DStarter builds it): the bare name
+  // goes to the centered title, i/m drive the pager; a single-file "(1/1)" prefix is stripped and
+  // shows no pager at all.
+  m.title = this->FileName;
+  {
+    int idx = 0;
+    int total = 0;
+    int off = 0;
+    if (std::sscanf(this->FileName.c_str(), "(%d/%d) %n", &idx, &total, &off) == 2 && off > 0)
+    {
+      m.fileIndex = idx;
+      m.fileTotal = total;
+      m.title = this->FileName.substr(static_cast<std::size_t>(off));
+    }
+  }
+
+  // The row, measured from the items above: the action cluster, a rule, the layout switch, the title
+  // filling the middle with an extra Sm of air on both sides, then — against the right edge — the
+  // ‹ i/m › pager and the tool cluster. The right end stays pinned even in a window too narrow for
+  // everything: the collapse button is the way out of the panel.
+  const auto add = [&m](M::SlotKind kind, const FieldSlot& slot)
+  {
+    m.kinds[m.slotCount] = kind;
+    m.slots[m.slotCount] = slot;
+    ++m.slotCount;
+  };
+  const ImVec2 key = G3DWidgets::IconButtonSize();
+  const ImVec2 actionsSize = G3DWidgets::ToolGroupSize(m.actionsDesc);
+  const ImVec2 layoutSize = G3DWidgets::SegmentedIconSize(3);
+  add(M::SLOT_ACTIONS, FieldSlot::Fixed(actionsSize.x, actionsSize.y));
+  add(M::SLOT_RULE, FieldSlot::Fixed(G3DTheme::Spacing::Sm * scale, key.y));
+  add(M::SLOT_LAYOUT, FieldSlot::Fixed(layoutSize.x, layoutSize.y));
+  m.titleSlot = m.slotCount;
+  add(M::SLOT_TITLE, FieldSlot::Fill().After(G3DTheme::Spacing::Xs + G3DTheme::Spacing::Sm));
+  if (m.fileTotal > 1)
+  {
+    std::snprintf(m.counter, sizeof(m.counter), "%d/%d", m.fileIndex, m.fileTotal);
+    m.prevTip = loc.Translate("Previous file");
+    m.nextTip = loc.Translate("Next file");
+    // The counter is data — measured (and drawn) in the mono font.
+    ImFont* dataFont = G3DWidgets::DataFont();
+    if (dataFont != nullptr)
+    {
+      ImGui::PushFont(dataFont, 0.f);
+    }
+    const float counterW = ImGui::CalcTextSize(m.counter).x;
+    const float lineH = ImGui::GetTextLineHeight();
+    if (dataFont != nullptr)
+    {
+      ImGui::PopFont();
+    }
+    add(M::SLOT_PREV, FieldSlot::Fixed(key.x, key.y).After(G3DTheme::Spacing::Sm));
+    add(M::SLOT_COUNTER, FieldSlot::Fixed(counterW, lineH));
+    add(M::SLOT_NEXT, FieldSlot::Fixed(key.x, key.y));
+  }
+  add(M::SLOT_TOOLS, FieldSlot::Fixed(m.toolsSize.x, m.toolsSize.y).After(G3DTheme::Spacing::Sm));
+  m.row.minHeight = G3DTheme::Size::IconButton;
+  m.row.pinEnd = true;
+}
+
 void vtkF3DImguiActor::RenderFileName()
 {
   if (!this->FileName.empty())
@@ -1557,10 +1800,22 @@ void vtkF3DImguiActor::RenderFileName()
       return;
     }
 
-    // Keep clear of the toolbar's button clusters while the panel chrome is open (symmetric
-    // reservation so the text stays centered); a long name middle-ellipsizes with the full string
-    // on hover.
-    const float reserved = eased > 0.001f ? 320_dp * scale : 2.f * margin;
+    // Keep clear of the toolbar's button clusters while the panel chrome is open, measured from
+    // the model the bar lays itself out with — the farther-reaching end on both sides, so the text
+    // stays centered; a long name middle-ellipsizes with the full string on hover.
+    float reserved = 2.f * margin;
+    if (eased > 0.001f)
+    {
+      TopBarModel bar;
+      this->BuildTopBarModel(bar, this->ResolveBars(viewport->WorkSize.x));
+      const float pad = ImGui::GetStyle().WindowPadding.x;
+      const float rowW = viewport->WorkSize.x - 2.f * pad;
+      G3DLayout::RowPlace places[TopBarModel::SLOT_MAX];
+      G3DWidgets::MeasureFieldRow(
+        std::span<const G3DWidgets::FieldSlot>(bar.slots, bar.slotCount), rowW, bar.row, places);
+      const G3DLayout::RowPlace& span = places[bar.titleSlot];
+      reserved = pad + std::max(span.x, rowW - (span.x + span.w));
+    }
     const float maxTextW = std::max(80_dp * scale, viewport->WorkSize.x - 2.f * reserved);
     const std::string shown = ::EllipsizeMiddle(this->FileName, maxTextW);
 
@@ -4084,315 +4339,213 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   };
 
   // Top bar — command toolbar: vertically-centered icon buttons for safe, momentary view actions and
-  // display toggles, dispatched through the same command path the FAB uses.
+  // display toggles, dispatched through the same command path the floating cluster uses. One field
+  // row, laid out from TopBarModel — the same model the floating file-name pill keeps clear of.
   if (beginBar("##g3d.bar.top", topIsle))
   {
+    TopBarModel m;
+    this->BuildTopBarModel(m, rb);
     const float btn = G3DTheme::Size::IconButton * scale;
     const ImVec2 wp = ImGui::GetWindowPos();
     ImGui::SetCursorScreenPos(
       ImVec2(wp.x + ImGui::GetStyle().WindowPadding.x, wp.y + (topIsle.h - btn) * 0.5f));
-
-    auto toolButton = [&](const char* id, G3DIconId icon, const char* cmd, const char* tip,
-                        bool on = false,
-                        G3DWidgets::IconOnStyle onStyle = G3DWidgets::IconOnStyle::Fill,
-                        const char* sc = nullptr)
-    {
-      if (G3DWidgets::IconButton(id, icon, G3DTheme::Size::IconButton, false, tip, on, onStyle, sc))
-      {
-        this->SendCommand(cmd);
-      }
-      ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
-    };
-    auto toolSeparator = [&]()
-    {
-      const ImVec2 sp = ImGui::GetCursorScreenPos();
-      // BorderStrong: at Border's alpha the grouping line was invisible in practice, so the
-      // action | toggle | layout clusters read as one undifferentiated row.
-      ImGui::GetWindowDrawList()->AddLine(ImVec2(sp.x, sp.y + btn * 0.22f),
-        ImVec2(sp.x, sp.y + btn * 0.78f), G3DTheme::U32(G3DTheme::BorderStrong()),
-        G3DTheme::Size::Border * scale);
-      ImGui::Dummy(ImVec2(G3DTheme::Spacing::Sm * scale, btn));
-      ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
-    };
-
-    // Open file — the previewer's entry action. Backed by the app-level tinyfiledialogs command;
-    // builds without that module just log an unknown command on click.
-    toolButton("##tb.open", G3DIconId::Folder, "open_file_dialog",
-      loc.Translate("Open file...").c_str(), false, G3DWidgets::IconOnStyle::Fill, "Ctrl+O");
-    toolSeparator();
-    toolButton("##tb.fit", G3DIconId::Home, "reset_camera", loc.Translate("Reset view").c_str(),
-      false, G3DWidgets::IconOnStyle::Fill, "Enter");
-    toolButton("##tb.iso", G3DIconId::Cube, "set_camera isometric",
-      loc.Translate("Isometric view").c_str(), false, G3DWidgets::IconOnStyle::Fill, "9");
-    toolSeparator();
-    // Display toggles reflect the live option value as a persistent "on" state — the Well style:
-    // a recessed key + hairline rim carried in BOTH states, so a toggle still reads as a switch
-    // when OFF instead of being pixel-identical to the momentary action buttons (Open/Fit/Iso).
-    // When ON it takes an accent wash + accent icon + underline dot. Neutral (not filled-chip) at
-    // rest, so several display toggles don't shout; the structural panel toggles keep the segmented
-    // control below.
-    toolButton("##tb.grid", G3DIconId::Grid, "toggle render.grid.enable",
-      loc.Translate("Grid").c_str(), this->ReadOptionBool("render.grid.enable", false),
-      G3DWidgets::IconOnStyle::Well, "G");
-    toolButton("##tb.axis", G3DIconId::Axis, "toggle ui.axis", loc.Translate("Axes").c_str(),
-      this->ReadOptionBool("ui.axis", false), G3DWidgets::IconOnStyle::Well, "X");
-    toolButton("##tb.edges", G3DIconId::Edges, "toggle render.show_edges",
-      loc.Translate("Edges").c_str(), this->ReadOptionBool("render.show_edges", false),
-      G3DWidgets::IconOnStyle::Well, "E");
-    toolSeparator();
-    // Per-bar visibility toggles (hide a bar to give the 3D more room; the viewport re-fits).
-    // One segmented group instead of three chips: the related layout switches read as a single
-    // quiet control (Figma top bar / UE viewport toolbar), not the loudest thing in the chrome.
-    // The timeline segment is a dead switch without animations — disabled, tooltip says why.
-    const bool hasAnim = this->AnimState.count > 0;
-    const std::string sceneTip = loc.Translate("Scene");
-    const std::string inspectorTip = loc.Translate("Inspector");
-    const std::string timelineTip =
-      hasAnim ? loc.Translate("Timeline") : loc.Translate("No animation");
-    // The segments reflect what is actually DRAWN (rb.*Shown), not the raw options: in the
-    // narrow-window exclusive mode one side is suppressed while its option stays true, and showing
-    // it lit would promise a panel that isn't there.
-    const G3DWidgets::SegmentedIconItem layoutSegs[3] = {
-      { G3DIconId::PanelLeft, sceneTip.c_str(), rb.leftShown, false },
-      { G3DIconId::PanelRight, inspectorTip.c_str(), rb.rightShown, false },
-      { G3DIconId::PanelBottom, timelineTip.c_str(), rb.bottomShown, !hasAnim },
-    };
-    switch (G3DWidgets::SegmentedIcon("##tb.layout", layoutSegs, 3))
-    {
-      case 0:
-        if (rb.narrowExclusive && !rb.leftShown)
-        {
-          // Exclusive mode hides this side while its option is still on: clicking it means
-          // "switch to it", not "toggle the option off" (which would take a second click to open).
-          this->LastOpenedRight = false;
-          this->ViewportDirtyOneShot = true;
-        }
-        else if (rb.leftShown && this->SceneHierarchyVisible)
-        {
-          // Closing a bar the legacy toggle force-opened: clear that toggle too, or the OR keeps
-          // the bar up and the click looks dead.
-          this->SendCommand("set ui.scene_hierarchy false");
-          this->SendCommand("set ui.control_left false");
-        }
-        else
-        {
-          this->SendCommand("toggle ui.control_left");
-        }
-        break;
-      case 1:
-        if (rb.narrowExclusive && !rb.rightShown)
-        {
-          this->LastOpenedRight = true;
-          this->ViewportDirtyOneShot = true;
-        }
-        else if (rb.rightShown && this->MetaDataVisible)
-        {
-          this->SendCommand("set ui.metadata false");
-          this->SendCommand("set ui.control_right false");
-        }
-        else
-        {
-          this->SendCommand("toggle ui.control_right");
-        }
-        break;
-      case 2:
-        this->SendCommand("toggle ui.control_bottom");
-        break;
-      default:
-        break;
-    }
-    ImGui::SameLine(0.f, G3DTheme::Spacing::Xs * scale);
-    const float clusterEndX = ImGui::GetCursorScreenPos().x;
-
-    // Right cluster: bell, shortcuts, screenshot, collapse (the VS Code layout-toggle spot; the
-    // floating chrome cluster carries the mirrored reopen handle once the panel is closed), plus —
-    // for multi-file groups — the ‹ i/m › file pager, fixed at the edge so the centered title never
-    // collides with it. This is the SAME G3DWidgets::ToolGroup the floating cluster uses, so the
-    // buttons cannot drift apart between the panel's open and closed states. Screenshot / pager /
-    // open are app-level commands: embedding contexts without them just log an unknown-command
-    // warning on click.
-    const float gapXs = G3DTheme::Spacing::Xs * scale;
-    const float btnY = wp.y + (topIsle.h - btn) * 0.5f;
-
-    G3DNotificationCenter& nc = G3DNotificationCenter::GetInstance();
-    const int unread = nc.UnreadCount(G3DSeverity::Info);
-    const std::string bellTip = unread > 0
-      ? loc.Translate("{n} unread", { { "n", std::to_string(unread) } })
-      : loc.Translate("Messages");
-    const std::string shortcutsTip = loc.Translate("Shortcuts");
-    const std::string shotTip = loc.Translate("Screenshot");
-    const std::string collapseTip = loc.Translate("Collapse panel");
-
-    enum
-    {
-      TB_BELL = 0,
-      TB_HELP,
-      TB_SHOT,
-      TB_COLLAPSE,
-      TB_COUNT
-    };
-    G3DWidgets::ToolItem rightItems[TB_COUNT];
-    // Message bell — the formal entrance to what the app has to say. The dot is tinted by the
-    // loudest unread message, so a glance says whether it is worth opening.
-    rightItems[TB_BELL].id = "##tb.bell";
-    rightItems[TB_BELL].icon = unread > 0 ? G3DIconId::BellDot : G3DIconId::Bell;
-    rightItems[TB_BELL].tooltip = bellTip.c_str();
-    rightItems[TB_BELL].shortcut = "Ctrl+Shift+K";
-    rightItems[TB_BELL].badge = unread;
-    rightItems[TB_BELL].badgeTone = ToneFor(nc.TopUnreadSeverity());
-    // Help — surface the cheatsheet, the keyboard-driven feature set the icon-only bar otherwise
-    // hides (a single low-cost on-ramp to every shortcut). Stateful toggle: the Well reads as
-    // pressed while the sheet is open ('H' toggles it as well).
-    rightItems[TB_HELP].id = "##tb.help";
-    rightItems[TB_HELP].icon = G3DIconId::Help;
-    rightItems[TB_HELP].tooltip = shortcutsTip.c_str();
-    rightItems[TB_HELP].shortcut = "H";
-    rightItems[TB_HELP].on = this->CheatSheetVisible;
-    rightItems[TB_HELP].onStyle = G3DWidgets::IconOnStyle::Well;
-    rightItems[TB_SHOT].id = "##tb.shot";
-    rightItems[TB_SHOT].icon = G3DIconId::Camera;
-    rightItems[TB_SHOT].tooltip = shotTip.c_str();
-    rightItems[TB_SHOT].shortcut = "F12";
-    rightItems[TB_COLLAPSE].id = "##tb.collapse";
-    rightItems[TB_COLLAPSE].icon = G3DIconId::PanelClose;
-    rightItems[TB_COLLAPSE].tooltip = collapseTip.c_str();
-    rightItems[TB_COLLAPSE].shortcut = "`";
-
-    G3DWidgets::ToolGroupDesc rightDesc;
-    rightDesc.items = rightItems;
-    rightDesc.count = TB_COUNT;
-    const ImVec2 rightSize = G3DWidgets::ToolGroupSize(rightDesc);
-    float rightX = wp.x + topIsle.w - ImGui::GetStyle().WindowPadding.x - rightSize.x;
-    // The bell's host while the panel is open: the message center anchors under this cluster.
-    this->Pimpl->NoteBellHost(G3DPlacement::ZoneId::TopBarTools,
-      { rightX, btnY, rightSize.x, rightSize.y }, G3DLayer::Docked);
-    ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
-    switch (G3DWidgets::ToolGroup("##tb.right", rightDesc))
-    {
-      case TB_BELL:
-        this->SendCommand("raise_or_toggle ui.notification_center");
-        break;
-      case TB_HELP:
-        this->SendCommand("raise_or_toggle ui.cheatsheet");
-        break;
-      case TB_SHOT:
-        this->SendCommand("take_screenshot");
-        break;
-      case TB_COLLAPSE:
-        // Collapse = close the chrome whatever opened it: the panel option itself or the legacy
-        // metadata / scene-hierarchy force-opens (a bare toggle could re-OPEN ui.control_panel
-        // while a force flag holds the chrome up, making the button look dead).
-        this->SendCommand("set ui.control_panel false");
-        if (this->MetaDataVisible)
-        {
-          this->SendCommand("set ui.metadata false");
-        }
-        if (this->SceneHierarchyVisible)
-        {
-          this->SendCommand("set ui.scene_hierarchy false");
-        }
-        break;
-      default:
-        break;
-    }
-
-    // Parse the app-composed "(i/m) " prefix out of the title (F3DStarter builds it): the bare
-    // name goes to the centered title, i/m drive the pager; a single-file "(1/1)" prefix is
-    // stripped and shows no pager at all.
-    std::string title = this->FileName;
-    int fgIndex = 0;
-    int fgTotal = 0;
-    {
-      int idx = 0;
-      int total = 0;
-      int off = 0;
-      if (std::sscanf(this->FileName.c_str(), "(%d/%d) %n", &idx, &total, &off) == 2 && off > 0)
-      {
-        fgIndex = idx;
-        fgTotal = total;
-        title = this->FileName.substr(static_cast<std::size_t>(off));
-      }
-    }
-
+    G3DWidgets::BeginFieldRow(
+      "##g3d.topbar", std::span<const G3DWidgets::FieldSlot>(m.slots, m.slotCount), m.row);
     ImFont* dataFont = G3DWidgets::DataFont(); // pager counter + filename title are data
-    if (fgTotal > 1)
+    for (std::size_t i = 0; i < m.slotCount; ++i)
     {
-      char counter[32];
-      std::snprintf(counter, sizeof(counter), "%d/%d", fgIndex, fgTotal);
-      if (dataFont != nullptr)
+      if (!G3DWidgets::FieldRowNext())
       {
-        ImGui::PushFont(dataFont, 0.f);
+        continue;
       }
-      const float counterW = ImGui::CalcTextSize(counter).x;
-
-      rightX -= G3DTheme::Spacing::Sm * scale + btn; // next-file arrow
-      const float nextX = rightX;
-      rightX -= gapXs + counterW; // counter
-      const float counterX = rightX;
-      rightX -= gapXs + btn; // previous-file arrow
-      ImGui::SetCursorScreenPos(ImVec2(rightX, btnY));
-      toolButton("##tb.prevfile", G3DIconId::ChevronLeft, "load_previous_file_group",
-        loc.Translate("Previous file").c_str());
-      ImGui::SetCursorScreenPos(
-        ImVec2(counterX, wp.y + (topIsle.h - ImGui::GetTextLineHeight()) * 0.5f));
-      ImGui::TextColored(G3DTheme::TextMuted(), "%s", counter);
-      if (dataFont != nullptr)
+      switch (m.kinds[i])
       {
-        ImGui::PopFont();
+        case TopBarModel::SLOT_ACTIONS:
+        {
+          const int hit = G3DWidgets::ToolGroup("##tb.actions", m.actionsDesc);
+          if (hit >= 0)
+          {
+            this->SendCommand(m.actionCommands[hit]);
+          }
+          break;
+        }
+        case TopBarModel::SLOT_RULE:
+        {
+          // BorderStrong: at Border's alpha the grouping line was invisible in practice, so the
+          // action | toggle | layout clusters read as one undifferentiated row.
+          const ImVec2 sp = ImGui::GetCursorScreenPos();
+          ImGui::GetWindowDrawList()->AddLine(ImVec2(sp.x, sp.y + btn * 0.22f),
+            ImVec2(sp.x, sp.y + btn * 0.78f), G3DTheme::U32(G3DTheme::BorderStrong()),
+            G3DTheme::Size::Border * scale);
+          break;
+        }
+        case TopBarModel::SLOT_LAYOUT:
+          switch (G3DWidgets::SegmentedIcon("##tb.layout", m.layout, 3))
+          {
+            case 0:
+              if (rb.narrowExclusive && !rb.leftShown)
+              {
+                // Exclusive mode hides this side while its option is still on: clicking it means
+                // "switch to it", not "toggle the option off" (which would take a second click to
+                // open).
+                this->LastOpenedRight = false;
+                this->ViewportDirtyOneShot = true;
+              }
+              else if (rb.leftShown && this->SceneHierarchyVisible)
+              {
+                // Closing a bar the legacy toggle force-opened: clear that toggle too, or the OR
+                // keeps the bar up and the click looks dead.
+                this->SendCommand("set ui.scene_hierarchy false");
+                this->SendCommand("set ui.control_left false");
+              }
+              else
+              {
+                this->SendCommand("toggle ui.control_left");
+              }
+              break;
+            case 1:
+              if (rb.narrowExclusive && !rb.rightShown)
+              {
+                this->LastOpenedRight = true;
+                this->ViewportDirtyOneShot = true;
+              }
+              else if (rb.rightShown && this->MetaDataVisible)
+              {
+                this->SendCommand("set ui.metadata false");
+                this->SendCommand("set ui.control_right false");
+              }
+              else
+              {
+                this->SendCommand("toggle ui.control_right");
+              }
+              break;
+            case 2:
+              this->SendCommand("toggle ui.control_bottom");
+              break;
+            default:
+              break;
+          }
+          break;
+        case TopBarModel::SLOT_TITLE:
+        {
+          // Centered window title (bare file name) — fitted to the real free span between the
+          // clusters (the row's fill slot), middle-ellipsized, window-centered when that keeps it
+          // inside the span. Drawn only once the bar has settled: during the slide the floating
+          // pill (RenderFileName) flies to this line and hands off.
+          const G3DLayout::Rect span = G3DWidgets::FieldRowSlotRect();
+          if (eased >= 0.999f && !m.title.empty() && span.w >= 80_dp * scale)
+          {
+            if (dataFont != nullptr)
+            {
+              ImGui::PushFont(dataFont, 0.f); // filename — measure, ellipsize and draw in mono
+            }
+            const std::string shown = ::EllipsizeMiddle(m.title, span.w);
+            const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
+            // The ellipsizer keeps a fixed tail; on extreme widths that tail alone can overflow the
+            // span — skip rather than run under the right cluster.
+            bool titleDrawn = false;
+            ImVec2 titlePos;
+            if (ts.x <= span.w)
+            {
+              float tx = wp.x + (topIsle.w - ts.x) * 0.5f;
+              tx = std::max(span.x, std::min(tx, span.x + span.w - ts.x));
+              titlePos = ImVec2(tx, wp.y + (topIsle.h - ts.y) * 0.5f);
+              // Hit region over the name so it is click-to-copy / right-click for path variants;
+              // the label brightens on hover to signal it is actionable (drawn via the draw list so
+              // the InvisibleButton stays the item the copy affordance reads).
+              ImGui::SetCursorScreenPos(titlePos);
+              ImGui::InvisibleButton("##g3d.tb.fname", ts);
+              const ImU32 col =
+                G3DTheme::U32(ImGui::IsItemHovered() ? G3DTheme::Text() : G3DTheme::TextMuted());
+              ImGui::GetWindowDrawList()->AddText(titlePos, col, shown.c_str());
+              titleDrawn = true;
+            }
+            if (dataFont != nullptr)
+            {
+              ImGui::PopFont(); // pop before the tooltip/menu so they render in the UI font
+            }
+            if (titleDrawn)
+            {
+              const float titleGap = G3DTheme::Spacing::Sm * scale;
+              const float glyphSize = 13_dp * scale;
+              const bool room = ts.x + titleGap + glyphSize <= span.w;
+              this->FileNameCopyAffordance(m.title, room,
+                titlePos.x + ts.x + titleGap + glyphSize * 0.5f, titlePos.y + ts.y * 0.5f,
+                glyphSize);
+            }
+          }
+          break;
+        }
+        case TopBarModel::SLOT_PREV:
+          if (G3DWidgets::IconButton("##tb.prevfile", G3DIconId::ChevronLeft,
+                G3DTheme::Size::IconButton, false, m.prevTip.c_str()))
+          {
+            this->SendCommand("load_previous_file_group");
+          }
+          break;
+        case TopBarModel::SLOT_COUNTER:
+          if (dataFont != nullptr)
+          {
+            ImGui::PushFont(dataFont, 0.f);
+          }
+          ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x,
+            wp.y + (topIsle.h - ImGui::GetTextLineHeight()) * 0.5f));
+          ImGui::TextColored(G3DTheme::TextMuted(), "%s", m.counter);
+          if (dataFont != nullptr)
+          {
+            ImGui::PopFont();
+          }
+          break;
+        case TopBarModel::SLOT_NEXT:
+          if (G3DWidgets::IconButton("##tb.nextfile", G3DIconId::ChevronRight,
+                G3DTheme::Size::IconButton, false, m.nextTip.c_str()))
+          {
+            this->SendCommand("load_next_file_group");
+          }
+          break;
+        case TopBarModel::SLOT_TOOLS:
+        {
+          // The bell's host while the panel is open: the message center anchors under this
+          // cluster.
+          const ImVec2 at = ImGui::GetCursorScreenPos();
+          this->Pimpl->NoteBellHost(G3DPlacement::ZoneId::TopBarTools,
+            { at.x, at.y, m.toolsSize.x, m.toolsSize.y }, G3DLayer::Docked);
+          switch (G3DWidgets::ToolGroup("##tb.right", m.toolsDesc))
+          {
+            case TopBarModel::TOOL_BELL:
+              this->SendCommand("raise_or_toggle ui.notification_center");
+              break;
+            case TopBarModel::TOOL_HELP:
+              this->SendCommand("raise_or_toggle ui.cheatsheet");
+              break;
+            case TopBarModel::TOOL_SHOT:
+              this->SendCommand("take_screenshot");
+              break;
+            case TopBarModel::TOOL_COLLAPSE:
+              // Collapse = close the chrome whatever opened it: the panel option itself or the
+              // legacy metadata / scene-hierarchy force-opens (a bare toggle could re-OPEN
+              // ui.control_panel while a force flag holds the chrome up, making the button look
+              // dead).
+              this->SendCommand("set ui.control_panel false");
+              if (this->MetaDataVisible)
+              {
+                this->SendCommand("set ui.metadata false");
+              }
+              if (this->SceneHierarchyVisible)
+              {
+                this->SendCommand("set ui.scene_hierarchy false");
+              }
+              break;
+            default:
+              break;
+          }
+          break;
+        }
+        default:
+          break;
       }
-      ImGui::SetCursorScreenPos(ImVec2(nextX, btnY));
-      toolButton("##tb.nextfile", G3DIconId::ChevronRight, "load_next_file_group",
-        loc.Translate("Next file").c_str());
     }
-
-    // Centered window title (bare file name) — fitted to the REAL free span between the left and
-    // right clusters (measured this frame, not a fixed reservation), middle-ellipsized,
-    // window-centered when that keeps it inside the span. Drawn only once the bar has settled:
-    // during the slide the floating pill (RenderFileName) flies to this line and hands off.
-    if (eased >= 0.999f && !title.empty())
-    {
-      const float titleGap = G3DTheme::Spacing::Sm * scale;
-      const float titleAvail = rightX - clusterEndX - 2.f * titleGap;
-      if (titleAvail >= 80_dp * scale)
-      {
-        if (dataFont != nullptr)
-        {
-          ImGui::PushFont(dataFont, 0.f); // filename — measure, ellipsize and draw in mono
-        }
-        const std::string shown = ::EllipsizeMiddle(title, titleAvail);
-        const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
-        // The ellipsizer keeps a fixed tail; on extreme widths that tail alone can overflow the
-        // span — skip rather than run under the right cluster.
-        bool titleDrawn = false;
-        ImVec2 titlePos;
-        if (ts.x <= titleAvail)
-        {
-          float tx = wp.x + (topIsle.w - ts.x) * 0.5f;
-          tx = std::max(clusterEndX + titleGap, std::min(tx, rightX - titleGap - ts.x));
-          titlePos = ImVec2(tx, wp.y + (topIsle.h - ts.y) * 0.5f);
-          // Hit region over the name so it is click-to-copy / right-click for path variants; the
-          // label brightens on hover to signal it is actionable (drawn via the draw list so the
-          // InvisibleButton stays the item the copy affordance reads).
-          ImGui::SetCursorScreenPos(titlePos);
-          ImGui::InvisibleButton("##g3d.tb.fname", ts);
-          const ImU32 col =
-            G3DTheme::U32(ImGui::IsItemHovered() ? G3DTheme::Text() : G3DTheme::TextMuted());
-          ImGui::GetWindowDrawList()->AddText(titlePos, col, shown.c_str());
-          titleDrawn = true;
-        }
-        if (dataFont != nullptr)
-        {
-          ImGui::PopFont(); // pop before the tooltip/menu so they render in the UI font, not mono
-        }
-        if (titleDrawn)
-        {
-          const float glyphSize = 13_dp * scale;
-          const bool room = ts.x + titleGap + glyphSize <= titleAvail;
-          this->FileNameCopyAffordance(title, room,
-            titlePos.x + ts.x + titleGap + glyphSize * 0.5f, titlePos.y + ts.y * 0.5f, glyphSize);
-        }
-      }
-    }
+    G3DWidgets::EndFieldRow();
     ImGui::End();
   }
 

@@ -4937,18 +4937,20 @@ void CheckFieldSlot(const FieldRowFrame& f)
 }
 } // namespace
 
-void BeginFieldRow(const char* id, std::span<const FieldSlot> slots, const FieldRowDesc& desc)
+namespace
 {
-  ImGui::PushID(id);
+/// Where a field row puts its slots — the one solver behind BeginFieldRow and MeasureFieldRow.
+/// @p regionW is the content region the row starts in; returns the width the slots were laid out
+/// in (the end inset taken off).
+float SolveFieldRow(std::span<const FieldSlot> slots, float regionW, const FieldRowDesc& desc,
+  G3DLayout::RowPlace* out)
+{
   const G3DScale s = G3DWidgets::UiScale();
-  IM_ASSERT(slots.size() <= static_cast<std::size_t>(kFieldRowMaxSlots));
-
-  FieldRowFrame f;
-  f.p0 = ImGui::GetCursorScreenPos();
-  f.width = std::max(0.f, ImGui::GetContentRegionAvail().x - desc.endInset * s);
-  f.count = static_cast<int>(std::min(slots.size(), static_cast<std::size_t>(kFieldRowMaxSlots)));
+  const int count =
+    static_cast<int>(std::min(slots.size(), static_cast<std::size_t>(kFieldRowMaxSlots)));
+  const float width = std::max(0.f, regionW - desc.endInset * s);
   std::array<G3DLayout::RowSlot, kFieldRowMaxSlots> rs{};
-  for (int i = 0; i < f.count; ++i)
+  for (int i = 0; i < count; ++i)
   {
     const FieldSlot& in = slots[static_cast<std::size_t>(i)];
     rs[i].width = in.width;
@@ -4959,18 +4961,32 @@ void BeginFieldRow(const char* id, std::span<const FieldSlot> slots, const Field
       rs[i].gapBefore = *in.gapBefore * s;
     }
   }
-  G3DLayout::SolveRow(rs.data(), f.count, f.width, desc.gap * s, f.places.data());
+  G3DLayout::SolveRow(rs.data(), count, width, desc.gap * s, out, desc.pinEnd);
   // A control sized from the item width gets it in whole pixels (ImGui::CalcItemWidth truncates),
   // so the fill slot is cut to whole pixels too: the control's box IS its slot, and the fraction
   // lands in the gap after it — the slots after the fill stay flush with the right edge.
-  for (int i = 0; i < f.count; ++i)
+  for (int i = 0; i < count; ++i)
   {
     if (rs[i].fill)
     {
-      f.places[i].w = std::floor(f.places[i].w);
+      out[i].w = std::floor(out[i].w);
       break;
     }
   }
+  return width;
+}
+} // namespace
+
+void BeginFieldRow(const char* id, std::span<const FieldSlot> slots, const FieldRowDesc& desc)
+{
+  ImGui::PushID(id);
+  const G3DScale s = G3DWidgets::UiScale();
+  IM_ASSERT(slots.size() <= static_cast<std::size_t>(kFieldRowMaxSlots));
+
+  FieldRowFrame f;
+  f.p0 = ImGui::GetCursorScreenPos();
+  f.count = static_cast<int>(std::min(slots.size(), static_cast<std::size_t>(kFieldRowMaxSlots)));
+  f.width = SolveFieldRow(slots, ImGui::GetContentRegionAvail().x, desc, f.places.data());
 
   const float minH = desc.minHeight * s;
   f.height = minH;
@@ -4990,6 +5006,13 @@ void BeginFieldRow(
   const char* id, std::initializer_list<FieldSlot> slots, const FieldRowDesc& desc)
 {
   BeginFieldRow(id, std::span<const FieldSlot>(slots.begin(), slots.size()), desc);
+}
+
+void MeasureFieldRow(std::span<const FieldSlot> slots, float width, const FieldRowDesc& desc,
+  G3DLayout::RowPlace* out)
+{
+  IM_ASSERT(slots.size() <= static_cast<std::size_t>(kFieldRowMaxSlots));
+  SolveFieldRow(slots, width, desc, out);
 }
 
 bool FieldRowNext()
