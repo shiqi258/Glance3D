@@ -31,6 +31,7 @@ list(APPEND libf3dSDKTests_list
 # Tests having UI widgets
 if(F3D_MODULE_UI)
   list(APPEND libf3dSDKTests_list
+    TestSDKCheatSheetEmpty.cxx
     TestSDKConsole.cxx
     TestSDKDropZone.cxx
     TestSDKDropZoneDeprecated.cxx
