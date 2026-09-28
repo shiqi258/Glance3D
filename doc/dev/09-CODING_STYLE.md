@@ -83,11 +83,29 @@ Review checklist for a UI change:
 - [ ] Every reserved width comes from a measuring function.
 - [ ] Looked at 1.0, 1.25 and 1.5 or 2.0 (`--dpi-aware` with `CTEST_F3D_FORCE_DPI_SCALE`, or
       `--font-scale`), and `ctest -C Release -L "lint|ui-layout|module"` passes.
+- [ ] Every popup opened from a control goes through `G3DWidgets::BeginPopover` (see below).
 
 `ctest -L lint` enforces the rules the compiler cannot see (`scripts/check-ui-units.mjs`, a ratchet
 over `scripts/ui-units-baseline.json`) and `ctest -L ui-layout` checks that the whole UI scales by
 one factor (see [Testing](06-TESTING.md)). The design side is the styleguide's sizes and scaling
 section (`doc/dev/ui-styleguide.html#units`).
+
+### Desktop UI floating surfaces
+
+A popup opened from a control (a dropdown's menu, the color picker, any panel under or over its
+trigger) is a `G3DWidgets::BeginPopover`, never an `ImGui::BeginPopup` placed by hand. ImGui hides
+a popup on the frame it opens and lays its content out at a reset size, so `GetWindowSize()` then
+reports the empty window: a side chosen from a size remembered on an earlier frame draws the first
+visible frame on the wrong side, and the next frame jumps. The popover is placed from the size
+measured on that hidden frame, below its trigger or else above it, keeps its side for the whole
+open with the edge facing the trigger pinned, and when neither side takes it whole shrinks on the
+bigger one and scrolls.
+
+The other kinds each have their own component: a menu opened at the pointer is
+`BeginContextMenu`, hover help goes through the tooltip helpers, a persistent draggable panel is
+`BeginFloatingCard`. `ctest -L lint` flags any other `ImGui::BeginPopup` / `BeginCombo` (rule
+`raw-popup`), and `TestG3DPopover` checks the popovers frame by frame. The design side is the
+styleguide's layering section (`doc/dev/ui-styleguide.html#layering`).
 
 ### Automatic formatting
 

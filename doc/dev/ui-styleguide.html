@@ -933,7 +933,8 @@
          ESCAPES any overflow:hidden / scroll ancestor (accordion clip, inspector). This is
          the standard "floating UI / popper" pattern and mirrors ImGui's overlay combo popup.
          Hence the rule is on .menu itself (not `.dropdown .menu`) — it lives outside .dropdown
-         while open. position:fixed → clipped only by the viewport. */
+         while open. position:fixed → clipped only by the viewport. Long lists scroll inside the
+         320px cap (≡ the desktop popover's maxHeight). */
       .menu {
         position: fixed;
         z-index: var(--z-popup);
@@ -942,6 +943,8 @@
         border-radius: var(--r-popup);
         box-shadow: var(--shadow-md);
         padding: 4px;
+        max-height: 320px;
+        overflow-y: auto;
         opacity: 0;
         transform: translateY(-6px) scale(0.98);
         transform-origin: top center;
@@ -952,6 +955,15 @@
         opacity: 1;
         transform: translateY(0) scale(1);
         pointer-events: auto;
+      }
+      /* Opened above its trigger (no room below): the same entry, mirrored — it rises out of the
+         trigger instead of dropping from it. */
+      .menu.above {
+        transform: translateY(6px) scale(0.98);
+        transform-origin: bottom center;
+      }
+      .menu.above.open {
+        transform: translateY(0) scale(1);
       }
       .menu-item {
         display: flex;
@@ -2726,6 +2738,16 @@
             <div class="proprow"><span class="k">拖动</span><span class="v">锚定卡片每次打开回到锚点；拖动后本次打开内停在用户放的位置（只做显示钳制、不回写）；双击标题栏重新吸附</span></div>
           </div>
           <div class="panel">
+            <div class="sectiontitle">锚定弹层（下拉 / 取色器）</div>
+            <div class="proprow"><span class="k">组件</span><span class="v">从控件弹出的面板一律走 <code>G3DWidgets::BeginPopover</code>（下拉菜单、取色器面板都建在它上面）；定位解算 <code>G3DPlacement::ResolvePopover</code>。在光标处弹出的右键菜单走 <code>BeginContextMenu</code>，悬停说明走气泡</span></div>
+            <div class="proprow"><span class="k">先量后显</span><span class="v">按<b>本次打开实测的尺寸</b>定位：ImGui 打开弹窗的那一帧不显示、只做布局（此时 <code>GetWindowSize()</code> 是空窗口），这一帧量到的内容尺寸决定用户看到的第一帧放在哪。不用上一帧 / 上一次打开记下的尺寸或估算值判断方向——那会让首帧落在错的一侧、下一帧再跳过去</span></div>
+            <div class="proprow"><span class="k">偏好方位</span><span class="v">触发控件下方、左缘对齐；下方放不下完整弹层就翻到上方。<b>先翻再缩</b>，与卡片的「缩到最小也算放得下」相反：弹层的尺寸由内容决定。间隙：下拉 6px、取色器 4px；与窗口边缘 8px；横向放不下时平移进窗口</span></div>
+            <div class="proprow"><span class="k">打开期间</span><span class="v"><b>不换边</b>：方向在首个可见帧锁定，贴着触发控件的那条边钉住，内容变高 / 变矮（切换 HEX↔RGB、「最近」换行）只移动远边；下次打开再重新判断</span></div>
+            <div class="proprow"><span class="k">上下都放不下</span><span class="v">取空间大的一侧，缩到可用高度、弹层内部滚动，<b>不盖住触发控件</b>；缩到下限（下拉约 3 行、取色器保留 SV 板与色相条）仍放不下时才钳进窗口</span></div>
+            <div class="proprow"><span class="k">入场</span><span class="v">透明度 0→1 + 从触发控件一侧位移 6px→0，<code>--t-micro</code>（<code>Motions::Micro</code>），从首个可见帧开始；减弱动效时直接取终态</span></div>
+            <div class="proprow"><span class="k">防回归</span><span class="v">lint 规则 <code>raw-popup</code>：组件外出现 <code>ImGui::BeginPopup</code> / <code>BeginCombo</code> 即红；<code>TestG3DPopover</code> 逐帧校验「首个可见帧即终位」</span></div>
+          </div>
+          <div class="panel">
             <div class="sectiontitle">触发与动效</div>
             <div class="proprow"><span class="k">触发语义</span><span class="v"><code>raise_or_toggle</code>：卡片开着但被同层卡片盖住 → 置顶；已在最上 → 关闭（任务栏规则）。铃铛、<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>、帮助按钮与 <kbd>H</kbd> 同一语义</span></div>
             <div class="proprow"><span class="k">入场</span><span class="v">透明度 0→1 + 从锚点一侧位移 6px→0，<code>--t-std</code> + <code>--ease</code>（桌面 <code>Motions::Enter</code>）；自由卡片从下方上浮</span></div>
@@ -3022,7 +3044,7 @@
           </div>
           <div class="note">
             ≈ImGui：对应 <code>ColorEdit4</code>（行内色块 + 点开弹出）与 <code>ColorPicker4</code>（SV 方块 + 色相 / 透明度条），并加一条 HDR 强度字段。
-            桌面端棋盘格用分层半透明方块近似；SV / 色相 / 透明度 / 强度用自定义绘制（<code>AddRectFilledMultiColor</code> 双向渐变 + 圆形手柄）；sRGB↔线性、HDR 直接用浮点色；弹层走 overlay、勿受面板裁剪（同 combo）。
+            桌面端棋盘格用分层半透明方块近似；SV / 色相 / 透明度 / 强度用自定义绘制（<code>AddRectFilledMultiColor</code> 双向渐变 + 圆形手柄）；sRGB↔线性、HDR 直接用浮点色；弹层走 overlay、勿受面板裁剪（同 combo）。定位与下拉同一套锚定弹层规则（<a href="#layering">层级栈 / 浮层定位</a>）：色块下方 4px、放不下翻到上方，打开期间不换边；上下都放不下时取空间大的一侧、缩短滚动，至少保留 SV 板与色相条。
           </div>
         </section>
 
@@ -3980,15 +4002,32 @@
           const trigger = dd.querySelector(".select-trigger");
           const menu = dd.querySelector(".menu");
           const val = dd.querySelector(".val");
+          // The menu is a popover of its trigger (≡ G3DWidgets::BeginPopover): measured before it
+          // shows (a closed .menu is laid out, only transparent), under the trigger or else above
+          // it, that side kept for the whole open (scroll / resize re-place it on the same side),
+          // and when neither side takes it whole the bigger one, shrunk and scrolling.
+          let side = null; // "below" | "above", decided when it opens
           const place = () => {
             const r = trigger.getBoundingClientRect();
-            menu.style.left = r.left + "px";
-            menu.style.top = r.bottom + 6 + "px";
+            const gap = 6;
+            const margin = 8;
             menu.style.width = r.width + "px";
+            menu.style.left =
+              Math.min(Math.max(margin, r.left), Math.max(margin, innerWidth - r.width - margin)) + "px";
+            menu.style.maxHeight = ""; // back to the CSS cap: the natural (capped) height
+            const h = menu.offsetHeight;
+            const below = innerHeight - margin - (r.bottom + gap);
+            const above = r.top - gap - margin;
+            if (!side) side = h <= below ? "below" : h <= above ? "above" : below >= above ? "below" : "above";
+            const room = Math.max(0, side === "below" ? below : above);
+            if (h > room) menu.style.maxHeight = room + "px";
+            menu.style.top = (side === "below" ? r.bottom + gap : r.top - gap - Math.min(h, room)) + "px";
+            menu.classList.toggle("above", side === "above");
           };
           const open = () => {
             closeAll(dd);
             document.body.appendChild(menu); // portal out of clipping ancestors
+            side = null;
             place();
             dd.classList.add("open");
             menu.classList.add("open");
