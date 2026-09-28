@@ -2512,6 +2512,7 @@
         <a href="#colors">颜色角色</a>
         <a href="#type">字体</a>
         <a href="#scale">间距 / 圆角</a>
+        <a href="#units">尺寸与缩放</a>
         <a href="#elevation">阴影 / 层级</a>
         <a href="#layering">层级栈 / 浮层定位</a>
         <a href="#icons">图标</a>
@@ -2634,12 +2635,31 @@
             <div class="divider"></div>
             <div class="state-label">圆角</div>
             <div class="radii">
-              <div class="r" style="border-radius: 6px">sm 6</div>
-              <div class="r" style="border-radius: 8px">md 8</div>
-              <div class="r" style="border-radius: 12px">lg 12</div>
-              <div class="r" style="border-radius: 16px">xl 16</div>
-              <div class="r" style="border-radius: 999px">pill</div>
+              <div class="r" style="border-radius: var(--r-sm)">sm 3</div>
+              <div class="r" style="border-radius: var(--r-md)">md 4</div>
+              <div class="r" style="border-radius: var(--r-lg)">lg 6</div>
+              <div class="r" style="border-radius: var(--r-popup)">popup 8</div>
+              <div class="r" style="border-radius: var(--r-pill)">pill</div>
             </div>
+          </div>
+        </section>
+
+        <!-- ===================== SIZES & SCALING ===================== -->
+        <section class="block" id="units">
+          <h2>尺寸与缩放 <span class="tag-impl">≈G3DUnits.h</span></h2>
+          <p class="desc">
+            本页的 px 都是<b>逻辑 px</b>（缩放为 1 时的像素）。桌面端按 DPI × <code>ui.scale</code> 整体缩放，而且按字号取整：
+            <code>round(14 × 缩放) / 14</code>——125% 实际是 18/14，因为 ImGui 把 17.5px 的字画成 18px，其余几何跟同一个系数走，
+            文字和它旁边的控件才不会各缩各的。
+          </p>
+          <div class="panel">
+            <div class="proprow"><span class="k">单位规则</span><span class="v"><code>G3DDp</code> 永远是逻辑 px，<code>float</code> / <code>ImVec2</code> 长度永远是物理 px；二者之间只有 <code>dp × scale</code> 一种换算。</span></div>
+            <div class="proprow"><span class="k">单一缩放</span><span class="v">只有 <code>G3DWidgets::UiScale()</code> 一个系数；不用 <code>GetFontSize() / 14</code> 自算。<code>float × G3DScale</code> 编译不过——已缩放的值再乘缩放就是双重缩放。</span></div>
+            <div class="proprow"><span class="k">调用规则</span><span class="v">设计常量（令牌、<code>12_dp</code>）以 G3DDp 传给组件，组件自己缩放；交给 ImGui 原生接口前用 <code>Px()</code>，替换样式量的 push 用 <code>PxTrunc()</code>；布局与测量的结果是物理 px。</span></div>
+            <div class="proprow"><span class="k">预留宽度</span><span class="v">用测量函数（<code>ButtonSize</code> / <code>IconButtonSize</code> / <code>SegmentedIconSize</code> / <code>BadgeSize</code> / <code>ToolGroupSize</code> …），<b>不用令牌</b>：令牌是逻辑长度，预留要的是物理宽度。一行放几个控件用<a href="#fieldrow">字段行</a>。</span></div>
+            <div class="proprow"><span class="k">单帧约束</span><span class="v">无头 <code>--output</code> 只渲一帧：窗口与行都要在绘制前量好，不能靠「下一帧再修正」。</span></div>
+            <div class="proprow"><span class="k">测试网</span><span class="v"><code>ctest -L ui-layout</code>：同一场景在 1 / 18/14 / 1.5 / 2 倍下各出一份布局，逐控件检查尺寸与间距都按同一倍率缩放；<code>ctest -L lint</code>：单位棘轮（裸长度、审计出口 <code>.Raw()</code> / <code>.Factor()</code>、第二个缩放系数），按「文件 × 规则」计数，只许减不许增。</span></div>
+            <div class="proprow"><span class="k">逃生口</span><span class="v">确属单位边界的写法（ScaleAllSizes 的入参、OS 放大镜、光栅修补）就地注明 <code>// g3d-units: allow(&lt;规则&gt;) &lt;原因&gt;</code>，原因必填。</span></div>
           </div>
         </section>
 

@@ -78,7 +78,7 @@ namespace
 constexpr G3DDp LOGO_DISPLAY_WIDTH{ 256.f };
 constexpr G3DDp LOGO_DISPLAY_HEIGHT{ 256.f };
 constexpr G3DDp DROPZONE_LOGO_TEXT_PADDING{ 20.f };
-constexpr float DROPZONE_MARGIN = 0.5f; // a ratio (centering / half a padding), not a length
+constexpr float DROPZONE_HALF = 0.5f; // centering, and half a padding
 constexpr G3DDp DROPZONE_PADDING_X{ 5.0f };
 constexpr G3DDp DROPZONE_PADDING_Y{ 2.0f };
 
@@ -1184,8 +1184,8 @@ void vtkF3DImguiActor::RenderDropZone()
       const float logoDisplayWidth = ::LOGO_DISPLAY_WIDTH * scale;
       const float logoDisplayHeight = ::LOGO_DISPLAY_HEIGHT * scale;
       ImVec2 center = viewport->GetWorkCenter();
-      ImVec2 logoPos(center.x - logoDisplayWidth * ::DROPZONE_MARGIN,
-        center.y - logoDisplayHeight * ::DROPZONE_MARGIN);
+      ImVec2 logoPos(center.x - logoDisplayWidth * ::DROPZONE_HALF,
+        center.y - logoDisplayHeight * ::DROPZONE_HALF);
 
       // The logo is a bitmap the size of its 1x display: magnify it smoothly at any other scale,
       // and keep the exact texel copy of nearest filtering at 1x.
@@ -1227,8 +1227,8 @@ void vtkF3DImguiActor::RenderDropZone()
     if (!this->DropText.empty())
     {
       ImVec2 textSize = ImGui::CalcTextSize(this->DropText.c_str());
-      ImVec2 textPos(viewport->GetWorkCenter().x - textSize.x * ::DROPZONE_MARGIN,
-        viewport->GetWorkCenter().y - ::DROPZONE_MARGIN * textSize.y +
+      ImVec2 textPos(viewport->GetWorkCenter().x - textSize.x * ::DROPZONE_HALF,
+        viewport->GetWorkCenter().y - ::DROPZONE_HALF * textSize.y +
           ::LOGO_DISPLAY_HEIGHT / 2.f * scale + ::DROPZONE_LOGO_TEXT_PADDING * scale);
       drawList->AddText(textPos, ImColor(::ColorToImVec4(this->FontColor)), this->DropText.c_str());
       return;
@@ -1254,7 +1254,7 @@ void vtkF3DImguiActor::RenderDropZone()
         [scale](float sum, const std::string& key)
         {
           return sum + ImGui::CalcTextSize(key.c_str()).x +
-            ::DROPZONE_MARGIN * ::DROPZONE_LOGO_TEXT_PADDING * scale;
+            ::DROPZONE_HALF * ::DROPZONE_LOGO_TEXT_PADDING * scale;
         });
 
       if (keys.size() > 1)
@@ -1276,13 +1276,13 @@ void vtkF3DImguiActor::RenderDropZone()
     ImVec2 startPos;
     if (this->DropZoneLogoVisible && this->Pimpl->LogoTexture)
     {
-      startPos = ImVec2(viewport->GetWorkCenter().x - tableWidth * ::DROPZONE_MARGIN,
+      startPos = ImVec2(viewport->GetWorkCenter().x - tableWidth * ::DROPZONE_HALF,
         viewport->GetWorkCenter().y + ::LOGO_DISPLAY_HEIGHT / 2.f * scale + 0.5_dp * scale);
     }
     else
     {
       startPos = ImVec2(
-        viewport->GetWorkCenter().x - tableWidth * ::DROPZONE_MARGIN, viewport->GetWorkCenter().y);
+        viewport->GetWorkCenter().x - tableWidth * ::DROPZONE_HALF, viewport->GetWorkCenter().y);
     }
 
     ImVec2 cursor = startPos;
@@ -1294,7 +1294,7 @@ void vtkF3DImguiActor::RenderDropZone()
 
       drawList->AddText(cursor, descTextColor, desc.c_str());
       float rowHeight = ImGui::GetTextLineHeightWithSpacing() +
-        ::DROPZONE_MARGIN * ::DROPZONE_LOGO_TEXT_PADDING * scale;
+        ::DROPZONE_HALF * ::DROPZONE_LOGO_TEXT_PADDING * scale;
 
       float xBindings = cursor.x + maxDescTextWidth + ::DROPZONE_LOGO_TEXT_PADDING * scale;
       ImVec2 bindingPos(xBindings, cursor.y);

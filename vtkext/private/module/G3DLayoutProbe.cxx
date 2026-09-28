@@ -182,6 +182,7 @@ void G3DLayoutProbe::EndFrame(G3DScale uiScale)
   out += "{\n\"format\": 1,\n\"frame\": ";
   out += std::to_string(ImGui::GetFrameCount());
   out += ",\n\"uiScale\": ";
+  // g3d-units: allow(raw-exit) the dump records the scale as data
   out += std::to_string(uiScale.Factor());
   out += ",\n\"fontSize\": ";
   AppendFloat(out, gFontSize);

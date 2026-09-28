@@ -234,8 +234,20 @@ const kDisplay = scaled.display[0] / base.display[0];
 // UI scale. They coincide whenever 14 * S is a whole number of pixels -- the scales the tests use.
 const strict = Math.abs(kFont - kDisplay) < 1e-3;
 const k = kFont;
-const sizeTol = 0.5 + k;
-const offsetTol = 1 + k;
+// ImGui scales its style metrics with ScaleAllSizes, which truncates each to whole pixels, and it
+// truncates every line position after them. At 1.5 and 2 the metrics the UI uses (paddings 2 4 10,
+// item spacing 4 8, scrollbar 12) land on whole pixels and none of that happens; at 18/14 (125% as
+// rendered) they are all cut -- WindowPadding 12.86 -> 12, ItemSpacing 5.14 -> 5 -- and a box comes
+// out up to a pixel short per padding it includes, a stack of rows a pixel per row. That is
+// rounding, not a unit error (a unit error is S x off: 28% of any length at 18/14), so such a scale
+// gets that much more room: two truncated paddings per box, one per gap, a pixel per stacked row,
+// and never less than 1% of the length -- a second scale factor, the drift an 18/14 run exists to
+// catch, is 2.9% off.
+const styleExact = [2, 4, 8, 10, 12].every((v) => Math.abs(v * k - Math.round(v * k)) < 1e-3);
+const sizeTol = 0.5 + k + (styleExact ? 0 : 2);
+const offsetTol = 1 + k + (styleExact ? 0 : 1);
+const rowTol = styleExact ? 0.5 : 1;
+const relTol = styleExact ? 0 : 0.01;
 
 const resolver = new Resolver(buildDictionary());
 const A = index(base, resolver);
@@ -248,7 +260,7 @@ const report = (check, a, detail) => findings.push({ check, path: a.path, detail
 function checkSize(a, b, rows = 0) {
   for (const [dim, label] of [['w', 'width'], ['h', 'height']]) {
     const want = a[dim] * k;
-    const tol = dim === 'h' ? sizeTol + 0.5 * rows : sizeTol;
+    const tol = Math.max(dim === 'h' ? sizeTol + rowTol * rows : sizeTol, relTol * want);
     if (Math.abs(b[dim] - want) > tol) {
       report('size', a, `${label} ${b[dim].toFixed(2)} vs ${want.toFixed(2)} (1x: ${a[dim].toFixed(2)}, tol ${tol.toFixed(2)})`);
     }
@@ -261,8 +273,9 @@ function checkOffset(a, b, refA, refB, what) {
     const lo = axis === 'x' ? 'x0' : 'y0';
     const gb = b[lo] - refB[ga.edge];
     const want = ga.v * k;
-    if (Math.abs(gb - want) > offsetTol) {
-      report('offset', a, `${axis} gap to ${what} ${gb.toFixed(2)} vs ${want.toFixed(2)} (1x: ${ga.v.toFixed(2)}, tol ${offsetTol.toFixed(2)})`);
+    const tol = Math.max(offsetTol, relTol * Math.abs(want));
+    if (Math.abs(gb - want) > tol) {
+      report('offset', a, `${axis} gap to ${what} ${gb.toFixed(2)} vs ${want.toFixed(2)} (1x: ${ga.v.toFixed(2)}, tol ${tol.toFixed(2)})`);
     }
   }
 }

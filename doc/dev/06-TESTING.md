@@ -47,6 +47,8 @@ Available labels:
 - `c`, `java`, `python`, `js` (label by specific binding)
 - `piped` (all piped tests)
 - `module` (all vtkext module tests)
+- `ui-layout` (desktop UI layout invariance across UI scales, see below)
+- `lint` (source lints: the UI units ratchet and the zh-CN catalog check; they need node, not a build)
 - `occt`, `abc`, `usd`, `webifc`, `draco`, ... (label by specific plugin)
 - `obj`, `spz`, `mdl`, ... (label by specific file extension)
 
@@ -55,6 +57,23 @@ Labels can be combined to further refine test selection.
 ```bash
 ctest -L assimp -L piped # run all piped tests which use assimp plugin
 ```
+
+A regular expression selects several labels at once. The desktop UI gate — run it after any change
+to the widgets, the theme tokens or the ImGui presenter:
+
+```bash
+ctest -C Release -L "lint|ui-layout|module"
+```
+
+- `ui-layout`: each scene of `application/testing/tests.ui_layout.cmake` is rendered with
+  `--dpi-aware` at UI scale 1, 18/14 (125% as it renders), 1.5 and 2, `G3DLayoutProbe` dumps every
+  item's rect (`G3D_LAYOUT_DUMP=<file>`) and `scripts/compare-ui-layout.mjs` checks that every size
+  and every gap scaled by the same factor. A length scaled twice, or never, breaks exactly that.
+  Known findings go in `testing/ui-layout-allow.json`, each with its reason; it is empty today.
+- `lint`: `g3d::LintUiUnits` runs `scripts/check-ui-units.mjs`, which counts what the unit types
+  cannot catch (bare lengths in ImGui calls, `.Raw()` / `.Factor()` audit exits, a scale derived
+  from the font) per file and rule against `scripts/ui-units-baseline.json`; a count may go down,
+  never up. `g3d::LintLocales` runs `scripts/check-locales.mjs`.
 
 ## Testing architecture
 

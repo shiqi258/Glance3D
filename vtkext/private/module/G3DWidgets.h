@@ -21,6 +21,27 @@
  *    corner mask with PathFillConcave / arc strokes — the notch shape degenerates ImGui's AA fill
  *    (miter blow-up at the tangent points), its concave triangulator (45-degree mis-ear) and open
  *    stroke caps (steps); CarveRoundedCorners exists because all three were hit and measured.
+ *
+ * UNITS — one rule (G3DUnits.h): a G3DDp is always LOGICAL px, a float / ImVec2 length is always
+ * PHYSICAL px.
+ *  - Design constants travel as G3DDp: the G3DTheme tokens, `12_dp` literals, and the parameters
+ *    that take them (IconButton / BellButton / ToolGroupDesc size, BeginPropRow, tooltip padding,
+ *    TextSized sizes, FloatingCardDesc margin / padding / placementOffset / minSize, FieldRowDesc).
+ *    Each has a deleted float overload: a physical value there would be scaled twice.
+ *  - Layout and measuring results are floats: sizes, positions, rects, G3DLayout / G3DPlacement,
+ *    FieldSlot widths. Convert where a length meets ImGui: `length * s` with the scale in hand, or
+ *    Px() / PxTrunc() (PxTrunc for a value pushed in place of a style metric).
+ *  - ONE scale, UiScale(): DPI x ui.scale quantized to what the text renders at. Never derive a
+ *    scale from GetFontSize(); `float * G3DScale` does not compile.
+ *  - Reserve room with a measuring twin, never with a token (the token is logical, the room is
+ *    physical, and a token-sized reservation drifts the moment the widget changes): ButtonSize /
+ *    ButtonWidth / ButtonHeight, IconButtonSize, SegmentedIconSize, BadgeSize / BadgeWidth /
+ *    BadgeHeight, ToolGroupSize, ToastHeight, TreeRowHeight, FloatingCardHeaderHeight,
+ *    CalcTextSizedPx, MeasureFieldRow. A row of controls is a FieldRow, laid out from those widths
+ *    before anything in it is drawn — the same frame, which is all an offscreen --output gets.
+ *  - The net: `ctest -L lint` (scripts/check-ui-units.mjs flags bare lengths, audit exits and a
+ *    second scale; escape with `// g3d-units: allow(<rule>) <reason>`) and `ctest -L ui-layout`
+ *    (every item must scale by S at 18/14, 1.5 and 2).
  */
 
 #ifndef G3DWidgets_h

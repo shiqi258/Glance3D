@@ -214,6 +214,11 @@ Can be useful to display non-ASCII filenames.
 
 Scale fonts. Useful for HiDPI displays.
 
+The whole desktop interface scales with it (times the display scaling factor with `--dpi-aware`),
+not only the text, and the factor is rounded to whole pixels of the 14px interface font: the UI
+renders at `round(14 x scale) / 14`. At 125% for instance the text is drawn at 18px, so every panel,
+button and margin scales by 18/14 as well and stays in proportion with the text next to it.
+
 ### `--font-color=<color>` (_color_, default: `0.957,0.957,0.957`)
 
 Set font color. Defaults to #F4F4F4(F3DWhite).

@@ -1,11 +1,16 @@
 ## UI layout invariance under DPI scaling
 #
-# Each scene is rendered at DPI 1.0, 1.5 and 2.0 with --dpi-aware, so the window grows with the
-# scale and the logical layout must not change. G3DLayoutProbe dumps where every item landed
+# Each scene is rendered at DPI 1.0, 18/14, 1.5 and 2.0 with --dpi-aware, so the window grows with
+# the scale and the logical layout must not change. G3DLayoutProbe dumps where every item landed
 # (G3D_LAYOUT_DUMP) and scripts/compare-ui-layout.mjs checks that every item's size and spacing
 # scaled by the same factor. A length read in the wrong unit -- scaled twice, or never -- breaks
 # exactly that, whichever code drew it. Findings already known are listed, with the reason, in
 # testing/ui-layout-allow.json; anything else fails.
+#
+# 18/14 is 125% as the UI actually renders it: ImGui rounds the 17.5px font to 18 and the one UI
+# scale is quantized to match (G3DQuantizeUiScale). A literal DPI 1.25 cannot be checked this way:
+# its window grows by 1.25 while the UI grows by 18/14, so every window-relative placement (a
+# centered title, a bar capped at a share of the window) legitimately scales by the other factor.
 #
 # The probe rides Dear ImGui's test-engine hooks, which only the bundled imgui is built with, and
 # the comparer needs node.
@@ -19,8 +24,11 @@ if(F3D_MODULE_UI AND NOT F3D_USE_EXTERNAL_IMGUI AND F3D_TESTING_ENABLE_RENDERING
     # g3d_layout_scene(<scene> DATA <files...> ARGS <args...>)
     function(g3d_layout_scene scene)
       cmake_parse_arguments(_scene "" "" "DATA;ARGS" ${ARGN})
-      foreach(dpi IN ITEMS 1.0 1.5 2.0)
-        string(REPLACE "." "" _tag "${dpi}0")
+      # <DPI scale>:<tag naming the dump and the tests>
+      foreach(_entry IN ITEMS "1.0:100" "1.2857142857142858:1814" "1.5:150" "2.0:200")
+        string(REPLACE ":" ";" _entry "${_entry}")
+        list(GET _entry 0 dpi)
+        list(GET _entry 1 _tag)
         set(_dump "${_g3d_layout_dir}/G3DLayout_${scene}_${_tag}.json")
         f3d_test(NAME TestG3DLayoutDump${scene}${_tag} DATA ${_scene_DATA}
           ARGS --dpi-aware ${_scene_ARGS} RESOLUTION 1100,700 DPI_SCALE ${dpi} UI NO_BASELINE

@@ -241,6 +241,7 @@ cmake_dependent_option(F3D_TESTING_DISABLE_CATCH_ALL "Disable the catch all exce
 
 if(BUILD_TESTING)
   enable_testing()
+  include(g3dLint)
 endif()
 
 # Testing offscreen backend

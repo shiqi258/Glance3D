@@ -54,6 +54,41 @@ Includes:
 - Class starts with `vtkF3D` if inheriting from vtkObject.
 - Class starts with `F3D` if not inheriting from vtkObject.
 
+### Desktop UI sizes
+
+The desktop UI (`vtkext/private/module`, Dear ImGui) scales with the monitor DPI times `ui.scale`,
+quantized so that geometry and text share one factor. Two strong types keep every length in its
+unit (`G3DUnits.h`):
+
+- A `G3DDp` is always a **logical** length (px at scale 1); a `float` / `ImVec2` length is always
+  **physical** (already scaled). The one conversion between them is `dp * scale`.
+- Design constants are `G3DDp`: the `G3DTheme` tokens and `12_dp` literals. The widget parameters
+  that take them (`IconButton` size, `BeginPropRow`, tooltip padding, `FloatingCardDesc` margin and
+  padding, `FieldRowDesc`...) have a deleted `float` overload.
+- There is one scale, `G3DWidgets::UiScale()` (`vtkF3DUIActor::GetUiScale()` in the actor). Never
+  derive one from `GetFontSize()`; `float * G3DScale` does not compile.
+- Right before a native ImGui call, convert with `G3DWidgets::Px()`, or `PxTrunc()` for a value
+  pushed in place of a style metric.
+- Reserve room with a measuring function (`ButtonSize`, `IconButtonSize`, `SegmentedIconSize`,
+  `BadgeSize`, `ToolGroupSize`, `MeasureFieldRow`...), never with a token. Controls sharing a line
+  are a `FieldRow`.
+- Size and place windows before submitting them: an offscreen `--output` render gets one frame.
+
+Review checklist for a UI change:
+
+- [ ] No bare number is used as a length in an ImGui layout or draw call; new design constants are
+      `G3DDp`.
+- [ ] No `.Raw()` / `.Factor()` outside a unit boundary, and each one says why:
+      `// g3d-units: allow(<rule>) <reason>`.
+- [ ] Every reserved width comes from a measuring function.
+- [ ] Looked at 1.0, 1.25 and 1.5 or 2.0 (`--dpi-aware` with `CTEST_F3D_FORCE_DPI_SCALE`, or
+      `--font-scale`), and `ctest -C Release -L "lint|ui-layout|module"` passes.
+
+`ctest -L lint` enforces the rules the compiler cannot see (`scripts/check-ui-units.mjs`, a ratchet
+over `scripts/ui-units-baseline.json`) and `ctest -L ui-layout` checks that the whole UI scales by
+one factor (see [Testing](06-TESTING.md)). The design side is the styleguide's sizes and scaling
+section (`doc/dev/ui-styleguide.html#units`).
+
 ### Automatic formatting
 
 Some of the rules above are enforced using clang-format thanks to a `.clang-format` file.

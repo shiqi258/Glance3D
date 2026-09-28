@@ -1,0 +1,3 @@
+{
+  "_comment": "Hit counts of scripts/check-ui-units.mjs per file and rule. A count may go down, never up: fix the hit, or mark a legitimate one with // g3d-units: allow(<rule>) <reason>, then re-run the script with --update."
+}

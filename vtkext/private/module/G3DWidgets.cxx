@@ -4622,6 +4622,7 @@ void CarveRoundedCorners(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1, flo
   dl->PathFillConvex(bg);
   dl->Flags = saved | ImDrawListFlags_AntiAliasedLines;
   dl->PathRect(p0, p1, r);
+  // g3d-units: allow(bare-number) a raster fix, not a length: 2 device px bury the fans' steps
   dl->PathStroke(bg, ImDrawFlags_Closed, 2.f);
   dl->Flags = saved;
 }
@@ -7329,12 +7330,15 @@ G3DScale UiScale()
 //----------------------------------------------------------------------------
 void ApplyStyleMetrics(ImGuiStyle& style, G3DScale scale)
 {
-  // Logical values in (Raw): ScaleAllSizes below is what scales them.
+  // Logical values in: ScaleAllSizes below is what scales them. The one place a design length
+  // legitimately enters ImGui unscaled, so it goes through one door.
+  // g3d-units: allow(raw-exit) ScaleAllSizes scales every metric written through this
+  const auto logical = [](G3DDp v) { return v.Raw(); };
   style.FrameBorderSize = 0.f;
-  style.FramePadding = ImVec2(G3DTheme::Spacing::Xs.Raw(), 2.f);
+  style.FramePadding = ImVec2(logical(G3DTheme::Spacing::Xs), logical(2_dp));
   // Native frames and G3D widgets share one corner vocabulary.
-  style.FrameRounding = G3DTheme::Radius::Control.Raw();
-  style.GrabRounding = G3DTheme::Radius::Control.Raw();
+  style.FrameRounding = logical(G3DTheme::Radius::Control);
+  style.GrabRounding = logical(G3DTheme::Radius::Control);
   // Slim, quiet scrollbar: ImGui's 14px default reads as a bright slab pinned to the panel edge on
   // the dark theme. The gutter is deliberately wider than the resting thumb: it is the constant
   // ImGui carves out of the content region *and* the grab hit box, so it is sized for the pointer
@@ -7342,16 +7346,16 @@ void ApplyStyleMetrics(ImGuiStyle& style, G3DScale scale)
   // (see InstallScrollbarStyle), which animates it open under the pointer for every scrollbar in the
   // app; ScrollbarPadding is left as what it now solely means — the thumb's margin from the two
   // ENDS of its track.
-  style.ScrollbarSize = G3DTheme::Scrollbar::Gutter.Raw();
-  style.ScrollbarRounding = (G3DTheme::Scrollbar::ThumbHover * 0.5f).Raw(); // capsule, both widths
-  style.ScrollbarPadding = G3DTheme::Scrollbar::TrackEndMargin.Raw();
+  style.ScrollbarSize = logical(G3DTheme::Scrollbar::Gutter);
+  style.ScrollbarRounding = logical(G3DTheme::Scrollbar::ThumbHover * 0.5f); // capsule, both widths
+  style.ScrollbarPadding = logical(G3DTheme::Scrollbar::TrackEndMargin);
   style.WindowBorderSize = 0.f;
-  style.WindowPadding = ImVec2(10.f, 10.f);
+  style.WindowPadding = ImVec2(logical(10_dp), logical(10_dp));
   // Every window is a floating layer unless its host says otherwise (the docked bars push Card).
-  style.WindowRounding = G3DTheme::Radius::Popup.Raw();
+  style.WindowRounding = logical(G3DTheme::Radius::Popup);
   // Unscaled tokens in, ImGui's own scaling out: one factor for the metrics set above and for
   // every one ImGui owns that the tokens do not name.
-  style.ScaleAllSizes(scale.Factor());
+  style.ScaleAllSizes(scale.Factor()); // g3d-units: allow(raw-exit) ImGui's own scaling entry point
 }
 
 //----------------------------------------------------------------------------
