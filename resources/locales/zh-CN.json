@@ -167,6 +167,8 @@
   "Search...": "搜索…",
   "Description": "描述",
   "Keybind": "快捷键",
+  "No shortcuts": "没有快捷键",
+  "No matching shortcuts": "没有匹配的快捷键",
   "Type a command...": "输入命令…",
 
   "ON": "开",

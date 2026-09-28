@@ -21,6 +21,7 @@ For Glance3D users:
 - Added B-rep face nodes for STEP/IGES/BREP/XBF parts: a part with faces opens down to them on demand, and selecting one highlights it in the render
 - Fixed scene tree node properties showing a blank value for an object the file declared but never named: such an object is now reported by its index, as in `Mesh: #12`
 - Fixed the scene tree drawing a deeply nested node exactly like a shallower one once the indent column reached its ceiling: the chain a row hangs under is now marked on the ancestor rows themselves, the folded indent column is drawn as a bundle rather than a single rail, and hovering such a row reports its level and its nearest ancestors
+- Added a message to the cheatsheet when a search matches nothing, instead of leaving the card blank
 - Added a search field and expand-all / collapse-all buttons to the scene tree panel, shown once a scene has more nodes than fit on screen; a match inside a closed subtree is revealed without disturbing what was open
 - Added scene tree scoping: double-clicking a node makes it the top-level row and measures depth from it, with a breadcrumb to step back out, which is how a hierarchy deeper than a panel can indent becomes readable
 - Added a `webifc` plugin to add support for .ifc files
@@ -90,6 +91,7 @@ For libf3d users:
 - Changed the `@cameras` / `@lights` sections to a fallback: an element the hierarchy already carries is no longer listed there as well, so no object gets two rows
 - Added assembly-side writers to `vtkG3DNodeMetadata` (`SetAssemblyLabel`, `SetAssemblyNodeType`, `SetAssemblyFlatActorId`, `SetAssemblyCameraIndex`/`LightIndex`, `AddAssemblyProperty`, `ForwardToAssembly`), so an importer that builds its own `vtkDataAssembly` uses the same channel a reader does; every attribute the hand-off uses is now named in `G3DAssemblyAttribute`
 - Fixed scene-tree labels being derived from `GetOutputsDescription()` text indexed by actor id, which mislabelled a node whenever an importer added an actor it wrote no line for; a label now comes from the node itself
+- Fixed the cheatsheet growing wider on every frame when no binding carries documentation (all removed, or added without it); it now keeps a fixed size and says there are no shortcuts
 - Deprecated `interactor.trackball` option in favor of `interactor.style`
 
 For Glance3D packagers:

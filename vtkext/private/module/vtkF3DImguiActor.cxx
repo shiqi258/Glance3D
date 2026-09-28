@@ -667,7 +667,6 @@ struct vtkF3DImguiActor::Internals
   std::array<char, 256> SearchFilter = {};
   SearchMode CurrentSearchMode = SearchMode::Description;
   bool SearchFocusRequested = false;
-  float CheatSheetWidth = 0.f;
   G3DWidgets::FloatingCardState CheatSheetFloat;
 
   /// Message center: its floating-card position, the filter segment, and which rows are expanded.
@@ -2036,13 +2035,26 @@ void vtkF3DImguiActor::RenderCheatSheet()
   float maxBindingTextWidth = 0.f;
   float maxDescTextWidth = 0.f;
   float maxValueTextWidth = 0.f;
+  bool hasBindings = false;
 
-  const float searchBarHeight =
-    ImGui::GetTextLineHeightWithSpacing() * 2.f + ImGui::GetStyle().ItemSpacing.y;
+  // The search-target pills, drawn under the search field.
+  const float pillPadX = 10_dp * uiScale;
+  const float pillPadY = 3_dp * uiScale;
+  const float pillGap = 6_dp * uiScale;
+
+  // The pinned rows above the body: the search field, then the pills, each followed by the spacing.
+  const float searchBarHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeight() +
+    2.f * pillPadY + ImGui::GetStyle().ItemSpacing.y;
   textHeight += searchBarHeight;
 
   for (const auto& [group, content] : this->CheatSheet)
   {
+    // A group without one documented binding is never drawn (see the rows below): no room for it.
+    if (content.empty())
+    {
+      continue;
+    }
+    hasBindings = true;
     textHeight +=
       ImGui::GetTextLineHeightWithSpacing() + 2 * ImGui::GetStyle().SeparatorTextPadding.y;
     for (const auto& [bind, desc, val, type] : content)
@@ -2067,12 +2079,31 @@ void vtkF3DImguiActor::RenderCheatSheet()
       std::string cyclingValue = "< " + val + " >";
       ImVec2 valueLineSize = ImGui::CalcTextSize(cyclingValue.c_str());
       maxValueTextWidth = std::max(maxValueTextWidth, valueLineSize.x);
-
-      this->Pimpl->CheatSheetWidth = maxBindingTextWidth + maxDescTextWidth + maxValueTextWidth;
     }
   }
 
-  this->Pimpl->CheatSheetWidth += ImGui::GetStyle().ScrollbarSize + 4.f * padding;
+  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
+  const std::string descModeLabel = locale.Translate("Description");
+  const std::string keybindModeLabel = locale.Translate("Keybind");
+  // What the body says when it has no row to show: nothing is bound at all (an SDK host may remove
+  // every binding), or the search matched nothing.
+  const std::string emptyText =
+    hasBindings ? locale.Translate("No matching shortcuts") : locale.Translate("No shortcuts");
+
+  // Width, like height, is measured from this frame's content alone: the three columns side by
+  // side, plus the scrollbar gutter and the table padding. With few rows, or none, that would
+  // squeeze the pinned search pills and the empty-state line, so they set the floor.
+  const float rowsW = maxBindingTextWidth + maxDescTextWidth + maxValueTextWidth +
+    ImGui::GetStyle().ScrollbarSize + 4.f * padding;
+  const float pillsW = ImGui::CalcTextSize(descModeLabel.c_str()).x +
+    ImGui::CalcTextSize(keybindModeLabel.c_str()).x + 4.f * pillPadX + pillGap;
+  const float floorW = std::max(pillsW, ImGui::CalcTextSize(emptyText.c_str()).x) + 2.f * padding;
+
+  if (!hasBindings)
+  {
+    // Nothing to list: room for the line saying so, with a Lg of air above and below it.
+    textHeight += 2.f * G3DTheme::Spacing::Lg * uiScale + ImGui::GetTextLineHeightWithSpacing();
+  }
   textHeight += 2.f * padding;                         // card content padding, top + bottom
   textHeight += G3DWidgets::FloatingCardHeaderHeight(); // title bar band
 
@@ -2090,7 +2121,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
   constexpr G3DDp minSheetH{ 160.f };
   float sheetH = std::min(textHeight, std::max(center.h - 2.f * margin, minSheetH * uiScale));
   sheetH = std::min(sheetH, work.h - 2.f * margin);
-  const float sheetW = std::min(this->Pimpl->CheatSheetWidth, work.w - 2.f * margin);
+  const float sheetW = std::min(std::max(rowsW, floorW), work.w - 2.f * margin);
 
   ImVec2 defaultPos(center.x + (center.w - sheetW) * 0.5f, center.y + (center.h - sheetH) * 0.5f);
   if (sheetW <= center.w - 2.f * margin && sheetH <= center.h - 2.f * margin)
@@ -2102,7 +2133,6 @@ void vtkF3DImguiActor::RenderCheatSheet()
   }
   // The whole floating-panel chrome — window setup, title bar, grip + drag, close, elevation — is
   // the shared G3DWidgets component; this presenter only feeds it geometry and content.
-  G3DLocaleCore& locale = G3DLocaleCore::GetInstance();
   const std::string sheetTitle = locale.Translate("Shortcuts");
   // The reset half of the hint only appears once the card has actually been moved — before that it
   // would advertise an escape hatch from a problem the user does not have yet.
@@ -2145,8 +2175,6 @@ void vtkF3DImguiActor::RenderCheatSheet()
     this->Pimpl->SearchFocusRequested = false;
   }
   const std::string searchHint = locale.Translate("Search...");
-  const std::string descModeLabel = locale.Translate("Description");
-  const std::string keybindModeLabel = locale.Translate("Keybind");
 
   // Search field in the G3D input anatomy (surface fill + hairline border, accent while typing)
   // instead of the stock bright FrameBg slab.
@@ -2173,9 +2201,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
   auto modePill = [&](const char* id, const std::string& text, bool active) -> bool
   {
     const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
-    const float padX = 10_dp * uiScale;
-    const float padY = 3_dp * uiScale;
-    const ImVec2 sz(ts.x + 2.f * padX, ts.y + 2.f * padY);
+    const ImVec2 sz(ts.x + 2.f * pillPadX, ts.y + 2.f * pillPadY);
     const ImVec2 q0 = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::InvisibleButton(id, sz);
     const bool hovered = ImGui::IsItemHovered();
@@ -2195,7 +2221,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
     {
       dl->AddRectFilled(q0, q1, G3DTheme::U32(G3DTheme::Surface()), sz.y * 0.5f);
     }
-    dl->AddText(ImVec2(q0.x + padX, q0.y + padY),
+    dl->AddText(ImVec2(q0.x + pillPadX, q0.y + pillPadY),
       G3DTheme::U32(active ? G3DTheme::Text() : G3DTheme::TextMuted()), text.c_str());
     dl->Flags = savedFlags;
     return clicked;
@@ -2207,7 +2233,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
     this->Pimpl->CurrentSearchMode = Internals::SearchMode::Description;
     this->Pimpl->SearchFocusRequested = true;
   }
-  ImGui::SameLine(0.f, 6_dp * uiScale);
+  ImGui::SameLine(0.f, pillGap);
   if (modePill("##searchModeKeybind", keybindModeLabel,
         this->Pimpl->CurrentSearchMode == Internals::SearchMode::Keybind))
   {
@@ -2218,12 +2244,13 @@ void vtkF3DImguiActor::RenderCheatSheet()
   // Only the binding rows scroll — the title bar and the search row above stay pinned, so the
   // sheet keeps saying what it is and stays searchable however far down the user has scrolled.
   // Sideways scrolling only when a narrow window clamped the card below its content width.
-  G3DWidgets::BeginFloatingCardBody("##g3d.cs.rows", sheetW < this->Pimpl->CheatSheetWidth);
+  G3DWidgets::BeginFloatingCardBody("##g3d.cs.rows", sheetW < rowsW);
 
   // A key chip is its text item grown by these on each side; every row leaves room for the growth.
   const float chipPadX = 5_dp * uiScale;
   const float chipPadY = 2.5_dp * uiScale;
 
+  bool anyRowShown = false;
   for (const auto& [group, list] : this->CheatSheet)
   {
     bool groupHasMatch = false;
@@ -2239,6 +2266,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
     {
       continue;
     }
+    anyRowShown = true;
 
     ImGui::SeparatorText(group.c_str());
     ImGui::BeginTable("BindingsTable", 3);
@@ -2321,6 +2349,17 @@ void vtkF3DImguiActor::RenderCheatSheet()
     }
 
     ImGui::EndTable();
+  }
+
+  // An empty body reads as a broken card rather than as an empty list: say so, the way the message
+  // center does.
+  if (!anyRowShown)
+  {
+    ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Lg * uiScale));
+    const float emptyW = ImGui::CalcTextSize(emptyText.c_str()).x;
+    ImGui::SetCursorPosX(
+      ImGui::GetCursorPosX() + std::max(0.f, (ImGui::GetContentRegionAvail().x - emptyW) * 0.5f));
+    ImGui::TextColored(G3DTheme::TextSubtle(), "%s", emptyText.c_str());
   }
 
   G3DWidgets::EndFloatingCardBody();
