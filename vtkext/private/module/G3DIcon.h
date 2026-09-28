@@ -66,6 +66,8 @@ enum class G3DIconId
   Check,       ///< checkmark (confirm / copied feedback / swatch selected)
   Copy,        ///< two overlapping rounded rects (copy to clipboard)
   UpDown,      ///< stacked up/down chevrons (cycle / spinner affordance)
+  ExpandAll,   ///< chevrons leaving a centre rule (unfold: open every tree node)
+  CollapseAll, ///< chevrons meeting a centre rule (fold: close every tree node)
   Eyedropper,  ///< pipette (screen / viewport color sampling)
   PanelLeft,   ///< frame + left divider (toggle the left dock bar) — Lucide panel-left
   PanelRight,  ///< frame + right divider (toggle the right dock bar) — Lucide panel-right

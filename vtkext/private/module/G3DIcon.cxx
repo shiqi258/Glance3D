@@ -591,6 +591,36 @@ void DrawUpDown(const IconCanvas& c)
   c.Poly(dn, 3);
 }
 
+/**
+ * A rule on the centre line with one chevron above it and one below: the fold the tree's rows hinge
+ * on, and which way they move.
+ *
+ * Unfold (expand all) points the chevrons away from the rule, fold (collapse all) points them into
+ * it — the convention Material's unfold_more / unfold_less and Lucide's unfold / fold-vertical
+ * share. The rule is what makes the direction unambiguous: without it, chevrons pointing apart are
+ * the UpDown spinner, and the lone chevron the tree toolbar used to show reads as a dropdown, not
+ * as an action on the whole tree. The chevrons are UpDown's (45 degrees, same span, snapped to
+ * sixteenths so they land on whole pixels at 16px), so the paired-chevron glyphs read as one family.
+ */
+void DrawFold(const IconCanvas& c, bool unfold)
+{
+  c.RLine(0.125f, 0.5f, 0.875f, 0.5f);
+  const auto chevron = [&c](float armY, float tipY)
+  {
+    c.Line(0.3125f, armY, 0.50f, tipY);
+    c.Line(0.50f, tipY, 0.6875f, armY);
+    c.Cap(0.3125f, armY);
+    c.Cap(0.50f, tipY); // elbow: rounds the join the mitered polyline would spike
+    c.Cap(0.6875f, armY);
+  };
+  // The end facing the rule (arm tips when unfolding, the apex when folding) keeps the same gap to
+  // it in both glyphs, so the pair shares one footprint and differs only in direction.
+  const float armY = unfold ? 0.3125f : 0.125f;
+  const float tipY = unfold ? 0.125f : 0.3125f;
+  chevron(armY, tipY);             // above the rule
+  chevron(1.f - armY, 1.f - tipY); // mirrored below it
+}
+
 void DrawEyedropper(const IconCanvas& c)
 {
   // Direct, verbatim transcription of the styleguide #i-eyedropper symbol (Lucide "pipette"),
@@ -839,6 +869,12 @@ void G3DIcon::DrawUnsnapped(ImDrawList* drawList, G3DIconId id, const ImVec2& to
       break;
     case G3DIconId::UpDown:
       DrawUpDown(c);
+      break;
+    case G3DIconId::ExpandAll:
+      DrawFold(c, true);
+      break;
+    case G3DIconId::CollapseAll:
+      DrawFold(c, false);
       break;
     case G3DIconId::Eyedropper:
       DrawEyedropper(c);

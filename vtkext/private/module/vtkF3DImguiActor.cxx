@@ -961,18 +961,20 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   if (scopeNode > 0)
   {
     const float scale = static_cast<float>(this->FontScale);
+    // IconButton scales the size it is given, so it takes the token; `btn` is the laid-out edge.
+    // Handing it the scaled value scaled the buttons twice at any DPI but 1x.
     const float btn = G3DTheme::Size::Control * scale;
     const float gap = G3DTheme::Spacing::Xs * scale;
 
-    if (G3DWidgets::IconButton("##g3d.scenetree.scopeup", G3DIconId::ChevronLeft, btn, false,
-          loc.Translate("Up one level").c_str()))
+    if (G3DWidgets::IconButton("##g3d.scenetree.scopeup", G3DIconId::ChevronLeft,
+          G3DTheme::Size::Control, false, loc.Translate("Up one level").c_str()))
     {
       const int parent = graph.Parent(scopeNode);
       view.SetScope(parent > 0 ? parent : -1);
     }
     ImGui::SameLine(0.f, gap);
-    if (G3DWidgets::IconButton("##g3d.scenetree.scopeclear", G3DIconId::Layers, btn, false,
-          loc.Translate("Show the whole scene").c_str()))
+    if (G3DWidgets::IconButton("##g3d.scenetree.scopeclear", G3DIconId::Layers,
+          G3DTheme::Size::Control, false, loc.Translate("Show the whole scene").c_str()))
     {
       view.SetScope(-1);
     }
@@ -1015,6 +1017,8 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
     // filter set from a script does not leave the box telling a different story.
     static char treeFilter[128] = "";
     const float avail = ImGui::GetContentRegionAvail().x;
+    // Laid-out edge of the two buttons the field makes room for; IconButton takes the unscaled
+    // token and scales it itself, same as the breadcrumb above.
     const float btn = G3DTheme::Size::Control * scale;
     const float gap = G3DTheme::Spacing::Xs * scale;
 
@@ -1037,14 +1041,14 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
     }
 
     ImGui::SameLine(0.f, gap);
-    if (G3DWidgets::IconButton("##g3d.scenetree.expand", G3DIconId::ChevronDown, btn, false,
-          loc.Translate("Expand all").c_str()))
+    if (G3DWidgets::IconButton("##g3d.scenetree.expand", G3DIconId::ExpandAll,
+          G3DTheme::Size::Control, false, loc.Translate("Expand all").c_str()))
     {
       view.ExpandAll();
     }
     ImGui::SameLine(0.f, gap);
-    if (G3DWidgets::IconButton("##g3d.scenetree.collapse", G3DIconId::ChevronUp, btn, false,
-          loc.Translate("Collapse all").c_str()))
+    if (G3DWidgets::IconButton("##g3d.scenetree.collapse", G3DIconId::CollapseAll,
+          G3DTheme::Size::Control, false, loc.Translate("Collapse all").c_str()))
     {
       view.CollapseAll();
     }
