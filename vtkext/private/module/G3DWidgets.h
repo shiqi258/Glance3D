@@ -26,7 +26,8 @@
  * PHYSICAL px.
  *  - Design constants travel as G3DDp: the G3DTheme tokens, `12_dp` literals, and the parameters
  *    that take them (IconButton / BellButton / ToolGroupDesc size, BeginPropRow, tooltip padding,
- *    TextSized sizes, FloatingCardDesc margin / padding / placementOffset / minSize, FieldRowDesc).
+ *    TextSized sizes, FloatingCardDesc margin / padding / placementOffset / minSize, FieldRowDesc,
+ *    PopoverDesc offset / margin / slide / minHeight).
  *    Each has a deleted float overload: a physical value there would be scaled twice.
  *  - Layout and measuring results are floats: sizes, positions, rects, G3DLayout / G3DPlacement,
  *    FieldSlot widths. Convert where a length meets ImGui: `length * s` with the scale in hand, or
@@ -42,6 +43,16 @@
  *  - The net: `ctest -L lint` (scripts/check-ui-units.mjs flags bare lengths, audit exits and a
  *    second scale; escape with `// g3d-units: allow(<rule>) <reason>`) and `ctest -L ui-layout`
  *    (every item must scale by S at 18/14, 1.5 and 2).
+ *
+ * FLOATING SURFACES — one sanctioned way per kind; never position a popup by hand:
+ *  - Opened from a control (a dropdown's menu, the color picker, any panel under or over its
+ *    trigger): BeginPopover. The frame a popup opens on is ImGui's hidden measuring frame, where
+ *    GetWindowSize() reports the EMPTY window: a side decided from a size remembered on an earlier
+ *    frame puts the first visible frame on the wrong side, and the next frame jumps.
+ *  - Opened at the pointer (a right-click menu): BeginContextMenu. Hover help: the Tooltip helpers.
+ *  - A persistent, draggable panel: BeginFloatingCard.
+ *  - The net: `ctest -L lint` (raw-popup: an ImGui::BeginPopup / BeginCombo outside these) and
+ *    TestG3DPopover (the first visible frame is where the popover stays).
  */
 
 #ifndef G3DWidgets_h
@@ -649,15 +660,79 @@ ImVec2 CalcTextSizedPx(const char* text, G3DDp size, bool mono = false);
 ImVec2 CalcTextSizedPx(const char* text, float size, bool mono = false) = delete;
 
 //----------------------------------------------------------------------------
+// Popover — a surface opened from a control
+//
+// The one way to open a popup that belongs to a trigger: a dropdown's menu (BeginSelect), the color
+// picker panel (ColorEdit), any future panel under or over its control. Usage mirrors
+// ImGui::BeginPopup / EndPopup, and the trigger still opens it with ImGui::OpenPopup(strId):
+//
+//   if (triggerClicked) ImGui::OpenPopup("##panel");
+//   G3DWidgets::PopoverDesc pd;
+//   pd.anchor = triggerRect;                       // screen px
+//   pd.width = panelWidth;                         // a menu takes its trigger's width
+//   ...push the surface's own style (padding, background, rounding)...
+//   if (G3DWidgets::BeginPopover("##panel", pd))   // true while it is open
+//   {
+//     ...content...
+//     G3DWidgets::EndPopover();                    // ONLY when BeginPopover() returned true
+//   }
+//   ...pop the style...
+//
+// What it owns, because each piece is easy to get subtly wrong at a call site:
+//  - It is placed from its MEASURED size. ImGui hides a popup on the frame it opens and lays the
+//    content out at a reset size, so GetWindowSize() reports the empty window then, not the one
+//    about to be drawn. The content extent measured on that hidden frame places the first frame
+//    anyone sees: no size remembered from an earlier frame or open, no estimate.
+//  - Below the trigger with the left edges flush, else above it; when neither side takes it whole,
+//    the side with more room, shrunk so that the content scrolls (G3DPlacement::ResolvePopover).
+//    It covers its trigger only when not even minHeight fits anywhere.
+//  - It keeps that side for the whole open, the edge facing the trigger pinned (a window pivot):
+//    content that grows or shrinks moves the far edge only. Every open decides afresh.
+//  - The open motion: a fade and a short slide out of the trigger (SetReducedMotion() turns both
+//    off), painted on the vertices so that custom paint fades with the rest.
+// Popovers ride ImGui's popup band (above every G3DLayer band) and close on an outside click / Esc.
+//----------------------------------------------------------------------------
+
+/// Per-frame description of a popover. The trigger rect and the widths are physical px (measured or
+/// laid out); the design lengths the popover scales itself are G3DDp.
+struct PopoverDesc
+{
+  G3DLayout::Rect anchor;               ///< the trigger, screen px
+  float width = 0.f;                    ///< fixed width px (a menu: its trigger's, a panel: its
+                                        ///< own); 0 fits the content, for content that does not
+                                        ///< size itself from the available width
+  float maxHeight = 0.f;                ///< tallest it gets, px, the content scrolling beyond it
+                                        ///< (0: no cap)
+  G3DDp minHeight;                      ///< how short it may get when no side takes it whole
+  G3DDp offset{ 6.f };                  ///< gap to the trigger (the styleguide .menu's 6px)
+  G3DDp margin = G3DTheme::Spacing::Sm; ///< room kept to the window edge
+  G3DDp slide{ 6.f };                   ///< entry travel out of the trigger (0: fade only)
+  const G3DPlacement::Placement* placements = nullptr; ///< preference order (null: below, else
+                                                       ///< above, left edges flush)
+  int placementCount = 0;
+  ImGuiWindowFlags flags = 0; ///< extra popup window flags
+};
+
+/// Begin the popover @p strId, opened by the caller with ImGui::OpenPopup(strId) in the same ID
+/// scope. Returns true while it is open: submit the content, then call EndPopover().
+bool BeginPopover(const char* strId, const PopoverDesc& desc);
+
+/// Finish a popover begun by a true-returning BeginPopover(). Call exactly then, like EndPopup.
+void EndPopover();
+
+/// Close the popover @p strId if it is open, without submitting its content: for a trigger that
+/// stopped taking input (disabled) while its popover was up.
+void ClosePopover(const char* strId);
+
+//----------------------------------------------------------------------------
 // Select / dropdown
 //
 // The styleguide dropdown (doc/dev/ui-styleguide.html: <g3d-select> / .dropdown + .menu) — an
 // input-look trigger showing the current value with a rotating chevron, opening a floating menu of
-// check-marked items. The menu is a real ImGui popup (an overlay window), so like the styleguide's
-// body-portaled .menu it escapes any clipping ancestor (accordion, inspector scroll) and closes on
-// an outside click / Esc. Left-aligned under the trigger, trigger-width, flips above when there is
-// no room below; long lists scroll. Usage mirrors ImGui::BeginCombo/EndCombo so call sites migrate
-// mechanically:
+// check-marked items. The menu is a Popover (above), so like the styleguide's body-portaled .menu
+// it escapes any clipping ancestor (accordion, inspector scroll) and closes on an outside click /
+// Esc. Left-aligned under the trigger at the trigger's width, above it when there is no room below;
+// long lists scroll. Usage mirrors ImGui::BeginCombo/EndCombo so call sites migrate mechanically:
 //
 //   // Trigger width = CalcItemWidth(). Inside a BeginCollapse body it already fills the padded
 //   // row (the container's default) -- NEVER force it back to the window edge with
@@ -1162,7 +1237,8 @@ int ToolGroup(const char* id, const ToolGroupDesc& desc);
 // space, 0–255 / 0–1 float ranges, a format cycle (HEX / RGB / HSB / HSL) with per-channel editable
 // inputs (arrow-key nudge, Shift x10), 8-digit #RRGGBBAA, copy, and preset / recent swatches.
 // Mirrors ImGui ColorEdit4 / ColorPicker4 (+ an intensity field for HDR colors). The picker owns all
-// color math once; the popup is a real ImGui overlay, so it is never clipped by the host panel.
+// color math once; the panel is a Popover of its swatch (a real ImGui overlay), so it is never
+// clipped by the host panel.
 //----------------------------------------------------------------------------
 
 /// Numeric presentation of the picker's editable channels — mirrors the styleguide format cycle.

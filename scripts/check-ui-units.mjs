@@ -3,7 +3,8 @@
 // G3DDp / G3DScale (vtkext/private/module/G3DUnits.h) turn double and missed scaling into compile
 // errors wherever a length flows through the types. This catches the places the types cannot see,
 // in the desktop UI sources (every module file that includes imgui.h, G3DTheme.h, G3DWidgets.h or
-// G3DUnits.h, the latter itself excepted):
+// G3DUnits.h, the latter itself excepted), plus the one placement rule the types cannot see either
+// (raw-popup):
 //
 //   raw-exit          .Raw() / .Factor(): the audit exits of G3DDp / G3DScale. Each use is a unit
 //                     boundary (ScaleAllSizes, a log line, the OS loupe) or a bug.
@@ -15,6 +16,11 @@
 //   constexpr-length  a `constexpr float` named like a length (margin, padding, gap, size, width,
 //                     height, radius, inset, spacing, thickness): a design constant that escaped
 //                     G3DDp.
+//   raw-popup         ImGui::BeginPopup / BeginPopupModal / BeginPopupContext* / BeginCombo: a
+//                     popup positioned by hand. A popup opened from a control is a
+//                     G3DWidgets::BeginPopover, which places it from its measured size — the frame
+//                     a popup opens on is ImGui's hidden measuring frame, and a side picked from a
+//                     size remembered earlier draws its first visible frame on the wrong side.
 //
 // A literal next to `*` or `/` is a ratio, not a length (`2.f * pad`), an integer in a draw call is
 // a segment count or a flag, and `12_dp` is already a G3DDp: none of those count. Hits are counted
@@ -41,7 +47,7 @@ const argv = process.argv.slice(2);
 const LIST = argv.includes('--list');
 const UPDATE = argv.includes('--update');
 
-const RULES = ['raw-exit', 'font-scale', 'bare-number', 'constexpr-length'];
+const RULES = ['raw-exit', 'font-scale', 'bare-number', 'constexpr-length', 'raw-popup'];
 const LAYOUT_CALLS = ['ImVec2', 'Dummy', 'SameLine', 'PushStyleVar', 'SetCursorPos', 'SetCursorPosX',
   'SetCursorPosY', 'SetCursorScreenPos', 'SetNextItemWidth', 'PushItemWidth', 'Indent', 'Unindent',
   'InvisibleButton', 'BeginChild', 'SetNextWindowPos', 'SetNextWindowSize'];
@@ -149,6 +155,10 @@ function scan(code) {
     if (LENGTH_NAME.test(m[1])) hits.push({ rule: 'constexpr-length', offset: m.index });
   }
 
+  const popupRe =
+    /\bImGui\s*::\s*(?:BeginPopup(?:Modal|Context(?:Item|Window|Void))?|BeginCombo)\s*\(/g;
+  while ((m = popupRe.exec(code)) !== null) hits.push({ rule: 'raw-popup', offset: m.index });
+
   const seen = new Set();
   const numRe = /(?<![\w.])(\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?[fF]?(?![\w.])/g;
   for (const [names, floatsOnly] of [[LAYOUT_CALLS, false], [DRAW_CALLS, true]]) {
@@ -204,9 +214,12 @@ function uiFiles() {
     'dl->AddCircleFilled(c, r, col, 24);', // a segment count
     '// ImGui::Dummy(ImVec2(0.f, 8.f));', // a comment
     'const char* t = "ImGui::SameLine(0.f, 9.f)";', // a string
+    'if (ImGui::BeginPopupContextItem("##ctx")) {}', // raw-popup
+    'if (G3DWidgets::BeginPopover("##p", d)) {}', // the sanctioned way
+    'ImGui::OpenPopup("##p");', // opening is the trigger's job, anywhere
   ].join('\n');
   const got = scan(codeOnly(sample)).map((h) => h.rule).sort().join(',');
-  const want = 'bare-number,bare-number,bare-number,constexpr-length,font-scale,raw-exit';
+  const want = 'bare-number,bare-number,bare-number,constexpr-length,font-scale,raw-exit,raw-popup';
   if (got !== want) {
     console.error(`check-ui-units self test failed: got [${got}], want [${want}]`);
     process.exit(2);

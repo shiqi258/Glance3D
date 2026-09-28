@@ -4511,7 +4511,6 @@ struct ColorPickerState
   char chanBuf[4][16] = { "", "", "", "" };
   char intBuf[16] = "";
   double copiedTime = -10.0;
-  ImVec2 panelSize = ImVec2(0.f, 0.f); // last popup size, for the flip-above placement decision
 };
 std::unordered_map<ImGuiID, ColorPickerState> gColorPickers;
 
@@ -6714,39 +6713,28 @@ bool ColorEdit(const char* id, float col[4], const ColorEditDesc& desc)
     }
   }
 
-  // Anchor the popup under the trigger like a combo / popover (the styleguide panel is a popover;
-  // reopening after an eyedropper pick must also not land at the then-arbitrary mouse position).
-  // Flips above when there is no room below; clamps into the display horizontally.
-  {
-    const ImVec2 disp = ImGui::GetIO().DisplaySize;
-    const float margin = 8_dp * s;
-    const float gapY = 4_dp * s;
-    const float panelW = (288_dp + 2.f * G3DTheme::Spacing::Md) * s; // content + window padding
-    const ImVec2 lastSize = gColorPickers[stateId].panelSize;
-    const float panelH = lastSize.y > 1.f ? lastSize.y : 420_dp * s; // first-open estimate
-    ImVec2 pos(anchorMin.x, anchorMax.y + gapY);
-    if (pos.y + panelH > disp.y - margin)
-    {
-      pos.y = std::max(margin, anchorMin.y - gapY - panelH);
-    }
-    pos.x = std::clamp(pos.x, margin, std::max(margin, disp.x - panelW - margin));
-    ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
-    // Pin the width: the hot-zone rects (SV square / hue / alpha) extend past the 288*s content
-    // width and would widen the auto-fit window asymmetrically. Height stays auto-fit (0) — no
-    // hot rect reaches past the last row.
-    ImGui::SetNextWindowSize(ImVec2(panelW, 0.f), ImGuiCond_Always);
-  }
+  // The panel is a popover of the swatch, like the styleguide's: below it, else above it, placed
+  // from its measured size. Reopening after an eyedropper pick lands at the swatch again, not at
+  // the then-arbitrary mouse position.
+  G3DWidgets::PopoverDesc pd;
+  pd.anchor = { anchorMin.x, anchorMin.y, anchorMax.x - anchorMin.x, anchorMax.y - anchorMin.y };
+  // Pin the width: the hot-zone rects (SV square / hue / alpha) extend past the 288*s content width
+  // and would widen the auto-fit window asymmetrically. The height fits the content — no hot rect
+  // reaches past the last row.
+  pd.width = (288_dp + 2.f * G3DTheme::Spacing::Md) * s; // content + window padding
+  pd.offset = G3DTheme::Spacing::Xs;
+  // Short of room on both sides it scrolls, keeping at least the SV square and the hue row whole.
+  pd.minHeight = 220_dp;
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(G3DTheme::Spacing::Md * s, G3DTheme::Spacing::Md * s));
   ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, G3DTheme::Radius::Popup * s);
   ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, G3DTheme::Size::Border * s);
   ImGui::PushStyleColor(ImGuiCol_PopupBg, U32(G3DTheme::Surface()));
   ImGui::PushStyleColor(ImGuiCol_Border, U32(G3DTheme::Border()));
-  if (ImGui::BeginPopup("##cp"))
+  if (G3DWidgets::BeginPopover("##cp", pd))
   {
     changed |= DrawPickerPanel(stateId, col, desc);
-    gColorPickers[stateId].panelSize = ImGui::GetWindowSize();
-    ImGui::EndPopup();
+    G3DWidgets::EndPopover();
   }
   ImGui::PopStyleColor(2);
   ImGui::PopStyleVar(3);
@@ -6819,30 +6807,247 @@ void SubmitEyedropperScreenPatch(
 }
 
 //----------------------------------------------------------------------------
+// Popover (a surface opened from a control — see the header)
+//----------------------------------------------------------------------------
+namespace
+{
+// What one open of a popover remembers. ImGui recycles a popup's window across opens and resets
+// its size on each, so everything the placement relies on lives here.
+struct PopoverState
+{
+  int lastFrame = -1000;             ///< last frame the popover was submitted
+  bool measured = false;             ///< `natural` holds this open's measured size
+  ImVec2 natural = ImVec2(0.f, 0.f); ///< the size ImGui fits the window to next frame (px)
+  int locked = -1;                   ///< the placement kept for this open (ResolvePopover)
+  ImVec2 pad = ImVec2(0.f, 0.f);     ///< the window padding it was begun with
+  float capH = 0.f;                  ///< this frame's height cap (room on its side, maxHeight)
+  float placedH = 0.f;               ///< the height this frame was placed with
+  bool placedMeasured = false;       ///< this frame was placed from a measurement
+  bool checked = false;              ///< the first visible frame was checked against the placement
+  G3DAnimatedFloat presence;         ///< 0 -> 1: the open motion
+};
+std::unordered_map<ImGuiID, PopoverState> gPopovers;
+std::vector<ImGuiID> gPopoverStack; ///< begun popovers awaiting their EndPopover()
+
+// The styleguide dropdown's placement: under the trigger with the left edges flush, else above it.
+constexpr G3DPlacement::Placement kPopoverPlacements[] = {
+  { G3DPlacement::Side::Bottom, G3DPlacement::Align::Start },
+  { G3DPlacement::Side::Top, G3DPlacement::Align::Start },
+};
+
+void ResetPopover(PopoverState& st)
+{
+  st.measured = false;
+  st.natural = ImVec2(0.f, 0.f);
+  st.locked = -1;
+  st.checked = false;
+  G3DTheme::Configure(st.presence, G3DTheme::Motions::Micro);
+  st.presence.Snap(0.f);
+}
+
+const char* PopoverSideName(G3DPlacement::Side side)
+{
+  switch (side)
+  {
+    case G3DPlacement::Side::Top:
+      return "above";
+    case G3DPlacement::Side::Left:
+      return "left";
+    case G3DPlacement::Side::Right:
+      return "right";
+    default:
+      return "below";
+  }
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+bool BeginPopover(const char* strId, const PopoverDesc& desc)
+{
+  if (!ImGui::IsPopupOpen(strId))
+  {
+    return false;
+  }
+  const G3DScale s = G3DWidgets::UiScale();
+  const int frame = ImGui::GetFrameCount();
+  const ImGuiID id = ImGui::GetID(strId);
+  PopoverState& st = gPopovers[id];
+  // Not submitted last frame: a new open (ImGui's own test for a window being activated). Every
+  // open decides its side afresh, from its own measurement.
+  if (st.lastFrame < frame - 1)
+  {
+    ResetPopover(st);
+  }
+
+  const bool ownPlacements = desc.placements != nullptr && desc.placementCount > 0;
+  const G3DPlacement::Placement* prefs = ownPlacements ? desc.placements : kPopoverPlacements;
+  const int prefCount =
+    ownPlacements ? desc.placementCount : static_cast<int>(std::size(kPopoverPlacements));
+  const float cap = desc.maxHeight > 0.f ? desc.maxHeight : FLT_MAX;
+  const ImGuiViewport* vp = ImGui::GetMainViewport();
+  // The size the window will have: ImGui truncates a window size once it passes a constraint.
+  G3DPlacement::Request req;
+  req.anchor = desc.anchor;
+  req.w = std::trunc(desc.width > 0.f ? desc.width : st.natural.x);
+  req.h = std::trunc(std::min(st.natural.y, cap));
+  req.minH = desc.minHeight * s;
+  req.prefs = prefs;
+  req.prefCount = prefCount;
+  req.offset = desc.offset * s;
+  req.boundary = { vp->WorkPos.x, vp->WorkPos.y, vp->WorkSize.x, vp->WorkSize.y };
+  req.padding = desc.margin * s;
+
+  // Until this open has been measured — ImGui's hidden first frame only, whose position nobody sees
+  // — nothing is decided. The first measured frame, the first one drawn, locks the side.
+  const bool locking = st.measured && st.locked < 0;
+  int unlocked = -1;
+  const G3DPlacement::Result res =
+    G3DPlacement::ResolvePopover(req, st.measured ? st.locked : unlocked);
+  const G3DPlacement::Side side =
+    res.index >= 0 ? prefs[res.index].side : G3DPlacement::Side::Bottom;
+  if (locking)
+  {
+    Trace("[Trace][pop.place] fr=%d id=%08X side=%s natural=%.1f room=%.1f shrunk=%d collides=%d",
+      frame, static_cast<unsigned int>(id), PopoverSideName(side), st.natural.y, res.room,
+      res.shrunk ? 1 : 0, res.collides ? 1 : 0);
+  }
+
+  // Open motion: it starts on the first frame drawn.
+  if (gReducedMotion)
+  {
+    st.presence.Snap(1.f);
+  }
+  else if (st.measured)
+  {
+    st.presence.AnimateTo(1.f);
+    st.presence.Update(FrameDelta());
+  }
+  const float travel = desc.slide * s * (1.f - st.presence.Value());
+
+  // Pin the edge facing the trigger. ImGui applies a pivot with the size it draws the window at
+  // (deferred past its hidden measuring frame), so the far edge alone follows the content, and the
+  // entry slide comes out of the trigger.
+  const G3DLayout::Rect& rc = res.rect;
+  ImVec2 pos(rc.x, rc.y);
+  ImVec2 pivot(0.f, 0.f);
+  switch (side)
+  {
+    case G3DPlacement::Side::Top:
+      pos = ImVec2(rc.x, rc.y + rc.h + travel);
+      pivot = ImVec2(0.f, 1.f);
+      break;
+    case G3DPlacement::Side::Left:
+      pos = ImVec2(rc.x + rc.w + travel, rc.y);
+      pivot = ImVec2(1.f, 0.f);
+      break;
+    case G3DPlacement::Side::Right:
+      pos.x -= travel;
+      break;
+    default:
+      pos.y -= travel;
+      break;
+  }
+  ImGui::SetNextWindowPos(pos, ImGuiCond_Always, pivot);
+  ImGui::SetNextWindowSize(ImVec2(std::max(desc.width, 0.f), 0.f), ImGuiCond_Always);
+  // Grow up to the room on its side, then scroll. Capping at this frame's height instead would
+  // flash a scrollbar on the frame the content grows.
+  const bool vertical = side == G3DPlacement::Side::Top || side == G3DPlacement::Side::Bottom;
+  const float innerH = std::max(0.f, req.boundary.h - 2.f * req.padding);
+  st.capH = res.collides ? rc.h : std::min(cap, vertical ? res.room : innerH);
+  st.placedH = std::trunc(std::min(st.natural.y, st.capH));
+  st.placedMeasured = st.measured;
+  const float minW = desc.width > 0.f ? desc.width : 0.f;
+  const float maxW = desc.width > 0.f ? desc.width : FLT_MAX;
+  ImGui::SetNextWindowSizeConstraints(ImVec2(minW, 0.f), ImVec2(maxW, st.capH));
+
+  // g3d-units: allow(raw-popup) the popover core: every popup opened from a control begins here
+  if (!ImGui::BeginPopup(strId, desc.flags))
+  {
+    return false;
+  }
+  if (ImGui::IsWindowAppearing() && st.placedMeasured)
+  {
+    // Closed and reopened back to back (no frame in between): still ImGui's hidden measuring
+    // frame, so start this open over like any other.
+    ResetPopover(st);
+    st.placedMeasured = false;
+  }
+  st.lastFrame = frame;
+  st.pad = ImGui::GetStyle().WindowPadding; // what the window was begun with
+  if (st.placedMeasured && !st.checked)
+  {
+    // The first visible frame: the height it was placed with must be the height ImGui drew.
+    const float drawnH = ImGui::GetWindowSize().y;
+    if (std::abs(drawnH - st.placedH) > 0.5f)
+    {
+      Trace("[Trace][pop.place] fr=%d id=%08X MISMATCH placed=%.2f drawn=%.2f", frame,
+        static_cast<unsigned int>(id), st.placedH, drawnH);
+    }
+    st.checked = true;
+  }
+  gPopoverStack.push_back(id);
+  // The group spans the content from its origin: EndPopover measures it.
+  ImGui::BeginGroup();
+  return true;
+}
+
+//----------------------------------------------------------------------------
+void EndPopover()
+{
+  if (gPopoverStack.empty())
+  {
+    ImGui::EndPopup();
+    return;
+  }
+  PopoverState& st = gPopovers[gPopoverStack.back()];
+  gPopoverStack.pop_back();
+  ImGui::EndGroup();
+  // The size ImGui fits the window to next frame: the content extent, truncated as ImGui truncates
+  // it (EndGroup folded the group into the window's extent), plus the padding on both sides — and
+  // the scrollbar gutter a width-fitted window gains when the content outgrows the cap. Measured on
+  // every frame, the hidden first one included: that is the one placing the first visible frame.
+  const ImVec2 content = ImGui::GetItemRectSize();
+  st.natural =
+    ImVec2(std::trunc(content.x) + 2.f * st.pad.x, std::trunc(content.y) + 2.f * st.pad.y);
+  if (st.natural.y > st.capH)
+  {
+    st.natural.x += ImGui::GetStyle().ScrollbarSize;
+  }
+  st.measured = true;
+  // The open fade, on the vertices: it reaches the custom paint style.Alpha does not. A frame
+  // placed before this open was measured stays invisible — ImGui hides that frame already; this
+  // makes "measured before shown" the popover's own guarantee.
+  FadeWindowDrawList(st.placedMeasured ? st.presence.Value() : 0.f);
+  ImGui::EndPopup();
+}
+
+//----------------------------------------------------------------------------
+void ClosePopover(const char* strId)
+{
+  // g3d-units: allow(raw-popup) closing only: nothing is placed or submitted
+  if (ImGui::IsPopupOpen(strId) && ImGui::BeginPopup(strId))
+  {
+    ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
+}
+
+//----------------------------------------------------------------------------
 // Select / dropdown (styleguide <g3d-select>: .dropdown / .select-trigger / .menu / .menu-item)
 //----------------------------------------------------------------------------
 namespace
 {
-// Toggle bookkeeping + last fitted menu size per select. ImGui closes the popup on the mouse-DOWN
-// of a trigger click (click-outside-popup handling in NewFrame), so by the release the popup reads
-// as closed and a plain "clicked -> OpenPopup" would instantly REOPEN it — the trigger could never
-// close its own menu. lastOpenFrame lets the press tell "this press is what closed the menu" apart
-// from "the menu was already closed", giving real toggle semantics. menuSize feeds the flip-above
-// placement before this frame's auto-fit size exists (same pattern as the color picker panelSize).
+// Toggle bookkeeping per select. ImGui closes the popup on the mouse-DOWN of a trigger click
+// (click-outside-popup handling in NewFrame), so by the release the popup reads as closed and a
+// plain "clicked -> OpenPopup" would instantly REOPEN it — the trigger could never close its own
+// menu. lastOpenFrame lets the press tell "this press is what closed the menu" apart from "the menu
+// was already closed", giving real toggle semantics.
 struct SelectState
 {
   int lastOpenFrame = -999; ///< last frame the menu was open
   bool pressWhileOpen = false; ///< the current trigger press started with the menu open
-  ImVec2 menuSize = ImVec2(0.f, 0.f);
 };
 std::unordered_map<ImGuiID, SelectState> gSelects;
-
-// The open BeginSelect() frame stack — what EndSelect() needs to close what BeginSelect() opened.
-struct SelectMenuFrame
-{
-  ImGuiID stateId = 0;
-};
-std::vector<SelectMenuFrame> gSelectMenuStack;
 
 // Soft drop shadow around a floating menu (styleguide --shadow-md: 0 6px 16px rgba(0,0,0,.45)).
 // ImGui windows have no shadow, so approximate the blur with expanding rounded strokes whose alpha
@@ -6893,8 +7098,9 @@ void DrawSelectChevron(ImDrawList* dl, const ImVec2& center, float size, ImU32 c
 }
 
 // Shared floating-menu chrome (styleguide .menu box): identical for the <g3d-select> dropdown and
-// the right-click context menu, so both read as one surface. PushMenuStyle before BeginPopup,
-// DrawMenuChrome right after it opens, PopMenuStyle after EndPopup. @p alpha carries the open fade-in.
+// the right-click context menu, so both read as one surface. PushMenuStyle before the popup begins,
+// DrawMenuChrome right after it opens, PopMenuStyle after it ends. @p alpha carries the context
+// menu's open fade-in; the dropdown passes 1, its popover fades the vertices itself.
 void PushMenuStyle(float alpha)
 {
   const G3DScale s = G3DWidgets::UiScale();
@@ -6933,8 +7139,9 @@ void DrawMenuChrome(float alpha)
 }
 
 // Right-click context menu bookkeeping: rows draw at the fixed window width (like the dropdown's
-// trigger-width menu), so the popup is pre-sized to the widest label — cached across frames the same
-// way SelectState::menuSize feeds the dropdown's flip-above placement.
+// trigger-width menu), so the popup is pre-sized to the widest label. The labels are measured on
+// every frame, the hidden one ImGui opens a popup on included, so the first visible frame already
+// has its width.
 struct ContextMenuState
 {
   float width = 0.f;     ///< last frame's committed window width
@@ -6976,20 +7183,15 @@ static bool BeginSelectImpl(const char* id, const char* preview, const char* hin
   {
     ImGui::OpenPopup("##menu");
   }
-  const ImGuiID menuId = ImGui::GetID("##menu");
   // Inside a BeginDisabled group (style.Alpha carries the dim; nothing else pushes a global alpha
   // at trigger level in this codebase) an ALREADY-open menu must be force-closed: its rows inherit
   // the disabled item flag so the click that would CloseCurrentPopup can never fire, and the menu's
-  // own fade-in alpha push would override the dim — an opaque, dead menu. Closing is also the right
+  // own opaque style push would override the dim — an opaque, dead menu. Closing is also the right
   // semantics: a menu whose owner just got disabled has no valid interaction left.
   const bool uiDisabled = ImGui::GetStyle().Alpha < 0.999f;
-  if (uiDisabled && ImGui::IsPopupOpen("##menu"))
+  if (uiDisabled)
   {
-    if (ImGui::BeginPopup("##menu"))
-    {
-      ImGui::CloseCurrentPopup();
-      ImGui::EndPopup();
-    }
+    G3DWidgets::ClosePopover("##menu");
   }
   const bool open = ImGui::IsPopupOpen("##menu") && !uiDisabled;
   if (open)
@@ -7056,59 +7258,28 @@ static bool BeginSelectImpl(const char* id, const char* preview, const char* hin
 
   if (!open)
   {
-    if (ImGui::GetFrameCount() - st.lastOpenFrame <= 2)
-    {
-      Ensure(menuId).hover.Snap(0.f); // just closed — rearm the fade-in for the next open
-    }
     ImGui::PopID();
     return false;
   }
 
-  // ---- menu placement (styleguide place(): left-aligned, 6px below, trigger width; flips above
-  // when the screen bottom would clip it; long lists scroll inside a capped height) ----
-  const ImVec2 disp = ImGui::GetIO().DisplaySize;
-  const float gapY = 6_dp * s;
-  const float margin = 8_dp * s;
-  const float maxMenuH = std::min(320_dp * s, disp.y - 2.f * margin);
-
-  // open transition (.menu: opacity 0->1 + translateY(-6px)->0 over t-micro): ride the shared
-  // animation store; the hover channel is pre-configured to the Micro motion. The first frame is
-  // ~transparent, which also hides the one-frame placement guess before the auto-fit size exists.
-  WidgetAnim& m = Ensure(menuId);
-  m.lastFrame = ImGui::GetFrameCount(); // keep the entry alive while open (the store prunes stale ids)
-  m.hover.AnimateTo(1.f);
-  m.hover.Update(FrameDelta());
-  const float mt = m.hover.Value();
-
-  ImVec2 pos(p0.x, p0.y + h + gapY);
-  const float estH = st.menuSize.y;
-  if (estH > 1.f && pos.y + estH > disp.y - margin)
-  {
-    pos.y = std::max(margin, p0.y - gapY - estH); // flip above
-    pos.y += 6_dp * s * (1.f - mt);               // slide into place (mirrored)
-  }
-  else
-  {
-    pos.y -= 6_dp * s * (1.f - mt); // translateY(-6px) -> 0
-  }
-  pos.x = std::clamp(pos.x, margin, std::max(margin, disp.x - width - margin));
-
-  ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(width, 0.f), ImGuiCond_Always); // height auto-fits
-  ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.f), ImVec2(width, maxMenuH));
-
-  PushMenuStyle(mt);
-  if (!ImGui::BeginPopup("##menu"))
+  // ---- the menu: a popover of the trigger (styleguide .menu: left-aligned, 6px below, trigger
+  // width, above the trigger when there is no room below; long lists scroll inside a capped
+  // height). The popover owns the open transition (.menu: opacity 0->1 + translateY(-6px)->0 over
+  // t-micro), so the menu style stays opaque. ----
+  G3DWidgets::PopoverDesc pd;
+  pd.anchor = { p0.x, p0.y, std::max(width, 1.f), h };
+  pd.width = std::max(width, 1.f);
+  pd.maxHeight = 320_dp * s;
+  pd.minHeight = 96_dp; // about three rows before it would rather cover its trigger
+  PushMenuStyle(1.f);
+  if (!G3DWidgets::BeginPopover("##menu", pd))
   {
     PopMenuStyle();
-    Ensure(menuId).hover.Snap(0.f);
     ImGui::PopID();
     return false;
   }
 
-  DrawMenuChrome(mt);
-
-  gSelectMenuStack.push_back(SelectMenuFrame{ stateId });
+  DrawMenuChrome(1.f);
   return true;
 }
 
@@ -7207,13 +7378,7 @@ bool SelectItemColormap(const char* label, const GradientStops& stops, bool sele
 //----------------------------------------------------------------------------
 void EndSelect()
 {
-  if (!gSelectMenuStack.empty())
-  {
-    // record the fitted size for next frame's flip-above placement
-    gSelects[gSelectMenuStack.back().stateId].menuSize = ImGui::GetWindowSize();
-    gSelectMenuStack.pop_back();
-  }
-  ImGui::EndPopup();
+  EndPopover();
   PopMenuStyle();
   ImGui::PopID();
 }
@@ -7257,6 +7422,7 @@ bool BeginContextMenu(const char* id)
   st.measuring = 0.f;
 
   PushMenuStyle(mt);
+  // g3d-units: allow(raw-popup) at the pointer: ImGui places it from its measured size
   if (!ImGui::BeginPopup("##ctxmenu"))
   {
     PopMenuStyle();
@@ -7399,8 +7565,9 @@ void ResetSession()
   gEyedropCancel = false;
   gPropRows.clear();
   gFieldRows.clear();
+  gPopovers.clear();
+  gPopoverStack.clear();
   gSelects.clear();
-  gSelectMenuStack.clear();
   gContextMenus.clear();
   gContextMenuStack.clear();
 }
