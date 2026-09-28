@@ -38,6 +38,10 @@ constexpr G3DDp Sm{ 8.f };
 constexpr G3DDp Md{ 12.f };
 constexpr G3DDp Lg{ 16.f };
 constexpr G3DDp Xl{ 24.f };
+/// Inset of a viewport overlay from the edge it hugs: the file name pill, the FPS counter, the
+/// corner tool group, the minimal console line. Off the 4-based scale on purpose — it is upstream
+/// F3D's default margin, which every one of those placements was designed around.
+constexpr G3DDp OverlayInset{ 5.f };
 }
 
 /// Corner radii. Mirrors the styleguide (sm/md/lg/popup). Docked-tool scale: keep small —

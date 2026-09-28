@@ -1,24 +1,5 @@
 {
-  "Rig": [
-    {
-      "match": "CheatSheet",
-      "check": "*",
-      "bug": true,
-      "reason": "the cheat sheet's margin (5) and padding (16) are unscaled constants (vtkF3DImguiActor.cxx, cheat sheet card), so the card neither grows nor moves with the UI scale"
-    },
-    {
-      "match": "CheatSheet/*",
-      "check": "*",
-      "bug": true,
-      "reason": "laid out from the cheat sheet's unscaled padding"
-    },
-    {
-      "match": "NotificationCenter",
-      "check": "offset",
-      "scales": [2],
-      "bug": true,
-      "reason": "the message center's corner margin (5) is unscaled (vtkF3DImguiActor.cxx, message center card); at 1.5 the error stays within the tolerance"
-    }
-  ],
-  "Coloring": []
+  "Rig": [],
+  "Coloring": [],
+  "Hud": []
 }

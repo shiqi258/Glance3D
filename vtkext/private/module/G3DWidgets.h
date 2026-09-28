@@ -285,7 +285,9 @@ struct FloatingCardState
 };
 
 /// Per-frame description of a floating card. Only `id`, `title` and `size` are mandatory; the rest
-/// have sane defaults (centered-anchor callers still pass `defaultPos` / `bounds`).
+/// have sane defaults (centered-anchor callers still pass `defaultPos` / `bounds`). Geometry the
+/// caller measured or laid out (size, positions, rects) is physical px; the design lengths the card
+/// scales itself (margin, padding, placementOffset, minSize) are G3DDp.
 struct FloatingCardDesc
 {
   const char* id = "##g3d.card";              ///< window id, unique + stable per card
@@ -296,8 +298,8 @@ struct FloatingCardDesc
   ImVec2 size = ImVec2(0.f, 0.f);             ///< card size in px (caller sizes it from content)
   ImVec2 defaultPos = ImVec2(0.f, 0.f);       ///< anchor used until the user drags
   ImVec4 bounds = ImVec4(0.f, 0.f, 0.f, 0.f); ///< clamp rect: x,y = origin, z,w = size
-  float margin = 8.f;                         ///< gap kept between the card and the bounds
-  float padding = -1.f;                       ///< content padding (<= 0: theme default)
+  G3DDp margin = G3DTheme::Spacing::Sm;       ///< gap kept between the card and the bounds
+  G3DDp padding = G3DTheme::Spacing::Lg;      ///< content padding
   const ImVec4* background = nullptr;         ///< window fill override (null: ImGui WindowBg)
   ImGuiWindowFlags extraFlags = 0;            ///< extra window flags OR-ed in
   bool open = true;                           ///< the caller wants the card shown this frame
@@ -360,12 +362,15 @@ bool BeginFloatingCardBody(const char* id = "##g3d.card.body", bool horizontalSc
 void EndFloatingCardBody();
 
 /// Resolve a floating card's window position: default anchor + drag offset, clamped into @p bounds
-/// (x,y = origin, z,w = size) with @p margin breathing room. The clamped result is written back so
-/// the stored offset never exceeds what is shown — a window shrink would otherwise leave a dead
-/// zone before reverse dragging takes visible effect. BeginFloatingCard() calls this itself; it is
-/// exposed for callers that need the resolved rect (hit-testing, non-window cards) before drawing.
+/// (x,y = origin, z,w = size) with @p margin (logical) breathing room. The clamped result is
+/// written back so the stored offset never exceeds what is shown — a window shrink would otherwise
+/// leave a dead zone before reverse dragging takes visible effect. BeginFloatingCard() calls this
+/// itself; it is exposed for callers that need the resolved rect (hit-testing, non-window cards)
+/// before drawing.
 ImVec2 FloatingCardPos(
-  FloatingCardState& st, ImVec2 defaultPos, ImVec2 size, const ImVec4& bounds, float margin);
+  FloatingCardState& st, ImVec2 defaultPos, ImVec2 size, const ImVec4& bounds, G3DDp margin);
+ImVec2 FloatingCardPos(FloatingCardState& st, ImVec2 defaultPos, ImVec2 size,
+  const ImVec4& bounds, float margin) = delete;
 
 /// Read-only key/value row for inspectors / stat panels: muted label on the left, primary value
 /// right-aligned on the same line (mirrors styleguide .proprow used read-only).

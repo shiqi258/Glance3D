@@ -67,11 +67,6 @@ constexpr std::tuple<float, float, float> GetF3DBlack()
   return DecomposeFloatTuple(F3D_BLACK);
 }
 
-constexpr float GetDefaultMargin()
-{
-  return 5.f;
-}
-
 #ifdef F3D_MODULE_UI
 
 namespace imgui

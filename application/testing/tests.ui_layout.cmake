@@ -45,5 +45,8 @@ if(F3D_MODULE_UI AND NOT F3D_USE_EXTERNAL_IMGUI AND F3D_TESTING_ENABLE_RENDERING
       ARGS -Dui.control_panel=true -Dui.cheatsheet=true -Dui.notification_center=true)
     # Scalar coloring: the inspector's Coloring section, whose Range row carries an icon button.
     g3d_layout_scene(Coloring DATA bluntfin.vts ARGS -s -Dui.control_panel=true)
+    # The viewport with the docked panel closed: the file name pill, the corner tool group and the
+    # minimal console, each inset from the window edge by the same overlay margin.
+    g3d_layout_scene(Hud DATA f3d.glb ARGS -n -Dui.minimal_console=true)
   endif()
 endif()

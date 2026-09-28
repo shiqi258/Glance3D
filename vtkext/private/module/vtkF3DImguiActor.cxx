@@ -73,17 +73,19 @@
 
 namespace
 {
-constexpr float LOGO_DISPLAY_WIDTH = 256.f;
-constexpr float LOGO_DISPLAY_HEIGHT = 256.f;
-constexpr float DROPZONE_LOGO_TEXT_PADDING = 20.f;
-constexpr float DROPZONE_MARGIN = 0.5f;
-constexpr float DROPZONE_PADDING_X = 5.0f;
-constexpr float DROPZONE_PADDING_Y = 2.0f;
+// Drop zone geometry, logical px: scaled where drawn, so the logo and the key chips keep their
+// proportion to the text at any UI scale.
+constexpr G3DDp LOGO_DISPLAY_WIDTH{ 256.f };
+constexpr G3DDp LOGO_DISPLAY_HEIGHT{ 256.f };
+constexpr G3DDp DROPZONE_LOGO_TEXT_PADDING{ 20.f };
+constexpr float DROPZONE_MARGIN = 0.5f; // a ratio (centering / half a padding), not a length
+constexpr G3DDp DROPZONE_PADDING_X{ 5.0f };
+constexpr G3DDp DROPZONE_PADDING_Y{ 2.0f };
 
-// Centered loading overlay geometry (pixels). Grouped here so the look is easy to retune.
-constexpr float LOADING_LOGO_SIZE = 150.f;      // rotating logo display size (the hero)
-constexpr float LOADING_GLOW_RADIUS = 84.f;     // faint hugging glow radius (kept very subtle)
-constexpr float LOADING_TEXT_PADDING = 30.f;    // gap below the logo to the status text
+// Centered loading overlay geometry (logical px). Grouped here so the look is easy to retune.
+constexpr G3DDp LOADING_LOGO_SIZE{ 150.f };     // rotating logo display size (the hero)
+constexpr G3DDp LOADING_GLOW_RADIUS{ 84.f };    // faint hugging glow radius (kept very subtle)
+constexpr G3DDp LOADING_TEXT_PADDING{ 30.f };   // gap below the logo to the status text
 constexpr float LOADING_TWO_PI = 6.2831853071795864769f;
 constexpr float LOADING_SPIN_PERIOD_SEC = 4.4f; // seconds per revolution (slow, calm)
 
@@ -118,26 +120,25 @@ float ViewportChromeHeight(G3DScale uiScale)
 /// the animated one: a console edge that tracked the cluster growing would jitter.
 float ViewportChromeReservedWidth(G3DScale uiScale)
 {
-  constexpr float margin = F3DStyle::GetDefaultMargin();
   const float items = static_cast<float>(CHROME_ACTION_COUNT);
   const G3DDp inner = items * G3DTheme::Size::IconButton +
     (items - 1.f) * G3DTheme::Spacing::Xs + 2.f * G3DTheme::Spacing::Xs;
-  return inner * uiScale + 2.f * margin;
+  return inner * uiScale + 2.f * (G3DTheme::Spacing::OverlayInset * uiScale);
 }
 
 /// Top-right anchor for a cluster of @p size. Right-aligned, so the corner stays put while the
 /// group grows and collapses leftwards.
-ImVec2 ViewportChromePos(const G3DLayout::Rect& rect, const ImVec2& size)
+ImVec2 ViewportChromePos(const G3DLayout::Rect& rect, const ImVec2& size, G3DScale uiScale)
 {
-  constexpr float margin = F3DStyle::GetDefaultMargin();
+  const float margin = G3DTheme::Spacing::OverlayInset * uiScale;
   return ImVec2(rect.x + rect.w - margin - size.x, rect.y + margin);
 }
 
 /// Vertical span the cluster consumes from the viewport's top edge, its clearance gap included.
 float ViewportChromeZoneH(G3DScale uiScale)
 {
-  constexpr float margin = F3DStyle::GetDefaultMargin();
-  return margin + ViewportChromeHeight(uiScale) + G3DTheme::Spacing::Sm * uiScale;
+  return G3DTheme::Spacing::OverlayInset * uiScale + ViewportChromeHeight(uiScale) +
+    G3DTheme::Spacing::Sm * uiScale;
 }
 
 /// Where the console keeps clear of the docked chrome: below the top bar (as far as it has slid in)
@@ -1125,14 +1126,15 @@ void vtkF3DImguiActor::RenderDropZone()
     const ImVec4 colorImv = ::ColorToImVec4(this->FontColor);
     const ImU32 color =
       IM_COL32(colorImv.x * 255, colorImv.y * 255, colorImv.z * 255, colorImv.w * 255);
+    const G3DScale scale = this->GetUiScale();
 
     const int dropzonePad =
       static_cast<int>(std::min(viewport->WorkSize.x, viewport->WorkSize.y) * 0.1);
     const int dropZoneW = viewport->WorkSize.x - dropzonePad * 2;
     const int dropZoneH = viewport->WorkSize.y - dropzonePad * 2;
 
-    constexpr float tickThickness = 3.0f;
-    constexpr float tickLength = 10.0f;
+    const float tickThickness = 3_dp * scale;
+    const float tickLength = 10_dp * scale;
     const int halfTickThickness = static_cast<int>(std::ceil(tickThickness / 2.f));
 
     const int tickNumberW = static_cast<int>(std::ceil(dropZoneW / (tickLength * 2.0f)));
@@ -1158,11 +1160,16 @@ void vtkF3DImguiActor::RenderDropZone()
     // Logo rendering
     if (this->DropZoneLogoVisible && this->Pimpl->LogoTexture)
     {
-      float logoDisplayWidth = ::LOGO_DISPLAY_WIDTH;
-      float logoDisplayHeight = ::LOGO_DISPLAY_HEIGHT;
+      const float logoDisplayWidth = ::LOGO_DISPLAY_WIDTH * scale;
+      const float logoDisplayHeight = ::LOGO_DISPLAY_HEIGHT * scale;
       ImVec2 center = viewport->GetWorkCenter();
       ImVec2 logoPos(center.x - logoDisplayWidth * ::DROPZONE_MARGIN,
         center.y - logoDisplayHeight * ::DROPZONE_MARGIN);
+
+      // The logo is a bitmap the size of its 1x display: magnify it smoothly at any other scale,
+      // and keep the exact texel copy of nearest filtering at 1x.
+      this->Pimpl->LogoTexture->SetMagnificationFilter(
+        scale == G3DScale() ? vtkTextureObject::Nearest : vtkTextureObject::Linear);
 
       // VTK texture pointer to ImTextureID cast (void*)
       ImTextureID texID = reinterpret_cast<ImTextureID>(this->Pimpl->LogoTexture.Get());
@@ -1200,8 +1207,8 @@ void vtkF3DImguiActor::RenderDropZone()
     {
       ImVec2 textSize = ImGui::CalcTextSize(this->DropText.c_str());
       ImVec2 textPos(viewport->GetWorkCenter().x - textSize.x * ::DROPZONE_MARGIN,
-        viewport->GetWorkCenter().y - ::DROPZONE_MARGIN * textSize.y + ::LOGO_DISPLAY_HEIGHT / 2 +
-          ::DROPZONE_LOGO_TEXT_PADDING);
+        viewport->GetWorkCenter().y - ::DROPZONE_MARGIN * textSize.y +
+          ::LOGO_DISPLAY_HEIGHT / 2.f * scale + ::DROPZONE_LOGO_TEXT_PADDING * scale);
       drawList->AddText(textPos, ImColor(::ColorToImVec4(this->FontColor)), this->DropText.c_str());
       return;
     }
@@ -1223,10 +1230,10 @@ void vtkF3DImguiActor::RenderDropZone()
       auto keys = ::SplitBindings(bind, '+');
       float totalBindingsWidth = std::accumulate(keys.begin(), keys.end(),
         0.0f, // use float init since CalcTextSize returns float
-        [](float sum, const std::string& key)
+        [scale](float sum, const std::string& key)
         {
           return sum + ImGui::CalcTextSize(key.c_str()).x +
-            ::DROPZONE_MARGIN * ::DROPZONE_LOGO_TEXT_PADDING;
+            ::DROPZONE_MARGIN * ::DROPZONE_LOGO_TEXT_PADDING * scale;
         });
 
       if (keys.size() > 1)
@@ -1242,14 +1249,14 @@ void vtkF3DImguiActor::RenderDropZone()
     const ImColor bindingTextColor = ::ColorToImVec4(this->FontColor);
 
     float tableWidth =
-      maxDescTextWidth + maxBindingsTextWidth + ::DROPZONE_LOGO_TEXT_PADDING + spacingX;
+      maxDescTextWidth + maxBindingsTextWidth + ::DROPZONE_LOGO_TEXT_PADDING * scale + spacingX;
 
     // Position table below logo if needed
     ImVec2 startPos;
     if (this->DropZoneLogoVisible && this->Pimpl->LogoTexture)
     {
       startPos = ImVec2(viewport->GetWorkCenter().x - tableWidth * ::DROPZONE_MARGIN,
-        viewport->GetWorkCenter().y + ::LOGO_DISPLAY_HEIGHT / 2 + ::DROPZONE_MARGIN);
+        viewport->GetWorkCenter().y + ::LOGO_DISPLAY_HEIGHT / 2.f * scale + 0.5_dp * scale);
     }
     else
     {
@@ -1265,10 +1272,10 @@ void vtkF3DImguiActor::RenderDropZone()
       const auto& bind = pair.second;
 
       drawList->AddText(cursor, descTextColor, desc.c_str());
-      float rowHeight =
-        ImGui::GetTextLineHeightWithSpacing() + ::DROPZONE_MARGIN * ::DROPZONE_LOGO_TEXT_PADDING;
+      float rowHeight = ImGui::GetTextLineHeightWithSpacing() +
+        ::DROPZONE_MARGIN * ::DROPZONE_LOGO_TEXT_PADDING * scale;
 
-      float xBindings = cursor.x + maxDescTextWidth + ::DROPZONE_LOGO_TEXT_PADDING;
+      float xBindings = cursor.x + maxDescTextWidth + ::DROPZONE_LOGO_TEXT_PADDING * scale;
       ImVec2 bindingPos(xBindings, cursor.y);
 
       auto keys = ::SplitBindings(bind, '+');
@@ -1276,13 +1283,14 @@ void vtkF3DImguiActor::RenderDropZone()
       {
         const std::string& key = keys[k];
         ImVec2 textSize = ImGui::CalcTextSize(key.c_str());
-        ImVec2 padding(::DROPZONE_PADDING_X, ::DROPZONE_PADDING_Y);
+        ImVec2 padding(::DROPZONE_PADDING_X * scale, ::DROPZONE_PADDING_Y * scale);
 
         ImVec2 rectMin = ImVec2(bindingPos.x, bindingPos.y);
         ImVec2 rectMax =
           ImVec2(rectMin.x + textSize.x + padding.x * 2, rectMin.y + textSize.y + padding.y * 2);
 
-        drawList->AddRectFilled(rectMin, rectMax, bindingRectColor, 4.0f);
+        drawList->AddRectFilled(
+          rectMin, rectMax, bindingRectColor, G3DTheme::Radius::Control * scale);
         drawList->AddText(
           ImVec2(rectMin.x + padding.x, rectMin.y + padding.y), bindingTextColor, key.c_str());
 
@@ -1309,6 +1317,7 @@ void vtkF3DImguiActor::RenderLoadingOverlay()
   }
 
   const ImVec2 center = viewport->GetWorkCenter();
+  const G3DScale scale = this->GetUiScale();
 
   // Animation phase from a wall clock. This MUST NOT use the renderer TotalTime or ImGui
   // io.DeltaTime: the async load pump (interactor::processEvents) never advances them, so motion
@@ -1348,7 +1357,7 @@ void vtkF3DImguiActor::RenderLoadingOverlay()
   for (int i = 0; i < glowLayers; ++i)
   {
     const float t = static_cast<float>(i) / static_cast<float>(glowLayers - 1); // 0 inner..1 outer
-    const float radius = ::LOADING_GLOW_RADIUS * (0.45f + 0.55f * t) * breathScale;
+    const float radius = ::LOADING_GLOW_RADIUS * scale * (0.45f + 0.55f * t) * breathScale;
     const int alpha = static_cast<int>(22.f * (1.f - t) * glowPulse);
     drawList->AddCircleFilled(
       center, radius, IM_COL32(hl.x * 255, hl.y * 255, hl.z * 255, alpha), 48);
@@ -1361,7 +1370,7 @@ void vtkF3DImguiActor::RenderLoadingOverlay()
   {
     const float cosA = std::cos(spin);
     const float sinA = std::sin(spin);
-    const float half = ::LOADING_LOGO_SIZE * 0.5f * breathScale;
+    const float half = ::LOADING_LOGO_SIZE * scale * 0.5f * breathScale;
     auto rotated = [&](float dx, float dy)
     { return ImVec2(center.x + dx * cosA - dy * sinA, center.y + dx * sinA + dy * cosA); };
     const ImVec2 p1 = rotated(-half, -half);
@@ -1379,7 +1388,7 @@ void vtkF3DImguiActor::RenderLoadingOverlay()
   {
     const ImVec2 textSize = ImGui::CalcTextSize(this->LoadingMessage.c_str());
     const ImVec2 textPos(center.x - textSize.x * 0.5f,
-      center.y + ::LOADING_LOGO_SIZE * 0.5f + ::LOADING_TEXT_PADDING);
+      center.y + ::LOADING_LOGO_SIZE * scale * 0.5f + ::LOADING_TEXT_PADDING * scale);
     drawList->AddText(
       textPos, ImColor(::ColorToImVec4(this->FontColor)), this->LoadingMessage.c_str());
   }
@@ -1515,8 +1524,8 @@ void vtkF3DImguiActor::RenderFileName()
   {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-    constexpr float margin = F3DStyle::GetDefaultMargin();
     const G3DScale scale = this->GetUiScale();
+    const float margin = G3DTheme::Spacing::OverlayInset * scale;
     const float eased = this->PanelAnim.Value();
 
     // Once the panel chrome settles, the top bar draws the title itself (fitted to the real free
@@ -1660,7 +1669,8 @@ void vtkF3DImguiActor::RenderHDRIFileName()
   {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-    constexpr float margin = F3DStyle::GetDefaultMargin();
+    const G3DScale scale = this->GetUiScale();
+    const float margin = G3DTheme::Spacing::OverlayInset * scale;
     ImVec2 winSize = ImGui::CalcTextSize(this->HDRIFileName.c_str());
     winSize.x += 2.f * ImGui::GetStyle().WindowPadding.x;
     winSize.y += 2.f * ImGui::GetStyle().WindowPadding.y;
@@ -1680,7 +1690,7 @@ void vtkF3DImguiActor::RenderHDRIFileName()
     // Same chrome treatment as the file name: toolbar-line alignment + backgroundless when the
     // panel is open, muted text always.
     const float eased = this->PanelAnim.Value();
-    const float topH = G3DLayout::DefaultBarSizes(this->GetUiScale()).topH;
+    const float topH = G3DLayout::DefaultBarSizes(scale).topH;
     const float y = margin + ((topH - winSize.y) * 0.5f - margin) * eased;
     ::SetupNextWindow(
       ImVec2(viewport->GetWorkCenter().x - 0.5f * totalWidth + winOffsetX, y), winSize);
@@ -1710,8 +1720,11 @@ void vtkF3DImguiActor::RenderCheatSheet()
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-  constexpr float margin = F3DStyle::GetDefaultMargin();
-  constexpr float padding = 16.f;
+  const G3DScale uiScale = this->GetUiScale();
+  constexpr G3DDp marginDp = G3DTheme::Spacing::OverlayInset; // clearance to the window edges
+  constexpr G3DDp paddingDp = G3DTheme::Spacing::Lg;          // the card's content padding
+  const float margin = marginDp * uiScale;
+  const float padding = paddingDp * uiScale;
   const float plusWidth = ImGui::CalcTextSize("+").x;
   const float spacingX = ImGui::GetStyle().ItemSpacing.x;
 
@@ -1784,7 +1797,6 @@ void vtkF3DImguiActor::RenderCheatSheet()
   }
 
   this->Pimpl->CheatSheetWidth += ImGui::GetStyle().ScrollbarSize + 4.f * padding;
-  const G3DScale uiScale = this->GetUiScale();
   textHeight += 2.f * padding;                         // card content padding, top + bottom
   textHeight += G3DWidgets::FloatingCardHeaderHeight(); // title bar band
 
@@ -1835,8 +1847,8 @@ void vtkF3DImguiActor::RenderCheatSheet()
   cardDesc.size = ImVec2(sheetW, sheetH);
   cardDesc.defaultPos = defaultPos;
   cardDesc.bounds = ImVec4(work.x, work.y, work.w, work.h);
-  cardDesc.margin = margin;
-  cardDesc.padding = padding;
+  cardDesc.margin = marginDp;
+  cardDesc.padding = paddingDp;
   cardDesc.background = &sheetBg;
   cardDesc.open = this->CheatSheetVisible;
 
@@ -1932,6 +1944,10 @@ void vtkF3DImguiActor::RenderCheatSheet()
   // Sideways scrolling only when a narrow window clamped the card below its content width.
   G3DWidgets::BeginFloatingCardBody("##g3d.cs.rows", sheetW < this->Pimpl->CheatSheetWidth);
 
+  // A key chip is its text item grown by these on each side; every row leaves room for the growth.
+  const float chipPadX = 5_dp * uiScale;
+  const float chipPadY = 2.5_dp * uiScale;
+
   for (const auto& [group, list] : this->CheatSheet)
   {
     bool groupHasMatch = false;
@@ -1971,7 +1987,8 @@ void vtkF3DImguiActor::RenderCheatSheet()
         ? G3DTheme::TextMuted()
         : G3DTheme::Text();
 
-      ImGui::TableNextRow(ImGuiTableRowFlags_None, ImGui::GetTextLineHeightWithSpacing() + margin);
+      ImGui::TableNextRow(
+        ImGuiTableRowFlags_None, ImGui::GetTextLineHeightWithSpacing() + 2.f * chipPadY);
 
       ImGui::TableNextColumn();
       ImGui::TextColored(descTextColor, "%s", desc.c_str());
@@ -2008,11 +2025,11 @@ void vtkF3DImguiActor::RenderCheatSheet()
         ImGui::TextColored(bindingTextColor, "%s", key.c_str());
         drawList->ChannelsSetCurrent(0);
         topBindingCorner =
-          ImVec2(ImGui::GetItemRectMin().x - margin, ImGui::GetItemRectMin().y - (margin * .5f));
+          ImVec2(ImGui::GetItemRectMin().x - chipPadX, ImGui::GetItemRectMin().y - chipPadY);
         bottomBindingCorner =
-          ImVec2(ImGui::GetItemRectMax().x + margin, ImGui::GetItemRectMax().y + (margin * .5f));
+          ImVec2(ImGui::GetItemRectMax().x + chipPadX, ImGui::GetItemRectMax().y + chipPadY);
         drawList->AddRectFilled(
-          topBindingCorner, bottomBindingCorner, ImColor(bindingRectColor), 5.f);
+          topBindingCorner, bottomBindingCorner, ImColor(bindingRectColor), 5_dp * uiScale);
         drawList->ChannelsMerge();
         if (key != splittedBinding.back())
         {
@@ -2039,7 +2056,8 @@ void vtkF3DImguiActor::RenderFpsCounter()
 {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-  constexpr float margin = F3DStyle::GetDefaultMargin();
+  const G3DScale scale = this->GetUiScale();
+  const float margin = G3DTheme::Spacing::OverlayInset * scale;
 
   std::string fpsString = std::to_string(this->FpsValue);
   fpsString += " fps";
@@ -2054,8 +2072,7 @@ void vtkF3DImguiActor::RenderFpsCounter()
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
   const G3DLayout::Rect rc =
-    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(),
-      this->GetUiScale())
+    G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(), scale)
       .center;
   const ImVec2 position(rc.x + margin, rc.y + margin);
 
@@ -2314,7 +2331,7 @@ void vtkF3DImguiActor::RenderViewportChrome(vtkOpenGLRenderWindow* renWin)
   }
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
-  const ImVec2 pos = ::ViewportChromePos(work, size);
+  const ImVec2 pos = ::ViewportChromePos(work, size, this->GetUiScale());
 
   // The bell's host whenever the panel is closed or closing. Published even while the group is
   // still fading in, so a message center opened in that instant anchors where the group will be.
@@ -5175,7 +5192,6 @@ void vtkF3DImguiActor::RenderNotificationCenter()
   G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
   const G3DScale scale = this->GetUiScale();
   const float margin = G3DTheme::Spacing::Md * scale;
-  const float padding = G3DTheme::Spacing::Md * scale;
 
   const G3DLayout::Rect work{ viewport->WorkPos.x, viewport->WorkPos.y, viewport->WorkSize.x,
     viewport->WorkSize.y };
@@ -5197,14 +5213,14 @@ void vtkF3DImguiActor::RenderNotificationCenter()
   using G3DPlacement::Side;
   static const G3DPlacement::Placement placements[] = { { Side::Bottom, Align::End },
     { Side::Left, Align::Start }, { Side::Bottom, Align::Start } };
-  constexpr float cornerMargin = F3DStyle::GetDefaultMargin(); // the tool group's own inset
+  constexpr G3DDp cornerMargin = G3DTheme::Spacing::OverlayInset; // the tool group's own inset
   const G3DPlacement::ZoneId host = this->EffectivePanelVisible()
     ? G3DPlacement::ZoneId::TopBarTools
     : G3DPlacement::ZoneId::ViewportChrome;
   const std::size_t hostIndex = static_cast<std::size_t>(host);
   const G3DLayout::Rect anchor = this->Pimpl->BellHostKnown[hostIndex]
     ? this->Pimpl->BellHost[hostIndex]
-    : G3DLayout::Rect{ rc.x + rc.w - cornerMargin, rc.y, 0.f, 0.f };
+    : G3DLayout::Rect{ rc.x + rc.w - cornerMargin * scale, rc.y, 0.f, 0.f };
   // Its own trigger and whatever is drawn above the cards (the minimal console): never under those.
   // The gizmo and the color legend below it may be covered — the card is temporary.
   const std::vector<G3DPlacement::Obstacle> obstacles =
@@ -5228,7 +5244,7 @@ void vtkF3DImguiActor::RenderNotificationCenter()
   cardDesc.size = ImVec2(cardW, cardH);
   cardDesc.bounds = ImVec4(work.x, work.y, work.w, work.h);
   cardDesc.margin = cornerMargin;
-  cardDesc.padding = padding;
+  cardDesc.padding = G3DTheme::Spacing::Md;
   cardDesc.background = &cardBg;
   cardDesc.open = this->NotificationCenterVisible;
   cardDesc.anchor = anchor;

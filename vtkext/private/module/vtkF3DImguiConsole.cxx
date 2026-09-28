@@ -209,7 +209,7 @@ void vtkF3DImguiConsole::DisplayText(const char* text)
 G3DLayout::Rect vtkF3DImguiConsole::MinimalRect(float topOffset, float rightInset)
 {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
-  constexpr float margin = F3DStyle::GetDefaultMargin();
+  const float margin = G3DWidgets::Px(G3DTheme::Spacing::OverlayInset);
   const float padding = ImGui::GetStyle().WindowPadding.x + ImGui::GetStyle().FramePadding.x;
   // Stop short of the top-right chrome column. @p rightInset comes from the single owner of that
   // corner (vtkF3DImguiActor::ViewportChromeReservedWidth), not from a local guess about what might
@@ -225,7 +225,7 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset, float rightI
 {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-  constexpr float margin = F3DStyle::GetDefaultMargin();
+  const float margin = G3DWidgets::Px(G3DTheme::Spacing::OverlayInset);
   const float fontH = ImGui::GetFontSize();
   // Shared by the candidate list and the log tail so the palette height is stable between modes.
   const float contentH = std::min(viewport->WorkSize.y * 0.5f, 16.f * fontH * 1.45f);
@@ -367,7 +367,9 @@ void vtkF3DImguiConsole::ShowConsole(bool minimal, float topOffset, float rightI
       if (G3DWidgets::BeginScrollRegion(
             "LogRegion", ImVec2(0, logH), ImGuiWindowFlags_HorizontalScrollbar))
       {
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1)); // Tighten spacing
+        // Tighten spacing (whole px, where the scaled style would put an item spacing).
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+          ImVec2(G3DWidgets::PxTrunc(4_dp), G3DWidgets::PxTrunc(1_dp)));
         for (const auto& [severity, msg] : this->Pimpl->Logs)
         {
           bool hasColor = true;

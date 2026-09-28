@@ -909,9 +909,10 @@ bool PanelHeader(const char* title, G3DIconId icon, bool closable)
 
 //----------------------------------------------------------------------------
 ImVec2 FloatingCardPos(
-  FloatingCardState& st, ImVec2 defaultPos, ImVec2 size, const ImVec4& bounds, float margin)
+  FloatingCardState& st, ImVec2 defaultPos, ImVec2 size, const ImVec4& bounds, G3DDp marginDp)
 {
   const G3DScale s = G3DWidgets::UiScale();
+  const float margin = marginDp * s;
   ImVec2 pos(defaultPos.x + st.dragOffset.x * s, defaultPos.y + st.dragOffset.y * s);
   // std::max guards the clamp range against inversion when the bounds are smaller than the card.
   pos.x = std::clamp(
@@ -1076,6 +1077,7 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     return res;
   }
   res.closing = !desc.open;
+  const float margin = desc.margin * s;
 
   const bool anchored = desc.placements != nullptr && desc.placementCount > 0;
   if (opened && anchored)
@@ -1103,7 +1105,7 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     req.prefCount = desc.placementCount;
     req.offset = desc.placementOffset * s;
     req.boundary = { pb.x, pb.y, pb.z, pb.w };
-    req.padding = desc.margin;
+    req.padding = margin;
     req.obstacles = desc.obstacles;
     req.obstacleCount = desc.obstacleCount;
     const G3DPlacement::Result placed = G3DPlacement::Resolve(req);
@@ -1132,10 +1134,10 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     // window that shrinks and grows again hands the card back where it was left.
     size = st.detachedSize;
     const ImVec4& b = desc.bounds;
-    pos.x = std::clamp(st.detachedPos.x, b.x + desc.margin,
-      std::max(b.x + desc.margin, b.x + b.z - desc.margin - size.x));
-    pos.y = std::clamp(st.detachedPos.y, b.y + desc.margin,
-      std::max(b.y + desc.margin, b.y + b.w - desc.margin - size.y));
+    pos.x = std::clamp(
+      st.detachedPos.x, b.x + margin, std::max(b.x + margin, b.x + b.z - margin - size.x));
+    pos.y = std::clamp(
+      st.detachedPos.y, b.y + margin, std::max(b.y + margin, b.y + b.w - margin - size.y));
   }
   else
   {
@@ -1158,7 +1160,7 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
   ImGui::SetNextWindowPos(pos);
   ImGui::SetNextWindowSize(size);
 
-  const float pad = desc.padding > 0.f ? desc.padding : G3DTheme::Spacing::Lg * s;
+  const float pad = desc.padding * s;
   const float rounding = G3DTheme::Radius::Card * s;
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad, pad));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, rounding);
@@ -3139,7 +3141,7 @@ bool SliderFloat(const char* label, float* v, float vMin, float vMax, const char
     std::snprintf(buf, sizeof(buf), format, *v);
   }
   const float valW = buf[0] ? ImGui::CalcTextSize(buf).x + G3DTheme::Spacing::Md * s : 0.f;
-  const float trackW = std::max(20.f, width - valW);
+  const float trackW = std::max(20_dp * s, width - valW);
 
   const bool pressed = ImGui::InvisibleButton("##sl", ImVec2(width, h));
   (void)pressed;
@@ -3268,7 +3270,7 @@ bool RangeSliderFloat(
     std::snprintf(buf, sizeof(buf), "%s~%s", bufLo, bufHi);
   }
   const float valW = buf[0] ? ImGui::CalcTextSize(buf).x + G3DTheme::Spacing::Md * s : 0.f;
-  float trackW = std::max(20.f, width - valW); // frozen below while a drag is active
+  float trackW = std::max(20_dp * s, width - valW); // frozen below while a drag is active
 
   const bool pressed = ImGui::InvisibleButton("##rs", ImVec2(width, h));
   (void)pressed;
