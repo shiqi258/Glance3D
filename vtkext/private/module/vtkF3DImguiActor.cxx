@@ -184,7 +184,7 @@ struct GizmoMetrics
 /// other, and with `-x` on, the corner buttons landed right on the axis heads.
 GizmoMetrics ViewGizmoMetrics(float W, float H, G3DScale scale, float topInset = 0.f)
 {
-  return { std::min(W, H) * 0.15f * 0.5f, std::max(18.f * scale, topInset) };
+  return { std::min(W, H) * 0.15f * 0.5f, std::max(18_dp * scale, topInset) };
 }
 
 /// The inset above is only owed while the cluster is actually up — i.e. while the docked panel is
@@ -687,7 +687,7 @@ void DrawScrollEndFade(G3DScale scale)
   ImDrawList* dl = ImGui::GetWindowDrawList();
   const ImVec2 wp = ImGui::GetWindowPos();
   const ImVec2 ws = ImGui::GetWindowSize();
-  const float fadeH = 18.f * scale;
+  const float fadeH = 18_dp * scale;
   const float w = ws.x - ImGui::GetStyle().ScrollbarSize; // keep the scrollbar gutter crisp
   ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
   bg.w = 1.f;
@@ -1476,7 +1476,7 @@ ArrayMetaCell BuildArrayMetaCell(
   }
 
   const G3DDp px = G3DTheme::Type::Overline;         // styleguide .tree-meta overline
-  const float nameMin = 72.f * scale;                // ~8 mono glyphs: below this the name is a stub
+  const float nameMin = 72_dp * scale;                // ~8 mono glyphs: below this the name is a stub
   const float gap = G3DTheme::Spacing::Sm * scale;
   auto join = [](const std::string& l, const std::string& r)
   { return l.empty() ? r : (r.empty() ? l : l + " \xc2\xb7 " + r); };
@@ -1530,8 +1530,8 @@ void vtkF3DImguiActor::RenderFileName()
     // Keep clear of the toolbar's button clusters while the panel chrome is open (symmetric
     // reservation so the text stays centered); a long name middle-ellipsizes with the full string
     // on hover.
-    const float reserved = eased > 0.001f ? 320.f * scale : 2.f * margin;
-    const float maxTextW = std::max(80.f * scale, viewport->WorkSize.x - 2.f * reserved);
+    const float reserved = eased > 0.001f ? 320_dp * scale : 2.f * margin;
+    const float maxTextW = std::max(80_dp * scale, viewport->WorkSize.x - 2.f * reserved);
     const std::string shown = ::EllipsizeMiddle(this->FileName, maxTextW);
 
     ImVec2 winSize = ImGui::CalcTextSize(shown.c_str());
@@ -1885,8 +1885,8 @@ void vtkF3DImguiActor::RenderCheatSheet()
   auto modePill = [&](const char* id, const std::string& text, bool active) -> bool
   {
     const ImVec2 ts = ImGui::CalcTextSize(text.c_str());
-    const float padX = 10.f * uiScale;
-    const float padY = 3.f * uiScale;
+    const float padX = 10_dp * uiScale;
+    const float padY = 3_dp * uiScale;
     const ImVec2 sz(ts.x + 2.f * padX, ts.y + 2.f * padY);
     const ImVec2 q0 = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::InvisibleButton(id, sz);
@@ -1919,7 +1919,7 @@ void vtkF3DImguiActor::RenderCheatSheet()
     this->Pimpl->CurrentSearchMode = Internals::SearchMode::Description;
     this->Pimpl->SearchFocusRequested = true;
   }
-  ImGui::SameLine(0.f, 6.f * uiScale);
+  ImGui::SameLine(0.f, 6_dp * uiScale);
   if (modePill("##searchModeKeybind", keybindModeLabel,
         this->Pimpl->CurrentSearchMode == Internals::SearchMode::Keybind))
   {
@@ -3308,7 +3308,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       const float autoBtnW = G3DTheme::Size::Control * scale;
       const float rangeGap = G3DTheme::Spacing::Xs * scale;
       ImGui::SetNextItemWidth(
-        std::max(40.f * scale, ImGui::GetContentRegionAvail().x - autoBtnW - rangeGap));
+        std::max(40_dp * scale, ImGui::GetContentRegionAvail().x - autoBtnW - rangeGap));
       if (G3DWidgets::RangeSliderFloat("##v", &rmin, &rmax, dataMin, dataMax, "%.4g"))
       {
         char buf[64];
@@ -3435,7 +3435,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
   // also labels multi/all states.
   if (this->AnimState.count > 1)
   {
-    const float animSelW = 150.f * scale;
+    const float animSelW = 150_dp * scale;
     ImGui::SetNextItemWidth(animSelW);
     centerNextY(G3DTheme::Size::Control * scale);
     // The Select trigger end-ellipsizes overflowing text itself; full name on the popup items.
@@ -3465,7 +3465,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
   const float tmin = static_cast<float>(this->AnimState.timeRange[0]);
   const float tmax = static_cast<float>(this->AnimState.timeRange[1]);
   ImFont* dataFont = G3DWidgets::DataFont(); // timecodes are data — measure AND draw in mono
-  const float speedW = 64.f * scale;
+  const float speedW = 64_dp * scale;
   const float loopW = G3DTheme::Size::IconButton * scale; // trailing loop toggle
   const float itemGap = ImGui::GetStyle().ItemSpacing.x;
   if (tmax > tmin)
@@ -3480,12 +3480,12 @@ void vtkF3DImguiActor::DrawTimelineContent()
       ImGui::PushFont(dataFont, 0.f);
     }
     const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW + loopW +
-      3.f * itemGap + 8.f * scale;
+      3.f * itemGap + 8_dp * scale;
     if (dataFont != nullptr)
     {
       ImGui::PopFont();
     }
-    const float scrubW = std::max(40.f * scale, ImGui::GetContentRegionAvail().x - rightW);
+    const float scrubW = std::max(40_dp * scale, ImGui::GetContentRegionAvail().x - rightW);
     ImGui::SetNextItemWidth(scrubW);
     centerNextY(G3DTheme::Size::Control * scale);
     // The current time is the timeline's primary readout — full-strength text (emphasizeValue);
@@ -3520,7 +3520,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
     // than a broken control. Prose, so the UI font — not the mono timecode font.
     const float startX = ImGui::GetCursorScreenPos().x;
     const float hintW =
-      std::max(40.f * scale, ImGui::GetContentRegionAvail().x - speedW - loopW - itemGap);
+      std::max(40_dp * scale, ImGui::GetContentRegionAvail().x - speedW - loopW - itemGap);
     centerNextY(ImGui::GetTextLineHeight());
     ImGui::TextColored(
       G3DTheme::TextMuted(), "%s", loc.Translate("Static pose (no duration)").c_str());
@@ -3628,7 +3628,7 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
 
   const G3DScale scale = this->GetUiScale();
   const float lineH = ImGui::GetTextLineHeight();
-  const float pad = 4.f * scale;
+  const float pad = 4_dp * scale;
 
   // The orientation gizmo owns the viewport's upper-right corner — start the legend's span below
   // it (same metrics the gizmo anchors with) so title/labels never collide with the axis heads.
@@ -3636,15 +3636,15 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
   {
     yTop +=
       ::ViewGizmoMetrics(W, H, scale, ::ViewGizmoTopInset(this->PanelAnim.Value(), scale)).zoneH() +
-      8.f * scale;
+      8_dp * scale;
   }
   // The title + max label are drawn ABOVE the strip: fold their height into the top reservation so
   // on short spans they cannot climb back over the boundary the code above just established.
   yTop += 2.f * lineH + 3.f * pad;
 
-  const float margin = 16.f * scale;
-  const float barW = 14.f * scale;
-  const float barH = std::max(80.f * scale, (yBot - yTop) * 0.55f);
+  const float margin = 16_dp * scale;
+  const float barW = 14_dp * scale;
+  const float barH = std::max(80_dp * scale, (yBot - yTop) * 0.55f);
   const float cy = (yTop + yBot) * 0.5f;
   const ImVec2 p0(xRight - margin - barW, cy - barH * 0.5f);
   const ImVec2 p1(xRight - margin, cy + barH * 0.5f);
@@ -3703,14 +3703,14 @@ void vtkF3DImguiActor::RenderScalarBar(vtkOpenGLRenderWindow* renWin)
     {
       const float ty = p1.y + (p0.y - p1.y) * q; // q=fraction of the range, bottom(min) -> top(max)
       const float tickW = (q == 0.5f ? 4.f : 2.5f) * scale;
-      dl->AddLine(ImVec2(p0.x - tickW - 1.f * scale, ty), ImVec2(p0.x - 1.f * scale, ty), tickCol,
-        1.f * scale);
+      dl->AddLine(ImVec2(p0.x - tickW - 1_dp * scale, ty), ImVec2(p0.x - 1_dp * scale, ty), tickCol,
+        1_dp * scale);
     }
     const float midY = (p0.y + p1.y) * 0.5f;
-    dl->AddText(ImVec2(p0.x - 7.f * scale - ImGui::CalcTextSize(midBuf).x, midY - lineH * 0.5f),
+    dl->AddText(ImVec2(p0.x - 7_dp * scale - ImGui::CalcTextSize(midBuf).x, midY - lineH * 0.5f),
       tickCol, midBuf);
   }
-  const std::string shownTitle = ::EllipsizeMiddle(title, 220.f * scale);
+  const std::string shownTitle = ::EllipsizeMiddle(title, 220_dp * scale);
   rightAligned(
     shownTitle.c_str(), p0.y - 2.f * lineH - 2.f * pad, G3DTheme::U32(G3DTheme::TextMuted()));
 }
@@ -3771,7 +3771,7 @@ void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
     float depth = 0.f; // view-space z
   };
   GizmoHead heads[6];
-  const float headR = std::clamp(R * 0.24f, 6.f * scale, 12.f * scale);
+  const float headR = std::clamp(R * 0.24f, 6_dp * scale, 12_dp * scale);
   const float arm = R - headR - 1.f;
   float zMin = 1.f;
   float zMax = -1.f;
@@ -3863,7 +3863,7 @@ void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
       const float ay = h.pos.y - ctr.y;
       const float len = std::max(1.f, std::sqrt(ax * ax + ay * ay));
       const ImVec2 tip(h.pos.x - ax / len * r, h.pos.y - ay / len * r);
-      dl->AddLine(ctr, tip, G3DTheme::U32(col), 2.f * scale);
+      dl->AddLine(ctr, tip, G3DTheme::U32(col), 2_dp * scale);
       dl->AddCircleFilled(h.pos, r, G3DTheme::U32(col), 24);
       const char letter[2] = { static_cast<char>('X' + h.axis), '\0' };
       const ImVec2 ts = ImGui::CalcTextSize(letter);
@@ -3873,7 +3873,7 @@ void vtkF3DImguiActor::RenderViewGizmo(vtkOpenGLRenderWindow* renWin)
     else
     {
       dl->AddCircleFilled(h.pos, r, G3DTheme::U32(col, 0.22f), 24);
-      dl->AddCircle(h.pos, r, G3DTheme::U32(col), 24, 1.5f * scale);
+      dl->AddCircle(h.pos, r, G3DTheme::U32(col), 24, 1.5_dp * scale);
     }
   }
 
@@ -3965,7 +3965,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // derives from the same untouched `center`); each island is its bar rect shrunk by the gutter on
   // the ONE edge that faces a neighbor (top bar: bottom edge; bottom bar: top edge; side bars:
   // inner edge), so every adjacency shows exactly one gutter width.
-  const float gutter = 4.f * scale;
+  const float gutter = 4_dp * scale;
   auto shrinkX = [&](G3DLayout::Rect rc, bool fromLeft) -> G3DLayout::Rect
   {
     const float d = std::min(gutter, rc.w);
@@ -4300,7 +4300,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
     {
       const float titleGap = G3DTheme::Spacing::Sm * scale;
       const float titleAvail = rightX - clusterEndX - 2.f * titleGap;
-      if (titleAvail >= 80.f * scale)
+      if (titleAvail >= 80_dp * scale)
       {
         if (dataFont != nullptr)
         {
@@ -4333,7 +4333,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
         }
         if (titleDrawn)
         {
-          const float glyphSize = 13.f * scale;
+          const float glyphSize = 13_dp * scale;
           const bool room = ts.x + titleGap + glyphSize <= titleAvail;
           this->FileNameCopyAffordance(title, room,
             titlePos.x + ts.x + titleGap + glyphSize * 0.5f, titlePos.y + ts.y * 0.5f, glyphSize);
@@ -4386,7 +4386,7 @@ void vtkF3DImguiActor::RenderControlPanel(vtkOpenGLRenderWindow* renWin)
   // central viewport derives from the same width (ResolvedBarSizes), so the 3D re-fits in lockstep
   // (ControlBarDragging forces a full render while held).
   this->ControlBarDragging = false;
-  const float splitterW = 8.f * scale;
+  const float splitterW = 8_dp * scale;
   const G3DDp minBarW = 180_dp;
   // Mirror Compute()'s per-side cap so the STORED drag override can never exceed what is drawn —
   // otherwise the bar pins at the cap while the override keeps growing and reverse-dragging gets a
@@ -4703,8 +4703,8 @@ void vtkF3DImguiActor::RenderBindingHud()
 
   // A key chip: the same anatomy as the accelerator chip in every G3DWidgets tooltip, so one
   // keyboard key looks like a keyboard key everywhere in the app.
-  const float chipPadX = 5.f * scale;
-  const float chipPadY = 2.f * scale;
+  const float chipPadX = 5_dp * scale;
+  const float chipPadY = 2_dp * scale;
   const auto chipWidth = [&](const std::string& key)
   { return ImGui::CalcTextSize(key.c_str()).x + 2.f * chipPadX; };
 
@@ -4747,7 +4747,7 @@ void vtkF3DImguiActor::RenderBindingHud()
     winW = std::max(winW, row.width);
     rows.push_back(std::move(row));
   }
-  winW = std::min(winW, std::max(120.f * scale, r.center.w - 2.f * margin));
+  winW = std::min(winW, std::max(120_dp * scale, r.center.w - 2.f * margin));
   const float winH = rows.size() * rowH + (rows.size() - 1) * gap;
 
   // Bottom LEFT of the central viewport — the corner the problem-message stack deliberately left
@@ -4793,7 +4793,7 @@ void vtkF3DImguiActor::RenderBindingHud()
 
     // Rise into place from below as it fades up — the readout comes from the keyboard, not from
     // the edge of the screen, so it lifts rather than slides sideways. It leaves in place.
-    const ImVec2 p0(origin.x, y + (e.leaving ? 0.f : G3DLerp(8.f * scale, 0.f, t)));
+    const ImVec2 p0(origin.x, y + (e.leaving ? 0.f : G3DLerp(8_dp * scale, 0.f, t)));
     const ImVec2 p1(p0.x + row.width, p0.y + rowH);
     const float rounding = G3DTheme::Radius::Card * scale;
     dl->AddRectFilled(p0, p1, G3DTheme::U32(G3DTheme::Surface(), t), rounding);
@@ -4906,14 +4906,14 @@ void vtkF3DImguiActor::RenderMessages()
   if (this->ReadOptionBool("model.scivis.enable", false) &&
     this->ReadOptionBool("ui.scalar_bar", false))
   {
-    rightInset += 60.f * scale;
+    rightInset += 60_dp * scale;
   }
 
   // The comfortable width is ~a third of the viewport, but the floor has to yield on a small one:
   // a fixed 280px minimum inside a 300px window left the card covering the whole frame.
-  const float minCardW = std::min(280.f * scale, r.center.w * 0.6f);
-  float cardW = std::clamp(r.center.w * 0.32f, minCardW, 420.f * scale);
-  cardW = std::min(cardW, std::max(120.f * scale, r.center.w - rightInset - margin));
+  const float minCardW = std::min(280_dp * scale, r.center.w * 0.6f);
+  float cardW = std::clamp(r.center.w * 0.32f, minCardW, 420_dp * scale);
+  cardW = std::min(cardW, std::max(120_dp * scale, r.center.w - rightInset - margin));
 
   //--------------------------------------------------------------------------
   // Measure first: ImGui must be told the window size up front or offscreen rendering loses a
@@ -4975,7 +4975,7 @@ void vtkF3DImguiActor::RenderMessages()
   // the oldest end and counted into the overflow row instead -- three tall error cards in a small
   // window would otherwise leave nothing of the scene to look at.
   int droppedForHeight = 0;
-  const float heightBudget = std::max(80.f * scale, r.center.h * 0.5f);
+  const float heightBudget = std::max(80_dp * scale, r.center.h * 0.5f);
   while (laid.size() > 1 && stackH > heightBudget)
   {
     stackH -= laid.front().height + gap;
@@ -4995,7 +4995,7 @@ void vtkF3DImguiActor::RenderMessages()
   stackH = std::max(0.f, stackH - gap);
 
   const float winW = cardW;
-  const float winH = std::min(stackH, std::max(40.f * scale, r.center.h - 2.f * margin));
+  const float winH = std::min(stackH, std::max(40_dp * scale, r.center.h - 2.f * margin));
   const ImVec2 winPos(
     r.center.x + r.center.w - rightInset - winW, r.center.y + r.center.h - margin - winH);
 
@@ -5047,7 +5047,7 @@ void vtkF3DImguiActor::RenderMessages()
 
     // Slide in from the right edge as it fades up; leave in place.
     ImGui::SetCursorScreenPos(
-      ImVec2(origin.x + (l.leaving ? 0.f : G3DLerp(24.f * scale, 0.f, t)), y));
+      ImVec2(origin.x + (l.leaving ? 0.f : G3DLerp(24_dp * scale, 0.f, t)), y));
 
     char id[32];
     std::snprintf(id, sizeof(id), "##g3d.toast.%llu", static_cast<unsigned long long>(n.id));
@@ -5183,10 +5183,10 @@ void vtkF3DImguiActor::RenderNotificationCenter()
     G3DLayout::Compute(work, this->ResolveBars(work.w).sizes, this->PanelAnim.Value(), scale)
       .center;
 
-  const float cardW = std::clamp(rc.w * 0.42f, std::min(320.f * scale, rc.w - 2.f * margin),
-    std::min(520.f * scale, std::max(200.f * scale, rc.w - 2.f * margin)));
+  const float cardW = std::clamp(rc.w * 0.42f, std::min(320_dp * scale, rc.w - 2.f * margin),
+    std::min(520_dp * scale, std::max(200_dp * scale, rc.w - 2.f * margin)));
   const float cardH =
-    std::min(std::max(220.f * scale, rc.h - 2.f * margin), std::min(440.f * scale, work.h - 2.f * margin));
+    std::min(std::max(220_dp * scale, rc.h - 2.f * margin), std::min(440_dp * scale, work.h - 2.f * margin));
 
   // Opens UNDER the bell it belongs to — the top-right tool group while the panel is closed, the
   // top bar's tool cluster while it is open — right edges flush, the group itself left uncovered so
@@ -5403,11 +5403,11 @@ void vtkF3DImguiActor::RenderNotificationCenter()
       std::snprintf(chip, sizeof(chip), "x%d", std::min(n.count, 999));
       const float chipW = G3DWidgets::BadgeWidth(chip);
       rightX -= chipW + G3DTheme::Spacing::Sm * scale;
-      ImGui::SetCursorScreenPos(ImVec2(rightX, p0.y + rowPadY - 2.f * scale));
+      ImGui::SetCursorScreenPos(ImVec2(rightX, p0.y + rowPadY - 2_dp * scale));
       G3DWidgets::Badge(chip, G3DWidgets::ToneBadge(tone));
     }
 
-    const float titleW = std::max(40.f * scale, rightX - x - G3DTheme::Spacing::Sm * scale);
+    const float titleW = std::max(40_dp * scale, rightX - x - G3DTheme::Spacing::Sm * scale);
     if (G3DWidgets::TextEllipsis(dl, ImVec2(x, p0.y + rowPadY), titleW,
           G3DTheme::U32(n.read ? G3DTheme::TextMuted() : G3DTheme::Text()), titleText.c_str()) &&
       hovered)
