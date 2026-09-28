@@ -14,6 +14,11 @@
  * Everything else (the orientation gizmo, the color legend) may be covered: a floating surface is
  * temporary, and a card that jumped whenever an overlay toggled would read as unstable.
  *
+ * Two resolvers share the pipeline. Resolve() is for cards, whose size the caller decides:
+ * shrinking down to the minimum still counts as fitting, so the preference order wins.
+ * ResolvePopover() is for content-sized surfaces opened from a control (menus, the color picker):
+ * they flip before they shrink, and keep their side for as long as they are shown.
+ *
  * Deliberately free of any ImGui/VTK dependency, like G3DLayout.h, so the rules are unit tested
  * without a context. Header-only.
  */
@@ -94,6 +99,9 @@ struct Result
   bool shrunk = false;   ///< made smaller than requested to fit
   bool pushed = false;   ///< moved further out along the main axis to clear a hard obstacle
   bool collides = false; ///< nothing fitted: clamped into the boundary regardless
+  float room = 0.f;      ///< main-axis length free in the chosen placement, from the anchor
+                         ///< (+offset) to the boundary or the first hard obstacle: the most it
+                         ///< can grow to
 };
 
 namespace Detail
@@ -219,6 +227,7 @@ inline Candidate Evaluate(const Request& r, const Placement& pl)
 
   float size = mainSize;
   const float room = end - start;
+  c.res.room = std::max(0.f, room);
   if (room < mainSize)
   {
     if (mainMin > 0.f && room >= need)
@@ -329,6 +338,51 @@ inline Result Resolve(const Request& r)
     res.rect.x = std::clamp(res.rect.x, bx0, std::max(bx0, bx0 + bw - res.rect.w));
     res.rect.y = std::clamp(res.rect.y, by0, std::max(by0, by0 + bh - res.rect.h));
   }
+  return res;
+}
+
+/**
+ * Resolve an anchored popover: a surface sized by its content that belongs to a control — a
+ * dropdown's menu, the color picker panel. Where a card (Resolve) counts shrinking to its minimum
+ * as fitting, a popover keeps its natural size whenever some placement fits it — it flips before
+ * it shrinks — and only when none does takes the placement that misses by the least and shrinks
+ * there, down to `r.minW` / `r.minH`, its content scrolling: Floating UI's
+ * flip({ fallbackStrategy: "bestFit" }) followed by size(). Below that floor it is clamped into the
+ * boundary (`collides`), the one case where it may cover its trigger.
+ *
+ * @p locked is the caller's memory for one open: -1 until the surface's size is known, then the
+ * placement it was given. A locked popover is evaluated in that placement only — content that grows
+ * or shrinks moves its far edge, running out of room shrinks it — so it never jumps to another side
+ * under the pointer while it is shown. Reset it to -1 when the popover closes.
+ */
+inline Result ResolvePopover(const Request& r, int& locked)
+{
+  if (r.prefs == nullptr || r.prefCount <= 0)
+  {
+    locked = -1;
+    return Resolve(r);
+  }
+  int index = locked;
+  if (index < 0 || index >= r.prefCount)
+  {
+    Request natural = r;
+    natural.minW = 0.f;
+    natural.minH = 0.f;
+    const Result whole = Resolve(natural);
+    if (!whole.collides)
+    {
+      locked = whole.index;
+      return whole;
+    }
+    index = whole.index; // nothing fits whole: the placement that misses by the least
+  }
+  Request one = r;
+  one.prefs = &r.prefs[index];
+  one.prefCount = 1;
+  Result res = Resolve(one);
+  res.index = index;
+  res.flipped = index != 0;
+  locked = index;
   return res;
 }
 

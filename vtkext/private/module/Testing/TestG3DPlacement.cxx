@@ -57,6 +57,25 @@ Request CenterRequest(const G3DLayout::Rect& group, const G3DLayout::Rect& work,
   r.padding = 5.f;
   return r;
 }
+
+// A color picker popover: under its swatch with the left edges flush, else above it; 4 px from the
+// swatch, 8 px from the window edge, 312 px wide.
+const Placement kPopoverPrefs[] = { { Side::Bottom, Align::Start }, { Side::Top, Align::Start } };
+
+Request PopoverRequest(float anchorY, float h, float minH = 0.f, float anchorX = 100.f)
+{
+  Request r;
+  r.anchor = { anchorX, anchorY, 150.f, 26.f };
+  r.w = 312.f;
+  r.h = h;
+  r.minH = minH;
+  r.prefs = kPopoverPrefs;
+  r.prefCount = 2;
+  r.offset = 4.f;
+  r.boundary = { 0.f, 0.f, 800.f, 600.f };
+  r.padding = 8.f;
+  return r;
+}
 }
 
 int TestG3DPlacement(int, char*[])
@@ -213,6 +232,98 @@ int TestG3DPlacement(int, char*[])
     Check(zones.Find(G3DPlacement::ZoneId::MiniConsole) == nullptr, "zones.stale.hidden");
     obs = zones.Obstacles(G3DLayer::Floating, G3DPlacement::ZoneId::ViewportChrome);
     Check(obs.size() == 1, "zones.stale.not.obstacles");
+  }
+
+  // Popovers. Room below: under the swatch, so it opens there, and locks that side.
+  {
+    int locked = -1;
+    const G3DPlacement::Result res =
+      G3DPlacement::ResolvePopover(PopoverRequest(100.f, 460.f), locked);
+    Check(res.index == 0 && !res.flipped && !res.shrunk && !res.collides, "popover.below");
+    Check(locked == 0, "popover.below.locked");
+    ExpectRect(res.rect, { 100.f, 130.f, 312.f, 460.f }, "popover.below.rect");
+    Check(std::abs(res.room - 462.f) < 0.01f, "popover.below.room");
+  }
+
+  // The reported case: a swatch near the bottom. No room below, so above it, the bottom edge 4 px
+  // over the swatch.
+  {
+    int locked = -1;
+    const G3DPlacement::Result res =
+      G3DPlacement::ResolvePopover(PopoverRequest(540.f, 460.f), locked);
+    Check(res.index == 1 && res.flipped && !res.shrunk && !res.collides, "popover.flips.above");
+    Check(locked == 1, "popover.above.locked");
+    ExpectRect(res.rect, { 100.f, 76.f, 312.f, 460.f }, "popover.above.rect");
+    Check(std::abs(res.room - 528.f) < 0.01f, "popover.above.room");
+  }
+
+  // Flip before shrink: below takes it only cut short, above takes it whole, so above. A card
+  // (Resolve) would stay below and shrink — the preference order wins there.
+  {
+    const Request r = PopoverRequest(350.f, 300.f, 100.f);
+    int locked = -1;
+    const G3DPlacement::Result res = G3DPlacement::ResolvePopover(r, locked);
+    Check(res.index == 1 && !res.shrunk && !res.collides, "popover.flip.before.shrink");
+    ExpectRect(res.rect, { 100.f, 46.f, 312.f, 300.f }, "popover.flip.before.shrink.rect");
+    const G3DPlacement::Result card = G3DPlacement::Resolve(r);
+    Check(card.index == 0 && card.shrunk, "popover.card.rule.differs");
+  }
+
+  // Neither side takes it whole: the side with more room, shrunk to it (the content scrolls) and
+  // clear of the swatch — below here, above when that is the bigger side.
+  {
+    int locked = -1;
+    G3DPlacement::Result res =
+      G3DPlacement::ResolvePopover(PopoverRequest(250.f, 460.f, 100.f), locked);
+    Check(res.index == 0 && res.shrunk && !res.collides && locked == 0, "popover.best.below");
+    ExpectRect(res.rect, { 100.f, 280.f, 312.f, 312.f }, "popover.best.below.rect");
+
+    locked = -1;
+    res = G3DPlacement::ResolvePopover(PopoverRequest(330.f, 460.f, 100.f), locked);
+    Check(res.index == 1 && res.shrunk && !res.collides && locked == 1, "popover.best.above");
+    ExpectRect(res.rect, { 100.f, 8.f, 312.f, 318.f }, "popover.best.above.rect");
+
+    // Not even the floor fits anywhere: clamped into the window, the one case it may cover the
+    // swatch.
+    locked = -1;
+    res = G3DPlacement::ResolvePopover(PopoverRequest(250.f, 460.f, 400.f), locked);
+    Check(res.collides && res.index == 0, "popover.floor.collides");
+    Check(res.rect.y >= 8.f && res.rect.y + res.rect.h <= 592.f, "popover.floor.inside");
+  }
+
+  // Locked: content that shrinks while shown keeps its side (a fresh resolve would now go below)
+  // and its edge on the swatch; content that grows shrinks in place instead of jumping to the side
+  // with more room.
+  {
+    int locked = -1;
+    G3DPlacement::Result res =
+      G3DPlacement::ResolvePopover(PopoverRequest(400.f, 300.f, 100.f), locked);
+    Check(res.index == 1 && locked == 1, "popover.lock.opens.above");
+
+    res = G3DPlacement::ResolvePopover(PopoverRequest(400.f, 150.f, 100.f), locked);
+    Check(res.index == 1 && res.flipped && locked == 1, "popover.lock.shrinking.keeps.side");
+    ExpectRect(res.rect, { 100.f, 246.f, 312.f, 150.f }, "popover.lock.shrinking.edge");
+    int fresh = -1;
+    Check(G3DPlacement::ResolvePopover(PopoverRequest(400.f, 150.f, 100.f), fresh).index == 0,
+      "popover.fresh.would.go.below");
+
+    locked = 1;
+    res = G3DPlacement::ResolvePopover(PopoverRequest(200.f, 300.f, 100.f), locked);
+    Check(res.index == 1 && res.shrunk && !res.collides && locked == 1, "popover.lock.growing");
+    ExpectRect(res.rect, { 100.f, 8.f, 312.f, 188.f }, "popover.lock.growing.rect");
+    fresh = -1;
+    Check(G3DPlacement::ResolvePopover(PopoverRequest(200.f, 300.f, 100.f), fresh).index == 0,
+      "popover.fresh.would.flip");
+  }
+
+  // Near the right edge the popover slides left to stay inside, as the hand-written placement it
+  // replaces clamped it (800 - 312 - 8).
+  {
+    int locked = -1;
+    const G3DPlacement::Result res =
+      G3DPlacement::ResolvePopover(PopoverRequest(100.f, 200.f, 0.f, 700.f), locked);
+    Check(res.index == 0 && res.shifted, "popover.shift.inside");
+    ExpectRect(res.rect, { 480.f, 130.f, 312.f, 200.f }, "popover.shift.rect");
   }
 
   if (failures > 0)
