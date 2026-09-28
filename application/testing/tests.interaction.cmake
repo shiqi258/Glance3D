@@ -256,6 +256,15 @@ f3d_test(NAME TestInteractionNotificationCenterGizmoClick DATA f3d.glb ARGS -x R
 # The bell raises the message center when another card covers it instead of closing it.
 f3d_test(NAME TestInteractionNotificationCenterRaise DATA f3d.glb RESOLUTION 800,600 INTERACTION UI) #H;Bell;Click the sheet;Bell
 
+## Popover placement (G3DWidgets::BeginPopover)
+# Opened from a control near the window bottom, a popover opens above it, placed from its
+# measured size. The jump these guard against lasted one frame; TestG3DPopover checks every frame,
+# these check what the user is left looking at.
+f3d_test(NAME TestInteractionPopoverSelectAbove DATA RiggedFigure.glb ARGS -Dui.control_panel=true RESOLUTION 1000,640 INTERACTION UI) #Click the playback speed dropdown
+f3d_test(NAME TestInteractionPopoverColorPickerAbove DATA f3d.glb ARGS -Dui.control_panel=true RESOLUTION 1000,1150 INTERACTION UI) #Click the base color swatch
+# Room for it whole on neither side: the bigger side, shrunk, scrolling, clear of the swatch.
+f3d_test(NAME TestInteractionPopoverColorPickerShort DATA f3d.glb ARGS -Dui.control_panel=true RESOLUTION 1000,600 INTERACTION UI) #Scroll the inspector;Click the background swatch
+
 ## HDRI
 f3d_test(NAME TestInteractionHDRIMove DATA suzanne.ply HDRI palermo_park_1k.hdr INTERACTION) #Shift+MouseRight;
 f3d_test(NAME TestInteractionHDRIBlur DATA suzanne.ply HDRI palermo_park_1k.hdr INTERACTION) #U
