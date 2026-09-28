@@ -209,6 +209,14 @@ f3d_test(NAME TestG3DControlPanel DATA f3d.glb ARGS -Dui.control_panel=true RESO
 # Narrow window: the side bars go mutually exclusive (G3DLayout::NARROW_BREAKPOINT_W), only the
 # inspector stays and the top-bar title must fit between the button clusters.
 f3d_test(NAME TestG3DControlPanelNarrow DATA InterpolationTest.glb ARGS -Dui.control_panel=true RESOLUTION 640,400 UI)
+# The chrome at display scales other than 1, where a length read in the wrong unit shows at all
+# (at 1x, scaled twice and never scaled are the same number). The layout tests
+# (tests.ui_layout.cmake) name the item that is off; these pin what the whole thing looks like, so a
+# refactor of the sizing code can be shown to change nothing at 1.25 and 1.5 either. 1.25 is the
+# scale where ImGui's rounding of the font size makes the effective scale differ from the asked one.
+f3d_test(NAME TestG3DControlPanelDPI125 DATA RiggedFigure.glb ARGS -Dui.control_panel=true --dpi-aware RESOLUTION 1000,600 DPI_SCALE 1.25 UI)
+f3d_test(NAME TestG3DControlPanelDPI150 DATA bluntfin.vts ARGS -s -Dui.control_panel=true --dpi-aware RESOLUTION 1000,600 DPI_SCALE 1.5 UI)
+f3d_test(NAME TestCheatSheetDPI150 DATA f3d.glb ARGS -Dui.cheatsheet=true --dpi-aware RESOLUTION 800,600 DPI_SCALE 1.5 UI)
 
 ## Special files handling
 f3d_test(NAME TestRemoveEmptyFileGroups DATA mb/mb_3_0.vtt mb/mb_0_0.vtu ARGS -n --remove-empty-file-groups UI)
@@ -630,6 +638,8 @@ f3d_test(NAME TestNotificationPartialGroupNamesFile DATA cow.vtp invalid_body.vt
 # than the 300x300 default because the panel and the card stack have to both be legible for the
 # comparison to mean anything.
 f3d_test(NAME TestNotificationCenter DATA cow.vtp SCRIPT ARGS -Dui.notification_center=true RESOLUTION 600,450 UI)
+# The same panel on a 1.5x display (see TestG3DControlPanelDPI150).
+f3d_test(NAME TestNotificationCenterDPI150 DATA cow.vtp SCRIPT ARGS -Dui.notification_center=true --dpi-aware RESOLUTION 600,450 DPI_SCALE 1.5 UI)
 
 # The bell carries the unread count once the cards themselves have been dismissed -- that is the
 # whole point of it, and what replaced the bare "!" badge.
