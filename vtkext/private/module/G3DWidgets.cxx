@@ -6,6 +6,7 @@
 #include "G3DTheme.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cfloat>
 #include <climits>
@@ -415,12 +416,56 @@ float ButtonWidth(const char* label, ButtonDensity density, bool withIcon)
 }
 
 //----------------------------------------------------------------------------
+ImVec2 ButtonSize(const char* label, ButtonDensity density, bool withIcon)
+{
+  return ImVec2(ButtonBoxWidth(label, density, withIcon), ButtonBoxHeight(withIcon, density));
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+// The edge an IconButton of logical edge @p size occupies: IconButton draws to it and
+// IconButtonSize() publishes it.
+float IconButtonEdge(G3DDp size)
+{
+  return size * G3DWidgets::UiScale();
+}
+
+// A SegmentedIcon's per-segment box, shared the same way with SegmentedIconSize().
+struct SegmentedGeom
+{
+  float segW = 0.f;
+  float h = 0.f;
+};
+SegmentedGeom SegmentedIconGeom()
+{
+  const G3DScale s = G3DWidgets::UiScale();
+  // A touch wider than tall, so a row of glyphs reads as segments rather than as square buttons.
+  return { (G3DTheme::Size::IconButton + 4_dp) * s, G3DTheme::Size::IconButton * s };
+}
+} // namespace
+
+//----------------------------------------------------------------------------
+ImVec2 IconButtonSize(G3DDp size)
+{
+  const float edge = IconButtonEdge(size);
+  return ImVec2(edge, edge);
+}
+
+//----------------------------------------------------------------------------
+ImVec2 SegmentedIconSize(int count)
+{
+  const SegmentedGeom g = SegmentedIconGeom();
+  return ImVec2(g.segW * static_cast<float>(std::max(0, count)), g.h);
+}
+
+//----------------------------------------------------------------------------
 bool IconButton(const char* id, G3DIconId icon, G3DDp size, bool round, const char* tooltip,
   bool on, IconOnStyle onStyle, const char* shortcut)
 {
   ImGui::PushID(id);
   const G3DScale s = G3DWidgets::UiScale();
-  const float sz = size * s;
+  const float sz = IconButtonEdge(size);
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const bool clicked = ImGui::InvisibleButton("##ib", ImVec2(sz, sz));
   const bool hovered = ImGui::IsItemHovered();
@@ -577,8 +622,9 @@ int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count)
   }
   ImGui::PushID(id);
   const G3DScale s = G3DWidgets::UiScale();
-  const float h = G3DTheme::Size::IconButton * s;
-  const float segW = (G3DTheme::Size::IconButton + 4_dp) * s; // a touch wider than tall
+  const SegmentedGeom geom = SegmentedIconGeom();
+  const float h = geom.h;
+  const float segW = geom.segW;
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const ImVec2 g1(p0.x + segW * count, p0.y + h);
   const float radius = G3DTheme::Radius::Control * s;
@@ -801,6 +847,35 @@ ImVec2 CalcTextSized(const char* text, float px)
 {
   return ImGui::GetFont()->CalcTextSizeA(px, FLT_MAX, 0.f, text);
 }
+
+// DrawTextSized, cut back with a trailing "..." to fit @p maxW (UTF-8 safe, like
+// DrawTextEllipsis at the ambient size). For titles that share their line with a close button: a
+// long title, a large UI scale or a narrow panel must not run underneath it.
+void DrawTextSizedEllipsis(
+  ImDrawList* dl, const ImVec2& pos, float maxW, ImU32 col, const char* text, float px)
+{
+  ImFont* font = ImGui::GetFont();
+  const auto width = [&](const char* b, const char* e)
+  { return font->CalcTextSizeA(px, FLT_MAX, 0.f, b, e).x; };
+  if (width(text, nullptr) <= maxW)
+  {
+    dl->AddText(font, px, pos, col, text);
+    return;
+  }
+  const float ellW = width("...", nullptr);
+  const char* end = text + std::strlen(text);
+  while (end > text && width(text, end) + ellW > maxW)
+  {
+    --end;
+    while (end > text && (static_cast<unsigned char>(*end) & 0xC0) == 0x80)
+    {
+      --end; // back to the sequence lead byte — never split a multi-byte UTF-8 glyph
+    }
+  }
+  std::string clipped(text, end);
+  clipped += "...";
+  dl->AddText(font, px, pos, col, clipped.c_str());
+}
 } // namespace
 
 //----------------------------------------------------------------------------
@@ -860,25 +935,32 @@ bool PanelHeaderImpl(const char* title, const G3DIconId* icon, bool closable)
       dl, *icon, ImVec2(p.x + isz * 0.5f, p.y + rowH * 0.5f), isz, U32(G3DTheme::TextMuted()));
     tx = p.x + isz + G3DTheme::Spacing::Sm * s;
   }
-  ImVec4 titleCol = G3DTheme::Text();
-  titleCol.w *= 0.92f;
-  DrawTextSized(dl, ImVec2(tx, p.y + (rowH - ts.y) * 0.5f), U32(titleCol), title, fs);
 
   // Optional close affordance, nested inside the band (18px in the ~30px header) so the header
   // keeps its height and non-closable callers keep their exact layout.
+  constexpr G3DDp btn{ 18.f }; // logical — IconButton applies the UI scale itself
+  const float btnPx = IconButtonSize(btn).x;
+  // The title ends where the close button's gap begins (or at the same inset the title starts
+  // with): a long title, a large UI scale or a narrow bar ellipsizes it instead of running under
+  // the button.
+  const float innerRight = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - 10_dp * s;
+  const float titleEnd = closable ? innerRight - btnPx - G3DTheme::Spacing::Sm * s : innerRight;
+  const float titleW = std::max(0.f, titleEnd - tx);
+  ImVec4 titleCol = G3DTheme::Text();
+  titleCol.w *= 0.92f;
+  DrawTextSizedEllipsis(
+    dl, ImVec2(tx, p.y + (rowH - ts.y) * 0.5f), titleW, U32(titleCol), title, fs);
+
   bool closed = false;
   if (closable)
   {
-    constexpr G3DDp btn{ 18.f };        // logical — IconButton applies the UI scale itself
-    const float btnPx = btn * s;        // on-screen square, for placement math
     const ImVec2 keep = ImGui::GetCursorScreenPos();
-    const float bx = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - 10_dp * s - btnPx;
-    ImGui::SetCursorScreenPos(ImVec2(bx, p.y + (rowH - btnPx) * 0.5f));
+    ImGui::SetCursorScreenPos(ImVec2(innerRight - btnPx, p.y + (rowH - btnPx) * 0.5f));
     closed = IconButton("##g3d.ph.close", G3DIconId::Close, btn);
     ImGui::SetCursorScreenPos(keep);
   }
 
-  ImGui::Dummy(ImVec2(tx - p.x + ts.x, rowH + G3DTheme::Spacing::Sm * s));
+  ImGui::Dummy(ImVec2(tx - p.x + std::min(ts.x, titleW), rowH + G3DTheme::Spacing::Sm * s));
 
   // Full-width hairline beneath the title — spans the whole panel, ignoring window padding, so it
   // reads as the panel's header seam.
@@ -1294,12 +1376,16 @@ FloatingCardResult BeginFloatingCard(FloatingCardState& st, const FloatingCardDe
     x += isz + G3DTheme::Spacing::Sm * s;
 
     // Same type treatment as the docked PanelHeader (13px, near-full-strength) so a floating panel
-    // and a docked one read as the same family.
+    // and a docked one read as the same family — and the same rule: the title stops short of the
+    // close button rather than running under it.
     const float fs = 13_dp * s;
     const ImVec2 ts = CalcTextSized(desc.title, fs);
+    const float titleEnd =
+      wp.x + ws.x - inset - (desc.closable ? closePx + G3DTheme::Spacing::Sm * s : 0.f);
     ImVec4 titleCol = G3DTheme::Text();
     titleCol.w *= 0.92f;
-    DrawTextSized(dl, ImVec2(x, cy - ts.y * 0.5f), U32(titleCol), desc.title, fs);
+    DrawTextSizedEllipsis(dl, ImVec2(x, cy - ts.y * 0.5f), std::max(0.f, titleEnd - x),
+      U32(titleCol), desc.title, fs);
   }
 
   if (desc.closable)
@@ -2277,6 +2363,13 @@ float BadgeHeight()
   return BadgeMetrics("X", padX, padY, fs).y;
 }
 
+//----------------------------------------------------------------------------
+ImVec2 BadgeSize(const char* text)
+{
+  float padX, padY, fs;
+  return BadgeMetrics(text, padX, padY, fs);
+}
+
 void Badge(const char* text, BadgeVariant variant)
 {
   float padX, padY, fs;
@@ -2392,6 +2485,10 @@ struct ToastMetrics
   float closeGlyph = 0.f; ///< the ✕'s optical box — what the corner inset is measured against
   float closeSize = 0.f;  ///< the pointer target, grown outward from that box
   float closeBleed = 0.f; ///< how far the target overhangs the glyph box on each side
+  float closeX = 0.f;     ///< the close button's box, from the card's top-left corner
+  float closeY = 0.f;
+  char chip[16] = "";     ///< the repeat chip's text ("x3"); empty when the message is not repeated
+  float chipX = 0.f;      ///< the chip's left edge, from the card's left edge
   float lineH = 0.f;
   float cardW = 0.f;
   float textLeft = 0.f;
@@ -2436,18 +2533,30 @@ ToastMetrics MeasureToast(const G3DWidgets::ToastDesc& desc, bool detailsOpen, b
   m.cardW = desc.width > 0.f ? desc.width : ImGui::GetContentRegionAvail().x;
 
   m.textLeft = m.railW + m.padX + m.iconSize + G3DTheme::Spacing::Sm * m.s;
-  // Trailing gutter: the close button and (when repeated) the count chip live there, so the title
-  // has to stop short of them rather than run underneath. Measured against the enlarged target,
-  // not the glyph box — text must clear what the pointer can hit, or a click meant for the ✕
-  // lands on a tooltip instead.
-  float trailing = desc.closable ? m.closeSize - m.closeBleed + G3DTheme::Spacing::Sm * m.s : 0.f;
+  // Trailing gutter, laid out right to left: the close button, then (when repeated) the count chip.
+  // The title stops short of both rather than running underneath, measured against the enlarged
+  // target, not the glyph box — text must clear what the pointer can hit, or a click meant for the
+  // ✕ lands on a tooltip instead. BeginToast places the two atoms exactly here, so the room the
+  // title leaves and where they land cannot disagree. `gutterX` tracks the right edge of the
+  // *content* box at each step, which is what the optical inset is measured from.
+  float gutterX = m.cardW - m.padX;
+  if (desc.closable)
+  {
+    // The target bleeds symmetrically past the glyph box (up and to the right, into the card's own
+    // padding) so enlarging it moves the hit area, never the ✕: the corner inset stays put and the
+    // hover chip simply becomes a chip worth aiming at.
+    m.closeX = gutterX + m.closeBleed - m.closeSize;
+    m.closeY = m.padY + (m.lineH - m.closeGlyph) * 0.5f - m.closeBleed;
+    gutterX -= m.closeGlyph + m.closeBleed + G3DTheme::Spacing::Sm * m.s;
+  }
   if (desc.count > 1)
   {
-    char chip[16];
-    std::snprintf(chip, sizeof(chip), "x%d", std::min(desc.count, 999));
-    trailing += G3DWidgets::BadgeWidth(chip) + G3DTheme::Spacing::Xs * m.s;
+    std::snprintf(m.chip, sizeof(m.chip), "x%d", std::min(desc.count, 999));
+    gutterX -= G3DWidgets::BadgeWidth(m.chip);
+    m.chipX = gutterX;
+    gutterX -= G3DTheme::Spacing::Xs * m.s;
   }
-  m.textW = std::max(40_dp * m.s, m.cardW - m.textLeft - m.padX - trailing);
+  m.textW = std::max(40_dp * m.s, gutterX - m.textLeft);
 
   m.titleH = WrappedHeight(desc.title != nullptr ? desc.title : "", m.textW, m.lineH);
   if (desc.detail != nullptr && desc.detail[0] != 0)
@@ -2679,31 +2788,21 @@ ToastResult BeginToast(const ToastDesc& desc, bool* detailsOpen)
     }
   }
 
-  // Header gutter, laid out right to left: close button, then the repeat chip. `gutterX` tracks the
-  // right edge of the *content* box at each step, which is what the optical inset is measured from.
-  float gutterX = p1.x - m.padX;
+  // Header gutter: the close button and the repeat chip, where MeasureToast laid them out.
   if (desc.closable)
   {
-    // The target bleeds symmetrically past the glyph box (up and to the right, into the card's own
-    // padding) so enlarging it moves the hit area, never the ✕: the corner inset stays put and
-    // the hover chip simply becomes a chip worth aiming at.
-    ImGui::SetCursorScreenPos(ImVec2(gutterX + m.closeBleed - m.closeSize,
-      p0.y + m.padY + (m.lineH - m.closeGlyph) * 0.5f - m.closeBleed));
+    ImGui::SetCursorScreenPos(ImVec2(p0.x + m.closeX, p0.y + m.closeY));
     // Nominal token, not `m.closeSize`: IconButton applies the UI scale itself, and handing it an
     // already-scaled edge squares the scale (a 1.5x display got a 31px ✕ where layout
     // reserved 21).
     res.closed = IconButton("##g3d.toast.close", G3DIconId::Close, G3DTheme::Size::IconButtonSm,
       false, Tr("Dismiss").c_str());
-    gutterX -= m.closeGlyph + m.closeBleed + G3DTheme::Spacing::Sm * m.s;
   }
-  if (desc.count > 1)
+  if (m.chip[0] != '\0')
   {
-    char chip[16];
-    std::snprintf(chip, sizeof(chip), "x%d", std::min(desc.count, 999));
-    gutterX -= BadgeWidth(chip);
-    ImGui::SetCursorScreenPos(ImVec2(gutterX, p0.y + m.padY));
+    ImGui::SetCursorScreenPos(ImVec2(p0.x + m.chipX, p0.y + m.padY));
     const int chipVtx = ImGui::GetWindowDrawList()->VtxBuffer.Size;
-    Badge(chip, ToneBadge(desc.tone));
+    Badge(m.chip, ToneBadge(desc.tone));
     SwellLastItem(chipVtx, CountPulseScale(ImGui::GetID("##g3d.toast.count"), desc.count));
   }
 
@@ -2776,12 +2875,11 @@ bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
   const float alpha = ImGui::GetStyle().Alpha;
 
   const bool hasAction = actionLabel != nullptr && actionLabel[0] != 0;
-  // Width reserved for the trailing action: the button's own box (same density it is drawn with)
-  // plus one Sm gap before the text column.
-  const float actionW = hasAction
-    ? ImGui::CalcTextSize(actionLabel).x + 2.f * ButtonPadX(G3DWidgets::ButtonDensity::Compact) +
-      G3DTheme::Spacing::Sm * s
-    : 0.f;
+  // Width reserved for the trailing action: the button's own box, measured by the function the
+  // button is drawn with (same density), plus one Sm gap before the text column.
+  const float actionBtnW =
+    hasAction ? ButtonBoxWidth(actionLabel, G3DWidgets::ButtonDensity::Compact, false) : 0.f;
+  const float actionW = hasAction ? actionBtnW + G3DTheme::Spacing::Sm * s : 0.f;
   const float textLeft = railW + padX + iconSize + G3DTheme::Spacing::Sm * s;
   const float textW = std::max(24_dp * s, w - textLeft - padX - actionW);
   const float textH = std::min(ImGui::CalcTextSize(text, nullptr, false, textW).y, lineH * 4.f);
@@ -2820,8 +2918,7 @@ bool Banner(const char* text, ToneVariant tone, const char* actionLabel)
   if (hasAction)
   {
     ImGui::PushID(text);
-    ImGui::SetCursorScreenPos(ImVec2(
-      p1.x - padX - (actionW - G3DTheme::Spacing::Sm * s), p0.y + (h - actionH) * 0.5f));
+    ImGui::SetCursorScreenPos(ImVec2(p1.x - padX - actionBtnW, p0.y + (h - actionH) * 0.5f));
     clicked = Button(actionLabel, ButtonVariant::Ghost, ButtonDensity::Compact);
     ImGui::PopID();
   }
@@ -2982,8 +3079,9 @@ int ToolGroup(const char* id, const ToolGroupDesc& desc)
     if (it.separatorBefore)
     {
       const float advance = p * g.sepExtra;
-      // Centered in its own advance, at the same 22%..78% height the top bar's rule uses.
-      const float sx = x + advance * 0.5f;
+      // At the start of its own advance (one gap after the previous item), over 22%..78% of the
+      // item height: the rule the top bar has always drawn between its button clusters.
+      const float sx = x;
       dl->AddLine(ImVec2(sx, y + g.item * 0.22f), ImVec2(sx, y + g.item * 0.78f),
         U32(G3DTheme::BorderStrong(), groupAlpha * p), G3DTheme::Size::Border * s);
       x += advance;
@@ -4791,6 +4889,160 @@ void EndPropRow()
   {
     ImGui::Dummy(ImVec2(1.f, pad));
   }
+  ImGui::PopID();
+}
+
+//----------------------------------------------------------------------------
+namespace
+{
+constexpr int kFieldRowMaxSlots = 16;
+
+struct FieldRowFrame
+{
+  ImVec2 p0;          ///< the row's top-left corner (screen)
+  float width = 0.f;  ///< what the slots were laid out in (the end inset already taken off)
+  float height = 0.f; ///< the row's height: its minimum, or its tallest shown control
+  int count = 0;
+  int current = -1;   ///< the slot FieldRowNext() moved to
+  std::array<G3DLayout::RowPlace, kFieldRowMaxSlots> places{};
+  std::array<float, kFieldRowMaxSlots> heights{};
+  ImVec2 lastItemMin; ///< the last item's rect when the current slot opened: tells whether the
+  ImVec2 lastItemMax; ///< slot submitted a control of its own
+};
+std::vector<FieldRowFrame> gFieldRows;
+
+/// Debug check on the slot being left: the control the caller drew there stayed inside it. An
+/// overflow is exactly the reservation bug the row exists to prevent — a control drawn at another
+/// size than the one it was measured at — so it should not pass quietly.
+void CheckFieldSlot(const FieldRowFrame& f)
+{
+#ifndef NDEBUG
+  if (f.current < 0 || !f.places[f.current].shown)
+  {
+    return;
+  }
+  const ImVec2 mn = ImGui::GetItemRectMin();
+  const ImVec2 mx = ImGui::GetItemRectMax();
+  if (mn.x == f.lastItemMin.x && mn.y == f.lastItemMin.y && mx.x == f.lastItemMax.x &&
+    mx.y == f.lastItemMax.y)
+  {
+    return; // nothing submitted in this slot (a spacer, or content drawn by hand)
+  }
+  const float x0 = f.p0.x + f.places[f.current].x;
+  const float x1 = x0 + f.places[f.current].w;
+  IM_ASSERT(mn.x >= x0 - 0.5f && mx.x <= x1 + 0.5f && "a field row control overflowed its slot");
+#else
+  (void)f;
+#endif
+}
+} // namespace
+
+void BeginFieldRow(const char* id, std::span<const FieldSlot> slots, const FieldRowDesc& desc)
+{
+  ImGui::PushID(id);
+  const G3DScale s = G3DWidgets::UiScale();
+  IM_ASSERT(slots.size() <= static_cast<std::size_t>(kFieldRowMaxSlots));
+
+  FieldRowFrame f;
+  f.p0 = ImGui::GetCursorScreenPos();
+  f.width = std::max(0.f, ImGui::GetContentRegionAvail().x - desc.endInset * s);
+  f.count = static_cast<int>(std::min(slots.size(), static_cast<std::size_t>(kFieldRowMaxSlots)));
+  std::array<G3DLayout::RowSlot, kFieldRowMaxSlots> rs{};
+  for (int i = 0; i < f.count; ++i)
+  {
+    const FieldSlot& in = slots[static_cast<std::size_t>(i)];
+    rs[i].width = in.width;
+    rs[i].fill = in.fill;
+    rs[i].drop = in.drop;
+    if (in.gapBefore)
+    {
+      rs[i].gapBefore = *in.gapBefore * s;
+    }
+  }
+  G3DLayout::SolveRow(rs.data(), f.count, f.width, desc.gap * s, f.places.data());
+  // A control sized from the item width gets it in whole pixels (ImGui::CalcItemWidth truncates),
+  // so the fill slot is cut to whole pixels too: the control's box IS its slot, and the fraction
+  // lands in the gap after it — the slots after the fill stay flush with the right edge.
+  for (int i = 0; i < f.count; ++i)
+  {
+    if (rs[i].fill)
+    {
+      f.places[i].w = std::floor(f.places[i].w);
+      break;
+    }
+  }
+
+  const float minH = desc.minHeight * s;
+  f.height = minH;
+  for (int i = 0; i < f.count; ++i)
+  {
+    const float h = slots[static_cast<std::size_t>(i)].height;
+    f.heights[i] = h > 0.f ? h : minH;
+    if (f.places[i].shown)
+    {
+      f.height = std::max(f.height, f.heights[i]);
+    }
+  }
+  gFieldRows.push_back(f);
+}
+
+void BeginFieldRow(
+  const char* id, std::initializer_list<FieldSlot> slots, const FieldRowDesc& desc)
+{
+  BeginFieldRow(id, std::span<const FieldSlot>(slots.begin(), slots.size()), desc);
+}
+
+bool FieldRowNext()
+{
+  if (gFieldRows.empty())
+  {
+    return false;
+  }
+  FieldRowFrame& f = gFieldRows.back();
+  CheckFieldSlot(f);
+  IM_ASSERT(f.current + 1 < f.count && "FieldRowNext() called past the row's last slot");
+  if (f.current + 1 >= f.count)
+  {
+    return false;
+  }
+  ++f.current;
+  f.lastItemMin = ImGui::GetItemRectMin();
+  f.lastItemMax = ImGui::GetItemRectMax();
+  const G3DLayout::RowPlace& p = f.places[f.current];
+  if (!p.shown)
+  {
+    return false;
+  }
+  ImGui::SetCursorScreenPos(
+    ImVec2(f.p0.x + p.x, f.p0.y + (f.height - f.heights[f.current]) * 0.5f));
+  ImGui::SetNextItemWidth(std::max(1.f, p.w));
+  return true;
+}
+
+G3DLayout::Rect FieldRowSlotRect()
+{
+  if (gFieldRows.empty() || gFieldRows.back().current < 0)
+  {
+    return {};
+  }
+  const FieldRowFrame& f = gFieldRows.back();
+  const G3DLayout::RowPlace& p = f.places[f.current];
+  return { f.p0.x + p.x, f.p0.y, p.w, f.height };
+}
+
+void EndFieldRow()
+{
+  if (gFieldRows.empty())
+  {
+    return;
+  }
+  const FieldRowFrame f = gFieldRows.back();
+  CheckFieldSlot(f);
+  gFieldRows.pop_back();
+  // One item to the surrounding layout: the next line follows the row the way it follows any
+  // widget, which is also what lets BeginPropRow/EndPropRow measure a row nested in them.
+  ImGui::SetCursorScreenPos(f.p0);
+  ImGui::Dummy(ImVec2(f.width, f.height));
   ImGui::PopID();
 }
 
@@ -7119,6 +7371,7 @@ void ResetSession()
   gEyedrop = EyedropState{};
   gEyedropCancel = false;
   gPropRows.clear();
+  gFieldRows.clear();
   gSelects.clear();
   gSelectMenuStack.clear();
   gContextMenus.clear();

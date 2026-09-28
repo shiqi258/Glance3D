@@ -1,5 +1,6 @@
-// Every widget a caller may have to reserve room for publishes a measuring twin (ButtonWidth,
-// BadgeHeight, ToolGroupSize...), computed by the same code that draws it. This checks each twin
+// Every widget a caller may have to reserve room for publishes a measuring twin (ButtonSize,
+// BadgeSize, IconButtonSize, SegmentedIconSize, ToolGroupSize...), computed by the same code that
+// draws it — the widths a FieldRow is laid out from. This checks each twin
 // against the item the widget actually submits, at several UI scales: a twin that drifts from its
 // widget is the reservation bug (a row sized for one width, drawn at another), and it only shows
 // at a scale other than 1.
@@ -59,6 +60,8 @@ void CheckScale(double uiScale)
           ImVec2(G3DWidgets::ButtonWidth("Measure me", density, false),
             G3DWidgets::ButtonHeight(false, density)),
           "button." + d + at);
+        ExpectSize(ImGui::GetItemRectSize(), G3DWidgets::ButtonSize("Measure me", density, false),
+          "buttonsize." + d + at);
       }
       G3DWidgets::ButtonIcon(
         "Measure me", G3DIconId::Plus, G3DWidgets::ButtonVariant::Default, density);
@@ -68,6 +71,8 @@ void CheckScale(double uiScale)
           ImVec2(G3DWidgets::ButtonWidth("Measure me", density, true),
             G3DWidgets::ButtonHeight(true, density)),
           "button.icon." + d + at);
+        ExpectSize(ImGui::GetItemRectSize(), G3DWidgets::ButtonSize("Measure me", density, true),
+          "buttonsize.icon." + d + at);
       }
     }
 
@@ -76,20 +81,39 @@ void CheckScale(double uiScale)
     {
       ExpectSize(ImGui::GetItemRectSize(),
         ImVec2(G3DWidgets::BadgeWidth("128"), G3DWidgets::BadgeHeight()), "badge" + at);
+      ExpectSize(ImGui::GetItemRectSize(), G3DWidgets::BadgeSize("128"), "badgesize" + at);
     }
 
-    // IconButton takes a logical edge and scales it itself.
+    // IconButton takes a logical edge and scales it itself; IconButtonSize publishes that box.
     G3DWidgets::IconButton("##twins.ib.default", G3DIconId::Plus);
     if (measure)
     {
       const float edge = G3DTheme::Size::IconButton * s;
       ExpectSize(ImGui::GetItemRectSize(), ImVec2(edge, edge), "iconbutton.default" + at);
+      ExpectSize(ImGui::GetItemRectSize(), G3DWidgets::IconButtonSize(),
+        "iconbuttonsize.default" + at);
     }
     G3DWidgets::IconButton("##twins.ib.control", G3DIconId::Plus, G3DTheme::Size::Control);
     if (measure)
     {
       const float edge = G3DTheme::Size::Control * s;
       ExpectSize(ImGui::GetItemRectSize(), ImVec2(edge, edge), "iconbutton.control" + at);
+      ExpectSize(ImGui::GetItemRectSize(), G3DWidgets::IconButtonSize(G3DTheme::Size::Control),
+        "iconbuttonsize.control" + at);
+    }
+
+    // A segmented control submits one item per segment: its box spans the first segment's
+    // top-left corner to the last one's bottom-right.
+    const G3DWidgets::SegmentedIconItem segs[3] = { { G3DIconId::PanelLeft, nullptr, true, false },
+      { G3DIconId::PanelRight, nullptr, false, false },
+      { G3DIconId::PanelBottom, nullptr, false, true } };
+    const ImVec2 segOrigin = ImGui::GetCursorScreenPos();
+    G3DWidgets::SegmentedIcon("##twins.seg", segs, 3);
+    if (measure)
+    {
+      const ImVec2 segEnd = ImGui::GetItemRectMax();
+      ExpectSize(ImVec2(segEnd.x - segOrigin.x, segEnd.y - segOrigin.y),
+        G3DWidgets::SegmentedIconSize(3), "segmented" + at);
     }
 
     G3DWidgets::ToolItem items[3];

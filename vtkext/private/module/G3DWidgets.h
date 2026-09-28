@@ -34,6 +34,9 @@
 
 #include <cstddef>
 #include <functional>
+#include <initializer_list>
+#include <optional>
+#include <span>
 #include <vector>
 
 struct ImFont;
@@ -129,6 +132,10 @@ float ButtonHeight(bool withIcon = false, ButtonDensity density = ButtonDensity:
 float ButtonWidth(const char* label, ButtonDensity density = ButtonDensity::Default,
   bool withIcon = false);
 
+/// Both of the above at once (px, already UI-scaled): the box Button() / ButtonIcon() submits.
+ImVec2 ButtonSize(const char* label, ButtonDensity density = ButtonDensity::Default,
+  bool withIcon = false);
+
 /// How an IconButton renders its persistent "on" state.
 enum class IconOnStyle
 {
@@ -155,6 +162,11 @@ bool IconButton(const char* id, G3DIconId icon, float size, bool round = false,
   const char* tooltip = nullptr, bool on = false, IconOnStyle onStyle = IconOnStyle::Fill,
   const char* shortcut = nullptr) = delete;
 
+/// The box an IconButton of logical edge @p size submits (px, already UI-scaled). Reserve room for
+/// one with this, never with the token: the token is logical, the room is physical.
+ImVec2 IconButtonSize(G3DDp size = G3DTheme::Size::IconButton);
+ImVec2 IconButtonSize(float size) = delete;
+
 /// One segment of a SegmentedIcon group.
 struct SegmentedIconItem
 {
@@ -169,6 +181,9 @@ struct SegmentedIconItem
 /// grouping for panel-visibility style toggles — reads as one control instead of a row of chips.
 /// Returns the index of the segment clicked this frame, else -1.
 int SegmentedIcon(const char* id, const SegmentedIconItem* items, int count);
+
+/// The box a SegmentedIcon of @p count segments submits (px, already UI-scaled).
+ImVec2 SegmentedIconSize(int count);
 
 /// Styled card container. Call EndCard() exactly once for each BeginCard(). @p hoverable adds a hover
 /// tint and makes EndCard() return whether the card was clicked. Always returns true (draw content).
@@ -390,6 +405,88 @@ void BeginPropRow(const char* label, G3DDp labelW = G3DTheme::Size::PropLabel,
 void BeginPropRow(const char* label, float labelW, float ctrlH = 0.f) = delete;
 void EndPropRow();
 
+//----------------------------------------------------------------------------
+// Field row — controls sharing one line (styleguide .fieldrow)
+//
+// The row lays out all of its slots BEFORE any control is drawn, from widths the caller measured
+// with the measuring twins (IconButtonSize, ButtonWidth, SegmentedIconSize, BadgeWidth...). That is
+// the whole point: a trailing control never lands on a hand-computed reservation that drifted from
+// its real size (the reservation a token-sized autorange button once overflowed), and the row is
+// right on the first frame an offscreen --output render gets. One Fill slot takes whatever the
+// Fixed slots leave, so the Fixed slots after it end on the row's right edge; a Fill slot with no
+// control in it is a spacer. A slot with a drop priority is left out when the row is too narrow
+// for the Fill slot's minimum, the highest priority first. Each control is centered on the row.
+//
+//   using G3DWidgets::FieldSlot;
+//   G3DWidgets::BeginFieldRow("##range",
+//     { FieldSlot::Fill(), FieldSlot::Fixed(G3DWidgets::IconButtonSize(Size::Control).x) });
+//   if (G3DWidgets::FieldRowNext()) { G3DWidgets::RangeSliderFloat("##v", ...); } // width preset
+//   if (G3DWidgets::FieldRowNext()) { G3DWidgets::IconButton("##fit", icon, Size::Control); }
+//   G3DWidgets::EndFieldRow();
+//
+// The row is ONE item to the surrounding layout (like any widget, the next line follows it with
+// the usual item spacing), so inside BeginPropRow it is simply the value column's content — the
+// styleguide's `.proprow > .v`.
+//----------------------------------------------------------------------------
+
+/// One slot of a field row. Widths are measured, physical px — never a token.
+struct FieldSlot
+{
+  float width = 0.f;  ///< Fixed: the control's measured width. Fill: the narrowest it may get.
+  float height = 0.f; ///< the control's height, to center it on the row (0: the row's minimum)
+  bool fill = false;
+  int drop = 0;       ///< > 0: left out when the row is too narrow, the highest priority first
+  std::optional<G3DDp> gapBefore; ///< gap to the previous slot (unset: the row's gap)
+
+  static FieldSlot Fill(float minWidth = 0.f)
+  {
+    FieldSlot s;
+    s.width = minWidth;
+    s.fill = true;
+    return s;
+  }
+  static FieldSlot Fixed(float width, float height = 0.f, int drop = 0)
+  {
+    FieldSlot s;
+    s.width = width;
+    s.height = height;
+    s.drop = drop;
+    return s;
+  }
+  /// The same slot with its own gap to the previous one.
+  FieldSlot After(G3DDp gap) const
+  {
+    FieldSlot s = *this;
+    s.gapBefore = gap;
+    return s;
+  }
+};
+
+/// Layout of a field row. Logical lengths, scaled by the row.
+struct FieldRowDesc
+{
+  G3DDp gap = G3DTheme::Spacing::Xs;         ///< between neighbouring slots
+  G3DDp minHeight = G3DTheme::Size::Control; ///< the row is at least this tall
+  G3DDp endInset;                            ///< room kept free after the last slot
+};
+
+/// Open a field row at the cursor, as wide as the content region left of it. Always pair with
+/// EndFieldRow(); visit the slots in order with FieldRowNext().
+void BeginFieldRow(
+  const char* id, std::span<const FieldSlot> slots, const FieldRowDesc& desc = FieldRowDesc());
+void BeginFieldRow(const char* id, std::initializer_list<FieldSlot> slots,
+  const FieldRowDesc& desc = FieldRowDesc());
+
+/// Move to the next slot: place the cursor there (centered on the row) and preset the next item
+/// width to the slot's width. Returns false when the row dropped the slot — skip its control.
+bool FieldRowNext();
+
+/// The current slot's box (screen px, the row's full height), for content drawn by hand.
+G3DLayout::Rect FieldRowSlotRect();
+
+/// Close the row and leave the cursor on the line below it.
+void EndFieldRow();
+
 /// Collapsible property-panel header (the signature DCC inspector panel, e.g. Blender's Transform /
 /// Relations): a full-width clickable header with a disclosure triangle + title on a subtle raised
 /// surface; clicking toggles @p open. Returns whether the section is open, so the caller guards its
@@ -420,6 +517,9 @@ float BadgeWidth(const char* text);
 /// Its use is vertical centring: a badge is short, so on a shared row with a taller neighbour
 /// (an action button) ImGui's top-alignment leaves it visibly floating.
 float BadgeHeight();
+
+/// The box a Badge() submits for @p text (px, already UI-scaled): BadgeWidth x BadgeHeight.
+ImVec2 BadgeSize(const char* text);
 
 /// Animated on/off switch. Returns true when toggled this frame.
 bool Toggle(const char* label, bool* v);

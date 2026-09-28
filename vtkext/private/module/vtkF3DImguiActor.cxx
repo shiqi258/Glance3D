@@ -106,24 +106,40 @@ enum ChromeAction
   CHROME_ACTION_COUNT
 };
 
+/// The floating cluster's shape: ONE description for the group RenderViewportChrome draws and for
+/// the room reserved for it before it is drawn (the orientation gizmo and the minimal console lay
+/// themselves out around the corner first).
+G3DWidgets::ToolGroupDesc ViewportChromeShape(G3DWidgets::ToolItem (&items)[CHROME_ACTION_COUNT])
+{
+  G3DWidgets::ToolGroupDesc desc;
+  desc.items = items;
+  desc.count = CHROME_ACTION_COUNT;
+  desc.framed = true;
+  return desc;
+}
+
+/// The cluster's footprint with EVERY action present, measured by the group itself. Deliberately
+/// the full figure and not the animated one: an edge that tracked the cluster growing would jitter.
+ImVec2 ViewportChromeSize()
+{
+  G3DWidgets::ToolItem items[CHROME_ACTION_COUNT];
+  return G3DWidgets::ToolGroupSize(ViewportChromeShape(items));
+}
+
 /// Height of the floating chrome cluster. Constant — it does not depend on how many buttons are
 /// showing this frame — so anything that has to clear the corner can ask before the cluster is
 /// laid out, with no ordering dependency (the orientation gizmo is drawn first).
-float ViewportChromeHeight(G3DScale uiScale)
+float ViewportChromeHeight()
 {
-  return (G3DTheme::Size::IconButton + 2.f * G3DTheme::Spacing::Xs) * uiScale;
+  return ViewportChromeSize().y;
 }
 
-/// How much width the cluster claims, measured with EVERY action present. Anything that spans the
-/// top of the viewport (the minimal console) asks for this instead of inventing its own offset —
-/// ONE owner of that corner, read from the other side. Deliberately the full-width figure and not
-/// the animated one: a console edge that tracked the cluster growing would jitter.
+/// How much width the cluster claims, its corner inset included. Anything that spans the top of the
+/// viewport (the minimal console) asks for this instead of inventing its own offset — ONE owner of
+/// that corner, read from the other side.
 float ViewportChromeReservedWidth(G3DScale uiScale)
 {
-  const float items = static_cast<float>(CHROME_ACTION_COUNT);
-  const G3DDp inner = items * G3DTheme::Size::IconButton +
-    (items - 1.f) * G3DTheme::Spacing::Xs + 2.f * G3DTheme::Spacing::Xs;
-  return inner * uiScale + 2.f * (G3DTheme::Spacing::OverlayInset * uiScale);
+  return ViewportChromeSize().x + 2.f * (G3DTheme::Spacing::OverlayInset * uiScale);
 }
 
 /// Top-right anchor for a cluster of @p size. Right-aligned, so the corner stays put while the
@@ -137,7 +153,7 @@ ImVec2 ViewportChromePos(const G3DLayout::Rect& rect, const ImVec2& size, G3DSca
 /// Vertical span the cluster consumes from the viewport's top edge, its clearance gap included.
 float ViewportChromeZoneH(G3DScale uiScale)
 {
-  return G3DTheme::Spacing::OverlayInset * uiScale + ViewportChromeHeight(uiScale) +
+  return G3DTheme::Spacing::OverlayInset * uiScale + ViewportChromeHeight() +
     G3DTheme::Spacing::Sm * uiScale;
 }
 
@@ -859,45 +875,45 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
   const int scopeNode = view.Scope();
   if (scopeNode > 0)
   {
+    using G3DWidgets::FieldSlot;
     const G3DScale scale = this->GetUiScale();
-    // IconButton scales the size it is given, so it takes the token; `btn` is the laid-out edge.
-    // Handing it the scaled value scaled the buttons twice at any DPI but 1x.
-    const float btn = G3DTheme::Size::Control * scale;
-    const float gap = G3DTheme::Spacing::Xs * scale;
-
-    if (G3DWidgets::IconButton("##g3d.scenetree.scopeup", G3DIconId::ChevronLeft,
-          G3DTheme::Size::Control, false, loc.Translate("Up one level").c_str()))
+    const float btn = G3DWidgets::IconButtonSize(G3DTheme::Size::Control).x;
+    G3DWidgets::BeginFieldRow("##g3d.scenetree.scope",
+      { FieldSlot::Fixed(btn), FieldSlot::Fixed(btn), FieldSlot::Fill() });
+    if (G3DWidgets::FieldRowNext() &&
+      G3DWidgets::IconButton("##g3d.scenetree.scopeup", G3DIconId::ChevronLeft,
+        G3DTheme::Size::Control, false, loc.Translate("Up one level").c_str()))
     {
       const int parent = graph.Parent(scopeNode);
       view.SetScope(parent > 0 ? parent : -1);
     }
-    ImGui::SameLine(0.f, gap);
-    if (G3DWidgets::IconButton("##g3d.scenetree.scopeclear", G3DIconId::Layers,
-          G3DTheme::Size::Control, false, loc.Translate("Show the whole scene").c_str()))
+    if (G3DWidgets::FieldRowNext() &&
+      G3DWidgets::IconButton("##g3d.scenetree.scopeclear", G3DIconId::Layers,
+        G3DTheme::Size::Control, false, loc.Translate("Show the whole scene").c_str()))
     {
       view.SetScope(-1);
     }
-    ImGui::SameLine(0.f, gap);
-
-    const std::string scopeLabel = graph.Label(scopeNode);
-    const float labelW = std::max(0.f, ImGui::GetContentRegionAvail().x);
-    const ImVec2 at = ImGui::GetCursorScreenPos();
-    const float lineH = ImGui::GetTextLineHeight();
-    const bool clipped = G3DWidgets::TextEllipsis(ImGui::GetWindowDrawList(),
-      ImVec2(at.x, at.y + (btn - lineH) * 0.5f), labelW,
-      ImGui::GetColorU32(G3DTheme::TextMuted()), scopeLabel.c_str(), true);
-    ImGui::Dummy(ImVec2(labelW, btn));
-    if (ImGui::IsItemHovered())
+    if (G3DWidgets::FieldRowNext())
     {
-      std::string full = scopeLabel;
-      const std::string trail = ::SceneTreeAncestorTrail(graph, scopeNode, 4);
-      if (!trail.empty())
+      const std::string scopeLabel = graph.Label(scopeNode);
+      const G3DLayout::Rect slot = G3DWidgets::FieldRowSlotRect();
+      const float lineH = ImGui::GetTextLineHeight();
+      G3DWidgets::TextEllipsis(ImGui::GetWindowDrawList(),
+        ImVec2(slot.x, slot.y + (slot.h - lineH) * 0.5f), slot.w,
+        ImGui::GetColorU32(G3DTheme::TextMuted()), scopeLabel.c_str(), true);
+      ImGui::Dummy(ImVec2(slot.w, slot.h));
+      if (ImGui::IsItemHovered())
       {
-        full = trail + " \xe2\x80\xba " + full;
+        std::string full = scopeLabel;
+        const std::string trail = ::SceneTreeAncestorTrail(graph, scopeNode, 4);
+        if (!trail.empty())
+        {
+          full = trail + " \xe2\x80\xba " + full;
+        }
+        G3DWidgets::SetTooltip(full.c_str());
       }
-      (void)clipped;
-      G3DWidgets::SetTooltip(full.c_str());
     }
+    G3DWidgets::EndFieldRow();
     ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
   }
 
@@ -915,16 +931,20 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
     // SDK and `scene_tree_filter` also write it. Resynced below whenever the box is idle, so a
     // filter set from a script does not leave the box telling a different story.
     static char treeFilter[128] = "";
-    const float avail = ImGui::GetContentRegionAvail().x;
-    // Laid-out edge of the two buttons the field makes room for; IconButton takes the unscaled
-    // token and scales it itself, same as the breadcrumb above.
-    const float btn = G3DTheme::Size::Control * scale;
-    const float gap = G3DTheme::Spacing::Xs * scale;
+    // The field takes what the two trailing buttons leave; the row measures them.
+    using G3DWidgets::FieldSlot;
+    const float btn = G3DWidgets::IconButtonSize(G3DTheme::Size::Control).x;
+    G3DWidgets::BeginFieldRow("##g3d.scenetree.toolbar",
+      { FieldSlot::Fill(btn), FieldSlot::Fixed(btn), FieldSlot::Fixed(btn) });
 
-    ImGui::SetNextItemWidth(std::max(btn, avail - 2.f * (btn + gap)));
-    const bool typed = G3DWidgets::InputText("##g3d.scenetree.filter", treeFilter,
-      sizeof(treeFilter), loc.Translate("Search...").c_str());
-    const bool editing = ImGui::IsItemActive();
+    bool typed = false;
+    bool editing = false;
+    if (G3DWidgets::FieldRowNext())
+    {
+      typed = G3DWidgets::InputText("##g3d.scenetree.filter", treeFilter, sizeof(treeFilter),
+        loc.Translate("Search...").c_str());
+      editing = ImGui::IsItemActive();
+    }
     if (typed)
     {
       G3DTreeFilter filter = view.Filter();
@@ -939,18 +959,19 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
       treeFilter[n] = '\0';
     }
 
-    ImGui::SameLine(0.f, gap);
-    if (G3DWidgets::IconButton("##g3d.scenetree.expand", G3DIconId::ExpandAll,
-          G3DTheme::Size::Control, false, loc.Translate("Expand all").c_str()))
+    if (G3DWidgets::FieldRowNext() &&
+      G3DWidgets::IconButton("##g3d.scenetree.expand", G3DIconId::ExpandAll,
+        G3DTheme::Size::Control, false, loc.Translate("Expand all").c_str()))
     {
       view.ExpandAll();
     }
-    ImGui::SameLine(0.f, gap);
-    if (G3DWidgets::IconButton("##g3d.scenetree.collapse", G3DIconId::CollapseAll,
-          G3DTheme::Size::Control, false, loc.Translate("Collapse all").c_str()))
+    if (G3DWidgets::FieldRowNext() &&
+      G3DWidgets::IconButton("##g3d.scenetree.collapse", G3DIconId::CollapseAll,
+        G3DTheme::Size::Control, false, loc.Translate("Collapse all").c_str()))
     {
       view.CollapseAll();
     }
+    G3DWidgets::EndFieldRow();
     ImGui::Dummy(ImVec2(0.f, G3DTheme::Spacing::Xs * scale));
   }
 
@@ -2314,10 +2335,7 @@ void vtkF3DImguiActor::RenderViewportChrome(vtkOpenGLRenderWindow* renWin)
   // unread, which left no way at all to reach the message history from a quiet viewport.
   panelItem.presence = hasScene ? 1.f : 0.f;
 
-  G3DWidgets::ToolGroupDesc desc;
-  desc.items = items;
-  desc.count = ::CHROME_ACTION_COUNT;
-  desc.framed = true;
+  G3DWidgets::ToolGroupDesc desc = ::ViewportChromeShape(items);
   desc.frameColor = ImVec4(static_cast<float>(this->BackdropColor[0]),
     static_cast<float>(this->BackdropColor[1]), static_cast<float>(this->BackdropColor[2]), 1.f);
   desc.alpha = alpha;
@@ -3321,25 +3339,26 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
       // One dual-handle interval row: the filled span IS the active range (the widget keeps
       // lo <= hi, so no post-hoc swap is needed before committing). The trailing icon button is
       // "fit range to data" (auto range) — inline, instead of a floating full-width button row.
+      // A field row: the button's slot is what the button measures, the slider fills the rest.
+      using G3DWidgets::FieldSlot;
       G3DWidgets::BeginPropRow(loc.Translate("Range").c_str());
-      const float autoBtnW = G3DTheme::Size::Control * scale;
-      const float rangeGap = G3DTheme::Spacing::Xs * scale;
-      ImGui::SetNextItemWidth(
-        std::max(40_dp * scale, ImGui::GetContentRegionAvail().x - autoBtnW - rangeGap));
-      if (G3DWidgets::RangeSliderFloat("##v", &rmin, &rmax, dataMin, dataMax, "%.4g"))
+      G3DWidgets::BeginFieldRow("##g3d.scivis.range",
+        { FieldSlot::Fill(40_dp * scale),
+          FieldSlot::Fixed(G3DWidgets::IconButtonSize(G3DTheme::Size::Control).x) });
+      if (G3DWidgets::FieldRowNext() &&
+        G3DWidgets::RangeSliderFloat("##v", &rmin, &rmax, dataMin, dataMax, "%.4g"))
       {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%.6g,%.6g", rmin, rmax);
         this->SendCommand(std::string("set model.scivis.range ") + buf);
       }
-      ImGui::SameLine(0.f, rangeGap);
-      // The token, not autoBtnW: IconButton scales the edge it is given, and autoBtnW (the width
-      // the slider leaves room for) is already scaled.
-      if (G3DWidgets::IconButton("##g3d.scivis.autorange", G3DIconId::Fit, G3DTheme::Size::Control,
-            false, loc.Translate("Auto range").c_str()))
+      if (G3DWidgets::FieldRowNext() &&
+        G3DWidgets::IconButton("##g3d.scivis.autorange", G3DIconId::Fit, G3DTheme::Size::Control,
+          false, loc.Translate("Auto range").c_str()))
       {
         this->SendCommand("reset model.scivis.range");
       }
+      G3DWidgets::EndFieldRow();
       G3DWidgets::EndPropRow();
     }
   }
@@ -3371,21 +3390,79 @@ void vtkF3DImguiActor::DrawTimelineContent()
     return;
   }
 
-  // The transport row mixes items of different heights (27 icon buttons, 25 scrubber/dropdown,
-  // bare text) — center each on the BAR's midline so nothing rides its own baseline (the classic
-  // "time readout floats above the slider" misalignment).
-  const float barMidY = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y * 0.5f;
-  auto centerNextY = [&](float itemH)
-  { ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, barMidY - itemH * 0.5f)); };
-
   const double tminD = this->AnimState.timeRange[0];
   const double tmaxD = this->AnimState.timeRange[1];
   const double tcur = this->AnimState.currentTime;
   const double stepEps = (tmaxD - tminD) * 1e-6;
   const bool loopOn = this->ReadOptionBool("scene.animation.loop", true);
+  const float tmin = static_cast<float>(this->AnimState.timeRange[0]);
+  const float tmax = static_cast<float>(this->AnimState.timeRange[1]);
+  // Zero-length clip: every channel has a single keyframe at the same instant, so the time range is
+  // degenerate ([t, t]) and there is nothing to scrub — common for static-pose / reference clips
+  // exported from choreography tools. A muted one-liner then takes the track's place (and the
+  // meaningless "/ 0.00s" goes), so the gap reads as "intentionally nothing to play" rather than as
+  // a broken control.
+  const bool scrubbable = tmax > tmin;
+
+  ImFont* dataFont = G3DWidgets::DataFont(); // timecodes are data — measure AND draw in mono
+  char timeLabel[32] = "";
+  float timeLabelW = 0.f;
+  if (scrubbable)
+  {
+    std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
+    if (dataFont != nullptr)
+    {
+      ImGui::PushFont(dataFont, 0.f);
+    }
+    timeLabelW = ImGui::CalcTextSize(timeLabel).x;
+    if (dataFont != nullptr)
+    {
+      ImGui::PopFont();
+    }
+  }
+
+  // The transport is ONE field row, laid out before anything in it is drawn: the transport keys and
+  // the clip picker on the left, the scrubber — or the zero-length hint in its place — filling the
+  // middle, and the duration, the speed picker and the loop switch on the right, against the same
+  // edge in both cases. Its items have different heights (27 icon buttons, the 32 play button,
+  // 25 scrubber and dropdowns, bare text): each is centered on the row and the row on the bar's
+  // midline, so nothing rides its own baseline (the classic "time readout floats above the slider"
+  // misalignment).
+  using G3DWidgets::FieldSlot;
+  const ImVec2 key = G3DWidgets::IconButtonSize();
+  const ImVec2 play = G3DWidgets::IconButtonSize(G3DTheme::Size::Fab);
+  const float ctrlH = G3DTheme::Size::Control * scale;
+  const float lineH = ImGui::GetTextLineHeight();
+  FieldSlot slots[10];
+  std::size_t n = 0;
+  slots[n++] = FieldSlot::Fixed(key.x, key.y);   // jump to start
+  slots[n++] = FieldSlot::Fixed(key.x, key.y);   // previous frame
+  slots[n++] = FieldSlot::Fixed(play.x, play.y); // play / pause
+  slots[n++] = FieldSlot::Fixed(key.x, key.y);   // next frame
+  slots[n++] = FieldSlot::Fixed(key.x, key.y);   // jump to end
+  if (this->AnimState.count > 1)
+  {
+    slots[n++] = FieldSlot::Fixed(150_dp * scale, ctrlH); // clip picker
+  }
+  FieldSlot middle = FieldSlot::Fill(40_dp * scale);
+  middle.height = scrubbable ? ctrlH : lineH;
+  slots[n++] = middle;
+  if (scrubbable)
+  {
+    slots[n++] = FieldSlot::Fixed(timeLabelW, lineH); // total duration
+  }
+  slots[n++] = FieldSlot::Fixed(64_dp * scale, ctrlH); // playback speed
+  slots[n++] = FieldSlot::Fixed(key.x, key.y);         // loop
+  G3DWidgets::FieldRowDesc row;
+  row.gap = G3DTheme::Spacing::Sm;
+  row.minHeight = G3DTheme::Size::Fab;
+  row.endInset = G3DTheme::Spacing::Sm; // the loop switch stops one step short of the bar's end
+  const float barMidY = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y * 0.5f;
+  ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, barMidY - play.y * 0.5f));
+  G3DWidgets::BeginFieldRow("##g3d.anim.transport", std::span<const FieldSlot>(slots, n), row);
 
   // Jump back to the first frame — the transport's fixed anchor.
-  centerNextY(G3DTheme::Size::IconButton * scale);
+  G3DWidgets::FieldRowNext();
   if (G3DWidgets::IconButton("##g3d.anim.skipstart", G3DIconId::SkipToStart,
         G3DTheme::Size::IconButton, false, loc.Translate("Jump to start").c_str()))
   {
@@ -3393,12 +3470,11 @@ void vtkF3DImguiActor::DrawTimelineContent()
     std::snprintf(buf, sizeof(buf), "%.6g", tminD);
     this->SendCommand(std::string("load_animation_time ") + buf);
   }
-  ImGui::SameLine();
 
   // Single-frame stepping (1 frame = the interactor's frame delta x the speed factor), on the
   // manager's authoritative time. The manager clamps AND warns past the range ends, so disable at
   // the ends instead of letting held clicks spam warnings.
-  centerNextY(G3DTheme::Size::IconButton * scale);
+  G3DWidgets::FieldRowNext();
   ImGui::BeginDisabled(tcur <= tminD + stepEps);
   if (G3DWidgets::IconButton("##g3d.anim.stepback", G3DIconId::SkipBack,
         G3DTheme::Size::IconButton, false, loc.Translate("Previous frame").c_str()))
@@ -3406,7 +3482,6 @@ void vtkF3DImguiActor::DrawTimelineContent()
     this->SendCommand("jump_to_frame -1 true");
   }
   ImGui::EndDisabled();
-  ImGui::SameLine();
 
   // Play / pause — the transport's primary action: a solid accent circle one size up, so it
   // outranks the ghost-quiet step keys around it (media-player convention). When a play-once clip
@@ -3417,15 +3492,14 @@ void vtkF3DImguiActor::DrawTimelineContent()
   const G3DIconId playIcon =
     ended ? G3DIconId::Replay : (playing ? G3DIconId::Pause : G3DIconId::Play);
   const std::string playTip = loc.Translate(ended ? "Replay" : (playing ? "Pause" : "Play"));
-  centerNextY(G3DTheme::Size::Fab * scale);
+  G3DWidgets::FieldRowNext();
   if (G3DWidgets::IconButton("##g3d.anim.playpause", playIcon, G3DTheme::Size::Fab, true,
         playTip.c_str(), false, G3DWidgets::IconOnStyle::Solid))
   {
     this->SendCommand("toggle_animation");
   }
-  ImGui::SameLine();
 
-  centerNextY(G3DTheme::Size::IconButton * scale);
+  G3DWidgets::FieldRowNext();
   ImGui::BeginDisabled(tcur >= tmaxD - stepEps);
   if (G3DWidgets::IconButton("##g3d.anim.stepfwd", G3DIconId::StepForward,
         G3DTheme::Size::IconButton, false, loc.Translate("Next frame").c_str()))
@@ -3433,11 +3507,10 @@ void vtkF3DImguiActor::DrawTimelineContent()
     this->SendCommand("jump_to_frame 1 true");
   }
   ImGui::EndDisabled();
-  ImGui::SameLine();
 
   // Jump to the last frame — the exact mirror of Jump to start; the transport's other fixed anchor,
   // so it stays enabled at the end (a click just reloads the final pose).
-  centerNextY(G3DTheme::Size::IconButton * scale);
+  G3DWidgets::FieldRowNext();
   if (G3DWidgets::IconButton("##g3d.anim.skipend", G3DIconId::SkipToEnd,
         G3DTheme::Size::IconButton, false, loc.Translate("Jump to end").c_str()))
   {
@@ -3445,16 +3518,13 @@ void vtkF3DImguiActor::DrawTimelineContent()
     std::snprintf(buf, sizeof(buf), "%.6g", tmaxD);
     this->SendCommand(std::string("load_animation_time ") + buf);
   }
-  ImGui::SameLine();
 
   // With several animations: a dropdown listing every clip by name (plus "All animations"),
   // replacing the old blind one-way cycle button. The trigger shows the CURRENT selection, which
   // also labels multi/all states.
   if (this->AnimState.count > 1)
   {
-    const float animSelW = 150_dp * scale;
-    ImGui::SetNextItemWidth(animSelW);
-    centerNextY(G3DTheme::Size::Control * scale);
+    G3DWidgets::FieldRowNext();
     // The Select trigger end-ellipsizes overflowing text itself; full name on the popup items.
     const std::string preview = loc.Translate(this->AnimState.name.c_str());
     if (G3DWidgets::BeginSelect("##g3d.anim.select", preview.c_str()))
@@ -3474,37 +3544,14 @@ void vtkF3DImguiActor::DrawTimelineContent()
       }
       G3DWidgets::EndSelect();
     }
-    ImGui::SameLine();
   }
 
-  // Scrubber: seek by dragging (load_animation_time) when there is a real time span; otherwise a
-  // muted "no duration" hint in its place (see the zero-length branch below).
-  const float tmin = static_cast<float>(this->AnimState.timeRange[0]);
-  const float tmax = static_cast<float>(this->AnimState.timeRange[1]);
-  ImFont* dataFont = G3DWidgets::DataFont(); // timecodes are data — measure AND draw in mono
-  const float speedW = 64_dp * scale;
-  const float loopW = G3DTheme::Size::IconButton * scale; // trailing loop toggle
-  const float itemGap = ImGui::GetStyle().ItemSpacing.x;
-  if (tmax > tmin)
+  // Scrubber: seek by dragging (load_animation_time) when there is a real time span; otherwise the
+  // muted "no duration" hint in its place.
+  G3DWidgets::FieldRowNext();
+  if (scrubbable)
   {
-    // Reserve room on the right for the duration label and the speed dropdown (computed, not
-    // guessed, so long durations don't squeeze them).
     float t = static_cast<float>(this->AnimState.currentTime);
-    char timeLabel[32];
-    std::snprintf(timeLabel, sizeof(timeLabel), "/ %.2fs", tmax);
-    if (dataFont != nullptr)
-    {
-      ImGui::PushFont(dataFont, 0.f);
-    }
-    const float rightW = ImGui::CalcTextSize(timeLabel).x + speedW + loopW +
-      3.f * itemGap + 8_dp * scale;
-    if (dataFont != nullptr)
-    {
-      ImGui::PopFont();
-    }
-    const float scrubW = std::max(40_dp * scale, ImGui::GetContentRegionAvail().x - rightW);
-    ImGui::SetNextItemWidth(scrubW);
-    centerNextY(G3DTheme::Size::Control * scale);
     // The current time is the timeline's primary readout — full-strength text (emphasizeValue);
     // tickUnit 1 = faint one-second ruler marks under the track.
     if (G3DWidgets::SliderFloat("##g3d.anim.scrub", &t, tmin, tmax, "%.2fs", true, 1.f))
@@ -3513,10 +3560,9 @@ void vtkF3DImguiActor::DrawTimelineContent()
       std::snprintf(buf, sizeof(buf), "%.6g", t);
       this->SendCommand(std::string("load_animation_time ") + buf);
     }
-    ImGui::SameLine();
 
     // Total duration label — secondary to the current time, hence muted, on the shared midline.
-    centerNextY(ImGui::GetTextLineHeight());
+    G3DWidgets::FieldRowNext();
     if (dataFont != nullptr)
     {
       ImGui::PushFont(dataFont, 0.f);
@@ -3526,30 +3572,21 @@ void vtkF3DImguiActor::DrawTimelineContent()
     {
       ImGui::PopFont();
     }
-    ImGui::SameLine();
   }
   else
   {
-    // Zero-length clip: every channel has a single keyframe at the same instant, so the time range
-    // is degenerate ([t, t]) and there is nothing to scrub — common for static-pose / reference
-    // clips exported from choreography tools. Put a muted one-liner where the track would be (and
-    // drop the meaningless "/ 0.00s") so the gap reads as "intentionally nothing to play" rather
-    // than a broken control. Prose, so the UI font — not the mono timecode font.
-    const float startX = ImGui::GetCursorScreenPos().x;
-    const float hintW =
-      std::max(40_dp * scale, ImGui::GetContentRegionAvail().x - speedW - loopW - itemGap);
-    centerNextY(ImGui::GetTextLineHeight());
-    ImGui::TextColored(
-      G3DTheme::TextMuted(), "%s", loc.Translate("Static pose (no duration)").c_str());
+    // Prose, so the UI font — not the mono timecode font. Cut back to its slot on a narrow bar.
+    const std::string hint = loc.Translate("Static pose (no duration)");
+    const float slotW = G3DWidgets::FieldRowSlotRect().w;
+    G3DWidgets::TextEllipsis(ImGui::GetWindowDrawList(), ImGui::GetCursorScreenPos(), slotW,
+      G3DTheme::U32(G3DTheme::TextMuted()), hint.c_str());
+    ImGui::Dummy(ImVec2(std::min(ImGui::CalcTextSize(hint.c_str()).x, slotW), lineH));
     if (ImGui::IsItemHovered())
     {
       G3DWidgets::SetTooltip(
         loc.Translate("All keyframes are at the same instant, so there is nothing to scrub.")
           .c_str());
     }
-    ImGui::SameLine();
-    // Keep the speed dropdown right-anchored exactly where it sits in the scrubber layout.
-    ImGui::SetCursorScreenPos(ImVec2(startX + hintW, ImGui::GetCursorScreenPos().y));
   }
 
   // Playback speed: stepped dropdown instead of a tiny free slider — the presets cover animation
@@ -3558,8 +3595,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
   const float speed = this->ReadOptionFloat("scene.animation.speed_factor", 1.f);
   char speedLabel[16];
   std::snprintf(speedLabel, sizeof(speedLabel), "%.3g\xc3\x97", speed); // e.g. "1×"
-  ImGui::SetNextItemWidth(speedW);
-  centerNextY(G3DTheme::Size::Control * scale);
+  G3DWidgets::FieldRowNext();
   if (G3DWidgets::BeginSelect("##g3d.anim.speed", speedLabel))
   {
     static constexpr float speedPresets[] = { 0.1f, 0.25f, 0.5f, 1.f, 2.f, 4.f };
@@ -3581,13 +3617,13 @@ void vtkF3DImguiActor::DrawTimelineContent()
   // recessed "Well" style: it reads as an on/off switch in both states, not a momentary action.
   // Default on keeps a glanced-at preview moving; off lets the clip play through once and rest on
   // its final pose (engine side: animationManager gates the wrap on scene.animation.loop).
-  ImGui::SameLine();
-  centerNextY(G3DTheme::Size::IconButton * scale);
+  G3DWidgets::FieldRowNext();
   if (G3DWidgets::IconButton("##g3d.anim.loop", G3DIconId::Repeat, G3DTheme::Size::IconButton,
         false, loc.Translate("Loop").c_str(), loopOn, G3DWidgets::IconOnStyle::Well))
   {
     this->SendCommand("toggle scene.animation.loop");
   }
+  G3DWidgets::EndFieldRow();
 }
 
 //----------------------------------------------------------------------------
@@ -5287,48 +5323,62 @@ void vtkF3DImguiActor::RenderNotificationCenter()
   }
 
   //--------------------------------------------------------------------------
-  // Pinned toolbar: the filter on the left, clear on the right. Stays put while the list scrolls.
+  // Pinned toolbar: the filter on the left, the two actions on the right. Stays put while the list
+  // scrolls. One field row: the actions are laid out at the width they measure, and on a card too
+  // narrow for all three "Open console" gives way instead of sliding over the filter.
   //--------------------------------------------------------------------------
   const std::string allTip = loc.Translate("All messages");
   const std::string problemTip = loc.Translate("Warnings and errors only");
-  const ImVec2 barP0 = ImGui::GetCursorScreenPos();
-  const float barW = ImGui::GetContentRegionAvail().x;
+  const std::string clearLabel = loc.Translate("Clear all");
+  const std::string consoleLabel = loc.Translate("Open console");
   const G3DWidgets::SegmentedIconItem filterSegs[2] = {
     { G3DIconId::Layers, allTip.c_str(), !this->Pimpl->NotifCenterProblemsOnly, false },
     { G3DIconId::Warning, problemTip.c_str(), this->Pimpl->NotifCenterProblemsOnly, false },
   };
-  const int seg = G3DWidgets::SegmentedIcon("##nc.filter", filterSegs, 2);
-  if (seg >= 0)
-  {
-    this->Pimpl->NotifCenterProblemsOnly = (seg == 1);
-  }
-
-  const std::string clearLabel = loc.Translate("Clear all");
-  const std::string consoleLabel = loc.Translate("Open console");
   // Compact, like every other action that rides inside a strip rather than standing on its own:
   // these two sit in a toolbar sized for icon buttons, and a full-height button both overflows that
   // strip and outweighs the segmented filter it shares the row with.
   constexpr G3DWidgets::ButtonDensity kBarDensity = G3DWidgets::ButtonDensity::Compact;
-  const float clearW = G3DWidgets::ButtonWidth(clearLabel.c_str(), kBarDensity);
-  const float consoleW = G3DWidgets::ButtonWidth(consoleLabel.c_str(), kBarDensity);
-  const float barH = G3DTheme::Size::IconButton * scale;
-  // Centre on what the button actually measures, not on a size token it never honoured.
-  const float btnY = barP0.y + (barH - G3DWidgets::ButtonHeight(false, kBarDensity)) * 0.5f;
-  ImGui::SetCursorScreenPos(ImVec2(barP0.x + barW - clearW, btnY));
-  if (G3DWidgets::Button(clearLabel.c_str(), G3DWidgets::ButtonVariant::Ghost, kBarDensity))
+  const ImVec2 segSize = G3DWidgets::SegmentedIconSize(2);
+  const ImVec2 consoleSize = G3DWidgets::ButtonSize(consoleLabel.c_str(), kBarDensity);
+  const ImVec2 clearSize = G3DWidgets::ButtonSize(clearLabel.c_str(), kBarDensity);
+  const ImVec2 barP0 = ImGui::GetCursorScreenPos();
+  const float barW = ImGui::GetContentRegionAvail().x;
+  G3DWidgets::FieldRowDesc barDesc;
+  barDesc.minHeight = G3DTheme::Size::IconButton;
   {
-    center.ClearHistory();
-    this->Pimpl->NotifCenterOpen.clear();
+    using G3DWidgets::FieldSlot;
+    G3DWidgets::BeginFieldRow("##nc.toolbar",
+      { FieldSlot::Fixed(segSize.x, segSize.y), FieldSlot::Fill(),
+        FieldSlot::Fixed(consoleSize.x, consoleSize.y, 1),
+        FieldSlot::Fixed(clearSize.x, clearSize.y) },
+      barDesc);
   }
-  ImGui::SetCursorScreenPos(
-    ImVec2(barP0.x + barW - clearW - consoleW - G3DTheme::Spacing::Xs * scale, btnY));
-  if (G3DWidgets::Button(consoleLabel.c_str(), G3DWidgets::ButtonVariant::Ghost, kBarDensity))
+  if (G3DWidgets::FieldRowNext())
+  {
+    const int seg = G3DWidgets::SegmentedIcon("##nc.filter", filterSegs, 2);
+    if (seg >= 0)
+    {
+      this->Pimpl->NotifCenterProblemsOnly = (seg == 1);
+    }
+  }
+  G3DWidgets::FieldRowNext(); // the spacer between the filter and the actions
+  if (G3DWidgets::FieldRowNext() &&
+    G3DWidgets::Button(consoleLabel.c_str(), G3DWidgets::ButtonVariant::Ghost, kBarDensity))
   {
     // The console is the DEVELOPER face of the same information, the center is the user face. One
     // link between them, in this direction only.
     this->SendCommand("set ui.console true");
   }
-  ImGui::SetCursorScreenPos(ImVec2(barP0.x, barP0.y + barH));
+  if (G3DWidgets::FieldRowNext() &&
+    G3DWidgets::Button(clearLabel.c_str(), G3DWidgets::ButtonVariant::Ghost, kBarDensity))
+  {
+    center.ClearHistory();
+    this->Pimpl->NotifCenterOpen.clear();
+  }
+  G3DWidgets::EndFieldRow();
+  // The list starts one Sm below the toolbar itself, not below the item spacing that follows it.
+  ImGui::SetCursorScreenPos(ImVec2(barP0.x, barP0.y + G3DTheme::Size::IconButton * scale));
   ImGui::Dummy(ImVec2(barW, G3DTheme::Spacing::Sm * scale));
 
   //--------------------------------------------------------------------------
@@ -5393,39 +5443,62 @@ void vtkF3DImguiActor::RenderNotificationCenter()
         G3DTheme::U32(G3DTheme::SurfaceHover()), G3DTheme::Radius::Control * scale);
     }
 
-    float x = p0.x + rowPadX;
+    // The row is laid out before anything is drawn, by the same solver a field row uses: the
+    // disclosure chevron (its column kept when there is nothing to disclose, so titles align), the
+    // tone icon, the title filling the middle, then the repeat chip and the age stamp against the
+    // right edge — the title stops where they start instead of each being placed by hand.
+    const std::string age = RelativeTime(now - n.createdAt);
+    char chip[16] = "";
+    if (n.count > 1)
+    {
+      std::snprintf(chip, sizeof(chip), "x%d", std::min(n.count, 999));
+    }
+    enum
+    {
+      SLOT_TWISTY = 0,
+      SLOT_ICON,
+      SLOT_TITLE,
+      SLOT_CHIP, // present only for a repeated message; the age stamp is always the last slot
+    };
+    constexpr int kMaxSlots = SLOT_CHIP + 2;
+    G3DLayout::RowSlot slots[kMaxSlots];
+    slots[SLOT_TWISTY].width = twisty;
+    slots[SLOT_ICON].width = iconSize;
+    slots[SLOT_ICON].gapBefore = G3DTheme::Spacing::Xs * scale;
+    slots[SLOT_TITLE].width = 40_dp * scale;
+    slots[SLOT_TITLE].fill = true;
+    int slotCount = SLOT_CHIP;
+    if (chip[0] != '\0')
+    {
+      slots[slotCount++].width = G3DWidgets::BadgeWidth(chip);
+    }
+    const int ageSlot = slotCount++;
+    slots[ageSlot].width = G3DWidgets::CalcTextSizedPx(age.c_str(), G3DTheme::Type::Overline).x;
+    G3DLayout::RowPlace place[kMaxSlots];
+    G3DLayout::SolveRow(slots, slotCount, rowW - 2.f * rowPadX, G3DTheme::Spacing::Sm * scale,
+      place);
+    const float x0 = p0.x + rowPadX;
+
     if (expandable)
     {
       G3DIcon::Draw(dl, open ? G3DIconId::ChevronDown : G3DIconId::ChevronRight,
-        ImVec2(x + twisty * 0.5f, p0.y + rowH * 0.5f), twisty,
+        ImVec2(x0 + place[SLOT_TWISTY].x + twisty * 0.5f, p0.y + rowH * 0.5f), twisty,
         G3DTheme::U32(G3DTheme::TextSubtle()));
     }
-    x += twisty + G3DTheme::Spacing::Xs * scale;
-    G3DIcon::Draw(dl, G3DWidgets::ToneIcon(tone), ImVec2(x + iconSize * 0.5f, p0.y + rowH * 0.5f),
-      iconSize, G3DTheme::U32(toneCol));
-    x += iconSize + G3DTheme::Spacing::Sm * scale;
-
-    // Right cluster measured first, so the title knows where it has to stop.
-    const std::string age = RelativeTime(now - n.createdAt);
-    const float ageW = G3DWidgets::CalcTextSizedPx(age.c_str(), G3DTheme::Type::Overline).x;
-    float rightX = p0.x + rowW - rowPadX;
-    rightX -= ageW;
+    G3DIcon::Draw(dl, G3DWidgets::ToneIcon(tone),
+      ImVec2(x0 + place[SLOT_ICON].x + iconSize * 0.5f, p0.y + rowH * 0.5f), iconSize,
+      G3DTheme::U32(toneCol));
     G3DWidgets::TextSized(dl,
-      ImVec2(rightX, p0.y + (rowH - G3DTheme::Type::Overline * scale) * 0.5f),
+      ImVec2(x0 + place[ageSlot].x, p0.y + (rowH - G3DTheme::Type::Overline * scale) * 0.5f),
       G3DTheme::U32(G3DTheme::TextSubtle()), age.c_str(), G3DTheme::Type::Overline);
-    if (n.count > 1)
+    if (chip[0] != '\0')
     {
-      char chip[16];
-      std::snprintf(chip, sizeof(chip), "x%d", std::min(n.count, 999));
-      const float chipW = G3DWidgets::BadgeWidth(chip);
-      rightX -= chipW + G3DTheme::Spacing::Sm * scale;
-      ImGui::SetCursorScreenPos(ImVec2(rightX, p0.y + rowPadY - 2_dp * scale));
+      ImGui::SetCursorScreenPos(ImVec2(x0 + place[SLOT_CHIP].x, p0.y + rowPadY - 2_dp * scale));
       G3DWidgets::Badge(chip, G3DWidgets::ToneBadge(tone));
     }
-
-    const float titleW = std::max(40_dp * scale, rightX - x - G3DTheme::Spacing::Sm * scale);
-    if (G3DWidgets::TextEllipsis(dl, ImVec2(x, p0.y + rowPadY), titleW,
-          G3DTheme::U32(n.read ? G3DTheme::TextMuted() : G3DTheme::Text()), titleText.c_str()) &&
+    if (G3DWidgets::TextEllipsis(dl, ImVec2(x0 + place[SLOT_TITLE].x, p0.y + rowPadY),
+          place[SLOT_TITLE].w, G3DTheme::U32(n.read ? G3DTheme::TextMuted() : G3DTheme::Text()),
+          titleText.c_str()) &&
       hovered)
     {
       G3DWidgets::SetTooltip(titleText.c_str());

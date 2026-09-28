@@ -1417,6 +1417,40 @@
         gap: var(--s-2);
         min-width: 0;
       }
+      /* Field row (≡ G3DWidgets::BeginFieldRow / FieldRowNext / EndFieldRow): controls sharing one
+         line. Every child is a slot at the width its control measures; the one `fill` slot takes
+         what the fixed slots leave, so the slots after it end on the row's right edge; a `drop` slot
+         is the first to give way when the row runs out of room (a container query here, the row
+         solver on the desktop). Inside a property row it is the value column (.proprow > .v). */
+      .fieldrow {
+        min-width: 0;
+        min-height: var(--ctrl-h);
+        display: flex;
+        align-items: center;
+        gap: var(--s-1);
+        container-type: inline-size;
+      }
+      .proprow > .v > .fieldrow {
+        flex: 1;
+      }
+      .fieldrow > .fr-slot {
+        flex: none;
+        display: flex;
+        align-items: center;
+        min-width: 0;
+      }
+      .fieldrow > .fr-slot.fill {
+        flex: 1;
+      }
+      .fieldrow > .fr-slot.fill > * {
+        flex: 1;
+        min-width: 0;
+      }
+      @container (max-width: 260px) {
+        .fieldrow > .fr-slot.drop {
+          display: none;
+        }
+      }
       .inspector {
         max-width: 360px;
         background: var(--surface-1);
@@ -2441,6 +2475,8 @@
              collapse all; same footprint, only the direction flips. Chevrons match i-updown (45°). -->
         <symbol id="i-expand-all" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12" /><polyline points="7.5 7.5 12 3 16.5 7.5" /><polyline points="7.5 16.5 12 21 16.5 16.5" /></symbol>
         <symbol id="i-collapse-all" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12" /><polyline points="7.5 3 12 7.5 16.5 3" /><polyline points="7.5 21 12 16.5 16.5 21" /></symbol>
+        <!-- fit / frame to view (≡ G3DIconId::Fit): four corner brackets -->
+        <symbol id="i-fit" viewBox="0 0 24 24"><polyline points="5.3 9.6 5.3 5.3 9.6 5.3" /><polyline points="14.4 5.3 18.7 5.3 18.7 9.6" /><polyline points="5.3 14.4 5.3 18.7 9.6 18.7" /><polyline points="14.4 18.7 18.7 18.7 18.7 14.4" /></symbol>
         <!-- color picker: eyedropper (pipette) + format swap (chevrons up/down) -->
         <symbol id="i-eyedropper" viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9" /><path d="M3 21v-3l9-9" /><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z" /></symbol>
         <symbol id="i-updown" viewBox="0 0 24 24"><polyline points="8 9 12 5 16 9" /><polyline points="8 15 12 19 16 15" /></symbol>
@@ -2484,6 +2520,7 @@
         <a href="#iconbuttons">图标按钮 / FAB</a>
         <a href="#toolgroup">工具组</a>
         <a href="#inputs">输入框 / 选择</a>
+        <a href="#fieldrow">字段行</a>
         <a href="#toggles">开关 / 复选 / 分段</a>
         <a href="#sliders">滑块</a>
         <a href="#colorpicker">颜色选择器</a>
@@ -2842,6 +2879,26 @@
                 <div class="hint">cmaps= 每项渐变条 · 触发器随选中回填</div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- ===================== FIELD ROW ===================== -->
+        <section class="block" id="fieldrow">
+          <h2>字段行 <span class="tag-impl">≈G3DWidgets::BeginFieldRow</span></h2>
+          <p class="desc">
+            同一行里的几个控件：每格取控件自己测出的宽度，唯一的 <code>fill</code> 格占满其余，其后的格贴住行尾；带
+            <code>drop</code> 的格在放不下时最先让出。桌面端同一帧里先量后画（<code>G3DLayout::SolveRow</code>），调用方不再按令牌手算预留宽度——
+            令牌是逻辑长度、预留要的是物理宽度，二者一混就是双重缩放或漏缩放。
+          </p>
+          <p class="uses"><b>组合</b>任意控件都可做格：输入框 <code>g3d-input</code>、滑块 <code>g3d-slider</code>、图标按钮 <code>g3d-iconbtn</code>、分段 <code>g3d-segmented</code>、按钮 <code>g3d-btn</code>；空的 <code>fill</code> 格是弹簧；放进属性行 <code>g3d-proprow</code> 就是它的值列。</p>
+          <div class="panel stack" style="max-width: 420px">
+            <div class="state-label">场景树工具栏：搜索框占满 + 两个图标按钮</div>
+            <g3d-fieldrow><g3d-input fill ic="search" ph="搜索…"></g3d-input><g3d-iconbtn n="expand-all"></g3d-iconbtn><g3d-iconbtn n="collapse-all"></g3d-iconbtn></g3d-fieldrow>
+            <div class="state-label">检视器「范围」行：属性行的值列 = 区间滑块占满 + 自动范围按钮</div>
+            <g3d-proprow k="范围"><g3d-fieldrow><g3d-slider fill val="60"></g3d-slider><g3d-iconbtn n="fit"></g3d-iconbtn></g3d-fieldrow></g3d-proprow>
+            <div class="state-label">消息中心工具栏：卡片窄时「打开控制台」（drop）先让出，而不是压到筛选上</div>
+            <g3d-fieldrow><g3d-segmented val="全部" opts="全部|问题"></g3d-segmented><span fill></span><g3d-btn v="ghost" sz="sm" drop>打开控制台</g3d-btn><g3d-btn v="ghost" sz="sm">全部清除</g3d-btn></g3d-fieldrow>
+            <div style="width: 240px"><g3d-fieldrow><g3d-segmented val="全部" opts="全部|问题"></g3d-segmented><span fill></span><g3d-btn v="ghost" sz="sm" drop>打开控制台</g3d-btn><g3d-btn v="ghost" sz="sm">全部清除</g3d-btn></g3d-fieldrow></div>
           </div>
         </section>
 
@@ -3470,6 +3527,17 @@
 
         // Each entry renders ONE component to its canonical class-based markup.
         const R = {
+          // — layout that reads its children's marks: expanded FIRST, while they are still
+          // placeholders (a child's own renderer drops attributes it does not know) —
+          // Controls sharing one line (≡ G3DWidgets::BeginFieldRow): every child becomes a slot at
+          // its own width; `fill` marks the one that takes the rest, `drop` the first to give way.
+          "g3d-fieldrow": (el) => {
+            const slots = [...el.children]
+              .map((c) => `<span class="${cls("fr-slot", has(c, "fill") ? "fill" : "", has(c, "drop") ? "drop" : "")}">${c.outerHTML}</span>`)
+              .join("");
+            return `<div class="${cls("fieldrow", a(el, "cls"))}"${passData(el)}>${slots}</div>`;
+          },
+
           // — atoms —
           "g3d-icon": (el) => icon(a(el, "n"), a(el, "sz")),
           "g3d-spinner": () => `<span class="spinner"></span>`,

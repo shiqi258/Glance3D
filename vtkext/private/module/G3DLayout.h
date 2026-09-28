@@ -22,6 +22,7 @@
 #include "G3DUnits.h"
 
 #include <algorithm>
+#include <optional>
 
 namespace G3DLayout
 {
@@ -155,6 +156,136 @@ inline constexpr G3DDp BAR_RIGHT_W{ 300.f };
 inline Sizes DefaultBarSizes(G3DScale scale)
 {
   return Sizes{ BAR_TOP_H * scale, BAR_LEFT_W * scale, BAR_RIGHT_W * scale, BAR_BOTTOM_H * scale };
+}
+
+/// One slot of a row laid out by SolveRow. Physical px, like everything SolveRow reads and writes:
+/// the widths are what the controls measure at the current scale.
+struct RowSlot
+{
+  float width = 0.f;  ///< a fixed slot's width; the narrowest the fill slot may get
+  bool fill = false;  ///< takes whatever the fixed slots leave (the first fill slot; one per row)
+  int drop = 0;       ///< > 0: may be left out when the row is too narrow, the highest first
+  std::optional<float> gapBefore; ///< gap to the previous shown slot (unset: the row's gap)
+};
+
+/// Where SolveRow put one slot, relative to the row's left edge.
+struct RowPlace
+{
+  float x = 0.f;
+  float w = 0.f;
+  bool shown = true; ///< false: dropped for lack of room — leave the slot's control out
+};
+
+/**
+ * Lay @p count slots out left to right in a row @p width wide, @p gap apart, writing one RowPlace
+ * per slot to @p out.
+ *
+ * The fill slot takes the room the fixed slots and gaps leave, and the fixed slots after it are
+ * placed from the row's right edge. When that room is below the fill slot's minimum (or, with no
+ * fill slot, when the fixed slots do not fit at all), droppable slots are left out one at a time —
+ * highest `drop` first, the later slot on a tie — until the rest fits. If nothing droppable is
+ * left, the fill slot keeps its minimum and the row flows on past @p width rather than squeezing a
+ * control into an unusable sliver or stacking the trailing slots over it; the return value is then
+ * false.
+ *
+ * Pure geometry: the FieldRow widget and hand-drawn rows (a message list row) share it, and it is
+ * unit tested without ImGui.
+ */
+inline bool SolveRow(const RowSlot* slots, int count, float width, float gap, RowPlace* out)
+{
+  int fillIndex = -1;
+  for (int i = 0; i < count; ++i)
+  {
+    out[i] = RowPlace{};
+    if (slots[i].fill && fillIndex < 0)
+    {
+      fillIndex = i;
+    }
+  }
+  const auto gapBefore = [&](int i) { return slots[i].gapBefore.value_or(gap); };
+  const float fillMin = fillIndex >= 0 ? slots[fillIndex].width : 0.f;
+
+  float room = 0.f;
+  bool fits = false;
+  for (;;)
+  {
+    float used = 0.f;
+    bool first = true;
+    for (int i = 0; i < count; ++i)
+    {
+      if (!out[i].shown)
+      {
+        continue;
+      }
+      if (!first)
+      {
+        used += gapBefore(i);
+      }
+      first = false;
+      if (i != fillIndex)
+      {
+        used += slots[i].width;
+      }
+    }
+    room = width - used;
+    fits = room >= fillMin;
+    if (fits)
+    {
+      break;
+    }
+    int victim = -1;
+    for (int i = 0; i < count; ++i)
+    {
+      if (out[i].shown && i != fillIndex && slots[i].drop > 0 &&
+        (victim < 0 || slots[i].drop >= slots[victim].drop))
+      {
+        victim = i;
+      }
+    }
+    if (victim < 0)
+    {
+      break;
+    }
+    out[victim].shown = false;
+  }
+
+  float x = 0.f;
+  bool first = true;
+  for (int i = 0; i < count; ++i)
+  {
+    if (!out[i].shown)
+    {
+      out[i].x = x;
+      continue;
+    }
+    if (!first)
+    {
+      x += gapBefore(i);
+    }
+    first = false;
+    out[i].x = x;
+    out[i].w = i == fillIndex ? std::max(fillMin, room) : slots[i].width;
+    x += out[i].w;
+  }
+
+  // A row that fits anchors the slots after the fill to its right edge, measured from that edge:
+  // a trailing control ends exactly on it, and whatever the fill does not use (a control that
+  // rounds its width down to whole pixels) stays on the fill's side of the gap.
+  if (fits && fillIndex >= 0)
+  {
+    float right = width;
+    for (int i = count - 1; i > fillIndex; --i)
+    {
+      if (!out[i].shown)
+      {
+        continue;
+      }
+      right -= out[i].w;
+      out[i].x = right;
+      right -= gapBefore(i);
+    }
+  }
+  return fits;
 }
 
 /**
