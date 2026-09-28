@@ -193,7 +193,7 @@ f3d_test(NAME TestInteractionG3DArraysClickMeta DATA f3d.glb ARGS -Dui.control_p
 f3d_test(NAME TestInteractionConsoleOpen DATA f3d.glb INTERACTION UI) #Escape
 f3d_test(NAME TestInteractionConsoleOpenExit DATA f3d.glb REGEXP "Interactor has been stopped" INTERACTION NO_BASELINE UI) #Escape;exit;Return
 f3d_test(NAME TestInteractionConsoleOpenWarningKeyboard DATA f3d.glb ARGS --position=0 INTERACTION UI) #Escape
-f3d_test(NAME TestInteractionConsoleOpenWarningClick DATA f3d.glb ARGS --position=0 INTERACTION UI) #Click badge
+f3d_test(NAME TestInteractionConsoleOpenWarningClick DATA f3d.glb ARGS --position=0 INTERACTION UI) #Bell - opens the message center on the warning
 f3d_test(NAME TestInteractionConsoleToggleGrid DATA f3d.glb INTERACTION UI) #Escape;toggle render.grid.enable;Return;Escape
 f3d_test(NAME TestInteractionConsoleInvalidCommand DATA f3d.glb INTERACTION UI) #Escape;foo;Return
 f3d_test(NAME TestInteractionConsoleInvalidOption DATA f3d.glb INTERACTION UI) #Escape;toggle foo;Return
