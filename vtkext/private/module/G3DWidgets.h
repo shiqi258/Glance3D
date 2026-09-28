@@ -1083,6 +1083,13 @@ void SetTraceSink(void (*sink)(const char*));
 /// integrations (e.g. the desktop screen sampler) share the widget library's observation channel.
 void Trace(const char* fmt, ...);
 
+/// Forget everything the library carries from frame to frame: per-widget animation and interaction
+/// state, the frame clock, and any Begin/End stack a torn-down context left open. The state is
+/// keyed by ImGuiID and frame number, both of which restart in a new context, so a host that
+/// builds one context after another (the headless widget tests do, once per UI scale) calls this
+/// between them. The host preferences (reduced motion, data font, trace sink) are kept.
+void ResetSession();
+
 } // namespace G3DWidgets
 
 #endif

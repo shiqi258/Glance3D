@@ -7043,4 +7043,35 @@ void Trace(const char* fmt, ...)
   gTraceSink(buf);
 }
 
+//----------------------------------------------------------------------------
+void ResetSession()
+{
+  gAnims.clear();
+  gScrollAnims.clear();
+  gClock = G3DFrameClock{};
+  gFrame = -1;
+  gDt = 0.0;
+  gCardStack.clear();
+  gCardHasBg = false;
+  gCardAlpha = 1.f;
+  gCardClosing = false;
+  gScrollRegionInset.clear();
+  gChannelDepth = 0;
+  gCollapseStack.clear();
+  gCollapseBodyH.clear();
+  gAccordionStack.clear();
+  gToasts.clear();
+  gCountPulses.clear();
+  gTreeStack.clear();
+  gRowStack.clear();
+  gColorPickers.clear();
+  gEyedrop = EyedropState{};
+  gEyedropCancel = false;
+  gPropRows.clear();
+  gSelects.clear();
+  gSelectMenuStack.clear();
+  gContextMenus.clear();
+  gContextMenuStack.clear();
+}
+
 } // namespace G3DWidgets

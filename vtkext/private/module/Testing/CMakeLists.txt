@@ -43,6 +43,8 @@ if(F3D_MODULE_UI)
   list(APPEND test_sources TestG3DIconRaster.cxx)
   # Pure models of the UI-only overlay code (headers that ship with the UI module).
   list(APPEND test_sources TestG3DLayerStack.cxx TestG3DPlacement.cxx)
+  # Widgets drawn in a headless ImGui context built like the app's (G3DWidgetHarness.h).
+  list(APPEND test_sources TestG3DMeasureTwins.cxx)
 endif()
 
 vtk_add_test_cxx(vtkextPrivateTests tests
