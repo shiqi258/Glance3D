@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 
 class vtkRenderWindow;
 class vtkF3DMetaImporter;
@@ -143,6 +144,15 @@ public:
    * change that never got the full render it needed. Backs g3d::frame::presented.
    */
   image CapturePresentedImage();
+
+  /**
+   * Implementation only API.
+   * Whether a UI-only frame would show a stale scene, i.e. whether the next frame has to be a full
+   * render: the options changed since the last full render, the renderer has configuration only a
+   * full render applies, or something the 3D layers were rendered from changed (see RENDER
+   * INVALIDATION in interactor_impl.h). @p reason names what, for the log.
+   */
+  bool IsG3DFrameStale(std::string& reason);
 
   /**
    * Implementation only API.

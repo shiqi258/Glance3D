@@ -44,6 +44,7 @@ if(F3D_MODULE_UI)
     TestSDKInteractorDocumentation.cxx
     TestSDKMultiOptions.cxx
     TestSDKNotification.cxx
+    TestSDKRenderInvalidation.cxx
     TestSDKStartInteractor.cxx
     TestSDKTriggerInteractions.cxx
     )
@@ -191,6 +192,9 @@ if(F3D_MODULE_UI)
   # It opens the cheat sheet and captures a few frames later: no fade may be in flight.
   set_tests_properties(libf3d::TestSDKTriggerInteractions PROPERTIES
     ENVIRONMENT "CTEST_G3D_REDUCED_MOTION=1")
+  # It compares presented frames with fresh renders: nothing may move on its own between the two.
+  set_tests_properties(libf3d::TestSDKRenderInvalidation PROPERTIES
+    ENVIRONMENT "CTEST_G3D_REDUCED_MOTION=1;CTEST_F3D_FIXED_CLOCK=1")
   if(NOT F3D_TESTING_ENABLE_LONG_TIMEOUT_TESTS)
     set_tests_properties(libf3d::TestSDKDynamicHDRI PROPERTIES DISABLED ON)
     set_tests_properties(libf3d::TestSDKTriggerInteractions PROPERTIES DISABLED ON)

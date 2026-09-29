@@ -5,6 +5,7 @@ F3D_SILENT_WARNING_DECL(4996, "deprecated-declarations")
 #include "options.h"
 F3D_SILENT_WARNING_POP()
 
+#include "g3dOptionsDiff.h"
 #include "options_generated.h"
 #include "options_tools.h"
 
@@ -243,4 +244,10 @@ options::no_value_exception::no_value_exception(const std::string& what)
   : exception(what)
 {
 }
+}
+
+//----------------------------------------------------------------------------
+std::string_view g3d::firstDifferentOption(const f3d::options& a, const f3d::options& b)
+{
+  return f3d::options_generated::firstDifference(a, b);
 }

@@ -20,13 +20,18 @@
 #include <vtkCallbackCommand.h>
 #include <vtkLight.h>
 #include <vtkOpenGLRenderer.h>
+#include <vtkSmartPointer.h>
+#include <vtkTimeStamp.h>
 #include <vtkVersion.h>
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -622,6 +627,43 @@ public:
    */
   void SetUIInteractionStarted(bool started);
 
+  /**
+   * @name Glance3D render invalidation (RENDER INVALIDATION in library/private/interactor_impl.h)
+   *
+   * A UI-only frame re-blends the 3D layers the last full frame left, so it is only honest while
+   * nothing they were rendered from has changed. These answer that from the scene itself, which is
+   * what spares every code path that changes the scene from having to ask for a full render.
+   */
+  ///@{
+  /**
+   * Whether the cached 3D layers are older than what feeds them: the real camera, the lights, the
+   * set of props and each 3D prop with its mapper and input, the lighting environment, the render
+   * pass chain and the viewport. Compared with a stamp taken at the end of the last full frame, raw
+   * or not. Render() upgrades a UI-only frame asked for while this is true. @p reason, when given,
+   * names the first input found changed.
+   */
+  bool IsG3DSceneLayerStale(std::string* reason = nullptr);
+
+  /**
+   * Whether work that only a full render through window_impl applies is waiting: a *Configured flag
+   * reset since UpdateActors() last ran, or a scene tree selection the face highlight has not caught
+   * up with. A raw render (a camera drag, WM_PAINT) redraws the layers but applies none of this.
+   */
+  bool HasPendingG3DUpdates(std::string* reason = nullptr);
+
+  /// Frames rendered so far, for tests and diagnostics (g3d::frame::renderStats).
+  struct G3DRenderStats
+  {
+    std::uint64_t full = 0;     ///< the 3D layers were rendered
+    std::uint64_t uiOnly = 0;   ///< the cached layers were re-blended under a fresh UI
+    std::uint64_t upgraded = 0; ///< UI-only requests rendered in full because the layers were stale
+  };
+  const G3DRenderStats& GetG3DRenderStats() const
+  {
+    return this->G3DStats;
+  }
+  ///@}
+
 private:
   vtkF3DRenderer();
   ~vtkF3DRenderer() override;
@@ -810,7 +852,61 @@ private:
   vtkProp3D* FaceHighlightProp = nullptr;
   int FaceHighlightFaceId = -1;
   vtkMTimeType FaceHighlightInputTime = 0;
+  /// The selection the highlight was last updated for, which HasPendingG3DUpdates compares against.
+  const G3DSceneGraph* FaceHighlightGraph = nullptr;
+  int FaceHighlightSelection = -1;
   ///@}
+
+  /**
+   * What the cached 3D layers were rendered from, taken at the end of the last full frame (see
+   * IsG3DSceneLayerStale). VTK objects count as changed when modified after Time, the rule
+   * vtkRenderer's own backing store uses; renderer settings are compared by value, since they live
+   * on the renderer, whose MTime moves every frame (SetTotalTime, and the background and viewport
+   * the passes save and restore).
+   */
+  struct G3DSceneLayerSnapshot
+  {
+    vtkTimeStamp Time;
+    vtkCamera* Camera = nullptr;
+    bool ImageBasedLighting = false;
+    const void* EnvironmentTexture = nullptr;
+    double EnvironmentUp[3] = { 0.0, 0.0, 0.0 };
+    double EnvironmentRight[3] = { 0.0, 0.0, 0.0 };
+    std::uint64_t Passes = 0;
+    double Viewport[4] = { 0.0, 0.0, 0.0, 0.0 };
+    int Size[2] = { 0, 0 };
+
+    /// A 3D prop and what it draws, resolved once here so a check only reads MTimes (resolving a
+    /// mapper's input goes through its executive, which costs more than the reads themselves).
+    struct Watched
+    {
+      vtkSmartPointer<vtkProp> Prop;
+      vtkSmartPointer<vtkObject> Mapper;
+      vtkSmartPointer<vtkObject> Input;
+    };
+    std::vector<Watched> Props;
+  };
+  void TakeG3DSceneLayerSnapshot();
+
+  /// The superclass render bracketed by the GPU timer that feeds the FPS counter.
+  void RenderTimed(bool uiOnly);
+
+  /**
+   * One bit per *Configured flag that UpdateActors() applies to the 3D layers, set while configured.
+   * With @p names, also lists the flags that are reset now but set in @p reference.
+   */
+  std::uint32_t ComputeG3DConfiguredMask(
+    std::string* names = nullptr, std::uint32_t reference = 0) const;
+
+  G3DSceneLayerSnapshot G3DSnapshot;
+  bool G3DHasSnapshot = false;
+  /// Where the next check resumes scanning G3DSnapshot.Props (see IsG3DSceneLayerStale).
+  std::size_t G3DWatchCursor = 0;
+  /// Bumped whenever ConfigureRenderPasses installs a new chain, whose layers were never rendered.
+  std::uint64_t G3DRenderPassEpoch = 0;
+  /// The configured flags as UpdateActors() last left them.
+  std::uint32_t G3DConfiguredMask = 0;
+  G3DRenderStats G3DStats;
 
   // Control-panel "push": each frame the renderer viewport is driven to the central rect between the
   // docked bars (full window when the panel is closed). ControlPanelViewport caches the last applied

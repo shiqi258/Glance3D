@@ -60,6 +60,18 @@ option_variant_t get(const options& opt, std::string_view name)
 
 //----------------------------------------------------------------------------
 /**
+ * Generated method (Glance3D), see `g3d::firstDifferentOption`
+ */
+std::string_view firstDifference(const options& a, const options& b)
+{
+  // clang-format off
+  ${_options_differ};
+  // clang-format on
+  return {};
+}
+
+//----------------------------------------------------------------------------
+/**
  * Generated method, see `options::getNames`
  */
 std::vector<std::string> getNames()

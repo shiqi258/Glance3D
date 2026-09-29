@@ -5,6 +5,7 @@
 #include "vtkF3DRenderer.h"
 #include "vtkF3DStochasticTransparentPass.h"
 #include "vtkF3DTAAPass.h"
+#include "vtkF3DUserEvents.h"
 
 #include <vtkBoundingBox.h>
 #include <vtkCameraPass.h>
@@ -19,6 +20,7 @@
 #include <vtkOpenGLRenderWindow.h>
 #include <vtkOpenGLShaderCache.h>
 #include <vtkOpenGLState.h>
+#include <vtkOutputWindow.h>
 #include <vtkOverlayPass.h>
 #include <vtkProp.h>
 #include <vtkRenderPassCollection.h>
@@ -94,7 +96,7 @@ void vtkF3DRenderPass::Initialize(const vtkRenderState* s)
     {
       this->BackgroundProps.push_back(prop);
     }
-    else if (vtkProp3D::SafeDownCast(prop))
+    else if (vtkF3DRenderPass::IsG3DSceneLayerProp(prop))
     {
       // armature
       vtkInformation* info = prop->GetPropertyKeys();
@@ -273,6 +275,15 @@ void vtkF3DRenderPass::Render(const vtkRenderState* s)
   vtkRenderer* r = s->GetRenderer();
   vtkInformation* info = r->GetInformation();
   bool uiOnly = info->Has(vtkF3DRenderPass::RENDER_UI_ONLY());
+  if (uiOnly && !this->HasReusableLayers(s))
+  {
+    // Nothing to re-blend: render the layers instead of compositing garbage or a stretched old
+    // image. vtkF3DRenderer normally upgrades such a frame before it gets here (its stamp covers the
+    // chain and the viewport), so reaching this means the stamp missed an input.
+    uiOnly = false;
+    vtkOutputWindow::GetInstance()->InvokeEvent(vtkF3DUserEvents::TraceEvent,
+      const_cast<char*>("[Trace][render.stale] UI-only frame with no reusable layers, rendered"));
+  }
 
   r->GetBackground(bgColor);
 
@@ -310,6 +321,47 @@ void vtkF3DRenderPass::Render(const vtkRenderState* s)
   this->Blend(s);
 
   this->NumberOfRenderedProps = this->MainPass->GetNumberOfRenderedProps();
+}
+
+// ----------------------------------------------------------------------------
+bool vtkF3DRenderPass::IsG3DSceneLayerProp(vtkProp* prop)
+{
+  // The skybox is a vtkProp3D too. Anything else (the ImGui actor, 2D actors) is UI.
+  return vtkProp3D::SafeDownCast(prop) != nullptr;
+}
+
+// ----------------------------------------------------------------------------
+bool vtkF3DRenderPass::HasReusableLayers(const vtkRenderState* s) const
+{
+  // The size rule of vtkFramebufferPass::Render, which is what sized the textures.
+  int width = 0;
+  int height = 0;
+  if (s->GetFrameBuffer() == nullptr)
+  {
+    int x = 0;
+    int y = 0;
+    s->GetRenderer()->GetTiledSizeAndOrigin(&width, &height, &x, &y);
+  }
+  else
+  {
+    int size[2] = { 0, 0 };
+    s->GetWindowSize(size);
+    width = size[0];
+    height = size[1];
+  }
+
+  for (vtkFramebufferPass* pass :
+    { this->BackgroundPass.Get(), this->MainPass.Get(), this->MainOnTopPass.Get() })
+  {
+    vtkTextureObject* texture = pass != nullptr ? pass->GetColorTexture() : nullptr;
+    if (texture == nullptr || texture->GetHandle() == 0 ||
+      static_cast<int>(texture->GetWidth()) != width ||
+      static_cast<int>(texture->GetHeight()) != height)
+    {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ----------------------------------------------------------------------------

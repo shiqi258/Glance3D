@@ -17,9 +17,12 @@
 #include "vtkF3DPolyDataMapper.h"
 #include "vtkF3DRenderPass.h"
 #include "vtkF3DSolidBackgroundPass.h"
+#include "vtkF3DUserEvents.h"
 #include "vtkF3DUserRenderPass.h"
 #include "vtkG3DNodeMetadata.h"
 
+#include <vtkAbstractVolumeMapper.h>
+#include <vtkActor.h>
 #include <vtkAxesActor.h>
 #include <vtkBoundingBox.h>
 #include <vtkCamera.h>
@@ -40,6 +43,7 @@
 #include <vtkLightCollection.h>
 #include <vtkLightKit.h>
 #include <vtkMath.h>
+#include <vtkMapper.h>
 #include <vtkMathUtilities.h>
 #include <vtkMatrix4x4.h>
 #include <vtkMultiBlockDataSet.h>
@@ -52,12 +56,14 @@
 #include <vtkOpenGLState.h>
 #include <vtkOpenGLTexture.h>
 #include <vtkOrientationMarkerWidget.h>
+#include <vtkOutputWindow.h>
 #include <vtkPBRLUTTexture.h>
 #include <vtkPNGReader.h>
 #include <vtkPiecewiseFunction.h>
 #include <vtkPixelBufferObject.h>
 #include <vtkPointData.h>
 #include <vtkPolyData.h>
+#include <vtkPropCollection.h>
 #include <vtkProperty.h>
 #include <vtkRenderWindow.h>
 #include <vtkRenderWindowInteractor.h>
@@ -69,12 +75,14 @@
 #include <vtkTable.h>
 #include <vtkTextActor.h>
 #include <vtkTextProperty.h>
+#include <vtkTexture.h>
 #include <vtkTextureObject.h>
 #include <vtkThreshold.h>
 #include <vtkToneMappingPass.h>
 #include <vtkTransform.h>
 #include <vtkUniforms.h>
 #include <vtkVersion.h>
+#include <vtkVolume.h>
 #include <vtkVolumeProperty.h>
 #include <vtkXMLImageDataReader.h>
 #include <vtkXMLImageDataWriter.h>
@@ -587,6 +595,7 @@ void vtkF3DRenderer::ConfigureRenderPasses()
   }
 #endif
   this->RenderPassesConfigured = true;
+  this->G3DRenderPassEpoch++;
 }
 
 //----------------------------------------------------------------------------
@@ -2221,6 +2230,11 @@ void vtkF3DRenderer::UpdateActors()
   }
 
   this->UpdateG3DFaceHighlight();
+
+  // What this pass left configured: a flag reset after this point is work waiting for the next one
+  // (HasPendingG3DUpdates). A flag this pass could not set does not count as waiting, so a flag some
+  // configuration never sets cannot make every frame look stale.
+  this->G3DConfiguredMask = this->ComputeG3DConfiguredMask();
 }
 
 //----------------------------------------------------------------------------
@@ -2229,6 +2243,9 @@ void vtkF3DRenderer::UpdateG3DFaceHighlight()
   // The already-bound view, not GetG3DSceneTreeView(): binding builds the scene graph, and a headless
   // render that never opens a tree should not pay for one just to find out nothing is selected.
   const G3DSceneGraph* graph = this->SceneTreeView.Graph();
+  // Recorded before any early return: HasPendingG3DUpdates compares the live selection against it.
+  this->FaceHighlightGraph = graph;
+  this->FaceHighlightSelection = graph != nullptr ? this->SceneTreeView.Selection() : -1;
   if (graph == nullptr)
   {
     return;
@@ -2323,20 +2340,59 @@ void vtkF3DRenderer::Render()
   // and the docked bars read the same eased fraction this frame.
   this->UpdateControlPanelPush();
 
+  // A UI-only frame asks to re-blend the layers the last full frame left. That is a request, not an
+  // order: if anything they were rendered from has changed since -- the push just above included --
+  // re-blending them would show a stale scene, so render them now. This is what lets every code
+  // path change the scene without having to remember to ask for a full render.
+  vtkInformation* info = this->GetInformation();
+  bool uiOnly = info->Has(vtkF3DRenderPass::RENDER_UI_ONLY()) != 0;
+  if (uiOnly)
+  {
+    std::string reason;
+    if (this->IsG3DSceneLayerStale(&reason))
+    {
+      info->Remove(vtkF3DRenderPass::RENDER_UI_ONLY());
+      uiOnly = false;
+      this->G3DStats.upgraded++;
+      const std::string trace = "[Trace][render.stale] UI-only frame rendered in full: " + reason;
+      vtkOutputWindow::GetInstance()->InvokeEvent(
+        vtkF3DUserEvents::TraceEvent, const_cast<char*>(trace.c_str()));
+    }
+  }
+  if (uiOnly)
+  {
+    this->G3DStats.uiOnly++;
+  }
+  else
+  {
+    this->G3DStats.full++;
+  }
+
   if (!this->TimerVisible)
   {
     this->Superclass::Render();
-    return;
+  }
+  else
+  {
+    this->RenderTimed(uiOnly);
   }
 
+  if (!uiOnly)
+  {
+    // Taken at the end, not the start: a full frame moves some of its own inputs (headlights follow
+    // the camera, mapper pipelines update, the grid toggles its bounds for the clipping range).
+    this->TakeG3DSceneLayerSnapshot();
+  }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DRenderer::RenderTimed(bool uiOnly)
+{
   auto cpuStart = std::chrono::high_resolution_clock::now();
   if (this->Timer == 0)
   {
     glGenQueries(1, &this->Timer);
   }
-
-  vtkInformation* info = this->GetInformation();
-  bool uiOnly = info->Get(vtkF3DRenderPass::RENDER_UI_ONLY());
 
 #if !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
   if (!uiOnly)
@@ -2366,6 +2422,228 @@ void vtkF3DRenderer::Render()
 
     this->UIActor->UpdateFpsValue(elapsedTime);
   }
+}
+
+//----------------------------------------------------------------------------
+void vtkF3DRenderer::TakeG3DSceneLayerSnapshot()
+{
+  G3DSceneLayerSnapshot& s = this->G3DSnapshot;
+
+  // The member, not GetActiveCamera(), which would create one. Outside Superclass::Render this is
+  // the real camera: the image processing passes swap in a deep copy only while they render.
+  s.Camera = this->ActiveCamera;
+  s.ImageBasedLighting = this->GetUseImageBasedLighting();
+  s.EnvironmentTexture = this->GetEnvironmentTexture();
+  std::copy_n(this->GetEnvironmentUp(), 3, s.EnvironmentUp);
+  std::copy_n(this->GetEnvironmentRight(), 3, s.EnvironmentRight);
+  s.Passes = this->G3DRenderPassEpoch;
+  std::copy_n(this->GetViewport(), 4, s.Viewport);
+  if (this->RenderWindow != nullptr)
+  {
+    const int* size = this->RenderWindow->GetSize();
+    s.Size[0] = size[0];
+    s.Size[1] = size[1];
+  }
+
+  // Every 3D prop, visible or not: hiding one is a change to that prop.
+  s.Props.clear();
+  vtkPropCollection* props = this->GetViewProps();
+  vtkCollectionSimpleIterator it;
+  vtkProp* prop;
+  for (props->InitTraversal(it); (prop = props->GetNextProp(it));)
+  {
+    if (!vtkF3DRenderPass::IsG3DSceneLayerProp(prop))
+    {
+      continue;
+    }
+    vtkAlgorithm* mapper = nullptr;
+    if (vtkActor* actor = vtkActor::SafeDownCast(prop))
+    {
+      mapper = actor->GetMapper();
+    }
+    else if (vtkVolume* volume = vtkVolume::SafeDownCast(prop))
+    {
+      mapper = volume->GetMapper();
+    }
+    vtkDataObject* input = nullptr;
+    if (mapper != nullptr && mapper->GetNumberOfInputPorts() > 0 &&
+      mapper->GetNumberOfInputConnections(0) > 0)
+    {
+      input = mapper->GetInputDataObject(0, 0);
+    }
+    s.Props.push_back({ prop, mapper, input });
+  }
+  this->G3DWatchCursor = 0;
+
+  // Last: whatever was read above is older than this.
+  s.Time.Modified();
+  this->G3DHasSnapshot = true;
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DRenderer::IsG3DSceneLayerStale(std::string* reason)
+{
+  const auto stale = [reason](const char* what)
+  {
+    if (reason != nullptr)
+    {
+      *reason = what;
+    }
+    return true;
+  };
+  if (!this->G3DHasSnapshot)
+  {
+    return stale("no full frame yet");
+  }
+
+  const G3DSceneLayerSnapshot& s = this->G3DSnapshot;
+  const vtkMTimeType time = s.Time.GetMTime();
+
+  // Cheap first: one object, or one value, each.
+  if (this->ActiveCamera != s.Camera ||
+    (this->ActiveCamera != nullptr && this->ActiveCamera->GetMTime() > time))
+  {
+    return stale("camera");
+  }
+  if (this->GetViewProps()->GetMTime() > time)
+  {
+    return stale("props added or removed");
+  }
+  vtkLightCollection* lights = this->GetLights();
+  bool lightsChanged = lights->GetMTime() > time;
+  vtkCollectionSimpleIterator lightIt;
+  vtkLight* light;
+  for (lights->InitTraversal(lightIt); !lightsChanged && (light = lights->GetNextLight(lightIt));)
+  {
+    lightsChanged = light->GetMTime() > time;
+  }
+  if (lightsChanged)
+  {
+    return stale("lights");
+  }
+  // An animation step or any importer-driven data update, in one read.
+  if (this->Importer != nullptr && this->Importer->GetUpdateMTime() > time)
+  {
+    return stale("scene data updated");
+  }
+  vtkTexture* environment = this->GetEnvironmentTexture();
+  if (this->GetUseImageBasedLighting() != s.ImageBasedLighting ||
+    environment != s.EnvironmentTexture || (environment != nullptr && environment->GetMTime() > time) ||
+    !std::equal(s.EnvironmentUp, s.EnvironmentUp + 3, this->GetEnvironmentUp()) ||
+    !std::equal(s.EnvironmentRight, s.EnvironmentRight + 3, this->GetEnvironmentRight()))
+  {
+    return stale("lighting environment");
+  }
+  if (this->G3DRenderPassEpoch != s.Passes)
+  {
+    return stale("render passes rebuilt");
+  }
+  const int* size = this->RenderWindow != nullptr ? this->RenderWindow->GetSize() : s.Size;
+  if (!std::equal(s.Viewport, s.Viewport + 4, this->GetViewport()) || size[0] != s.Size[0] ||
+    size[1] != s.Size[1])
+  {
+    return stale("viewport or window size");
+  }
+
+  // Then the props themselves, a bounded slice per check, round-robin: a large assembly is scanned
+  // over a few ticks instead of paying for thousands of props every one. Everything that changes
+  // props through the viewer (loads, options, animation, visibility) is caught above anyway; the
+  // scan is for code that reaches into a prop directly.
+  constexpr std::size_t budget = 512;
+  const std::size_t count = s.Props.size();
+  const std::size_t slice = std::min(count, budget);
+  for (std::size_t i = 0; i < slice; ++i)
+  {
+    const G3DSceneLayerSnapshot::Watched& w = s.Props[(this->G3DWatchCursor + i) % count];
+    if (w.Prop->GetMTime() > time || (w.Mapper != nullptr && w.Mapper->GetMTime() > time) ||
+      (w.Input != nullptr && w.Input->GetMTime() > time))
+    {
+      return stale("a prop, its mapper or its input");
+    }
+  }
+  this->G3DWatchCursor = count > 0 ? (this->G3DWatchCursor + slice) % count : 0;
+  return false;
+}
+
+//----------------------------------------------------------------------------
+std::uint32_t vtkF3DRenderer::ComputeG3DConfiguredMask(
+  std::string* names, std::uint32_t reference) const
+{
+  // What UpdateActors() and the lights pass configure for the 3D layers. The UI flags are left out
+  // on purpose: TextActorsConfigured, for one, is reset by the SetBackground every frame's passes
+  // call, and the UI is redrawn by UI-only frames anyway.
+  const std::pair<const char*, bool> flags[] = {
+    { "actors properties", this->ActorsPropertiesConfigured },
+    { "up direction", this->UpDirectionConfigured },
+    { "point sprites", this->PointSpritesConfigured },
+    { "coloring", this->ColoringConfigured },
+    { "coloring mappers", this->ColoringMappersConfigured },
+    { "point sprites mappers", this->ColoringPointSpritesMappersConfigured },
+    { "volume", this->VolumePropsAndMappersConfigured },
+    { "color transfer function", this->ColorTransferFunctionConfigured },
+    { "opacity transfer function", this->OpacityTransferFunctionConfigured },
+    { "normal glyphs", this->NormalGlyphsConfigured },
+    { "grid", this->GridConfigured },
+    { "grid axes", this->GridAxesConfigured },
+    { "axes", this->AxesActorConfigured },
+    { "render passes", this->RenderPassesConfigured },
+    { "light intensities", this->LightIntensitiesConfigured },
+    { "HDRI reader", this->HDRIReaderConfigured },
+    { "HDRI hash", this->HDRIHashConfigured },
+    { "HDRI texture", this->HDRITextureConfigured },
+    { "HDRI LUT", this->HDRILUTConfigured },
+    { "HDRI spherical harmonics", this->HDRISphericalHarmonicsConfigured },
+    { "HDRI specular", this->HDRISpecularConfigured },
+    { "HDRI skybox", this->HDRISkyboxConfigured },
+  };
+  static_assert(std::size(flags) <= 32);
+
+  std::uint32_t mask = 0;
+  for (std::size_t i = 0; i < std::size(flags); ++i)
+  {
+    const std::uint32_t bit = 1u << i;
+    if (flags[i].second)
+    {
+      mask |= bit;
+    }
+    else if (names != nullptr && (reference & bit) != 0)
+    {
+      *names += names->empty() ? "" : ", ";
+      *names += flags[i].first;
+    }
+  }
+  return mask;
+}
+
+//----------------------------------------------------------------------------
+bool vtkF3DRenderer::HasPendingG3DUpdates(std::string* reason)
+{
+  std::string names;
+  const std::uint32_t now =
+    this->ComputeG3DConfiguredMask(reason != nullptr ? &names : nullptr, this->G3DConfiguredMask);
+  if ((this->G3DConfiguredMask & ~now) != 0)
+  {
+    if (reason != nullptr)
+    {
+      *reason = "configuration waiting for UpdateActors (" + names + ")";
+    }
+    return true;
+  }
+
+  // Selection is view state the face highlight is built from, pulled in UpdateActors: a selection
+  // made since then is a highlight not drawn yet.
+  const G3DSceneGraph* graph = this->SceneTreeView.Graph();
+  if (graph != nullptr &&
+    (graph != this->FaceHighlightGraph ||
+      this->SceneTreeView.Selection() != this->FaceHighlightSelection))
+  {
+    if (reason != nullptr)
+    {
+      *reason = "scene tree selection";
+    }
+    return true;
+  }
+  return false;
 }
 
 //----------------------------------------------------------------------------

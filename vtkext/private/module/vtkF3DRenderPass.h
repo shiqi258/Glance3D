@@ -46,7 +46,20 @@ public:
   vtkF3DRenderPass(const vtkF3DRenderPass&) = delete;
   void operator=(const vtkF3DRenderPass&) = delete;
 
+  /**
+   * Set on the renderer's information to redraw only the UI, re-blending the 3D layers the last full
+   * frame left. A request, not an order: vtkF3DRenderer renders the frame in full when those layers'
+   * inputs changed since, and Render() does when they cannot be reused at all (see RENDER
+   * INVALIDATION in library/private/interactor_impl.h).
+   */
   static vtkInformationIntegerKey* RENDER_UI_ONLY();
+
+  /**
+   * Whether @p prop is drawn into the cached 3D layers (the skybox and every other vtkProp3D) rather
+   * than into the UI drawn over them. The one definition both the layer split below and
+   * vtkF3DRenderer's staleness stamp use, so they cannot disagree on what the layers hold.
+   */
+  static bool IsG3DSceneLayerProp(vtkProp* prop);
 
 protected:
   vtkF3DRenderPass() = default;
@@ -57,6 +70,12 @@ protected:
   void Initialize(const vtkRenderState* s);
 
   void Blend(const vtkRenderState* s);
+
+  /**
+   * Whether every layer texture exists at the size a render would give it now. A chain that never
+   * rendered its layers, or rendered them at another size, has nothing a UI-only frame could reuse.
+   */
+  bool HasReusableLayers(const vtkRenderState* s) const;
 
   bool ArmatureVisible = false;
   bool UseRaytracing = false;

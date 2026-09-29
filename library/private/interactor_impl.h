@@ -4,6 +4,30 @@
  *
  * A concrete implementation of interactor that hides the private API
  * See interactor.h for the class documentation
+ *
+ * RENDER INVALIDATION — the event loop, not whoever changed the scene, puts a change on screen.
+ *  - Each tick ends in one frame: a full render (window_impl::render: push the options, run
+ *    UpdateActors, render the 3D layers and the UI) or a UI-only frame, which re-blends the 3D layers
+ *    the last full frame left under a fresh UI. UI-only is the idle default: a viewer must not redraw
+ *    a heavy scene 30 times a second while nothing changes.
+ *  - A tick renders in full when asked (requestRender, a drained command, TAA, the control panel
+ *    sliding) OR when window_impl::IsG3DFrameStale finds the frame stale: the options differ from
+ *    those of the last full render, the renderer holds configuration only UpdateActors applies (a
+ *    reset *Configured flag, a new scene tree selection), or something the layers were rendered from
+ *    changed (vtkF3DRenderer::IsG3DSceneLayerStale: camera, lights, props with their mappers and
+ *    inputs, importer updates, lighting environment, pass chain, viewport). Such ticks are logged as
+ *    `[render.stale]`, with what changed.
+ *  - So changing the scene never needs a render request to show. requestRender() remains for state
+ *    the library cannot see, and commands still request one explicitly.
+ *  - UI-only is a request, not an order: vtkF3DRenderer renders a UI-only frame in full when the
+ *    layers are stale (input events redraw the UI between ticks), and vtkF3DRenderPass refuses to
+ *    re-blend layers that were never drawn or were drawn at another size.
+ *  - New state that shows in the 3D layers but is not a VTK object of the renderer, an option or a
+ *    *Configured flag has to be added to what IsG3DSceneLayerStale / HasPendingG3DUpdates check, or
+ *    it will not reach the screen by itself.
+ *  - The net: TestSDKRenderInvalidation (a change is on screen one tick later; idle ticks stay
+ *    UI-only, the regression that would quietly turn the viewer into a continuous renderer) and
+ *    `[render.stale]` in the log.
  */
 
 #ifndef f3d_interactor_impl_h
@@ -126,12 +150,6 @@ public:
    * This is called by the scene after initializing the up vector.
    */
   void ResetTemporaryUp();
-
-  /**
-   * Event loop being called automatically once the interactor is started
-   * First call the EventLoopUserCallback, then call render if requested.
-   */
-  void EventLoop();
 
   /**
    * Queue a command to be run on the next event loop. Commands accumulate in order — a UI click

@@ -76,6 +76,7 @@ function (f3d_generate_options)
   list(JOIN _options_lister ",\n  " _options_lister)
   list(JOIN _options_is_optional ";\n  else " _options_is_optional)
   list(JOIN _options_reset ";\n  else " _options_reset)
+  list(JOIN _options_differ ";\n  " _options_differ)
 
   configure_file(
     "${_f3d_generate_options_INPUT_PUBLIC_HEADER}"
@@ -211,6 +212,7 @@ function(_parse_json_option _top_json)
        list(APPEND _options_string_setter "if (name == \"${_option_name}\") opt.${_option_name} = options_tools::parse<${_option_actual_type}>(str)")
        list(APPEND _options_string_getter "if (name == \"${_option_name}\") return options_tools::format(opt.${_option_name}${_optional_getter})")
        list(APPEND _options_lister "\"${_option_name}\"")
+       list(APPEND _options_differ "if (!(a.${_option_name} == b.${_option_name})) return \"${_option_name}\"")
 
     else()
       # Group found, add in the struct and recurse
@@ -235,4 +237,5 @@ function(_parse_json_option _top_json)
   set(_options_lister ${_options_lister} PARENT_SCOPE)
   set(_options_is_optional ${_options_is_optional} PARENT_SCOPE)
   set(_options_reset ${_options_reset} PARENT_SCOPE)
+  set(_options_differ ${_options_differ} PARENT_SCOPE)
 endfunction()

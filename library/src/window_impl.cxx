@@ -2,6 +2,7 @@
 
 #include "camera_impl.h"
 #include "engine.h"
+#include "g3dOptionsDiff.h"
 #include "interactor.h"
 #include "log.h"
 #include "macros.h"
@@ -112,6 +113,10 @@ public:
   vtkSmartPointer<vtkRenderWindow> RenWin;
   vtkNew<vtkF3DRenderer> Renderer;
   const options& Options;
+  // The options as the last full render pushed them (render()): IsG3DFrameStale compares against
+  // it, since options are a plain struct anyone can write without asking for a render.
+  options OptionsAtLastFullRender;
+  bool HasFullRender = false;
   interactor_impl* Interactor = nullptr;
   fs::path CachePath;
   context::function GetProcAddress;
@@ -859,6 +864,8 @@ bool window_impl::render()
   // the log so the per-frame interactor loop stays silent and only the costly upload shows up.
   const auto g3dRenderStart = std::chrono::steady_clock::now();
   this->Internals->RenWin->Render();
+  this->Internals->OptionsAtLastFullRender = this->Internals->Options;
+  this->Internals->HasFullRender = true;
   const auto g3dRenderMs = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::steady_clock::now() - g3dRenderStart)
                              .count();
@@ -896,6 +903,29 @@ image window_impl::renderToImage(bool noBackground)
   exporter->Export(output.getContent());
 
   return output;
+}
+
+//----------------------------------------------------------------------------
+bool window_impl::IsG3DFrameStale(std::string& reason)
+{
+  if (!this->Internals->HasFullRender)
+  {
+    reason = "no full render yet";
+    return true;
+  }
+
+  // Every option, not a hand-picked few: which ones reach the 3D layers is the renderer's business,
+  // and one full frame for an option that turns out not to (the UI redraws anyway) costs nothing.
+  const std::string_view changed =
+    g3d::firstDifferentOption(this->Internals->Options, this->Internals->OptionsAtLastFullRender);
+  if (!changed.empty())
+  {
+    reason = "option " + std::string(changed);
+    return true;
+  }
+
+  vtkF3DRenderer* renderer = this->Internals->Renderer;
+  return renderer->HasPendingG3DUpdates(&reason) || renderer->IsG3DSceneLayerStale(&reason);
 }
 
 //----------------------------------------------------------------------------

@@ -736,7 +736,21 @@ public:
                          this->Options.render.effect.antialiasing.mode == "taa") ||
       ren->IsControlPanelAnimating();
 
-    if (this->RenderRequested || forceRender)
+    // Then whatever changed since the last full render, asked for or not: the frame is stale when
+    // the options, pending renderer configuration or the inputs of the 3D layers moved. Nobody who
+    // changes the scene has to remember to request a render (RENDER INVALIDATION in the header).
+    bool fullRender = this->RenderRequested || forceRender;
+    if (!fullRender)
+    {
+      std::string reason;
+      fullRender = this->Window.IsG3DFrameStale(reason);
+      if (fullRender)
+      {
+        this->LogStalePromotion(reason);
+      }
+    }
+
+    if (fullRender)
     {
       this->Window.render();
       this->RenderRequested = false;
@@ -745,6 +759,32 @@ public:
     {
       this->Window.RenderUIOnly();
     }
+  }
+
+  //----------------------------------------------------------------------------
+  // A tick promoted to a full render because the frame was stale, not because anyone asked: the
+  // path that changed the scene relied on detection, which is fine, but worth seeing in the log.
+  // The same reason tick after tick (something rewriting an input every frame, defeating UI-only
+  // frames) collapses into one line with a count instead of flooding the always-on debug log.
+  void LogStalePromotion(const std::string& reason)
+  {
+    const auto now = std::chrono::steady_clock::now();
+    if (reason == this->StaleLogLast && now - this->StaleLogTime < std::chrono::seconds(1))
+    {
+      this->StaleLogRepeats++;
+    }
+    else
+    {
+      if (this->StaleLogRepeats > 0)
+      {
+        log::debug("[render.stale] ", this->StaleLogLast, " (", this->StaleLogRepeats,
+          " more consecutive ticks)");
+      }
+      log::debug("[render.stale] tick rendered in full: ", reason);
+      this->StaleLogLast = reason;
+      this->StaleLogRepeats = 0;
+    }
+    this->StaleLogTime = now;
   }
 
   //----------------------------------------------------------------------------
@@ -792,6 +832,11 @@ public:
   std::string CmdLogLast;
   int CmdLogRepeats = 0;
   std::chrono::steady_clock::time_point CmdLogTime;
+
+  // Glance3D: same collapsing for ticks promoted to a full render (see LogStalePromotion).
+  std::string StaleLogLast;
+  int StaleLogRepeats = 0;
+  std::chrono::steady_clock::time_point StaleLogTime;
 };
 
 //----------------------------------------------------------------------------
