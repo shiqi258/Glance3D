@@ -706,6 +706,14 @@ public:
           log::error("Interaction: error running command: \"" + cmd + "\": " + ex.what());
         }
       }
+
+      // Whatever a command changed (a file load, an option) only reaches the screen through a full
+      // render: a UI-only one re-blends the 3D layer as it was last painted. So this tick ends in a
+      // full render whoever queued the command. OnUIEvent asks for one, but a notification action
+      // arrives through the center without it -- its "Open file..." then left the viewport blank,
+      // still showing the frame the loader painted mid-load, before the new scene was committed,
+      // until something else forced a full render (dragging the camera, a WM_PAINT).
+      this->RenderRequested = true;
     }
 
     this->AnimationManager->SetDeltaTime(deltaTime);

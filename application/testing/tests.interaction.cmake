@@ -69,6 +69,9 @@ endif()
 
 if (F3D_MODULE_TINYFILEDIALOGS)
   f3d_test(NAME TestInteractionFileOpen INTERACTION NO_BASELINE ENV CTEST_OPEN_DIALOG_FILE=${F3D_SOURCE_DIR}/testing/data/cow.vtp)
+  # A message's action runs through the notification center, not a key binding: the model it loads
+  # must be on screen after it, not only in a fresh render (PRESENTED).
+  f3d_test(NAME TestInteractionNotificationOpenFile DATA nonExistentFile.vtp RESOLUTION 800,600 INTERACTION UI PRESENTED ENV CTEST_OPEN_DIALOG_FILE=${F3D_SOURCE_DIR}/testing/data/cow.vtp) #Click "Open file..." on the not-found message
 endif ()
 
 if(F3D_MODULE_DMON)
