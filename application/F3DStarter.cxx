@@ -1214,6 +1214,11 @@ public:
   int CurrentFilesGroupIndex = -1;
   std::vector<std::byte> PipedBuffer;
 
+  // Files the user chose to load despite --max-size ("Load it anyway"), as AddFile stores them. An
+  // exemption per file, not a cleared limit: every load re-reads the options, --max-size included,
+  // so a limit merely cleared around the load was back before the size check ran.
+  std::set<fs::path> MaxSizeExemptions;
+
   // Glance3D testing: what the replay left on screen, read back before anything renders again.
   // Every other capture path renders a fresh frame first, which is exactly what hides a change that
   // never got the full render it needed. See CheckPresentedFrame.
@@ -2284,6 +2289,7 @@ void F3DStarter::LoadFileGroupInternal(
             // Check the size of the file before loading it
             static constexpr int BYTES_IN_MIB = 1048576;
             if (this->Internals->AppOptions.MaxSize.has_value() &&
+              !this->Internals->MaxSizeExemptions.contains(tmpPath) &&
               fs::file_size(tmpPath) >
                 static_cast<std::uintmax_t>(
                   this->Internals->AppOptions.MaxSize.value() * BYTES_IN_MIB))
@@ -3165,19 +3171,21 @@ void F3DStarter::AddCommands()
         throw f3d::interactor::invalid_args_exception(
           "Command: load_ignoring_max_size is expecting at least 1 argument");
       }
-      const std::optional<double> savedMaxSize = this->Internals->AppOptions.MaxSize;
-      this->Internals->AppOptions.MaxSize.reset();
       int index = -1;
       for (const std::string& file : args)
       {
-        index = this->AddFile(f3d::utils::collapsePath(file));
+        // These files, not a new policy: the guard stays in place for anything else opened next.
+        // Same absolute form AddFile stores, which is what the size check sees.
+        const fs::path path = f3d::utils::collapsePath(file);
+        std::error_code ec;
+        const fs::path absolute = fs::absolute(path, ec);
+        this->Internals->MaxSizeExemptions.insert(ec ? path : absolute);
+        index = this->AddFile(path);
       }
       if (index > -1)
       {
         this->LoadFileGroup(index);
       }
-      // One file, not a new policy: the guard is back in place for whatever is opened next.
-      this->Internals->AppOptions.MaxSize = savedMaxSize;
     },
     f3d::interactor::command_documentation_t{ "load_ignoring_max_size path/to/file",
       "load a file even though it exceeds --max-size" },

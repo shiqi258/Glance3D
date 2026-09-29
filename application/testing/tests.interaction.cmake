@@ -260,6 +260,9 @@ f3d_test(NAME TestInteractionNotificationCenterReopen DATA f3d.glb RESOLUTION 80
 f3d_test(NAME TestInteractionNotificationCenterGizmoClick DATA f3d.glb ARGS -x RESOLUTION 800,600 INTERACTION UI) #Bell;Click the -Y head under the card
 # The bell raises the message center when another card covers it instead of closing it.
 f3d_test(NAME TestInteractionNotificationCenterRaise DATA f3d.glb RESOLUTION 800,600 INTERACTION UI) #H;Bell;Click the sheet;Bell
+# A message action carrying a Windows path (backslashes, which the command tokenizer reads as
+# escapes) still reaches the file it names, and what it loads is on screen right after (PRESENTED).
+f3d_test(NAME TestInteractionNotificationLoadAnyway DATA WaterBottle.glb ARGS --max-size=0.2 RESOLUTION 800,600 INTERACTION UI PRESENTED) #Click "Load it anyway" on the too-large message
 
 ## Popover placement (G3DWidgets::BeginPopover)
 # Opened from a control near the window bottom, a popover opens above it, placed from its
