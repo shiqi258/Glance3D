@@ -25,8 +25,15 @@
  *  - New state that shows in the 3D layers but is not a VTK object of the renderer, an option or a
  *    *Configured flag has to be added to what IsG3DSceneLayerStale / HasPendingG3DUpdates check, or
  *    it will not reach the screen by itself.
+ *  - UI code states intents, it does not change the scene: the ImGui frame runs inside the render
+ *    pass, where the scene is being drawn and the active camera is a throwaway copy. A click that
+ *    changes scene data or the camera sends a command (SendCommand + G3DCommandLine for any value it
+ *    carries), which this loop runs between frames. View state (selection, scope, filters) may
+ *    change in place.
  *  - The net: TestSDKRenderInvalidation (a change is on screen one tick later; idle ticks stay
- *    UI-only, the regression that would quietly turn the viewer into a continuous renderer) and
+ *    UI-only, the regression that would quietly turn the viewer into a continuous renderer), the
+ *    presented-frame guard on every INTERACTION test (a replay must end on a frame a fresh render
+ *    reproduces), `ctest -L lint` (ui-scene-mutation: a scene or camera change in UI code) and
  *    `[render.stale]` in the log.
  */
 

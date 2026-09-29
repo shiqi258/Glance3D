@@ -3,8 +3,8 @@
 // G3DDp / G3DScale (vtkext/private/module/G3DUnits.h) turn double and missed scaling into compile
 // errors wherever a length flows through the types. This catches the places the types cannot see,
 // in the desktop UI sources (every module file that includes imgui.h, G3DTheme.h, G3DWidgets.h or
-// G3DUnits.h, the latter itself excepted), plus the one placement rule the types cannot see either
-// (raw-popup):
+// G3DUnits.h, the latter itself excepted), plus two rules about what UI code may do that the types
+// cannot see either (raw-popup, ui-scene-mutation):
 //
 //   raw-exit          .Raw() / .Factor(): the audit exits of G3DDp / G3DScale. Each use is a unit
 //                     boundary (ScaleAllSizes, a log line, the OS loupe) or a bug.
@@ -21,6 +21,13 @@
 //                     G3DWidgets::BeginPopover, which places it from its measured size — the frame
 //                     a popup opens on is ImGui's hidden measuring frame, and a side picked from a
 //                     size remembered earlier draws its first visible frame on the wrong side.
+//   ui-scene-mutation the scene or the camera changed from UI code: a scene tree mutator
+//                     (ActivateG3DSceneTreeNode, SetG3DSceneTreeNodeVisibility, SetG3DSceneTreeExpanded,
+//                     ...), a GetActiveCamera()-> setter or move, adding or removing an actor, prop or
+//                     light. The ImGui frame runs inside the render pass, where the scene is being drawn
+//                     and the active camera is a throwaway copy: send a command instead
+//                     (G3DCommandLine), which the event loop runs between frames. See RENDER
+//                     INVALIDATION in library/private/interactor_impl.h.
 //
 // A literal next to `*` or `/` is a ratio, not a length (`2.f * pad`), an integer in a draw call is
 // a segment count or a flag, and `12_dp` is already a G3DDp: none of those count. Hits are counted
@@ -47,7 +54,8 @@ const argv = process.argv.slice(2);
 const LIST = argv.includes('--list');
 const UPDATE = argv.includes('--update');
 
-const RULES = ['raw-exit', 'font-scale', 'bare-number', 'constexpr-length', 'raw-popup'];
+const RULES = ['raw-exit', 'font-scale', 'bare-number', 'constexpr-length', 'raw-popup',
+  'ui-scene-mutation'];
 const LAYOUT_CALLS = ['ImVec2', 'Dummy', 'SameLine', 'PushStyleVar', 'SetCursorPos', 'SetCursorPosX',
   'SetCursorPosY', 'SetCursorScreenPos', 'SetNextItemWidth', 'PushItemWidth', 'Indent', 'Unindent',
   'InvisibleButton', 'BeginChild', 'SetNextWindowPos', 'SetNextWindowSize'];
@@ -159,6 +167,18 @@ function scan(code) {
     /\bImGui\s*::\s*(?:BeginPopup(?:Modal|Context(?:Item|Window|Void))?|BeginCombo)\s*\(/g;
   while ((m = popupRe.exec(code)) !== null) hits.push({ rule: 'raw-popup', offset: m.index });
 
+  const mutationRe = new RegExp(
+    String.raw`\b(?:ActivateG3DSceneTreeNode|SetG3DSceneTreeNodeVisibility|SetOnlyG3DSceneTreeNodeVisible` +
+      String.raw`|ResetG3DSceneTreeVisibility|SetG3DSceneTreeExpanded)\s*\(` +
+      String.raw`|\bGetActiveCamera\s*\(\s*\)\s*->\s*(?:Set[A-Z]\w*|Azimuth|Elevation|Roll|Yaw|Pitch|Dolly` +
+      String.raw`|Zoom|OrthogonalizeViewUp)\s*\(` +
+      String.raw`|->\s*(?:AddActor|RemoveActor|AddViewProp|RemoveViewProp|RemoveAllViewProps|AddLight` +
+      String.raw`|RemoveLight|RemoveAllLights)\s*\(`,
+    'g');
+  while ((m = mutationRe.exec(code)) !== null) {
+    hits.push({ rule: 'ui-scene-mutation', offset: m.index });
+  }
+
   const seen = new Set();
   const numRe = /(?<![\w.])(\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?[fF]?(?![\w.])/g;
   for (const [names, floatsOnly] of [[LAYOUT_CALLS, false], [DRAW_CALLS, true]]) {
@@ -217,9 +237,14 @@ function uiFiles() {
     'if (ImGui::BeginPopupContextItem("##ctx")) {}', // raw-popup
     'if (G3DWidgets::BeginPopover("##p", d)) {}', // the sanctioned way
     'ImGui::OpenPopup("##p");', // opening is the trigger's job, anywhere
+    'importer->ActivateG3DSceneTreeNode(path);', // ui-scene-mutation
+    'ren->GetActiveCamera()->Azimuth(10.0);', // ui-scene-mutation
+    'this->SendCommand(G3DCommandLine("scene_tree_activate", { path }));', // the sanctioned way
+    'const double* p = ren->GetActiveCamera()->GetPosition();', // reading the camera is fine
   ].join('\n');
   const got = scan(codeOnly(sample)).map((h) => h.rule).sort().join(',');
-  const want = 'bare-number,bare-number,bare-number,constexpr-length,font-scale,raw-exit,raw-popup';
+  const want = 'bare-number,bare-number,bare-number,constexpr-length,font-scale,raw-exit,raw-popup,' +
+    'ui-scene-mutation,ui-scene-mutation';
   if (got !== want) {
     console.error(`check-ui-units self test failed: got [${got}], want [${want}]`);
     process.exit(2);

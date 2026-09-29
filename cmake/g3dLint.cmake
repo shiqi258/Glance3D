@@ -3,7 +3,8 @@
 # They read the source tree only, so they need nothing built — just node, which the UI layout
 # invariance tests use too (application/testing/tests.ui_layout.cmake):
 #   g3d::LintUiUnits  scripts/check-ui-units.mjs — the UI units ratchet (G3DDp / G3DScale rules the
-#                     compiler cannot see: bare lengths, audit exits, a second scale factor)
+#                     compiler cannot see: bare lengths, audit exits, a second scale factor), plus what
+#                     UI code may not do: position a popup by hand, change the scene or camera itself
 #   g3d::LintLocales  scripts/check-locales.mjs  — every translated source key has a zh-CN entry and
 #                     every ICU message is well formed
 find_program(F3D_NODE_EXECUTABLE node)

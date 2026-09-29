@@ -264,6 +264,15 @@ f3d_test(NAME TestInteractionNotificationCenterRaise DATA f3d.glb RESOLUTION 800
 # escapes) still reaches the file it names, and what it loads is on screen right after (PRESENTED).
 f3d_test(NAME TestInteractionNotificationLoadAnyway DATA WaterBottle.glb ARGS --max-size=0.2 RESOLUTION 800,600 INTERACTION UI PRESENTED) #Click "Load it anyway" on the too-large message
 
+## Scene tree acting on the scene
+# A row click that changes the scene goes out as a command, run between frames, and its effect is
+# on screen right after (PRESENTED): the camera a camera node looks through, the highlight of a
+# selected B-rep face.
+f3d_test(NAME TestInteractionSceneTreeCameraClick DATA Cameras.gltf ARGS -Dui.control_panel=true -Dui.control_right=false RESOLUTION 800,600 INTERACTION UI PRESENTED) #Click the "Camera 1" row
+if(F3D_PLUGIN_BUILD_OCCT)
+  f3d_test(NAME TestInteractionSceneTreeFaceSelect DATA f3d.stp ARGS -Dui.control_panel=true -Dui.control_right=false RESOLUTION 800,600 PLUGIN occt INTERACTION UI PRESENTED) #Open the part;Click its first face
+endif()
+
 ## Popover placement (G3DWidgets::BeginPopover)
 # Opened from a control near the window bottom, a popover opens above it, placed from its
 # measured size. The jump these guard against lasted one frame; TestG3DPopover checks every frame,

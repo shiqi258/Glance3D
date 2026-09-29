@@ -1075,24 +1075,22 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
       switch (hit)
       {
         case G3DWidgets::TreeRowHit::Twisty:
-          // Expansion is view state, not scene data — with one exception the renderer owns: a node
-          // whose children are B-rep faces has to have them built before it can open. Going through
-          // that one entry point is what keeps this frontend from having to know which is which.
-          ren->SetG3DSceneTreeExpanded(graph.Path(rr.Node), !expanded);
+          // Expansion is view state, not scene data -- with one exception the renderer owns: a node
+          // whose children are B-rep faces has to have them built before it can open. So it leaves as
+          // a command, like every scene change this frame asks for: the ImGui frame runs inside the
+          // render pass, where changing the scene is unsafe and the active camera is not even the
+          // real one (RENDER INVALIDATION in library/private/interactor_impl.h). The command runs
+          // between frames, through the same entry point the SDK and the web viewer use.
+          this->SendCommand(G3DCommandLine(
+            expanded ? "scene_tree_collapse" : "scene_tree_expand", { graph.Path(rr.Node) }));
           break;
         case G3DWidgets::TreeRowHit::Visibility:
-        {
-          // Visibility *is* scene data, and still round-trips through the importer so the renderer
-          // picks it up. Partially visible groups turn fully on, matching every other outliner.
-          // Going through the path-keyed entry point is what routes a light row to its switch
-          // instead of to an assembly attribute it does not have.
-          if (importer->SetG3DSceneTreeNodeVisibility(graph.Path(rr.Node), !visible))
-          {
-            renWin->GetInteractor()->InvokeEvent(
-              vtkF3DUserEvents::SceneHierarchyChangedEvent, nullptr);
-          }
+          // Visibility *is* scene data, so a command too. Partially visible groups turn fully on,
+          // matching every other outliner. The path-keyed command is what routes a light row to its
+          // switch instead of to an assembly attribute it does not have.
+          this->SendCommand(G3DCommandLine(
+            "scene_tree_visibility", { graph.Path(rr.Node), visible ? "false" : "true" }));
           break;
-        }
         case G3DWidgets::TreeRowHit::RowDoubleClick:
           // Going INTO a subtree, which is the only way to read a hierarchy deeper than the panel
           // can indent. A leaf has no inside, so a double click on one is left to mean nothing
@@ -1103,13 +1101,17 @@ void vtkF3DImguiActor::DrawSceneTreeContent(vtkOpenGLRenderWindow* renWin)
           }
           break;
         case G3DWidgets::TreeRowHit::Row:
+          // Selection is view state, set here so the row lights up this very frame; the face
+          // highlight built from it follows on the next tick (vtkF3DRenderer::HasPendingG3DUpdates).
           view.SetSelection(rr.Node);
           // A camera node's only purpose is to be looked through, so selecting one activates it --
           // the same reason a viewpoint list in a review tool applies on click rather than hiding
           // the action behind a second control. Sections (which have children) are left alone.
+          // As a command: applied here, inside the render pass, it moved a throwaway copy of the
+          // camera and the view never changed.
           if (rr.Type == G3DNodeType::CAMERA && !hasChildren)
           {
-            importer->ActivateG3DSceneTreeNode(graph.Path(rr.Node));
+            this->SendCommand(G3DCommandLine("scene_tree_activate", { graph.Path(rr.Node) }));
           }
           break;
         case G3DWidgets::TreeRowHit::None:
