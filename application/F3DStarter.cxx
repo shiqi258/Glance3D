@@ -36,6 +36,7 @@
 #endif
 
 #include "engine.h"
+#include "g3dFrame.h"
 #include "g3dLocale.h"
 #include "g3dNotification.h"
 #include "interactor.h"
@@ -307,7 +308,9 @@ public:
   bool renderAndSave(f3d::window& window, const f3d::utils::string_template& outputTemplate,
     bool toStdout, std::optional<int> frame = std::nullopt)
   {
-    f3d::image img = window.renderToImage(AppOptions.NoBackground);
+    f3d::image img = this->UsePresentedFrame() && !frame.has_value()
+      ? this->GetPresentedFrame(window)
+      : window.renderToImage(AppOptions.NoBackground);
     addOutputImageMetadata(img);
 
     if (toStdout)
@@ -1210,6 +1213,98 @@ public:
   int CurrentFilesGroupIndex = -1;
   std::vector<std::byte> PipedBuffer;
 
+  // Glance3D testing: what the replay left on screen, read back before anything renders again.
+  // Every other capture path renders a fresh frame first, which is exactly what hides a change that
+  // never got the full render it needed. See CheckPresentedFrame.
+  std::optional<f3d::image> PresentedFrame;
+
+  // A fresh render of an unchanged state reproduces the presented frame exactly; the slack only
+  // absorbs a UI that legitimately moves by a frame (a caret, an eased value settling).
+  static constexpr double PresentedGuardThreshold = 0.01;
+
+  /**
+   * CTEST_G3D_PRESENTED_FRAME=baseline: compare and save the frame as presented rather than a
+   * fresh render, so a test's baseline is what the user was actually left looking at.
+   */
+  static bool UsePresentedFrame()
+  {
+    const std::optional<std::string> mode = f3d::utils::getEnv("CTEST_G3D_PRESENTED_FRAME");
+    return mode.has_value() && mode.value() == "baseline";
+  }
+
+  /**
+   * The frame captured right after the replay, or, when nothing was replayed, the one presented
+   * now.
+   */
+  f3d::image GetPresentedFrame(f3d::window& window)
+  {
+    return this->PresentedFrame.has_value() ? this->PresentedFrame.value()
+                                            : g3d::frame::presented(window);
+  }
+
+  /**
+   * Glance3D testing: the presented-frame guard (CTEST_G3D_PRESENTED_GUARD = report | enforce).
+   *
+   * A replay ends on whatever the event loop last put on screen, and a fresh render of that same
+   * state must look the same. When it does not, something changed without the full render it
+   * needed and the user would be left looking at a stale frame -- a failure no baseline can show,
+   * since every other capture renders a fresh frame first. Runs right after the replay, before
+   * anything else renders. Returns false when enforcing and the two frames differ.
+   */
+  bool CheckPresentedFrame(f3d::window& window)
+  {
+    const std::optional<std::string> guard = f3d::utils::getEnv("CTEST_G3D_PRESENTED_GUARD");
+    const bool report = guard.has_value() && guard.value() == "report";
+    const bool enforce = guard.has_value() && guard.value() == "enforce";
+    if (!report && !enforce && !UsePresentedFrame())
+    {
+      return true;
+    }
+
+    this->PresentedFrame = g3d::frame::presented(window);
+    if (!report && !enforce)
+    {
+      return true;
+    }
+
+    const f3d::image fresh = window.renderToImage();
+    const double error = this->PresentedFrame.value().compare(fresh);
+    // Untranslated and tagged on purpose: calibrating the guard greps this across the whole suite.
+    f3d::log::info("[presented-guard] error=", error);
+    if (!enforce || error <= PresentedGuardThreshold)
+    {
+      return true;
+    }
+
+    f3d::log::error(g3d::locale::translate(
+      "The frame left on screen differs from a fresh render by {diff} (threshold {threshold}): "
+      "something changed without the full render it needed.",
+      { { "diff", std::to_string(error) },
+        { "threshold", std::to_string(PresentedGuardThreshold) } }));
+    if (!this->AppOptions.Output.empty())
+    {
+      fs::path stem = f3d::utils::collapsePath(this->AppOptions.Output);
+      stem.replace_extension();
+      const fs::path presentedPath = stem.string() + ".presented.png";
+      const fs::path freshPath = stem.string() + ".fresh.png";
+      try
+      {
+        this->PresentedFrame.value().save(presentedPath);
+        fresh.save(freshPath);
+        f3d::log::error(
+          g3d::locale::translate("Saved the frame left on screen to {presented} and a fresh render "
+                                 "to {fresh}",
+            { { "presented", presentedPath.string() }, { "fresh", freshPath.string() } }));
+      }
+      catch (const f3d::image::write_exception& ex)
+      {
+        f3d::log::error(
+          g3d::locale::translate("Could not write output: {error}", { { "error", ex.what() } }));
+      }
+    }
+    return false;
+  }
+
   // True once the window geometry (size/position/centering) has been established for
   // this run. Used to guard the post-load re-apply so the program never rewrites the
   // window geometry after it has been set up once (US-008): if the user drags/resizes
@@ -1731,6 +1826,12 @@ int F3DStarter::Start(int argc, char** argv)
       {
         return EXIT_FAILURE;
       }
+
+      // Before anything renders again: the next render would replace the very frame to check.
+      if (!this->Internals->CheckPresentedFrame(window))
+      {
+        return EXIT_FAILURE;
+      }
     }
 
     // Start recording if needed
@@ -1807,7 +1908,10 @@ int F3DStarter::Start(int argc, char** argv)
           {
             try
             {
-              window.renderToImage(this->Internals->AppOptions.NoBackground).save(output);
+              (this->Internals->UsePresentedFrame()
+                  ? this->Internals->GetPresentedFrame(window)
+                  : window.renderToImage(this->Internals->AppOptions.NoBackground))
+                .save(output);
             }
             catch (const f3d::image::write_exception& ex)
             {
@@ -1831,7 +1935,9 @@ int F3DStarter::Start(int argc, char** argv)
         return EXIT_FAILURE;
       }
 
-      f3d::image img = window.renderToImage(this->Internals->AppOptions.NoBackground);
+      f3d::image img = this->Internals->UsePresentedFrame()
+        ? this->Internals->GetPresentedFrame(window)
+        : window.renderToImage(this->Internals->AppOptions.NoBackground);
       f3d::image ref(reference);
       f3d::image diff;
       double error = img.compare(ref);

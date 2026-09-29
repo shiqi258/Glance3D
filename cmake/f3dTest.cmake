@@ -30,6 +30,14 @@ f3d_test(<NAME> [ARGS...])
     even when F3D logic usually would not
   - `DPI_SCALE` Set the DPI scale through the environment variable `CTEST_F3D_FORCE_DPI_SCALE`, default is 1.0
   - `UI` Mark the test to require the presence of UI component and disable it otherwise
+  - `PRESENTED` Compare the baseline against the frame the replay left on screen instead of a fresh
+    render (`CTEST_G3D_PRESENTED_FRAME=baseline`). A fresh render always shows what the scene should
+    look like, so only this sees a change that never got the full render it needed. Needs
+    `INTERACTION` or `INTERACTION_CONFIGURE`.
+  - `NO_PRESENTED_CHECK` Opt an interaction test out of the presented-frame guard: every replay is
+    otherwise checked to end on a frame a fresh render reproduces (`CTEST_G3D_PRESENTED_GUARD`, set
+    from `G3D_TESTING_PRESENTED_GUARD`: off, report or enforce). Only for tests whose frames change
+    on their own (TAA accumulation, an FPS counter).
   - `PIPED` Mark the test to pipe the data (`cat data | f3d`) instead of providing the filename as data,
     doesn't work for external plugins, pass the reader as an arg, it will be used to force before VTK v9.6.20260128.
     Add `piped` test labels.
@@ -53,7 +61,7 @@ f3d_test(<NAME> [ARGS...])
 
 function(f3d_test)
 
-  cmake_parse_arguments(F3D_TEST "LONG_TIMEOUT;INTERACTION;INTERACTION_CONFIGURE;NO_BASELINE;NO_RENDER;NO_OUTPUT;WILL_FAIL;NO_DATA_FORCE_RENDER;UI;SCRIPT" "NAME;CONFIG;RESOLUTION;THRESHOLD;REGEXP;REGEXP_FAIL;HDRI;RENDERING_BACKEND;WORKING_DIR;DPI_SCALE;PIPED;PLUGIN" "DATA;DEPENDS;LABELS;ENV;ARGS" ${ARGN})
+  cmake_parse_arguments(F3D_TEST "LONG_TIMEOUT;INTERACTION;INTERACTION_CONFIGURE;NO_BASELINE;NO_RENDER;NO_OUTPUT;WILL_FAIL;NO_DATA_FORCE_RENDER;UI;SCRIPT;PRESENTED;NO_PRESENTED_CHECK" "NAME;CONFIG;RESOLUTION;THRESHOLD;REGEXP;REGEXP_FAIL;HDRI;RENDERING_BACKEND;WORKING_DIR;DPI_SCALE;PIPED;PLUGIN" "DATA;DEPENDS;LABELS;ENV;ARGS" ${ARGN})
 
   if(F3D_TEST_CONFIG)
     list(APPEND F3D_TEST_ARGS "--config=${F3D_TEST_CONFIG}")
@@ -83,6 +91,14 @@ function(f3d_test)
       configure_file("${F3D_SOURCE_DIR}/testing/recordings/${F3D_TEST_NAME}.log.in" "${CMAKE_BINARY_DIR}/testing/recordings/${F3D_TEST_NAME}.log")
       list(APPEND F3D_TEST_ARGS "--interaction-test-play=${CMAKE_BINARY_DIR}/testing/recordings/${F3D_TEST_NAME}.log")
     endif()
+  endif()
+  set(_g3d_replay OFF)
+  if(F3D_TEST_INTERACTION OR F3D_TEST_INTERACTION_CONFIGURE)
+    set(_g3d_replay ON)
+    list(APPEND F3D_TEST_LABELS "interaction")
+  endif()
+  if(F3D_TEST_PRESENTED AND NOT _g3d_replay)
+    message(FATAL_ERROR "${F3D_TEST_NAME}: PRESENTED needs a replay (INTERACTION or INTERACTION_CONFIGURE): without one nothing has been presented yet")
   endif()
 
   if (F3D_TEST_HDRI)
@@ -236,6 +252,21 @@ function(f3d_test)
   set(f3d_test_env_vars)
   if(F3D_TEST_REGEXP OR F3D_TEST_REGEXP_FAIL)
     list(APPEND f3d_test_env_vars "G3D_LANG=en")
+  endif()
+  # Presented-frame checks (F3DStarter::CheckPresentedFrame), also before F3D_TEST_ENV so a test can
+  # override them: every other capture renders a fresh frame first, hiding a change that never got
+  # the full render it needed.
+  if(F3D_TEST_PRESENTED)
+    list(APPEND f3d_test_env_vars "CTEST_G3D_PRESENTED_FRAME=baseline")
+  endif()
+  if(_g3d_replay AND NOT F3D_TEST_NO_PRESENTED_CHECK)
+    set(_g3d_guard "${G3D_TESTING_PRESENTED_GUARD}")
+    if(NOT _g3d_guard)
+      set(_g3d_guard "off")
+    endif()
+    if(NOT _g3d_guard STREQUAL "off")
+      list(APPEND f3d_test_env_vars "CTEST_G3D_PRESENTED_GUARD=${_g3d_guard}")
+    endif()
   endif()
   list(APPEND f3d_test_env_vars ${F3D_TEST_ENV})
   list(APPEND f3d_test_env_vars "CTEST_F3D_PROGRESS_BAR=1")

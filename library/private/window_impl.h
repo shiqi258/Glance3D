@@ -137,6 +137,15 @@ public:
 
   /**
    * Implementation only API.
+   * Read back the frame last presented, without rendering (RGB, lower-left origin like
+   * renderToImage). renderToImage renders a fresh frame first, so it always shows what the scene
+   * should look like; this shows what actually reached the screen, which is the only way to see a
+   * change that never got the full render it needed. Backs g3d::frame::presented.
+   */
+  image CapturePresentedImage();
+
+  /**
+   * Implementation only API.
    * Get the internal renderer
    */
   [[nodiscard]] vtkF3DRenderer* GetRenderer() const;

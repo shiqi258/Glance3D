@@ -490,6 +490,8 @@
   "Use the --output option to be able to output current rendering and diff images into files.\n": "请使用 --output 选项以便将当前渲染和差异图输出为文件。\n",
   "Current rendering difference with reference image: {diff} is higher than the threshold of {threshold}.\n": "当前渲染与参考图的差异 {diff} 高于阈值 {threshold}。\n",
   "Image comparison success with an error difference of: {diff}": "图像对比成功，误差差异为：{diff}",
+  "The frame left on screen differs from a fresh render by {diff} (threshold {threshold}): something changed without the full render it needed.": "屏幕上留下的帧与重新渲染的帧相差 {diff}（阈值 {threshold}）：有改动没有得到它所需的完整渲染。",
+  "Saved the frame left on screen to {presented} and a fresh render to {fresh}": "已将屏幕上留下的帧保存到 {presented}，重新渲染的帧保存到 {fresh}",
   "Image comparison was performed using a single 3D file, other provided 3D files were ignored.": "图像对比仅使用了单个 3D 文件，其他提供的 3D 文件被忽略。",
   "No files loaded, no rendering performed": "未加载任何文件，未执行渲染",
   "No animation available or animation has zero duration, outputting single frame": "无可用动画或动画时长为零，仅输出单帧",

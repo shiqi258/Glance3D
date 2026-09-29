@@ -51,6 +51,7 @@ set(F3D_SOURCE_FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/src/context.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/src/engine.cxx
   ${CMAKE_CURRENT_BINARY_DIR}/src/factory.cxx
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/g3dFrame.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/src/g3dLocale.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/src/g3dNotification.cxx
   ${CMAKE_CURRENT_SOURCE_DIR}/src/image.cxx
@@ -80,6 +81,7 @@ set(F3D_PUBLIC_HEADERS
   ${CMAKE_CURRENT_SOURCE_DIR}/public/context.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/engine.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/exception.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/public/g3dFrame.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/g3dLocale.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/g3dNotification.h
   ${CMAKE_CURRENT_SOURCE_DIR}/public/image.h

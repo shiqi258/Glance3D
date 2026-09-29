@@ -17,6 +17,7 @@
 #include "vtkF3DNoRenderWindow.h"
 #include "vtkF3DRenderer.h"
 
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <optional>
@@ -32,6 +33,7 @@
 #include <vtkRenderWindowInteractor.h>
 #include <vtkRendererCollection.h>
 #include <vtkRenderingOpenGLConfigure.h>
+#include <vtkUnsignedCharArray.h>
 #include <vtkVersion.h>
 #include <vtkWindowToImageFilter.h>
 
@@ -893,6 +895,25 @@ image window_impl::renderToImage(bool noBackground)
   image output(dims[0], dims[1], cmp);
   exporter->Export(output.getContent());
 
+  return output;
+}
+
+//----------------------------------------------------------------------------
+image window_impl::CapturePresentedImage()
+{
+  // Straight from the display framebuffer (front = 1): VTK copies every finished frame there,
+  // offscreen windows included, so this is the frame as presented. vtkWindowToImageFilter would do
+  // the same with ShouldRerender off, but it swaps each renderer's camera for a copy while it reads,
+  // and a read that is meant to observe must not touch the state it observes.
+  const int* size = this->Internals->RenWin->GetSize();
+  const int width = std::max(size[0], 1);
+  const int height = std::max(size[1], 1);
+  vtkNew<vtkUnsignedCharArray> pixels;
+  this->Internals->RenWin->GetPixelData(0, 0, width - 1, height - 1, 1, pixels);
+
+  image output(static_cast<unsigned int>(width), static_cast<unsigned int>(height), 3);
+  std::copy_n(pixels->GetPointer(0), static_cast<size_t>(width) * height * 3,
+    static_cast<unsigned char*>(output.getContent()));
   return output;
 }
 
