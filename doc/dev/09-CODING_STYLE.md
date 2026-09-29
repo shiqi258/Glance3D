@@ -107,6 +107,35 @@ The other kinds each have their own component: a menu opened at the pointer is
 `raw-popup`), and `TestG3DPopover` checks the popovers frame by frame. The design side is the
 styleguide's layering section (`doc/dev/ui-styleguide.html#layering`).
 
+### Render invalidation
+
+A tick of the event loop ends in one frame: a full render, or a UI-only frame that redraws the UI
+over the 3D image the last full frame left. Nobody requests the full one after changing the scene:
+the loop finds out itself (`window_impl::IsG3DFrameStale`) whether the options changed, whether the
+renderer holds configuration only a full render applies (`vtkF3DRenderer::HasPendingG3DUpdates`),
+or whether anything the 3D image was rendered from was modified since
+(`vtkF3DRenderer::IsG3DSceneLayerStale`: camera, lights, props with their mappers and inputs,
+importer updates, lighting environment, pass chain, viewport). This is the usual on-demand
+rendering model, owners marking themselves dirty and the frame loop deciding once per frame, with
+VTK's MTime as the dirty mark, like vtkRenderer's own backing store.
+
+UI code (the ImGui frame) does not change the scene or the camera: it runs inside the render pass,
+where the scene is being drawn and the active camera is a throwaway copy. It sends a command, which
+the loop runs between frames; any value in a command (a path, a name) goes through `G3DCommandLine`
+/ `g3d::command`, since the command tokenizer reads a bare backslash as an escape.
+
+Review checklist for a change that touches what is on screen:
+
+- [ ] New state that shows in the 3D image but is not a VTK object of the renderer, an option or a
+      `*Configured` flag is covered by `IsG3DSceneLayerStale` / `HasPendingG3DUpdates` (or, for
+      state the library cannot see, the change calls `requestRender()`).
+- [ ] Idle stays UI-only: `TestSDKRenderInvalidation` passes, and the log shows no repeated
+      `[render.stale]` while nothing happens (a check that finds the frame stale every tick turns the
+      viewer into a continuous renderer).
+- [ ] UI code changes the scene or the camera only through commands (`ctest -L lint`, rule
+      `ui-scene-mutation`), built with `G3DCommandLine` when they carry a value.
+- [ ] Interaction tests end on a settled frame (the presented-frame guard, see `06-TESTING.md`).
+
 ### Automatic formatting
 
 Some of the rules above are enforced using clang-format thanks to a `.clang-format` file.

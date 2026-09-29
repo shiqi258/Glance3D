@@ -131,8 +131,9 @@ public:
   void SetInteractor(interactor_impl* interactor);
 
   /**
-   * Trigger a render only of the UI
-   * Does nothing if F3D_MODULE_UI is OFF
+   * Trigger a render only of the UI, re-blending the 3D layers the last full frame left.
+   * A request, not an order: vtkF3DRenderer renders in full when those layers are stale (RENDER
+   * INVALIDATION in interactor_impl.h). Does nothing if F3D_MODULE_UI is OFF.
    */
   void RenderUIOnly();
 

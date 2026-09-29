@@ -401,7 +401,8 @@ public:
   virtual bool recordInteraction(const std::filesystem::path& file) = 0;
 
   /**
-   * Set the user callback of the event loop, which is called right after the rendering.
+   * Set the user callback of the event loop, which is called at the start of each tick, before the
+   * queued commands run and before the frame is rendered.
    */
   virtual interactor& setEventLoopUserCallback(
     std::function<void(interactor_state_t)> userCallback) = 0;
@@ -421,7 +422,9 @@ public:
   virtual interactor& stop() = 0;
 
   /**
-   * Request a render to be done on the next event loop.
+   * Request a full render on the next event loop tick.
+   * Changes to the scene, the camera or the options are found by the event loop on its own, which
+   * then renders in full (Glance3D render invalidation); this is for state the library cannot see.
    * Safe to call in a multithreaded environment.
    */
   virtual interactor& requestRender() = 0;

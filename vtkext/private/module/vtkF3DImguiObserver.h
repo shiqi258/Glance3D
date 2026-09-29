@@ -47,6 +47,8 @@ private:
 
   /**
    * Trigger a window rendering, but render only the UI/overlay actors.
+   * A request, not an order: vtkF3DRenderer renders the frame in full when the 3D layers are stale
+   * (RENDER INVALIDATION in library/private/interactor_impl.h).
    */
   void RenderUI(vtkRenderWindowInteractor* interactor);
 

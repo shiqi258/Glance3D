@@ -457,7 +457,9 @@ public:
    * View state: which nodes are open, what is filtered, what is selected.
    *
    * This is presentation state, not scene data -- changing it never dirties the scene and never
-   * triggers a re-render of the geometry. It is keyed by node path and survives a scene rebuild.
+   * triggers a re-render of the geometry, with one exception: a selected B-rep face is highlighted
+   * in the 3D view, which the event loop draws on its next tick. It is keyed by node path and
+   * survives a scene rebuild.
    * There is one view per engine, so this moves the tree the user is looking at.
    *
    * `setSceneTreeExpanded` and `setSceneTreeSelection` return false for an unknown path.

@@ -46,6 +46,7 @@ Available labels:
 - `bindings` (all binding tests)
 - `c`, `java`, `python`, `js` (label by specific binding)
 - `piped` (all piped tests)
+- `interaction` (every test that replays a recording, `INTERACTION` / `INTERACTION_CONFIGURE`)
 - `module` (all vtkext module tests)
 - `ui-layout` (desktop UI layout invariance across UI scales, see below)
 - `lint` (source lints: the UI units ratchet and the zh-CN catalog check; they need node, not a build)
@@ -118,7 +119,6 @@ Rerun the test, it should now pass.
 
 There is many other keywords in the `f3d_test` macro, here is a non exhaustive list:
 
-- `TONE_MAPPING`: Tests that uses tone mapping so they can be disabled with old VTK version
 - `LONG_TIMEOUT`: Tests that takes a long time to run, so they can be disabled on weaker CI machines
 - `INTERACTION`: Interaction test, see below
 - `INTERACTION_CONFIGURE`: A special kind of interaction tests that require configuring the interaction log using CMake, eg drag and drop tests.
@@ -128,6 +128,9 @@ There is many other keywords in the `f3d_test` macro, here is a non exhaustive l
 - `WILL_FAIL`: Tests that should fail in order to pass
 - `NO_DATA_FORCE_RENDER`: Tests that do not open any data yet require a rendering tests at the end, rely on an environment variable
 - `UI`: Tests that show the ImGui UI, hence require it to be present in order to be enabled
+- `PRESENTED`: Interaction tests whose baseline is compared with the frame the replay left on screen
+  rather than a fresh render, see below
+- `NO_PRESENTED_CHECK`: Interaction tests exempt from the presented-frame guard, see below
 
 All keywords are documented in the `cmake/f3dTest.cmake` file.
 
@@ -170,6 +173,29 @@ where
 - `INTERACTION` signifies that this is an interaction test
 
 The steps to running the test are the same as above.
+
+#### What the replay leaves on screen
+
+`--output` and `--reference` render a fresh frame before they read it back, so a baseline shows what
+the scene *should* look like after the replay. That hides the one failure an on-demand viewer is
+prone to: a change that never got the full render it needed, with the viewer still redrawing its UI
+over the previous 3D image (see RENDER INVALIDATION in `library/private/interactor_impl.h`).
+
+Every interaction test therefore also runs the presented-frame guard (`CTEST_G3D_PRESENTED_GUARD`):
+right after the replay, before anything renders again, it reads back the frame actually on screen
+(`g3d::frame::presented`) and compares it with a fresh render. They must match; when they do not,
+the test fails and `Testing/Temporary/TestName.presented.png` / `.fresh.png` show the two. The
+guard needs no baseline, so it holds whatever the local baselines look like.
+
+- End a recording on a settled state: a replay that stops while a card slides in, a hover
+  transition runs or the console relayouts after `Return` fails the guard. Append a settle tail —
+  a `MouseMoveEvent` away from any control, then about 120 `TimerEvent` lines.
+- `NO_PRESENTED_CHECK` is only for frames that never repeat (stochastic transparency draws fresh
+  noise every frame). Anything else that fails the guard is a stale frame, or an unsettled replay.
+- `PRESENTED` additionally compares the baseline with the presented frame, for tests whose point is
+  that a change reaches the screen (an action on a message, a scene tree click).
+- `G3D_TESTING_PRESENTED_GUARD` (a CMake variable) sets the mode: `enforce` (default), `report`
+  (only logs `[presented-guard] error=...`, for calibrating), `off`.
 
 ### Library layer
 
