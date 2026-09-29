@@ -1270,7 +1270,16 @@ public:
     const f3d::image fresh = window.renderToImage();
     const double error = this->PresentedFrame.value().compare(fresh);
     // Untranslated and tagged on purpose: calibrating the guard greps this across the whole suite.
-    f3d::log::info("[presented-guard] error=", error);
+    // Debug unless calibrating: an info line would show in the console the test is capturing, and
+    // a check must not change what it checks.
+    if (report)
+    {
+      f3d::log::info("[presented-guard] error=", error);
+    }
+    else
+    {
+      f3d::log::debug("[presented-guard] error=", error);
+    }
     if (!enforce || error <= PresentedGuardThreshold)
     {
       return true;

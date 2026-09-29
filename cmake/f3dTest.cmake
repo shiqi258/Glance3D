@@ -36,8 +36,9 @@ f3d_test(<NAME> [ARGS...])
     `INTERACTION` or `INTERACTION_CONFIGURE`.
   - `NO_PRESENTED_CHECK` Opt an interaction test out of the presented-frame guard: every replay is
     otherwise checked to end on a frame a fresh render reproduces (`CTEST_G3D_PRESENTED_GUARD`, set
-    from `G3D_TESTING_PRESENTED_GUARD`: off, report or enforce). Only for tests whose frames change
-    on their own (TAA accumulation, an FPS counter).
+    from `G3D_TESTING_PRESENTED_GUARD`: enforce by default, report to only log the difference, off).
+    Only for tests whose frames never repeat (stochastic transparency draws fresh noise each frame).
+    A replay that ends while something still moves needs a settle tail of TimerEvents instead.
   - `PIPED` Mark the test to pipe the data (`cat data | f3d`) instead of providing the filename as data,
     doesn't work for external plugins, pass the reader as an arg, it will be used to force before VTK v9.6.20260128.
     Add `piped` test labels.
@@ -262,7 +263,7 @@ function(f3d_test)
   if(_g3d_replay AND NOT F3D_TEST_NO_PRESENTED_CHECK)
     set(_g3d_guard "${G3D_TESTING_PRESENTED_GUARD}")
     if(NOT _g3d_guard)
-      set(_g3d_guard "off")
+      set(_g3d_guard "enforce")
     endif()
     if(NOT _g3d_guard STREQUAL "off")
       list(APPEND f3d_test_env_vars "CTEST_G3D_PRESENTED_GUARD=${_g3d_guard}")
