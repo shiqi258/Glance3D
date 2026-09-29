@@ -2,6 +2,7 @@ list(APPEND libf3dSDKTests_list
      TestPseudoUnitTest.cxx
      TestSDKAnimation.cxx
      TestSDKAsyncColoring.cxx
+     TestSDKAsyncLoadInput.cxx
      TestSDKCamera.cxx
      TestSDKCompareWithFile.cxx
      TestSDKDeprecatedOptions.cxx

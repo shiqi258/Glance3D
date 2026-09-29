@@ -43,8 +43,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <map>
 #include <numeric>
+#include <variant>
 #include <vector>
 
 #include "camera.h"
@@ -491,6 +493,16 @@ public:
   }
 
   //----------------------------------------------------------------------------
+  // A binding resolved when its key was pressed (the modifiers are only known then), so that a
+  // press deferred during a load (see TriggerBinding) replays exactly as it would have run.
+  struct BindingPress
+  {
+    interaction_bind_t Bind;
+    BindingCommands Binding;
+    std::string Args;
+  };
+
+  //----------------------------------------------------------------------------
   void TriggerBinding(const std::string& interaction, const std::string& argsString)
   {
     mod_t mod = mod_t::NONE;
@@ -521,66 +533,136 @@ public:
       commandsIt = this->Bindings.find({ mod_t::ANY, interaction });
     }
 
-    if (commandsIt != this->Bindings.end())
+    if (commandsIt == this->Bindings.end())
     {
-      // Copy by value: triggerCommand may call initBindings() which clears the Bindings map,
-      // invalidating any references/iterators into it.
-      const BindingCommands binding = commandsIt->second;
+      this->EndInteraction();
+      return;
+    }
 
-      for (const std::string& command : binding.CommandVector)
+    // Copy by value: triggerCommand may call initBindings() which clears the Bindings map,
+    // invalidating any references/iterators into it.
+    BindingPress press{ bind, commandsIt->second, argsString };
+    if (this->IsSceneLoadPending())
+    {
+      // Pressed while a load is pumping events (processEvents): the command may load, reload or
+      // clear the very scene being built. It waits for the load, in order with everything else
+      // queued meanwhile -- as the key did in the OS queue before loads were asynchronous.
+      log::debug("Interaction: ", bind.format(), " deferred until the scene has finished loading");
+      this->CommandBuffer.emplace_back(std::move(press));
+      return;
+    }
+    this->RunBinding(press);
+  }
+
+  //----------------------------------------------------------------------------
+  // Run a binding's commands and show its HUD notification, then end the interaction.
+  void RunBinding(const BindingPress& press)
+  {
+    const BindingCommands& binding = press.Binding;
+    for (const std::string& command : binding.CommandVector)
+    {
+      std::string commandWithArgs = command;
+      if (!press.Args.empty())
       {
-        std::string commandWithArgs = command;
-        if (!argsString.empty())
-        {
-          commandWithArgs.push_back(' ');
-          commandWithArgs.append(argsString);
-        };
-        try
-        {
-          // XXX: Ignore the boolean return of triggerCommand,
-          // error is already logged by triggerCommand
-          this->Interactor.triggerCommand(commandWithArgs);
-        }
-        catch (const f3d::interactor::command_runtime_exception& ex)
-        {
-          log::error(
-            "Interaction: error running command: \"" + commandWithArgs + "\": " + ex.what());
-        }
+        commandWithArgs.push_back(' ');
+        commandWithArgs.append(press.Args);
+      };
+      try
+      {
+        // XXX: Ignore the boolean return of triggerCommand,
+        // error is already logged by triggerCommand
+        this->Interactor.triggerCommand(commandWithArgs);
       }
-
-      if (binding.Notify && binding.DocumentationCallback)
+      catch (const f3d::interactor::command_runtime_exception& ex)
       {
-        // trigger notification
-        vtkRenderWindow* renWin = this->Window.GetRenderWindow();
-        vtkF3DRenderer* ren =
-          vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
-
-        auto [desc, value] = binding.DocumentationCallback();
-        // Say what the value MEANS here, where the translation of "ON" / "OFF" is at hand. The
-        // presenter used to infer it by matching those two literals, which stopped working the
-        // moment the catalog translated them -- and painted "OFF" in the error color besides.
-        auto state = vtkF3DUIActor::BindingValueState::Neutral;
-        if (binding.Type == f3d::interactor::BindingType::TOGGLE)
-        {
-          G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
-          if (value == loc.Translate("ON"))
-          {
-            state = vtkF3DUIActor::BindingValueState::On;
-          }
-          else if (value == loc.Translate("OFF"))
-          {
-            state = vtkF3DUIActor::BindingValueState::Off;
-          }
-        }
-        ren->AddNotification(desc, value, bind.format(), 3.0, state);
+        log::error("Interaction: error running command: \"" + commandWithArgs + "\": " + ex.what());
       }
     }
 
+    if (binding.Notify && binding.DocumentationCallback)
+    {
+      // trigger notification
+      vtkRenderWindow* renWin = this->Window.GetRenderWindow();
+      vtkF3DRenderer* ren =
+        vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
+
+      auto [desc, value] = binding.DocumentationCallback();
+      // Say what the value MEANS here, where the translation of "ON" / "OFF" is at hand. The
+      // presenter used to infer it by matching those two literals, which stopped working the
+      // moment the catalog translated them -- and painted "OFF" in the error color besides.
+      auto state = vtkF3DUIActor::BindingValueState::Neutral;
+      if (binding.Type == f3d::interactor::BindingType::TOGGLE)
+      {
+        G3DLocaleCore& loc = G3DLocaleCore::GetInstance();
+        if (value == loc.Translate("ON"))
+        {
+          state = vtkF3DUIActor::BindingValueState::On;
+        }
+        else if (value == loc.Translate("OFF"))
+        {
+          state = vtkF3DUIActor::BindingValueState::Off;
+        }
+      }
+      ren->AddNotification(desc, value, press.Bind.format(), 3.0, state);
+    }
+
+    this->EndInteraction();
+  }
+
+  //----------------------------------------------------------------------------
+  // How every key press ends, bound or not.
+  void EndInteraction()
+  {
     // Update the dynamic options of the animation manager so check if the cheatsheet needs an
     // update.
     this->AnimationManager->UpdateDynamicOptions();
     // Always render after interaction
     this->Window.render();
+  }
+
+  //----------------------------------------------------------------------------
+  // From scene::addAsync() until finalizeAsync(): the loader pumps events meanwhile
+  // (processEvents), and nothing they trigger may run a command. See ASYNC LOADS in the header.
+  bool IsSceneLoadPending()
+  {
+    return this->Scene.getAsyncState() != f3d::scene::AsyncState::IDLE;
+  }
+
+  //----------------------------------------------------------------------------
+  // Run what the event loop queued -- UI and console commands, notification actions, input
+  // deferred during a load -- oldest first. An entry that leaves a load pending (an addAsync not
+  // finalized before returning) holds the rest back, exactly as it holds back new input.
+  void RunQueuedInput()
+  {
+    std::vector<QueuedInput> pending = std::move(this->CommandBuffer);
+    this->CommandBuffer.clear();
+    for (auto it = pending.begin(); it != pending.end(); ++it)
+    {
+      if (this->IsSceneLoadPending())
+      {
+        // Ahead of whatever the load's own pump queued since: those arrived later.
+        this->CommandBuffer.insert(this->CommandBuffer.begin(), std::make_move_iterator(it),
+          std::make_move_iterator(pending.end()));
+        return;
+      }
+      if (const BindingPress* press = std::get_if<BindingPress>(&*it))
+      {
+        log::debug("Interaction: ", press->Bind.format(), " replayed after the load");
+        this->RunBinding(*press);
+        continue;
+      }
+      const std::string& cmd = std::get<std::string>(*it);
+      try
+      {
+        // XXX: Ignore the boolean return of triggerCommand,
+        // error is already logged by triggerCommand
+        this->Interactor.triggerCommand(cmd, false);
+      }
+      catch (const f3d::interactor::command_runtime_exception& ex)
+      {
+        log::error("Interaction: error running command: \"" + cmd + "\": " + ex.what());
+      }
+    }
   }
 
   //----------------------------------------------------------------------------
@@ -670,7 +752,11 @@ public:
       this->Interactor.stop();
       return;
     }
-    if (this->EventLoopUserCallback)
+
+    // A tick that runs while a load is pumping events (a load started by a key press: this tick is
+    // not the one that started it) only draws. The application's per-tick callback, the queued
+    // input and the animation wait for the load to be finalized. See ASYNC LOADS in the header.
+    if (this->EventLoopUserCallback && !this->IsSceneLoadPending())
     {
       this->EventLoopUserCallback({ .animationTime = this->AnimationManager->GetCurrentTime() });
     }
@@ -680,27 +766,13 @@ public:
     // interactor from the UI thread.
     for (std::string& cmd : G3DNotificationCenter::GetInstance().TakePendingCommands())
     {
-      this->CommandBuffer.push_back(std::move(cmd));
+      this->QueueCommand(std::move(cmd));
     }
 
-    if (!this->CommandBuffer.empty())
+    if (!this->CommandBuffer.empty() && !this->IsSceneLoadPending())
     {
       // Drain a snapshot: a running command may enqueue follow-ups, which then run next loop.
-      std::vector<std::string> pending = std::move(this->CommandBuffer);
-      this->CommandBuffer.clear();
-      for (const std::string& cmd : pending)
-      {
-        try
-        {
-          // XXX: Ignore the boolean return of triggerCommand,
-          // error is already logged by triggerCommand
-          this->Interactor.triggerCommand(cmd, false);
-        }
-        catch (const f3d::interactor::command_runtime_exception& ex)
-        {
-          log::error("Interaction: error running command: \"" + cmd + "\": " + ex.what());
-        }
-      }
+      this->RunQueuedInput();
 
       // Whatever a command changed (a file load, an option) only reaches the screen through a full
       // render: a UI-only one re-blends the 3D layer as it was last painted. So this tick ends in a
@@ -711,8 +783,14 @@ public:
       this->RenderRequested = true;
     }
 
-    this->AnimationManager->SetDeltaTime(deltaTime);
-    this->AnimationManager->Tick();
+    // The animation manager still describes the scene being replaced, and reading its animation
+    // names walks the importers the worker is building: it is reinitialized once the load commits.
+    const bool loadPending = this->IsSceneLoadPending();
+    if (!loadPending)
+    {
+      this->AnimationManager->SetDeltaTime(deltaTime);
+      this->AnimationManager->Tick();
+    }
 
     vtkRenderWindow* renWin = this->Window.GetRenderWindow();
     vtkF3DRenderer* ren = vtkF3DRenderer::SafeDownCast(renWin->GetRenderers()->GetFirstRenderer());
@@ -721,7 +799,10 @@ public:
 
     // Push the current animation state for the timeline bottom bar (single fill implementation
     // lives in the manager, shared with the scene's post-load push and command execution).
-    this->AnimationManager->PushUIAnimationState();
+    if (!loadPending)
+    {
+      this->AnimationManager->PushUIAnimationState();
+    }
 
     // Determine if we need a full render or just a UI render.
     // TAA needs a full render each frame; the control-panel "push" needs one for the duration of its
@@ -783,6 +864,18 @@ public:
   }
 
   //----------------------------------------------------------------------------
+  // Queue a command for the event loop (UI, console, notification action). Queued during a load,
+  // it waits for the load to be finalized, which is worth a line in the log: nothing happens yet.
+  void QueueCommand(std::string command)
+  {
+    if (this->IsSceneLoadPending())
+    {
+      log::debug("Command: \"", command, "\" queued until the scene has finished loading");
+    }
+    this->CommandBuffer.emplace_back(std::move(command));
+  }
+
+  //----------------------------------------------------------------------------
   options& Options;
   window_impl& Window;
   scene_impl& Scene;
@@ -795,8 +888,11 @@ public:
   vtkNew<vtkF3DUIObserver> UIObserver;
 
   std::map<std::string, CommandCallbacks> Commands;
-  std::vector<std::string> CommandBuffer; // FIFO — every command queued this frame must run
+  /// A command string (UI, console, notification action) or a key binding deferred during a load.
+  using QueuedInput = std::variant<std::string, BindingPress>;
+  std::vector<QueuedInput> CommandBuffer; // FIFO — every command queued must run, in order
   bool EventLoopEntered = false;          // re-entrancy latch (see EventLoop)
+  bool StopCalled = false; // stop() ran during this processEvents(): done, but not closed
 
   std::map<interaction_bind_t, BindingCommands> Bindings;
   std::multimap<std::string, interaction_bind_t> GroupedBinds;
@@ -2677,6 +2773,13 @@ bool interactor_impl::recordInteraction(const fs::path& file)
 //----------------------------------------------------------------------------
 interactor& interactor_impl::start(double loopTime)
 {
+  if (this->Internals->Window.IsG3DWindowClosed())
+  {
+    // Closed while events were pumped before the loop, typically during the first load: there is
+    // nothing left to interact with, and rendering would open a new window.
+    log::debug("Interaction: the window was closed before the event loop started, not starting it");
+    return *this;
+  }
   if (this->Internals->StartEventLoop(loopTime))
   {
     this->Internals->VTKInteractor->Start();
@@ -2689,6 +2792,7 @@ interactor& interactor_impl::stop()
 {
   if (this->Internals->StopEventLoop())
   {
+    this->Internals->StopCalled = true;
     this->Internals->VTKInteractor->ExitCallback();
   }
   return *this;
@@ -2714,7 +2818,28 @@ interactor& interactor_impl::processEvents()
   // Pump pending OS/UI events (platform-specific; this is what keeps the window from being marked
   // "not responding") and render a single frame, without entering the blocking event loop. Used to
   // keep the window responsive while driving a long operation such as polling an async scene load.
-  this->Internals->VTKInteractor->ProcessEvents();
+  // What the events trigger meanwhile is held back while a load is pending: see ASYNC LOADS.
+  vtkRenderWindowInteractor* vtkInteractor = this->Internals->VTKInteractor;
+  vtkRenderWindow* renWin = this->Internals->Window.GetRenderWindow();
+  const void* nativeWindow = renWin->GetGenericWindowId();
+  const bool wasDone = vtkInteractor->GetDone();
+  this->Internals->StopCalled = false;
+  vtkInteractor->ProcessEvents();
+
+  // The user closed the window: VTK reports a close as TerminateApp() on every platform, which
+  // turns the interactor done without stop() asking; and Windows destroys the native window on
+  // the spot, after which a render would open a new one on a GL context whose resources went with
+  // the old one.
+  const bool destroyed = nativeWindow != nullptr && renWin->GetGenericWindowId() == nullptr;
+  const bool closeRequested = !wasDone && vtkInteractor->GetDone() && !this->Internals->StopCalled;
+  if ((destroyed || closeRequested) && !this->Internals->Window.IsG3DWindowClosed())
+  {
+    log::debug("Interaction: the window was closed while processing events, not rendering again");
+    this->Internals->Window.SetG3DWindowClosed();
+  }
+
+  // Draws nothing once the window is closed: the caller finishes or abandons its work, and start()
+  // will not run.
   this->Internals->Window.render();
   return *this;
 }
@@ -2748,6 +2873,6 @@ void interactor_impl::SetCommandBuffer(const char* command)
 {
   // Append — a single UI interaction may emit several commands in one frame (e.g. the inspector's
   // "pick array AND enable coloring" click); replacing dropped all but the last of them.
-  this->Internals->CommandBuffer.emplace_back(command);
+  this->Internals->QueueCommand(command);
 }
 }

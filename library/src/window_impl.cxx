@@ -117,6 +117,8 @@ public:
   // it, since options are a plain struct anyone can write without asking for a render.
   options OptionsAtLastFullRender;
   bool HasFullRender = false;
+  // Closed by the user while events were pumped: nothing may render any more (SetG3DWindowClosed).
+  bool Closed = false;
   interactor_impl* Interactor = nullptr;
   fs::path CachePath;
   context::function GetProcAddress;
@@ -851,6 +853,10 @@ vtkRenderWindow* window_impl::GetRenderWindow()
 //----------------------------------------------------------------------------
 bool window_impl::render()
 {
+  if (this->Internals->Closed)
+  {
+    return false;
+  }
   this->UpdateDynamicOptions();
   const options& opt = this->Internals->Options;
   if ((!opt.scene.camera.index.has_value()) && (!this->Internals->Camera->GetSuccessfullyReset()))
@@ -981,9 +987,25 @@ void window_impl::SetInteractor(interactor_impl* interactor)
 }
 
 //----------------------------------------------------------------------------
+void window_impl::SetG3DWindowClosed()
+{
+  this->Internals->Closed = true;
+}
+
+//----------------------------------------------------------------------------
+bool window_impl::IsG3DWindowClosed() const
+{
+  return this->Internals->Closed;
+}
+
+//----------------------------------------------------------------------------
 void window_impl::RenderUIOnly()
 {
 #if F3D_MODULE_UI
+  if (this->Internals->Closed)
+  {
+    return;
+  }
   // Do only a partial render of the UI
   vtkRenderWindow* renWin = this->Internals->RenWin;
   vtkRenderer* ren = renWin->GetRenderers()->GetFirstRenderer();

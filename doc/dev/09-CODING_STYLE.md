@@ -136,6 +136,25 @@ Review checklist for a change that touches what is on screen:
       `ui-scene-mutation`), built with `G3DCommandLine` when they carry a value.
 - [ ] Interaction tests end on a settled frame (the presented-frame guard, see `06-TESTING.md`).
 
+### Async loads
+
+A file loads on a worker thread (`scene::addAsync`) while the loader pumps
+`interactor::processEvents()`, so the window keeps repainting and the UI keeps reacting. Everything
+the user does in that time is dispatched from inside the load, so the interactor holds it: while a
+load is pending (until `finalizeAsync()`), a bound key or a dropped file is queued instead of run,
+UI, console and notification commands stay queued, and a tick only draws (no queued input, no user
+callback, no animation). The first tick after the load runs the queue in arrival order, as if it
+had just happened. A window closed meanwhile is never rendered again
+(`window_impl::IsG3DWindowClosed`) and `start()` does not run. The scene refuses `add()` /
+`addAsync()` while a load is pending, and `clear()` waits for the worker before freeing what it
+uses. The contract is the ASYNC LOADS block of `library/private/interactor_impl.h`; the regression
+test is `TestSDKAsyncLoadInput`.
+
+- [ ] A new way to start or change a load goes through a command, so that the interactor can hold
+      it. A caller that reaches `F3DStarter::LoadFileGroup` directly from an event (the macOS
+      "open file" delegate) is queued by `LoadFileGroup` itself while a load is in progress.
+- [ ] A new per-tick step that touches the scene is skipped while `IsSceneLoadPending()`.
+
 ### Automatic formatting
 
 Some of the rules above are enforced using clang-format thanks to a `.clang-format` file.

@@ -137,6 +137,18 @@ public:
    */
   void RenderUIOnly();
 
+  ///@{
+  /**
+   * Implementation only API.
+   * The user closed the window while interactor::processEvents() pumped its events (ASYNC LOADS in
+   * interactor_impl.h). VTK may have destroyed the native window already -- it does on Windows --
+   * and a render would silently open a new one, on a GL context whose resources went with the old
+   * one. From then on render() and RenderUIOnly() draw nothing.
+   */
+  void SetG3DWindowClosed();
+  [[nodiscard]] bool IsG3DWindowClosed() const;
+  ///@}
+
   /**
    * Implementation only API.
    * Read back the frame last presented, without rendering (RGB, lower-left origin like

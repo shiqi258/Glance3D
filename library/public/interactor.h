@@ -447,6 +447,14 @@ public:
    *   }
    *   scene.finalizeAsync();
    * \endcode
+   *
+   * While such a load is pending (until finalizeAsync()), the events stay live -- the window
+   * repaints, the UI reacts, the camera moves -- but the commands they would trigger (bindings,
+   * dropped files, UI and console commands) and the event loop user callback are queued, and run
+   * in arrival order by the event loop once the load is finalized.
+   *
+   * If the user closes the window meanwhile, nothing is rendered any more and start() returns
+   * immediately: finish or abandon the operation and let the application exit.
    */
   virtual interactor& processEvents() = 0;
 

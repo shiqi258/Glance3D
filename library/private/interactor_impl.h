@@ -35,6 +35,28 @@
  *    presented-frame guard on every INTERACTION test (a replay must end on a frame a fresh render
  *    reproduces), `ctest -L lint` (ui-scene-mutation: a scene or camera change in UI code) and
  *    `[render.stale]` in the log.
+ *
+ * ASYNC LOADS — events keep flowing during a load; commands wait for it.
+ *  - A loader polls scene::addAsync() and pumps processEvents() until the build is done, so the
+ *    window repaints, resizes and animates its UI while the file parses. Everything a user can do
+ *    in that time is dispatched from inside the load, and a command run there (the next file, a
+ *    dropped file, a reload, clear) would tear down the scene the worker is still building.
+ *  - So while the scene has a load pending (addAsync() until finalizeAsync(), READY included), a
+ *    bound key or a drop is resolved and queued (TriggerBinding), UI, console and notification
+ *    commands stay queued, and a tick only draws: no queued input, no user callback, no animation.
+ *    The next tick after the load runs the queue in arrival order, a deferred binding with its HUD
+ *    notification, as if it had just happened; an entry that leaves a new load pending holds back
+ *    the rest. Each deferral and replay is a debug line in the log.
+ *  - Camera navigation and view state that does not go through a command stay live.
+ *  - Closing the window is the one event that cannot wait: on Windows VTK destroys the native
+ *    window on the spot. processEvents() notices the close (the native window is gone, or the
+ *    interactor turned done without stop() asking) and marks the window closed
+ *    (window_impl::SetG3DWindowClosed): nothing renders again and start() returns at once, so the
+ *    loader just finishes and the application exits.
+ *  - The scene defends itself too: add() and addAsync() throw while a load is pending, clear()
+ *    waits for the worker and discards what it built.
+ *  - The net: TestSDKAsyncLoadInput (input during a pending load, the scene API while pending, a
+ *    close during the load).
  */
 
 #ifndef f3d_interactor_impl_h
@@ -161,6 +183,7 @@ public:
   /**
    * Queue a command to be run on the next event loop. Commands accumulate in order — a UI click
    * may emit several (e.g. set array + enable coloring) and every one must survive the frame.
+   * While a scene load is pending, they wait for it to be finalized (ASYNC LOADS above).
    */
   void SetCommandBuffer(const char* command);
 

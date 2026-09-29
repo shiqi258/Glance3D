@@ -52,6 +52,7 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <deque>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -1219,6 +1220,18 @@ public:
   // so a limit merely cleared around the load was back before the size check ran.
   std::set<fs::path> MaxSizeExemptions;
 
+  // Set while LoadFileGroupInternal runs. Its event pump can hand a load request straight to
+  // LoadFileGroup, which then must not start a second load inside the first: the request waits in
+  // DeferredGroupLoads for the next event loop tick (see LoadFileGroup).
+  bool LoadingFileGroup = false;
+  struct DeferredGroupLoad
+  {
+    int Index;
+    bool RelativeIndex;
+    bool ForceClear;
+  };
+  std::deque<DeferredGroupLoad> DeferredGroupLoads;
+
   // Glance3D testing: what the replay left on screen, read back before anything renders again.
   // Every other capture path renders a fresh frame first, which is exactly what hides a change that
   // never got the full render it needed. See CheckPresentedFrame.
@@ -2104,6 +2117,18 @@ int F3DStarter::Start(int argc, char** argv)
 //----------------------------------------------------------------------------
 void F3DStarter::LoadFileGroup(int index, bool relativeIndex, bool forceClear)
 {
+  if (this->Internals->LoadingFileGroup)
+  {
+    // Called back from the event pump of the load in progress. Input that goes through the
+    // interactor is held until the load ends (ASYNC LOADS in interactor_impl.h), so this is a
+    // caller that reached the application directly, like the macOS "open file" delegate. The load
+    // in progress owns the scene and the group bookkeeping: this one runs on the tick after it.
+    f3d::log::debug("Loading file group ", index, relativeIndex ? " (relative)" : "",
+      " deferred: a load is in progress");
+    this->Internals->DeferredGroupLoads.push_back({ index, relativeIndex, forceClear });
+    return;
+  }
+
   int groupIndex = this->Internals->CurrentFilesGroupIndex;
   if (relativeIndex)
   {
@@ -2156,6 +2181,17 @@ void F3DStarter::LoadFileGroup(int index, bool relativeIndex, bool forceClear)
 void F3DStarter::LoadFileGroupInternal(
   const std::vector<fs::path>& paths, bool clear, const std::string& groupIdx)
 {
+  // Until this returns, a request to load something else waits (see LoadFileGroup).
+  this->Internals->LoadingFileGroup = true;
+  const struct LoadingLatch
+  {
+    bool& flag;
+    ~LoadingLatch()
+    {
+      this->flag = false;
+    }
+  } loadingLatch{ this->Internals->LoadingFileGroup };
+
   // Make sure the animation is stopped before trying to load any file
   if (!this->Internals->AppOptions.NoRender)
   {
@@ -2828,6 +2864,17 @@ bool F3DStarter::LoadRelativeFileGroup(int index, bool restoreCamera, bool force
 //----------------------------------------------------------------------------
 void F3DStarter::EventLoop()
 {
+  // Load requests that arrived while a load was in progress, oldest first. The interactor runs
+  // this callback only once no load is pending, and one of these may queue more while it loads.
+  while (!this->Internals->DeferredGroupLoads.empty())
+  {
+    const F3DInternals::DeferredGroupLoad request = this->Internals->DeferredGroupLoads.front();
+    this->Internals->DeferredGroupLoads.pop_front();
+    f3d::log::debug("Loading file group ", request.Index, " deferred during the previous load");
+    this->LoadFileGroup(request.Index, request.RelativeIndex, request.ForceClear);
+    this->Internals->Engine->getInteractor().requestRender();
+  }
+
   if (this->Internals->ReloadFileRequested)
   {
     this->LoadRelativeFileGroup(0, true, true);

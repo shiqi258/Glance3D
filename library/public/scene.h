@@ -274,10 +274,15 @@ public:
    * owns the window/GL context: poll getAsyncState() and, once it returns AsyncState::READY (or
    * FAILED), call finalizeAsync() to commit the result on the render thread.
    *
-   * Only one async load may run at a time; calling addAsync() while one is in progress throws a
-   * load_failure_exception. Files that fail extension/reader detection are rejected synchronously
-   * (throwing as add() does); errors during the background build are reported via
+   * Only one async load may be pending at a time, from addAsync() until finalizeAsync() -- READY
+   * and FAILED included, since the build thread is only released by finalizeAsync(). While one is
+   * pending, addAsync() and add() throw a load_failure_exception, and clear() waits for the build
+   * to finish and discards it. Files that fail extension/reader detection are rejected
+   * synchronously (throwing as add() does); errors during the background build are reported via
    * AsyncState::FAILED and re-thrown by finalizeAsync(). Already added files are NOT reloaded.
+   *
+   * Events pumped meanwhile with interactor::processEvents() stay responsive but do not run
+   * commands: what they trigger is queued until the load is finalized (see processEvents()).
    */
   virtual scene& addAsync(const std::vector<std::filesystem::path>& filePaths) = 0;
   scene& addAsync(const std::vector<std::string>& filePathStrings)
@@ -309,7 +314,8 @@ public:
   virtual scene& finalizeAsync() = 0;
 
   /**
-   * Clear the scene of all added files
+   * Clear the scene of all added files.
+   * An asynchronous load still pending (see addAsync()) is waited for, then discarded.
    */
   virtual scene& clear() = 0;
 

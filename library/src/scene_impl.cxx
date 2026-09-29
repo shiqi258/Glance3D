@@ -328,6 +328,14 @@ public:
   // Synchronous load: prepare, build + commit (blocking), post-process.
   void Load(const std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>>& importers)
   {
+    // Building now would add importers to the very list the async worker is walking.
+    if (this->IsAsyncLoadPending())
+    {
+      log::debug("scene::add refused: an asynchronous load is in progress");
+      throw scene::load_failure_exception(
+        "an asynchronous load is in progress, finalize it before adding more files");
+    }
+
     this->LoadAddAndPrepare(importers);
 
     // Manage progress bar
@@ -510,6 +518,12 @@ public:
       this->MetaImporter->AddObserver(vtkCommand::ProgressEvent, progressCallback);
 
     this->AsyncState = scene::AsyncState::LOADING;
+    // Every path back to IDLE joins, so this never holds a thread here -- but a std::thread
+    // assigned over a joinable one is std::terminate, not an error.
+    if (this->AsyncBuildThread.joinable())
+    {
+      this->AsyncBuildThread.join();
+    }
     this->AsyncBuildThread = std::thread(
       [this]
       {
@@ -552,6 +566,30 @@ public:
     internals::ReportPartialFailure(this->AsyncBuildResult);
     this->AsyncBuildResult = {};
     this->AsyncProgress = 1.0;
+    this->AsyncState = scene::AsyncState::IDLE;
+  }
+
+  // From addAsync() until finalizeAsync() settles it: the worker may still be building, or its
+  // result is waiting to be committed. Either way the importer list belongs to that load.
+  [[nodiscard]] bool IsAsyncLoadPending() const
+  {
+    return this->AsyncState.load() != scene::AsyncState::IDLE;
+  }
+
+  // Abandon a pending asynchronous load: wait for the worker to finish with the importers, then
+  // forget what it built, so that finalizeAsync() has nothing left to commit. Blocks for the rest
+  // of the build -- the worker cannot be interrupted, and freeing the importers under it is what
+  // this is here to prevent.
+  void DiscardAsyncLoad()
+  {
+    if (this->AsyncBuildThread.joinable())
+    {
+      this->AsyncBuildThread.join();
+    }
+    this->MetaImporter->RemoveObserver(this->AsyncProgressTag);
+    this->AsyncProgressTag = 0;
+    this->AsyncBuildResult = {};
+    this->AsyncProgress = 0.0;
     this->AsyncState = scene::AsyncState::IDLE;
   }
 
@@ -645,8 +683,11 @@ scene& scene_impl::add(const std::vector<fs::path>& filePaths)
 //----------------------------------------------------------------------------
 scene& scene_impl::addAsync(const std::vector<fs::path>& filePaths)
 {
-  if (this->Internals->AsyncState.load() == scene::AsyncState::LOADING)
+  // Not only LOADING: a READY or FAILED load still owns its worker thread until finalizeAsync()
+  // joins it, and starting another over it was a std::terminate.
+  if (this->Internals->IsAsyncLoadPending())
   {
+    log::debug("scene::addAsync refused: an asynchronous load is already in progress");
     throw scene::load_failure_exception("an asynchronous load is already in progress");
   }
   if (filePaths.empty())
@@ -1115,6 +1156,15 @@ scene& scene_impl::add([[maybe_unused]] std::shared_ptr<mesh_view> mesh)
 //----------------------------------------------------------------------------
 scene& scene_impl::clear()
 {
+  // The async worker holds the only use of the importers Clear() is about to free: it would carry
+  // on building into deleted objects. Let it finish, then drop what it built.
+  if (this->Internals->IsAsyncLoadPending())
+  {
+    log::warn("Clearing the scene while an asynchronous load is in progress: waiting for it to "
+              "finish, then discarding it");
+    this->Internals->DiscardAsyncLoad();
+  }
+
   // Clear the meta importer from all importers
   this->Internals->MetaImporter->Clear();
 
