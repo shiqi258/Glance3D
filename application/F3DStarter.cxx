@@ -36,6 +36,7 @@
 #endif
 
 #include "engine.h"
+#include "g3dCommand.h"
 #include "g3dFrame.h"
 #include "g3dLocale.h"
 #include "g3dNotification.h"
@@ -2275,7 +2276,7 @@ void F3DStarter::LoadFileGroupInternal(
                       "moved or renamed."),
               {}, tmpPath.string(), tmpPath.string(),
               { { g3d::locale::translate("Open containing folder"),
-                  "reveal_path \"" + tmpPath.string() + "\"", true },
+                  g3d::command::line("reveal_path", { tmpPath.string() }), true },
                 { g3d::locale::translate("Open file..."), "open_file_dialog", false } });
           }
           else if (scene.supports(tmpPath))
@@ -2308,7 +2309,7 @@ void F3DStarter::LoadFileGroupInternal(
                 // knows the file is worth the wait, and they should not have to restart the app
                 // with a different flag to say so.
                 { { g3d::locale::translate("Load it anyway"),
-                  "load_ignoring_max_size \"" + tmpPath.string() + "\"", true } });
+                  g3d::command::line("load_ignoring_max_size", { tmpPath.string() }), true } });
             }
             else
             {

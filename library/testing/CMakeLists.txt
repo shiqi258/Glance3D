@@ -10,6 +10,7 @@ list(APPEND libf3dSDKTests_list
      TestSDKEngine.cxx
      TestSDKEngineExceptions.cxx
      TestSDKEngineRecreation.cxx
+     TestSDKG3DCommand.cxx
      TestSDKImage.cxx
      TestSDKInteractorCommand.cxx
      TestSDKInteractorDropFullScene.cxx
@@ -158,6 +159,7 @@ endif()
 # List tests that do not require rendering
 list(APPEND libf3dSDKTestsNoRender_list
      TestSDKEngineExceptions
+     TestSDKG3DCommand
      TestSDKLog
      TestSDKOptions
      TestSDKOptionsIO

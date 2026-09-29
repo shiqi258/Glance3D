@@ -7,6 +7,7 @@
 #include "utils.h"
 #include "window_impl.h"
 
+#include "G3DCommandLine.h"
 #include "G3DLocaleCore.h"
 #include "G3DNotificationCenter.h"
 #include "G3DReport.h"
@@ -44,7 +45,6 @@
 #include <cstdint>
 #include <map>
 #include <numeric>
-#include <regex>
 #include <vector>
 
 #include "camera.h"
@@ -354,19 +354,14 @@ public:
   {
     internals* self = static_cast<internals*>(clientData);
     vtkStringArray* filesArr = static_cast<vtkStringArray*>(callData);
-    const std::regex charsToEscape(R"((["\\]))");
     std::string filesString;
     for (int i = 0; i < filesArr->GetNumberOfTuples(); i++)
     {
-      const vtkStdString& filename = filesArr->GetValue(i);
-      const std::string escapedFilename = std::regex_replace(filename, charsToEscape, "\\$1");
       if (i > 0)
       {
         filesString.push_back(' ');
       }
-      filesString.push_back('"');
-      filesString.append(escapedFilename);
-      filesString.push_back('"');
+      filesString += G3DQuoteCommandArgument(filesArr->GetValue(i));
     }
 
     self->TriggerBinding("Drop", filesString);

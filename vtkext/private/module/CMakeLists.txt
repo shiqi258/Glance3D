@@ -93,6 +93,7 @@ endforeach()
 
 set(classes
   F3DLog
+  G3DCommandLine
   G3DLocaleCore
   G3DNotificationCenter
   G3DReport

@@ -3,6 +3,7 @@
 #include "F3DColoringInfoHandler.h"
 #include "F3DDefaultLogo.h"
 #include "F3DStyle.h"
+#include "G3DCommandLine.h"
 #include "G3DIcon.h"
 #include "G3DIconAtlas.h"
 #include "G3DSceneTreeView.h"
@@ -2909,7 +2910,7 @@ void vtkF3DImguiActor::DrawDataInfoContent(vtkOpenGLRenderWindow* renWin)
         if (r.rowClicked)
         {
           this->SendCommand(std::string("set model.scivis.cells ") + (isCell ? "true" : "false"));
-          this->SendCommand(std::string("set model.scivis.array_name \"") + a.Name + "\"");
+          this->SendCommand(G3DCommandLine("set", { "model.scivis.array_name", a.Name }));
           this->SendCommand("set model.scivis.enable true");
         }
       };
@@ -3562,7 +3563,7 @@ void vtkF3DImguiActor::DrawColoringContent(vtkOpenGLRenderWindow* renWin)
         }
         else
         {
-          this->SendCommand(std::string("set model.scivis.colormap \"") + preset.points + "\"");
+          this->SendCommand(G3DCommandLine("set", { "model.scivis.colormap", preset.points }));
         }
       }
     }
