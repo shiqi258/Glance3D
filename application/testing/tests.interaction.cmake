@@ -263,6 +263,10 @@ f3d_test(NAME TestInteractionNotificationCenterRaise DATA f3d.glb RESOLUTION 800
 # A message action carrying a Windows path (backslashes, which the command tokenizer reads as
 # escapes) still reaches the file it names, and what it loads is on screen right after (PRESENTED).
 f3d_test(NAME TestInteractionNotificationLoadAnyway DATA WaterBottle.glb ARGS --max-size=0.2 RESOLUTION 800,600 INTERACTION UI PRESENTED) #Click "Load it anyway" on the too-large message
+# Clearing a --force-reader that names no reader from its message loads the file it turned away,
+# framed as any load frames it (not through the empty scene's camera), on screen right after
+# (PRESENTED).
+f3d_test(NAME TestInteractionNotificationClearForcedReader DATA cow.vtp ARGS --force-reader=nope RESOLUTION 800,600 INTERACTION UI PRESENTED) #Click "Clear forced reader" on the invalid-reader message
 
 ## Scene tree acting on the scene
 # A row click that changes the scene goes out as a command, run between frames, and its effect is

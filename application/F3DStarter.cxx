@@ -2364,13 +2364,15 @@ void F3DStarter::LoadFileGroupInternal(
             if (forceReader)
             {
               // The one-click fix is the point of this message: the user set a reader that does
-              // not exist, and clearing it is exactly what they need to do next.
+              // not exist, and clearing it is exactly what they need to do next. The action loads
+              // the group again too: the option only acts on load, and this one has already left
+              // the scene empty.
               notif::report(notif::severity::ERROR, notif::code::FORCE_READER_INVALID,
                 G3D_MSG("Invalid forced reader"),
                 { { "reader", *forceReader } },
                 G3D_MSG("No reader named {reader} is available."),
                 { { "reader", *forceReader } }, *forceReader, *forceReader,
-                { { g3d::locale::translate("Clear forced reader"), "reset scene.force_reader",
+                { { g3d::locale::translate("Clear forced reader"), "reload_without_forced_reader",
                   true } });
             }
             else
@@ -3237,6 +3239,23 @@ void F3DStarter::AddCommands()
     f3d::interactor::command_documentation_t{ "load_ignoring_max_size path/to/file",
       "load a file even though it exceeds --max-size" },
     complFilesystem);
+
+  // Clear the forced reader and load what it kept out. Backs the "Clear forced reader" action: a
+  // --force-reader that names no reader turns every file of the group away, so resetting the
+  // option alone leaves the viewport empty until something loads the group again. The reset goes
+  // through the engine options, as the reset command's does, so the load records it among the
+  // dynamic options and later loads keep it. The camera is set up as by any load, not kept as
+  // reload_current_file_group keeps it: the camera found here is the empty scene's, which showed
+  // the model as a close-up of its side.
+  interactor.addCommand(
+    "reload_without_forced_reader",
+    [this](const std::vector<std::string>&)
+    {
+      this->Internals->Engine->getOptions().scene.force_reader.reset();
+      this->LoadRelativeFileGroup(0, false, true);
+    },
+    f3d::interactor::command_documentation_t{ "reload_without_forced_reader",
+      "clear scene.force_reader and reload the current file or file group" });
 
   interactor.addCommand(
     "set_hdri",

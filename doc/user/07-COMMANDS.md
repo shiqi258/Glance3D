@@ -212,6 +212,8 @@ The Glance3D application provides a few more commands.
 
 `reload_current_file_group`: A specific command to reload the current file or file group. No argument.
 
+`reload_without_forced_reader`: A specific command to clear `scene.force_reader` (`--force-reader`) and reload the current file or file group with the readers detected from the files. The camera is set up as for a new load. Later loads keep the forced reader cleared. No argument.
+
 `add_current_directories`: A specific command to add all files from the current file or file group directories. No argument.
 
 `take_screenshot [filename]`: A specific command to [take a screenshot](04-INTERACTIONS.md#taking-screenshots). If filename is not specified,
