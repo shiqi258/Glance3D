@@ -2,7 +2,10 @@
 
 #include <engine.h>
 #include <interactor.h>
+#include <options.h>
 #include <scene.h>
+
+#include <string>
 
 using namespace std::string_literals;
 
@@ -80,6 +83,43 @@ int TestSDKAnimation([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
   test("isPlaying backward after backward toggle on",
     inter.getAnimationDirection() == f3d::interactor::AnimationDirection::BACKWARD);
   inter.stopAnimation();
+
+  // The playback speed is read live: whoever changes the option, the very next tick plays at it.
+  // The manager used to play from a copy synced on key presses only, so a speed picked in the
+  // timeline's dropdown (a command, not a key) kept playing at the old one.
+  f3d::options& opt = eng.getOptions();
+  sce.loadAnimationTime(0.1);
+  inter.startAnimation();
+  double before = sce.getCurrentAnimationTime();
+  inter.triggerCommand("set scene.animation.speed_factor 0.25"); // what the timeline dropdown sends
+  inter.triggerEventLoop(0.1);
+  test("speed set by a command plays on the next tick", sce.getCurrentAnimationTime() - before,
+    approx(0.025, 1e-9));
+
+  before = sce.getCurrentAnimationTime();
+  opt.scene.animation.speed_factor = f3d::ratio_t(2.0);
+  inter.triggerEventLoop(0.1);
+  test("speed set through the options plays on the next tick",
+    sce.getCurrentAnimationTime() - before, approx(0.2, 1e-9));
+
+  before = sce.getCurrentAnimationTime();
+  opt.scene.animation.speed_factor = f3d::ratio_t(-1.0);
+  inter.triggerEventLoop(0.1);
+  test("negative speed plays backward", sce.getCurrentAnimationTime() - before, approx(-0.1, 1e-9));
+  inter.stopAnimation();
+
+  // A frame step is one tick at 1x (the interactor's delta time, 1/30 s by default) whatever the
+  // speed, which scales continuous playback only. Zero included: the step used to divide by it.
+  for (const double speed : { 0.25, 0.0 })
+  {
+    opt.scene.animation.speed_factor = f3d::ratio_t(speed);
+    sce.loadAnimationTime(0.1);
+    before = sce.getCurrentAnimationTime();
+    inter.triggerCommand("jump_to_frame 1 true");
+    test("frame step ignores speed " + std::to_string(speed),
+      sce.getCurrentAnimationTime() - before, approx(1.0 / 30.0, 1e-9));
+  }
+  opt.scene.animation.speed_factor = f3d::ratio_t(1.0);
 
   return test.result();
 }

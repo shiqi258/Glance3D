@@ -160,6 +160,7 @@ Supports `front`, `top`, `right`, `back`, `bottom`, `left`, `isometric` argument
 `toggle_animation_backward`: A specific command to start/stop the animation backward. No argument.
 
 `jump_to_frame`: A specific command to load an animation at a specific frame, takes a number and a boolean as arguments.
+A frame lasts one tick of the event loop, `1 / --frame-rate` seconds of animation time (1/30 s by default), whatever the playback speed (`scene.animation.speed_factor`), which scales continuous playback only. Unlike upstream F3D, where a frame lasted the tick scaled by the speed.
 eg:
 
 - `jump_to_frame 1 true` jump to next frame.

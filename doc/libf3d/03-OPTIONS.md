@@ -42,6 +42,9 @@ wrapping back to the start.
 ### `scene.animation.speed_factor` (_ratio_, default: `1`)
 
 Set the animation speed factor to slow, speed up or even invert animation.
+It is read on every tick, so a change takes effect on the next one whatever makes it (the timeline,
+a command, the SDK). It scales continuous playback only: a frame step (`jump_to_frame`) is not
+affected.
 
 CLI: `--animation-speed-factor`.
 

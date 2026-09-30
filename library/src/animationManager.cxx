@@ -179,7 +179,11 @@ void animationManager::Tick()
   assert(this->DeltaTime > 0);
   if (this->Playing)
   {
-    this->CurrentTime += (this->DeltaTime * this->SpeedFactor) * this->AnimationDirection;
+    // The speed is read live like the loop switch below: a UI or console command, the SDK or the
+    // web page changes the option, and this very tick plays at the new speed. A copy synced on key
+    // presses only kept playing at the old speed after the timeline's speed dropdown was used.
+    const double speedFactor = this->Options.scene.animation.speed_factor;
+    this->CurrentTime += (this->DeltaTime * speedFactor) * this->AnimationDirection;
 
     // Ran past an end of the range: either wrap (loop) or stop and rest on the final pose
     // (play-once). Read the option live so a UI/command toggle takes effect on the next tick.
@@ -222,7 +226,10 @@ void animationManager::Tick()
 void animationManager::JumpToFrame(int frame, bool relative)
 {
   assert(this->DeltaTime > 0);
-  const double frameDuration = (this->DeltaTime * this->SpeedFactor);
+  // Glance3D: a frame is one tick at 1x (1 / frame rate), whatever the speed factor, which scales
+  // continuous playback only -- as frame keys in DCC tools and video players behave. Upstream F3D
+  // scaled the step by the speed, so stepping crawled at 0.1x (and divided by zero at 0x).
+  const double frameDuration = this->DeltaTime;
   const double currentFrame = (this->CurrentTime - this->TimeRange[0]) / frameDuration;
 
   double nextFrame = 0;
@@ -239,7 +246,7 @@ void animationManager::JumpToFrame(int frame, bool relative)
     nextFrame = (this->TimeRange[1] - this->TimeRange[0]) / frameDuration;
   }
 
-  this->CurrentTime = this->TimeRange[0] + (nextFrame * this->DeltaTime * this->SpeedFactor);
+  this->CurrentTime = this->TimeRange[0] + (nextFrame * frameDuration);
 
   if (this->LoadAtTime(this->CurrentTime))
   {
@@ -750,9 +757,11 @@ void animationManager::SetAutoplay(bool enable)
 //----------------------------------------------------------------------------
 void animationManager::SetSpeedFactor(double speedFactor)
 {
-  if (this->SpeedFactor != speedFactor)
+  if (this->LastSeenSpeedFactor != speedFactor)
   {
-    this->SpeedFactor = speedFactor;
+    // Debug level: an info line would show in the console the image tests capture.
+    log::debug("Animation: speed factor ", this->LastSeenSpeedFactor, " -> ", speedFactor);
+    this->LastSeenSpeedFactor = speedFactor;
     this->SetCheatSheetConfigured(false);
   }
 }

@@ -3768,9 +3768,9 @@ void vtkF3DImguiActor::DrawTimelineContent()
     this->SendCommand(std::string("load_animation_time ") + buf);
   }
 
-  // Single-frame stepping (1 frame = the interactor's frame delta x the speed factor), on the
-  // manager's authoritative time. The manager clamps AND warns past the range ends, so disable at
-  // the ends instead of letting held clicks spam warnings.
+  // Single-frame stepping (1 frame = the interactor's frame delta, whatever the playback speed), on
+  // the manager's authoritative time. The manager clamps AND warns past the range ends, so disable
+  // at the ends instead of letting held clicks spam warnings.
   G3DWidgets::FieldRowNext();
   ImGui::BeginDisabled(tcur <= tminD + stepEps);
   if (G3DWidgets::IconButton("##g3d.anim.stepback", G3DIconId::SkipBack,

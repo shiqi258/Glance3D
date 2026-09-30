@@ -1,6 +1,13 @@
 /**
  * @class   animationManager
  * @brief   A private class managing animation
+ *
+ * The options are the one source of truth for how the animation plays: read an option where it is
+ * used (Tick reads the speed and the loop switch on every tick). Whoever changes one (a key, a UI
+ * or console command, the SDK, the web page), the change takes effect on the next tick, with nobody
+ * having to notify the manager. A member that mirrors an option exists only to notice a change (the
+ * cheat sheet shows some of them); UpdateDynamicOptions reconciles those, and the event loop runs
+ * it on every tick.
  */
 
 #ifndef f3d_animationManager_h
@@ -153,8 +160,10 @@ public:
   bool LoadAtTime(double timeValue);
 
   /**
-   * Load animation at provided frmae value
+   * Load animation at provided frame value
    * When relative is false frame -1 is equal to last frame
+   * A frame lasts the delta time (1 / frame rate), whatever the speed factor: the speed scales
+   * continuous playback only.
    */
   void JumpToFrame(int frame, bool relative);
 
@@ -180,7 +189,8 @@ public:
   unsigned int GetNumberOfAvailableAnimations() const;
 
   /**
-   * Update the dynamic options value to trigger cheatsheet update if needed.
+   * Reconcile the members that mirror options with the options, to trigger a cheatsheet update if
+   * one changed. The event loop runs it on every tick, so a change from any source is picked up.
    */
   void UpdateDynamicOptions();
 
@@ -200,7 +210,7 @@ private:
   void SetAutoplay(bool enable);
 
   /**
-   * Internal setter for SpeedFactor.
+   * Record the speed factor last seen in the options; a change invalidates the cheatsheet.
    */
   void SetSpeedFactor(double speedFactor);
 
@@ -226,9 +236,10 @@ private:
   double DeltaTime = 0;
   bool CurrentTimeSet = false;
 
-  // Dynamic options
+  // Dynamic options, as last seen by UpdateDynamicOptions. Autoplay is what Initialize starts from;
+  // the speed factor is only compared, never played from (Tick reads the option live).
   bool Autoplay = false;
-  double SpeedFactor = 1.0;
+  double LastSeenSpeedFactor = 1.0;
 
   vtkSmartPointer<vtkProgressBarWidget> ProgressWidget;
 };

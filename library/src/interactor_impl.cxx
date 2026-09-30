@@ -614,7 +614,8 @@ public:
   void EndInteraction()
   {
     // Update the dynamic options of the animation manager so check if the cheatsheet needs an
-    // update.
+    // update. The event loop reconciles them on every tick too; this one refreshes the cheat sheet
+    // in the render right below, the frame of the key press itself.
     this->AnimationManager->UpdateDynamicOptions();
     // Always render after interaction
     this->Window.render();
@@ -788,6 +789,10 @@ public:
     const bool loadPending = this->IsSceneLoadPending();
     if (!loadPending)
     {
+      // Whatever changed the options since the last tick -- a key, a UI or console command just
+      // drained, the SDK, the web page -- the manager's mirrors of them follow before it advances.
+      // Playback itself reads the options live; this keeps the cheat sheet in step.
+      this->AnimationManager->UpdateDynamicOptions();
       this->AnimationManager->SetDeltaTime(deltaTime);
       this->AnimationManager->Tick();
     }

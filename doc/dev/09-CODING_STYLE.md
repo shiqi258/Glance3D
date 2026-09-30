@@ -136,6 +136,16 @@ Review checklist for a change that touches what is on screen:
       `ui-scene-mutation`), built with `G3DCommandLine` when they carry a value.
 - [ ] Interaction tests end on a settled frame (the presented-frame guard, see `06-TESTING.md`).
 
+### Options are read where they are used
+
+An option changes from many places: a key binding, a UI or console command, a notification
+action, a `--command-script`, the SDK and the Python / web bindings. Only a key press ends in a
+hook (`EndInteraction`), so code that copies an option into a member and works from the copy goes
+stale for every other path. The timeline's speed dropdown once changed its label but not the
+playback. Read the option where it is used (`animationManager::Tick` reads the speed and the loop
+switch on every tick). A member that mirrors an option is only there to notice a change, and is
+reconciled on every tick of the event loop (`animationManager::UpdateDynamicOptions`).
+
 ### Async loads
 
 A file loads on a worker thread (`scene::addAsync`) while the loader pumps
