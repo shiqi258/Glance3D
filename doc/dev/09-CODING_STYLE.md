@@ -70,9 +70,15 @@ unit (`G3DUnits.h`):
 - Right before a native ImGui call, convert with `G3DWidgets::Px()`, or `PxTrunc()` for a value
   pushed in place of a style metric.
 - Reserve room with a measuring function (`ButtonSize`, `IconButtonSize`, `SegmentedIconSize`,
-  `BadgeSize`, `ToolGroupSize`, `MeasureFieldRow`...), never with a token. Controls sharing a line
-  are a `FieldRow`.
+  `BadgeSize`, `SelectSize`, `ToolGroupSize`, `MeasureFieldRow`...), never with a token. Controls
+  sharing a line are a `FieldRow`. `ctest -L lint` flags a `FieldSlot::Fixed` sized by a token
+  (rule `token-slot`).
 - Size and place windows before submitting them: an offscreen `--output` render gets one frame.
+- Only open-ended content (a name) may be cut short, and what is cut shows whole on hover. A
+  dropdown with a closed set of options (a speed, a unit, a mode) reserves its trigger with
+  `SelectSize` over every value it may show, so the value is whole whichever is picked, the way a
+  native `<select>` sizes. Its menu is at least as wide as the trigger and as wide as its widest
+  item, up to a cap, with the check column on every row (`G3DWidgets.h`, Select).
 
 Review checklist for a UI change:
 

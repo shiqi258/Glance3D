@@ -37,7 +37,7 @@
  *  - Reserve room with a measuring twin, never with a token (the token is logical, the room is
  *    physical, and a token-sized reservation drifts the moment the widget changes): ButtonSize /
  *    ButtonWidth / ButtonHeight, IconButtonSize, SegmentedIconSize, BadgeSize / BadgeWidth /
- *    BadgeHeight, ToolGroupSize, ToastHeight, TreeRowHeight, FloatingCardHeaderHeight,
+ *    BadgeHeight, SelectSize, ToolGroupSize, ToastHeight, TreeRowHeight, FloatingCardHeaderHeight,
  *    CalcTextSizedPx, MeasureFieldRow. A row of controls is a FieldRow, laid out from those widths
  *    before anything in it is drawn — the same frame, which is all an offscreen --output gets.
  *  - The net: `ctest -L lint` (scripts/check-ui-units.mjs flags bare lengths, audit exits and a
@@ -669,7 +669,7 @@ ImVec2 CalcTextSizedPx(const char* text, float size, bool mono = false) = delete
 //   if (triggerClicked) ImGui::OpenPopup("##panel");
 //   G3DWidgets::PopoverDesc pd;
 //   pd.anchor = triggerRect;                       // screen px
-//   pd.width = panelWidth;                         // a menu takes its trigger's width
+//   pd.width = panelWidth;                         // or 0 to fit it (a menu: minWidth = trigger)
 //   ...push the surface's own style (padding, background, rounding)...
 //   if (G3DWidgets::BeginPopover("##panel", pd))   // true while it is open
 //   {
@@ -698,9 +698,12 @@ ImVec2 CalcTextSizedPx(const char* text, float size, bool mono = false) = delete
 struct PopoverDesc
 {
   G3DLayout::Rect anchor;               ///< the trigger, screen px
-  float width = 0.f;                    ///< fixed width px (a menu: its trigger's, a panel: its
-                                        ///< own); 0 fits the content, for content that does not
-                                        ///< size itself from the available width
+  float width = 0.f;                    ///< fixed width px (a panel: its own); 0 fits the content,
+                                        ///< between minWidth and maxWidth: its extent, or the
+                                        ///< widest width its rows declared (rows that span the
+                                        ///< available width, a dropdown's items, declare theirs)
+  float minWidth = 0.f;                 ///< fitted: the narrowest it gets, px (a menu: its trigger)
+  float maxWidth = 0.f;                 ///< fitted: the widest it gets, px (0: no cap)
   float maxHeight = 0.f;                ///< tallest it gets, px, the content scrolling beyond it
                                         ///< (0: no cap)
   G3DDp minHeight;                      ///< how short it may get when no side takes it whole
@@ -731,12 +734,21 @@ void ClosePopover(const char* strId);
 // input-look trigger showing the current value with a rotating chevron, opening a floating menu of
 // check-marked items. The menu is a Popover (above), so like the styleguide's body-portaled .menu
 // it escapes any clipping ancestor (accordion, inspector scroll) and closes on an outside click /
-// Esc. Left-aligned under the trigger at the trigger's width, above it when there is no room below;
-// long lists scroll. Usage mirrors ImGui::BeginCombo/EndCombo so call sites migrate mechanically:
+// Esc. Left-aligned under the trigger, above it when there is no room below; long lists scroll.
+// Usage mirrors ImGui::BeginCombo/EndCombo so call sites migrate mechanically.
+//
+// Sizing, so that a value is cut only when it is open-ended content that cannot fit:
+//  - A closed set of options reserves its trigger with SelectSize(labels): the widest label, whole,
+//    whichever is selected (a native <select>). An open-ended value (a name) may ellipsize.
+//  - The menu is at least the trigger's width and as wide as its widest item beyond that, up to a
+//    cap (360dp), inside the window.
+//  - Every item keeps the check column, shown on the selected one only, so the selected item is
+//    never the one short of room and nothing reflows when the selection moves.
+//  - Text cut short (trigger or item) shows whole in a tooltip on hover.
 //
 //   // Trigger width = CalcItemWidth(). Inside a BeginCollapse body it already fills the padded
 //   // row (the container's default) -- NEVER force it back to the window edge with
-//   // SetNextItemWidth(-1)/PushItemWidth(-1); only set a width to deviate (e.g. a fixed 120px).
+//   // SetNextItemWidth(-1)/PushItemWidth(-1); only set a width to deviate (e.g. SelectSize()).
 //   if (G3DWidgets::BeginSelect("##id", preview))     // true while the menu is open
 //   {
 //     for (const auto& opt : options)
@@ -752,9 +764,19 @@ void ClosePopover(const char* strId);
 
 /// Dropdown trigger + menu begin (mirrors styleguide <g3d-select>). @p preview is the value shown
 /// in the trigger; when it is empty, the optional @p hint shows as a subtle placeholder instead.
-/// Trigger width follows ImGui::CalcItemWidth() (SetNextItemWidth / PushItemWidth). Returns true
-/// while the menu is open — then emit SelectItem()s and close with EndSelect().
-bool BeginSelect(const char* id, const char* preview, const char* hint = nullptr);
+/// @p tooltip is optional hover help naming the control (a trigger that shows a bare value); a
+/// value the trigger had to cut is added to it. Trigger width follows ImGui::CalcItemWidth()
+/// (SetNextItemWidth / PushItemWidth). Returns true while the menu is open — then emit
+/// SelectItem()s and close with EndSelect().
+bool BeginSelect(
+  const char* id, const char* preview, const char* hint = nullptr, const char* tooltip = nullptr);
+
+/// The measuring twin of BeginSelect: the trigger that shows any of @p labels whole — its padding
+/// and chevron around the widest label, in whole pixels. Reserve a closed set of options with it
+/// (every value it may show: the options, a hint, a current value outside them). Not for
+/// BeginSelectColormap, whose gradient swatch yields to the width it is given.
+ImVec2 SelectSize(std::span<const char* const> labels);
+ImVec2 SelectSize(std::initializer_list<const char*> labels);
 
 /// One menu entry (mirrors styleguide .menu-item): hover-tinted row, accent text + trailing check
 /// when @p selected. A click applies and closes the menu. Returns true on the click frame.

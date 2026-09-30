@@ -12,22 +12,21 @@
 //  - the widgets built on it (the color picker, the dropdown) behave the same.
 
 #include "G3DLayout.h"
+#include "G3DPopupProbe.h"
 #include "G3DTheme.h"
 #include "G3DWidgetHarness.h"
 #include "G3DWidgets.h"
 
-#include <imgui.h>
-#include <imgui_internal.h> // only to read the popup window back (Hidden / Pos / Size / ScrollMax)
-
 #include <cmath>
 #include <cstdlib>
-#include <functional>
 #include <iostream>
 #include <string>
 #include <vector>
 
 namespace
 {
+using namespace G3DPopupProbe;
+
 int failures = 0;
 
 void Expect(bool ok, const std::string& label)
@@ -64,64 +63,6 @@ int CountTraces(const char* needle)
     n += t.find(needle) != std::string::npos ? 1 : 0;
   }
   return n;
-}
-
-// The popup window as a frame left it.
-struct Frame
-{
-  bool open = false;    ///< a popup window is active
-  bool visible = false; ///< ...and was drawn
-  ImVec2 pos = ImVec2(0.f, 0.f);
-  ImVec2 size = ImVec2(0.f, 0.f);
-  float scrollMaxY = 0.f;
-  float Bottom() const { return this->pos.y + this->size.y; }
-};
-
-Frame ReadPopup()
-{
-  Frame f;
-  for (ImGuiWindow* w : GImGui->Windows)
-  {
-    if ((w->Flags & ImGuiWindowFlags_Popup) != 0 && w->Active)
-    {
-      f.open = true;
-      f.visible = !w->Hidden;
-      f.pos = w->Pos;
-      f.size = w->Size;
-      f.scrollMaxY = w->ScrollMax.y;
-    }
-  }
-  return f;
-}
-
-using Scene = std::function<void()>;
-
-Frame Step(G3DWidgetHarness& harness, const Scene& scene)
-{
-  harness.Begin();
-  scene();
-  harness.End();
-  return ReadPopup();
-}
-
-// A click at @p at the way ImGui receives one (move, press, release on successive frames), then
-// @p settle more frames. Returns the frames from the release on: the release frame opens the popup.
-std::vector<Frame> ClickAndWatch(
-  G3DWidgetHarness& harness, const Scene& scene, const ImVec2& at, int settle = 6)
-{
-  ImGuiIO& io = ImGui::GetIO();
-  io.AddMousePosEvent(at.x, at.y);
-  Step(harness, scene);
-  io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-  Step(harness, scene);
-  io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-  std::vector<Frame> frames;
-  frames.push_back(Step(harness, scene));
-  for (int i = 0; i < settle; ++i)
-  {
-    frames.push_back(Step(harness, scene));
-  }
-  return frames;
 }
 
 // ImGui's hidden measuring frame first, then the popover drawn at one place and one size from its
@@ -234,9 +175,9 @@ void CheckGeneric(double uiScale)
   Generic g;
   const Scene scene = GenericScene(g);
   Step(harness, scene); // builds the font atlas
-  // The window height: the content extent ImGui truncates, the padding, the constrained size it
-  // truncates again.
-  const auto windowH = [&](float contentH) { return std::floor(std::trunc(contentH) + 2.f * pad); };
+  // The window height: the content extent ImGui truncates plus the padding, in whole pixels UP —
+  // a window a fraction of a pixel shorter would show a scrollbar.
+  const auto windowH = [&](float contentH) { return std::ceil(std::trunc(contentH) + 2.f * pad); };
 
   // Near the bottom: above the trigger, its bottom edge `offset` over it, from the first frame.
   {
@@ -246,6 +187,7 @@ void CheckGeneric(double uiScale)
       ClickAndWatch(harness, scene, Center(g.trigger)), "bottom.opens.above" + at);
     ExpectNear(f.Bottom(), EdgeAbove(g.trigger, offset), 0.01f, "bottom.edge.on.trigger" + at);
     ExpectNear(f.size.y, windowH(g.contentH), 0.01f, "bottom.natural.height" + at);
+    Expect(f.scrollMaxY == 0.f, "bottom.fits.no.scrollbar" + at);
 
     // While open it keeps its side and the edge facing the trigger: content that grows moves the
     // top edge only; content short enough to fit below now stays above all the same.
@@ -302,6 +244,7 @@ void CheckGeneric(double uiScale)
       ExpectNear(f.Bottom(), EdgeAbove(g.trigger, offset), 0.01f, label + ".edge" + at);
     }
     ExpectNear(f.size.y, windowH(g.contentH), 0.01f, label + ".whole" + at);
+    Expect(f.scrollMaxY == 0.f, label + ".no.scrollbar" + at);
     g.closeNow = true;
     Step(harness, scene);
     g.closeNow = false;
@@ -419,6 +362,7 @@ void CheckWidgets(double uiScale)
   const Frame f = ExpectStableFromFirstDraw(
     ClickAndWatch(harness, select, Center(trigger)), "select.bottom.opens.above" + at);
   ExpectNear(f.Bottom(), EdgeAbove(trigger, 6_dp * s), 0.01f, "select.bottom.edge" + at);
+  Expect(f.scrollMaxY == 0.f, "select.fits.no.scrollbar" + at);
 }
 }
 

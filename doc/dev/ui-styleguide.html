@@ -923,18 +923,46 @@
         color: var(--text-subtle);
       }
       .select-trigger .val {
-        flex: 1;
+        flex: 1 1 auto;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+      /* The trigger's swatch yields to the value: it shrinks first (to 20px) before the name is cut,
+         so a narrow inspector column still reads the colormap's name. */
+      .select-trigger > .cmap-chip {
+        flex: 0 100 44px;
+        min-width: 20px;
+      }
+      /* A closed set of options (fit): the trigger is as wide as its widest option, whichever is
+         picked — a native <select>, and G3DWidgets::SelectSize on the desktop. Every option sits
+         invisible in the same grid cell as the value, so the cell takes the widest one. */
+      .dropdown.fit {
+        display: inline-block;
+      }
+      .dropdown.fit .select-trigger {
+        width: auto;
+      }
+      .select-trigger .val.fit {
+        flex: none;
+        display: grid;
+        overflow: visible;
+      }
+      .select-trigger .val.fit > * {
+        grid-area: 1 / 1;
+      }
+      .select-trigger .val.fit > .sizer {
+        visibility: hidden;
       }
       /* Popup menu is portaled to <body> and positioned (left/top/width) by JS, so it
          ESCAPES any overflow:hidden / scroll ancestor (accordion clip, inspector). This is
          the standard "floating UI / popper" pattern and mirrors ImGui's overlay combo popup.
          Hence the rule is on .menu itself (not `.dropdown .menu`) — it lives outside .dropdown
          while open. position:fixed → clipped only by the viewport. Long lists scroll inside the
-         320px cap (≡ the desktop popover's maxHeight). */
+         320px cap (≡ the desktop popover's maxHeight). At least the trigger's width (JS sets
+         min-width) and as wide as its widest item beyond that, up to 360px (≡ the desktop menu's
+         cap); past it an item ellipsizes and shows whole on hover. */
       .menu {
         position: fixed;
         z-index: var(--z-popup);
@@ -943,6 +971,8 @@
         border-radius: var(--r-popup);
         box-shadow: var(--shadow-md);
         padding: 4px;
+        width: max-content;
+        max-width: min(360px, calc(100vw - 16px));
         max-height: 320px;
         overflow-y: auto;
         opacity: 0;
@@ -988,8 +1018,17 @@
       .menu-item.is-selected {
         color: var(--accent);
       }
+      .menu-item .lbl {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* The check column is on EVERY row, invisible unless selected: the selected row is never the
+         one short of room, and nothing reflows when the selection moves. */
       .menu-item .check-spot {
         margin-left: auto;
+        flex: none;
         font-size: 14px;
         opacity: 0;
       }
@@ -2898,6 +2937,10 @@
           <h2>输入框 / 选择</h2>
           <p class="desc">聚焦 = 主色描边 + 焦点环 + 底色微亮；支持前置图标、占位符、错误态、下拉。</p>
           <p class="uses"><b>组合</b>输入框 <code>g3d-input</code> 可内嵌 图标 <code>g3d-icon</code>（前置）；下拉 <code>g3d-select</code> 的触发器复用 <code>g3d-input</code>，并用 <code>g3d-icon</code> 画 chevron 与选中勾。</p>
+          <p class="desc">
+            <b>下拉尺寸</b>：只有开放内容（名字）才允许截断。①封闭选项集（倍率、单位、模式）的触发器按<b>最宽选项</b>定宽，选中哪项都完整、宽度不跳（原生
+            <code>&lt;select&gt;</code> 的做法；<code>fit</code> ≈ 桌面 <code>G3DWidgets::SelectSize</code>）；②菜单至少与触发器同宽，随最宽项变宽，上限 360px，不出窗口；③选中勾所在列<b>每行都预留</b>，选中项不会因为让位给勾而被挤掉；④确实放不下时才省略号，悬停显示全文。
+          </p>
           <div class="panel">
             <div class="row" style="align-items: flex-start; gap: var(--s-6)">
               <div class="field" style="width: 220px">
@@ -2919,6 +2962,11 @@
                 <label>下拉选择 / 色谱</label>
                 <g3d-select val="Viridis" opts="默认|灰度|冷到暖|Viridis|Jet" cmaps="linear-gradient(90deg,#000000 0%,#e60000 40%,#e6e600 80%,#ffffff 100%)|linear-gradient(90deg,#000000,#ffffff)|linear-gradient(90deg,#3b4cc0,#dddddd 50%,#b40426)|linear-gradient(90deg,#440154,#3b528b 25%,#21908c 50%,#5ec962 75%,#fde725)|linear-gradient(90deg,#000080,#00ffff 35%,#80ff80 66%,#ffff00 89%,#800000)"></g3d-select>
                 <div class="hint">cmaps= 每项渐变条 · 触发器随选中回填</div>
+              </div>
+              <div class="field">
+                <label>封闭选项集（播放速度）</label>
+                <g3d-select fit val="1×" opts="0.1×|0.25×|0.5×|1×|2×|4×"></g3d-select>
+                <div class="hint">fit = 按最宽选项定宽 · 选 0.25× 也完整</div>
               </div>
             </div>
           </div>
@@ -3628,12 +3676,17 @@
             const items = opts
               .map(
                 (o, i) =>
-                  `<button class="menu-item${o === val ? " is-selected" : ""}">${maps ? chip(maps[i]) : ""}${o}<svg class="icon check-spot"><use href="#i-check" /></svg></button>`,
+                  `<button class="menu-item${o === val ? " is-selected" : ""}">${maps ? chip(maps[i]) : ""}<span class="lbl">${o}</span><svg class="icon check-spot"><use href="#i-check" /></svg></button>`,
               )
               .join("");
             const grow = has(el, "grow") ? ` style="flex:1"` : "";
             const cur = maps ? chip(maps[Math.max(0, opts.indexOf(val))]) : "";
-            return `<div class="dropdown" data-dropdown${grow}><button class="input select-trigger">${cur}<span class="val">${val}</span><svg class="icon chev"><use href="#i-chevron" /></svg></button><div class="menu">${items}</div></div>`;
+            // `fit`: a closed set of options — the trigger takes its widest option (SelectSize)
+            const fit = has(el, "fit");
+            const shown = fit
+              ? `<span class="val fit"><span class="cur">${val}</span>${opts.map((o) => `<span class="sizer" aria-hidden="true">${o}</span>`).join("")}</span>`
+              : `<span class="val">${val}</span>`;
+            return `<div class="dropdown${fit ? " fit" : ""}" data-dropdown${grow}><button class="input select-trigger">${cur}${shown}<svg class="icon chev"><use href="#i-chevron" /></svg></button><div class="menu">${items}</div></div>`;
           },
 
           // — toggles / selection —
@@ -4001,7 +4054,7 @@
         document.querySelectorAll("[data-dropdown]").forEach((dd) => {
           const trigger = dd.querySelector(".select-trigger");
           const menu = dd.querySelector(".menu");
-          const val = dd.querySelector(".val");
+          const val = dd.querySelector(".val .cur") || dd.querySelector(".val");
           // The menu is a popover of its trigger (≡ G3DWidgets::BeginPopover): measured before it
           // shows (a closed .menu is laid out, only transparent), under the trigger or else above
           // it, that side kept for the whole open (scroll / resize re-place it on the same side),
@@ -4011,9 +4064,14 @@
             const r = trigger.getBoundingClientRect();
             const gap = 6;
             const margin = 8;
-            menu.style.width = r.width + "px";
-            menu.style.left =
-              Math.min(Math.max(margin, r.left), Math.max(margin, innerWidth - r.width - margin)) + "px";
+            // at least the trigger's width, the widest item beyond it (CSS: max-content, 360px cap)
+            menu.style.minWidth = r.width + "px";
+            const w = menu.offsetWidth;
+            menu.style.left = Math.min(Math.max(margin, r.left), Math.max(margin, innerWidth - w - margin)) + "px";
+            // an item cut at the cap shows whole on hover
+            menu.querySelectorAll(".menu-item .lbl").forEach((l) => {
+              l.title = l.scrollWidth > l.clientWidth ? l.textContent : "";
+            });
             menu.style.maxHeight = ""; // back to the CSS cap: the natural (capped) height
             const h = menu.offsetHeight;
             const below = innerHeight - margin - (r.bottom + gap);
@@ -4053,9 +4111,9 @@
               menu.querySelectorAll(".menu-item").forEach((m) => m.classList.remove("is-selected"));
               item.classList.add("is-selected");
               if (val) {
-                // label = the item's text node (a leading .cmap-chip would hijack firstChild)
-                const t = Array.from(item.childNodes).find((n) => n.nodeType === 3);
-                val.textContent = (t ? t.textContent : item.textContent).trim();
+                // label = the item's .lbl (a leading .cmap-chip would hijack firstChild)
+                const l = item.querySelector(".lbl");
+                val.textContent = (l ? l.textContent : item.textContent).trim();
               }
               // colormap select: mirror the picked gradient onto the trigger chip
               const pickedChip = item.querySelector(".cmap-chip");

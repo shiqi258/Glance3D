@@ -47,7 +47,7 @@ if(F3D_MODULE_UI)
   list(APPEND test_sources TestG3DLayerStack.cxx TestG3DPlacement.cxx)
   # Widgets drawn in a headless ImGui context built like the app's (G3DWidgetHarness.h).
   list(APPEND test_sources TestG3DMeasureTwins.cxx TestG3DFieldRow.cxx TestG3DHeaderTitleClip.cxx
-    TestG3DPopover.cxx)
+    TestG3DPopover.cxx TestG3DSelect.cxx)
 endif()
 
 vtk_add_test_cxx(vtkextPrivateTests tests

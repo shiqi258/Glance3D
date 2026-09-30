@@ -6824,10 +6824,24 @@ struct PopoverState
   float placedH = 0.f;               ///< the height this frame was placed with
   bool placedMeasured = false;       ///< this frame was placed from a measurement
   bool checked = false;              ///< the first visible frame was checked against the placement
+  float declaredW = 0.f;             ///< this frame's widest row width declared by the content
+  float capMax = FLT_MAX;            ///< the height cap it was begun with (maxHeight, or none)
   G3DAnimatedFloat presence;         ///< 0 -> 1: the open motion
 };
 std::unordered_map<ImGuiID, PopoverState> gPopovers;
 std::vector<ImGuiID> gPopoverStack; ///< begun popovers awaiting their EndPopover()
+
+// A row that spans the popover's width (a dropdown item) is as wide as the window it is in, so its
+// extent cannot size a fitted popover. It declares the width it needs instead, on every frame (the
+// hidden measuring one included), and EndPopover fits the window to the widest declaration.
+void DeclarePopoverContentWidth(float width)
+{
+  if (!gPopoverStack.empty())
+  {
+    PopoverState& st = gPopovers[gPopoverStack.back()];
+    st.declaredW = std::max(st.declaredW, width);
+  }
+}
 
 // The styleguide dropdown's placement: under the trigger with the left edges flush, else above it.
 constexpr G3DPlacement::Placement kPopoverPlacements[] = {
@@ -6885,11 +6899,18 @@ bool BeginPopover(const char* strId, const PopoverDesc& desc)
     ownPlacements ? desc.placementCount : static_cast<int>(std::size(kPopoverPlacements));
   const float cap = desc.maxHeight > 0.f ? desc.maxHeight : FLT_MAX;
   const ImGuiViewport* vp = ImGui::GetMainViewport();
+  // A fitted popover takes its measured width, between its bounds. Before this open is measured
+  // (the hidden frame) that is its minimum, which nobody sees.
+  const bool fitted = desc.width <= 0.f;
+  const float fitMin = std::max(desc.minWidth, 1.f);
+  const float fitMax = desc.maxWidth > 0.f ? std::max(desc.maxWidth, fitMin) : FLT_MAX;
+  const float fitW = std::clamp(st.natural.x, fitMin, fitMax);
   // The size the window will have: ImGui truncates a window size once it passes a constraint.
   G3DPlacement::Request req;
   req.anchor = desc.anchor;
-  req.w = std::trunc(desc.width > 0.f ? desc.width : st.natural.x);
+  req.w = std::trunc(fitted ? fitW : desc.width);
   req.h = std::trunc(std::min(st.natural.y, cap));
+  req.minW = fitted ? std::trunc(fitMin) : 0.f; // wider than the window: shrink, items ellipsize
   req.minH = desc.minHeight * s;
   req.prefs = prefs;
   req.prefCount = prefCount;
@@ -6948,7 +6969,11 @@ bool BeginPopover(const char* strId, const PopoverDesc& desc)
       break;
   }
   ImGui::SetNextWindowPos(pos, ImGuiCond_Always, pivot);
-  ImGui::SetNextWindowSize(ImVec2(std::max(desc.width, 0.f), 0.f), ImGuiCond_Always);
+  // The width is decided here, never by ImGui's auto-fit: rows that span the window would only
+  // ever fit it to itself. A fitted one takes the width it was placed with (narrower than measured
+  // only where the window is).
+  const float winW = fitted ? rc.w : desc.width;
+  ImGui::SetNextWindowSize(ImVec2(std::max(winW, 0.f), 0.f), ImGuiCond_Always);
   // Grow up to the room on its side, then scroll. Capping at this frame's height instead would
   // flash a scrollbar on the frame the content grows.
   const bool vertical = side == G3DPlacement::Side::Top || side == G3DPlacement::Side::Bottom;
@@ -6956,9 +6981,9 @@ bool BeginPopover(const char* strId, const PopoverDesc& desc)
   st.capH = res.collides ? rc.h : std::min(cap, vertical ? res.room : innerH);
   st.placedH = std::trunc(std::min(st.natural.y, st.capH));
   st.placedMeasured = st.measured;
-  const float minW = desc.width > 0.f ? desc.width : 0.f;
-  const float maxW = desc.width > 0.f ? desc.width : FLT_MAX;
-  ImGui::SetNextWindowSizeConstraints(ImVec2(minW, 0.f), ImVec2(maxW, st.capH));
+  // At least the height it was placed with: ImGui's own fit (the content plus the padding) can be a
+  // fraction short of that whole pixel, and truncates it.
+  ImGui::SetNextWindowSizeConstraints(ImVec2(winW, st.placedH), ImVec2(winW, st.capH));
 
   // g3d-units: allow(raw-popup) the popover core: every popup opened from a control begins here
   if (!ImGui::BeginPopup(strId, desc.flags))
@@ -6974,6 +6999,8 @@ bool BeginPopover(const char* strId, const PopoverDesc& desc)
   }
   st.lastFrame = frame;
   st.pad = ImGui::GetStyle().WindowPadding; // what the window was begun with
+  st.declaredW = 0.f;                       // the rows declare again, this frame
+  st.capMax = cap;
   if (st.placedMeasured && !st.checked)
   {
     // The first visible frame: the height it was placed with must be the height ImGui drew.
@@ -7006,12 +7033,26 @@ void EndPopover()
   // it (EndGroup folded the group into the window's extent), plus the padding on both sides — and
   // the scrollbar gutter a width-fitted window gains when the content outgrows the cap. Measured on
   // every frame, the hidden first one included: that is the one placing the first visible frame.
+  // Whole pixels UP: ImGui truncates a constrained window size, and a window a fraction of a pixel
+  // short of its content plus padding shows a scrollbar (0.29px at the 18/14 scale, a scrollbar in
+  // every popover at 125%), which then takes its width from the rows.
   const ImVec2 content = ImGui::GetItemRectSize();
-  st.natural =
-    ImVec2(std::trunc(content.x) + 2.f * st.pad.x, std::trunc(content.y) + 2.f * st.pad.y);
-  if (st.natural.y > st.capH)
+  st.natural = ImVec2(std::ceil(std::trunc(content.x) + 2.f * st.pad.x),
+    std::ceil(std::trunc(content.y) + 2.f * st.pad.y));
+  // Content taller than the cap scrolls: a fitted popover gains the scrollbar's gutter. Decided
+  // from the cap, never from this frame's room: the room depends on the side, which the hidden
+  // frame only guesses (a menu opening above a bottom bar guesses "below", with no room at all), so
+  // a gutter measured there would be dropped on the next frame, a jump on the first frame drawn.
+  const float scrollbar = st.natural.y > st.capMax ? ImGui::GetStyle().ScrollbarSize : 0.f;
+  if (st.declaredW > 0.f)
   {
-    st.natural.x += ImGui::GetStyle().ScrollbarSize;
+    // Rows spanning the window declared what they need: fit to the widest, in whole pixels UP (a
+    // window a fraction short of a row makes that row ellipsize).
+    st.natural.x = std::ceil(st.declaredW + 2.f * st.pad.x + scrollbar);
+  }
+  else
+  {
+    st.natural.x += scrollbar;
   }
   st.measured = true;
   // The open fade, on the vertices: it reaches the custom paint style.Alpha does not. A frame
@@ -7048,6 +7089,23 @@ struct SelectState
   bool pressWhileOpen = false; ///< the current trigger press started with the menu open
 };
 std::unordered_map<ImGuiID, SelectState> gSelects;
+
+// The single source of truth for the frame a dropdown trigger puts around its value (styleguide
+// .select-trigger: 10px side padding, the 16px chevron pinned right, an 8px gap before it):
+// BeginSelectImpl draws to it and G3DWidgets::SelectSize() publishes it.
+struct SelectTriggerGeom
+{
+  float padX = 0.f;   ///< side padding
+  float chevSz = 0.f; ///< the chevron's box
+  float gap = 0.f;    ///< between the value and the chevron
+  /// Everything but the value.
+  float Chrome() const { return 2.f * this->padX + this->chevSz + this->gap; }
+};
+SelectTriggerGeom SelectTriggerGeometry()
+{
+  const G3DScale s = G3DWidgets::UiScale();
+  return { 10_dp * s, 16_dp * s, G3DTheme::Spacing::Sm * s };
+}
 
 // Soft drop shadow around a floating menu (styleguide --shadow-md: 0 6px 16px rgba(0,0,0,.45)).
 // ImGui windows have no shadow, so approximate the blur with expanding rounded strokes whose alpha
@@ -7153,14 +7211,15 @@ std::vector<ImGuiID> gContextMenuStack; ///< active context-menu state ids (Menu
 
 //----------------------------------------------------------------------------
 static bool BeginSelectImpl(const char* id, const char* preview, const char* hint,
-  const GradientStops* strip, bool mutedStrip = false)
+  const GradientStops* strip, bool mutedStrip = false, const char* tooltip = nullptr)
 {
   ImGui::PushID(id);
   const G3DScale s = G3DWidgets::UiScale();
   const float h = G3DTheme::Size::Control * s;
   const float width = ImGui::CalcItemWidth();
-  const float padX = 10_dp * s;   // styleguide .input padding: 0 10px
-  const float chevSz = 16_dp * s; // .select-trigger .chev font-size: 16px
+  const SelectTriggerGeom geom = SelectTriggerGeometry();
+  const float padX = geom.padX;
+  const float chevSz = geom.chevSz;
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
 
   const bool clicked = ImGui::InvisibleButton("##sel", ImVec2(std::max(width, 1.f), h));
@@ -7237,23 +7296,39 @@ static bool BeginSelectImpl(const char* id, const char* preview, const char* hin
     {
       // The swatch yields to the trigger's width: shrink below its design width rather than crowd
       // the label/chevron in a narrow value column (it stays a recognizable gradient down to 20px).
-      const float stripAvail =
-        p1.x - padX - chevSz - G3DTheme::Spacing::Sm * s - G3DTheme::Spacing::Sm * s - tx;
-      const float stripW = std::clamp(stripAvail, 20_dp * s, 44_dp * s);
+      // It gives up its room to the value first: at full width in a narrow inspector column it left
+      // the colormap's name a bare "...".
+      const float stripAvail = p1.x - padX - chevSz - geom.gap - G3DTheme::Spacing::Sm * s - tx;
+      const float valueW = shown[0] != '\0' ? ImGui::CalcTextSize(shown).x : 0.f;
+      const float stripW = std::clamp(stripAvail - valueW, 20_dp * s, 44_dp * s);
       const float stripH = 14_dp * s;
       DrawGradientStrip(dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f),
         *strip, alpha, /*vertical=*/false, mutedStrip);
       tx += stripW + G3DTheme::Spacing::Sm * s;
     }
+    bool cut = false;
     if (shown[0] != '\0')
     {
-      const float maxW = p1.x - padX - chevSz - G3DTheme::Spacing::Sm * s - tx;
-      DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f), std::max(0.f, maxW),
+      const float maxW = p1.x - padX - chevSz - geom.gap - tx;
+      cut = DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f), std::max(0.f, maxW),
         U32(empty ? G3DTheme::TextSubtle() : G3DTheme::Text(), alpha), shown);
     }
     // chevron pinned right: down -> up while opening, subtle -> accent
     DrawSelectChevron(dl, ImVec2(p1.x - padX - chevSz * 0.5f, cy), chevSz,
       U32(LerpColor(G3DTheme::TextSubtle(), G3DTheme::Accent(), ot), alpha), ot);
+
+    // Hover help naming the control, and the whole value when the trigger had to cut it (a cut
+    // string is always reachable). Not over the trigger's own open menu, which lists it whole.
+    const bool hasTip = tooltip != nullptr && tooltip[0] != '\0';
+    if (!open && (hasTip || cut))
+    {
+      std::string tip = hasTip ? tooltip : shown;
+      if (hasTip && cut)
+      {
+        tip = tip + "\n" + shown;
+      }
+      G3DWidgets::ItemTooltip(tip.c_str());
+    }
   }
 
   if (!open)
@@ -7262,13 +7337,15 @@ static bool BeginSelectImpl(const char* id, const char* preview, const char* hin
     return false;
   }
 
-  // ---- the menu: a popover of the trigger (styleguide .menu: left-aligned, 6px below, trigger
-  // width, above the trigger when there is no room below; long lists scroll inside a capped
-  // height). The popover owns the open transition (.menu: opacity 0->1 + translateY(-6px)->0 over
-  // t-micro), so the menu style stays opaque. ----
+  // ---- the menu: a popover of the trigger (styleguide .menu: left-aligned, 6px below, above the
+  // trigger when there is no room below; long lists scroll inside a capped height). At least the
+  // trigger's width and as wide as its widest item beyond that (the items declare it), up to a cap
+  // past which an item ellipsizes and shows whole on hover. The popover owns the open transition
+  // (.menu: opacity 0->1 + translateY(-6px)->0 over t-micro), so the menu style stays opaque. ----
   G3DWidgets::PopoverDesc pd;
   pd.anchor = { p0.x, p0.y, std::max(width, 1.f), h };
-  pd.width = std::max(width, 1.f);
+  pd.minWidth = std::max(width, 1.f);
+  pd.maxWidth = std::max(pd.minWidth, std::floor(360_dp * s));
   pd.maxHeight = 320_dp * s;
   pd.minHeight = 96_dp; // about three rows before it would rather cover its trigger
   PushMenuStyle(1.f);
@@ -7284,9 +7361,9 @@ static bool BeginSelectImpl(const char* id, const char* preview, const char* hin
 }
 
 //----------------------------------------------------------------------------
-bool BeginSelect(const char* id, const char* preview, const char* hint)
+bool BeginSelect(const char* id, const char* preview, const char* hint, const char* tooltip)
 {
-  return BeginSelectImpl(id, preview, hint, nullptr);
+  return BeginSelectImpl(id, preview, hint, nullptr, false, tooltip);
 }
 
 //----------------------------------------------------------------------------
@@ -7297,7 +7374,33 @@ bool BeginSelectColormap(
 }
 
 //----------------------------------------------------------------------------
-static bool SelectItemImpl(const char* label, bool selected, const GradientStops* strip)
+ImVec2 SelectSize(std::span<const char* const> labels)
+{
+  float textW = 0.f;
+  for (const char* label : labels)
+  {
+    if (label != nullptr)
+    {
+      textW = std::max(textW, ImGui::CalcTextSize(label).x);
+    }
+  }
+  // Whole pixels, up: the trigger is as wide as CalcItemWidth(), which truncates, and a trigger a
+  // fraction of a pixel short of its value cuts it (the 18/14 scale leaves fractions).
+  return ImVec2(std::ceil(SelectTriggerGeometry().Chrome() + textW),
+    G3DTheme::Size::Control * G3DWidgets::UiScale());
+}
+
+//----------------------------------------------------------------------------
+ImVec2 SelectSize(std::initializer_list<const char*> labels)
+{
+  return SelectSize(std::span<const char* const>(labels.begin(), labels.size()));
+}
+
+//----------------------------------------------------------------------------
+// @p dropdownRow: an item of a dropdown's menu, which keeps the check column and declares its width
+// to the popover (the menu fits its widest item). A context-menu action does neither.
+static bool SelectItemImpl(
+  const char* label, bool selected, const GradientStops* strip, bool dropdownRow)
 {
   ImGui::PushID(label);
   const G3DScale s = G3DWidgets::UiScale();
@@ -7308,6 +7411,15 @@ static bool SelectItemImpl(const char* label, bool selected, const GradientStops
   const float rowH = ImGui::GetFontSize() + 2.f * padY;
   const float width = std::max(ImGui::GetContentRegionAvail().x, 1.f);
   const float alpha = ImGui::GetStyle().Alpha; // menu fade-in (custom draws bypass style.Alpha)
+  // The check column is on every row of a dropdown (styleguide .check-spot: invisible unless
+  // selected). Kept on the selected row only, it made that row the one short of room: a label that
+  // fit unselected was cut to a bare "..." once picked.
+  const float checkW = dropdownRow ? checkSz + gap : 0.f;
+  if (dropdownRow)
+  {
+    const float stripW = strip != nullptr ? 44_dp * s + gap : 0.f; // the swatch at design width
+    DeclarePopoverContentWidth(padX + stripW + ImGui::CalcTextSize(label).x + checkW + padX);
+  }
 
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const bool clicked = ImGui::InvisibleButton("##mi", ImVec2(width, rowH));
@@ -7338,21 +7450,26 @@ static bool SelectItemImpl(const char* label, bool selected, const GradientStops
   {
     // Same yield-to-width rule as the trigger's swatch (narrow menus shrink the gradient, not the
     // label / check).
-    const float stripAvail = p1.x - padX - (selected ? checkSz + gap : 0.f) - gap - tx;
+    const float stripAvail = p1.x - padX - checkW - gap - tx;
     const float stripW = std::clamp(stripAvail, 20_dp * s, 44_dp * s);
     const float stripH = 14_dp * s;
     DrawGradientStrip(dl, ImVec2(tx, cy - stripH * 0.5f), ImVec2(tx + stripW, cy + stripH * 0.5f),
       *strip, alpha);
     tx += stripW + gap;
   }
-  const float maxW = p1.x - padX - (selected ? checkSz + gap : 0.f) - tx;
-  DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f), std::max(0.f, maxW),
-    U32(selected ? G3DTheme::Accent() : G3DTheme::Text(), alpha), label);
+  const float maxW = p1.x - padX - checkW - tx;
+  const bool cut = DrawTextEllipsis(dl, ImVec2(tx, cy - ImGui::GetFontSize() * 0.5f),
+    std::max(0.f, maxW), U32(selected ? G3DTheme::Accent() : G3DTheme::Text(), alpha), label);
   if (selected)
   {
     // .check-spot: trailing check, shown only on the selected row
     G3DIcon::Draw(dl, G3DIconId::Check, ImVec2(p1.x - padX - checkSz * 0.5f, cy), checkSz,
       U32(G3DTheme::Accent(), alpha));
+  }
+  if (cut)
+  {
+    // Past the menu's width cap (or a window narrower than the menu): the whole label on hover.
+    G3DWidgets::ItemTooltip(label);
   }
 
   if (clicked)
@@ -7366,13 +7483,13 @@ static bool SelectItemImpl(const char* label, bool selected, const GradientStops
 //----------------------------------------------------------------------------
 bool SelectItem(const char* label, bool selected)
 {
-  return SelectItemImpl(label, selected, nullptr);
+  return SelectItemImpl(label, selected, nullptr, true);
 }
 
 //----------------------------------------------------------------------------
 bool SelectItemColormap(const char* label, const GradientStops& stops, bool selected)
 {
-  return SelectItemImpl(label, selected, &stops);
+  return SelectItemImpl(label, selected, &stops, true);
 }
 
 //----------------------------------------------------------------------------
@@ -7445,7 +7562,8 @@ bool MenuAction(const char* label)
     ContextMenuState& st = gContextMenus[gContextMenuStack.back()];
     st.measuring = std::max(st.measuring, ImGui::CalcTextSize(label).x + 2.f * 10_dp * s);
   }
-  return SelectItemImpl(label, false, nullptr); // no check, plain Text() row — same as a dropdown item
+  // no check column, plain Text() row, sized by the context menu's own measuring above
+  return SelectItemImpl(label, false, nullptr, false);
 }
 
 //----------------------------------------------------------------------------

@@ -16,6 +16,10 @@
 //   constexpr-length  a `constexpr float` named like a length (margin, padding, gap, size, width,
 //                     height, radius, inset, spacing, thickness): a design constant that escaped
 //                     G3DDp.
+//   token-slot        a FieldSlot::Fixed sized by a design constant (`64_dp * scale`, a G3DTheme
+//                     token) where the control's measuring twin belongs: a reservation that is not
+//                     the control's width drifts from it (the timeline's speed dropdown, reserved
+//                     64dp, cut "0.25x" to "0...").
 //   raw-popup         ImGui::BeginPopup / BeginPopupModal / BeginPopupContext* / BeginCombo: a
 //                     popup positioned by hand. A popup opened from a control is a
 //                     G3DWidgets::BeginPopover, which places it from its measured size — the frame
@@ -54,8 +58,8 @@ const argv = process.argv.slice(2);
 const LIST = argv.includes('--list');
 const UPDATE = argv.includes('--update');
 
-const RULES = ['raw-exit', 'font-scale', 'bare-number', 'constexpr-length', 'raw-popup',
-  'ui-scene-mutation'];
+const RULES = ['raw-exit', 'font-scale', 'bare-number', 'constexpr-length', 'token-slot',
+  'raw-popup', 'ui-scene-mutation'];
 const LAYOUT_CALLS = ['ImVec2', 'Dummy', 'SameLine', 'PushStyleVar', 'SetCursorPos', 'SetCursorPosX',
   'SetCursorPosY', 'SetCursorScreenPos', 'SetNextItemWidth', 'PushItemWidth', 'Indent', 'Unindent',
   'InvisibleButton', 'BeginChild', 'SetNextWindowPos', 'SetNextWindowSize'];
@@ -138,6 +142,18 @@ function callArgs(code, open) {
   return { start: open + 1, end: open + 1 };
 }
 
+// The first argument of an argument list: up to its first top-level comma.
+function firstArg(args) {
+  let depth = 0;
+  for (let i = 0; i < args.length; i++) {
+    const c = args[i];
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    else if (c === ',' && depth === 0) return args.slice(0, i);
+  }
+  return args;
+}
+
 // The nearest non-blank character before / after a span.
 function neighbour(code, from, step) {
   for (let i = from; i >= 0 && i < code.length; i += step) {
@@ -161,6 +177,18 @@ function scan(code) {
   const cxRe = /\bconstexpr\s+float\s+(\w+)/g;
   while ((m = cxRe.exec(code)) !== null) {
     if (LENGTH_NAME.test(m[1])) hits.push({ rule: 'constexpr-length', offset: m.index });
+  }
+
+  // A Fixed slot whose width is a design constant, possibly times the scale, and nothing else: a
+  // measuring twin (`IconButtonSize(G3DTheme::Size::Control).x`) or a measured value passes.
+  const slotRe = /\bFieldSlot\s*::\s*Fixed\s*\(/g;
+  const tokenWidth =
+    /^(?:\d+(?:\.\d+)?_dp|G3DTheme\s*::\s*\w+(?:\s*::\s*\w+)*)(?:\s*\*\s*\w+)?$/;
+  while ((m = slotRe.exec(code)) !== null) {
+    const { start, end } = callArgs(code, m.index + m[0].length - 1);
+    if (tokenWidth.test(firstArg(code.slice(start, end)).trim())) {
+      hits.push({ rule: 'token-slot', offset: m.index });
+    }
   }
 
   const popupRe =
@@ -241,10 +269,15 @@ function uiFiles() {
     'ren->GetActiveCamera()->Azimuth(10.0);', // ui-scene-mutation
     'this->SendCommand(G3DCommandLine("scene_tree_activate", { path }));', // the sanctioned way
     'const double* p = ren->GetActiveCamera()->GetPosition();', // reading the camera is fine
+    'slots[n++] = FieldSlot::Fixed(64_dp * scale, ctrlH);', // token-slot
+    'add(k, FieldSlot::Fixed(G3DTheme::Spacing::Sm * s, h));', // token-slot
+    'slots[n++] = FieldSlot::Fixed(G3DWidgets::SelectSize(labels).x, h);', // a measuring twin
+    'FieldSlot::Fixed(G3DWidgets::IconButtonSize(G3DTheme::Size::Control).x);', // one, with a token
+    'FieldSlot middle = FieldSlot::Fill(40_dp * scale);', // a fill's minimum reserves nothing
   ].join('\n');
   const got = scan(codeOnly(sample)).map((h) => h.rule).sort().join(',');
   const want = 'bare-number,bare-number,bare-number,constexpr-length,font-scale,raw-exit,raw-popup,' +
-    'ui-scene-mutation,ui-scene-mutation';
+    'token-slot,token-slot,ui-scene-mutation,ui-scene-mutation';
   if (got !== want) {
     console.error(`check-ui-units self test failed: got [${got}], want [${want}]`);
     process.exit(2);

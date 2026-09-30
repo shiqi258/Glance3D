@@ -1,6 +1,6 @@
 // Every widget a caller may have to reserve room for publishes a measuring twin (ButtonSize,
-// BadgeSize, IconButtonSize, SegmentedIconSize, ToolGroupSize...), computed by the same code that
-// draws it — the widths a FieldRow is laid out from. This checks each twin
+// BadgeSize, IconButtonSize, SegmentedIconSize, SelectSize, ToolGroupSize...), computed by the same
+// code that draws it — the widths a FieldRow is laid out from. This checks each twin
 // against the item the widget actually submits, at several UI scales: a twin that drifts from its
 // widget is the reservation bug (a row sized for one width, drawn at another), and it only shows
 // at a scale other than 1.
@@ -114,6 +114,18 @@ void CheckScale(double uiScale)
       const ImVec2 segEnd = ImGui::GetItemRectMax();
       ExpectSize(ImVec2(segEnd.x - segOrigin.x, segEnd.y - segOrigin.y),
         G3DWidgets::SegmentedIconSize(3), "segmented" + at);
+    }
+
+    // A dropdown trigger reserved with SelectSize: the box it submits is that size (TestG3DSelect
+    // checks that the values then show whole). The widest label sets the width, not the current.
+    const char* speeds[] = { "0.1\xc3\x97", "0.25\xc3\x97", "4\xc3\x97" };
+    ImGui::SetNextItemWidth(G3DWidgets::SelectSize(speeds).x);
+    G3DWidgets::BeginSelect("##twins.select", speeds[2]); // closed: nothing to end
+    if (measure)
+    {
+      ExpectSize(ImGui::GetItemRectSize(), G3DWidgets::SelectSize(speeds), "selectsize" + at);
+      ExpectSize(G3DWidgets::SelectSize({ "0.25\xc3\x97" }), G3DWidgets::SelectSize(speeds),
+        "selectsize.widest" + at);
     }
 
     G3DWidgets::ToolItem items[3];

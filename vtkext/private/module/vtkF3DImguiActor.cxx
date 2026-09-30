@@ -1754,6 +1754,7 @@ void vtkF3DImguiActor::BuildTopBarModel(TopBarModel& m, const BarsResolution& rb
   const ImVec2 actionsSize = G3DWidgets::ToolGroupSize(m.actionsDesc);
   const ImVec2 layoutSize = G3DWidgets::SegmentedIconSize(3);
   add(M::SLOT_ACTIONS, FieldSlot::Fixed(actionsSize.x, actionsSize.y));
+  // g3d-units: allow(token-slot) a divider: the design gap is its whole width, no control in it
   add(M::SLOT_RULE, FieldSlot::Fixed(G3DTheme::Spacing::Sm * scale, key.y));
   add(M::SLOT_LAYOUT, FieldSlot::Fixed(layoutSize.x, layoutSize.y));
   m.titleSlot = m.slotCount;
@@ -3725,6 +3726,26 @@ void vtkF3DImguiActor::DrawTimelineContent()
   // 25 scrubber and dropdowns, bare text): each is centered on the row and the row on the bar's
   // midline, so nothing rides its own baseline (the classic "time readout floats above the slider"
   // misalignment).
+  // Playback speed: the presets and the current value, all formatted by one function, feed both the
+  // trigger's reserved width and the menu, so the room kept for the value is always what is drawn
+  // in it. The trigger fits the widest of them whichever is selected (a native <select>), and a
+  // current value that is no preset (a CLI -1x) too.
+  static constexpr float speedPresets[] = { 0.1f, 0.25f, 0.5f, 1.f, 2.f, 4.f };
+  constexpr std::size_t speedCount = std::size(speedPresets);
+  const auto formatSpeed = [](float value, char (&out)[16])
+  { std::snprintf(out, sizeof(out), "%.3g\xc3\x97", value); }; // e.g. "1×"
+  const float speed = this->ReadOptionFloat("scene.animation.speed_factor", 1.f);
+  char speedItems[speedCount][16];
+  char speedLabel[16];
+  const char* speedLabels[speedCount + 1];
+  for (std::size_t i = 0; i < speedCount; ++i)
+  {
+    formatSpeed(speedPresets[i], speedItems[i]);
+    speedLabels[i] = speedItems[i];
+  }
+  formatSpeed(speed, speedLabel);
+  speedLabels[speedCount] = speedLabel;
+
   using G3DWidgets::FieldSlot;
   const ImVec2 key = G3DWidgets::IconButtonSize();
   const ImVec2 play = G3DWidgets::IconButtonSize(G3DTheme::Size::Fab);
@@ -3739,6 +3760,7 @@ void vtkF3DImguiActor::DrawTimelineContent()
   slots[n++] = FieldSlot::Fixed(key.x, key.y);   // jump to end
   if (this->AnimState.count > 1)
   {
+    // g3d-units: allow(token-slot) clip names are open-ended: a design width, cut names on hover
     slots[n++] = FieldSlot::Fixed(150_dp * scale, ctrlH); // clip picker
   }
   FieldSlot middle = FieldSlot::Fill(40_dp * scale);
@@ -3748,8 +3770,8 @@ void vtkF3DImguiActor::DrawTimelineContent()
   {
     slots[n++] = FieldSlot::Fixed(timeLabelW, lineH); // total duration
   }
-  slots[n++] = FieldSlot::Fixed(64_dp * scale, ctrlH); // playback speed
-  slots[n++] = FieldSlot::Fixed(key.x, key.y);         // loop
+  slots[n++] = FieldSlot::Fixed(G3DWidgets::SelectSize(speedLabels).x, ctrlH); // playback speed
+  slots[n++] = FieldSlot::Fixed(key.x, key.y);                                  // loop
   G3DWidgets::FieldRowDesc row;
   row.gap = G3DTheme::Spacing::Sm;
   row.minHeight = G3DTheme::Size::Fab;
@@ -3888,19 +3910,16 @@ void vtkF3DImguiActor::DrawTimelineContent()
 
   // Playback speed: stepped dropdown instead of a tiny free slider — the presets cover animation
   // preview needs, every step is an exact value (no hunting for 1.0), and the closed trigger reads
-  // as a labeled control rather than a floating dot. The menu auto-flips above the bottom bar.
-  const float speed = this->ReadOptionFloat("scene.animation.speed_factor", 1.f);
-  char speedLabel[16];
-  std::snprintf(speedLabel, sizeof(speedLabel), "%.3g\xc3\x97", speed); // e.g. "1×"
+  // as a labeled control rather than a floating dot. The menu auto-flips above the bottom bar. A
+  // bare number does not say what it is, so the trigger names itself on hover.
   G3DWidgets::FieldRowNext();
-  if (G3DWidgets::BeginSelect("##g3d.anim.speed", speedLabel))
+  const std::string speedTip = loc.Translate("Playback speed");
+  if (G3DWidgets::BeginSelect("##g3d.anim.speed", speedLabel, nullptr, speedTip.c_str()))
   {
-    static constexpr float speedPresets[] = { 0.1f, 0.25f, 0.5f, 1.f, 2.f, 4.f };
-    for (const float sp : speedPresets)
+    for (std::size_t i = 0; i < speedCount; ++i)
     {
-      char item[16];
-      std::snprintf(item, sizeof(item), "%.3g\xc3\x97", sp);
-      if (G3DWidgets::SelectItem(item, std::abs(speed - sp) < 1e-4f))
+      const float sp = speedPresets[i];
+      if (G3DWidgets::SelectItem(speedItems[i], std::abs(speed - sp) < 1e-4f))
       {
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%.4g", sp);
