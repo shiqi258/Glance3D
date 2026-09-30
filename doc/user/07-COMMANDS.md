@@ -225,6 +225,9 @@ rely on the `--screenshot-filename` CLI option. eg: `take_screenshot path/to/fil
 `add_files [path/to/file1] [path/to/file2]`: A specific command to add files to the scene according to the current grouping logic. Take one or more files as arguments.
 eg: `add_files /path/to/dragon.vtu`.
 
+`load_ignoring_max_size path/to/file`: A specific command to load a file even though it exceeds `--max-size`, used by the "Load it anyway" action of the message about a file that is too large. The file is added to the scene according to the current grouping logic, as with `add_files`, and stays exempt from the limit for the rest of the session; other files are still limited. Take one or more files as arguments.
+eg: `load_ignoring_max_size /path/to/dragon.vtu`.
+
 `set_hdri [path/to/hdri]`: A specific command to set and use an HDRI image. Take a HDRI file as an argument.
 eg: `set_hdri /path/to/file.hdr`.
 
@@ -236,6 +239,9 @@ eg: `add_files_or_set_hdri /path/to/dragon.vtu /path/to/file.hdr`.
 `remove_file_groups`: A specific command to remove all files. No argument.
 
 `open_file_dialog`: A specific command to open a file dialog to selected a file to load. No argument.
+
+`reveal_path path/to/file`: A specific command to show a file (or its folder) in the OS file manager, used by the "Open containing folder" action of the message about a file that cannot be found. An existing file is highlighted in its folder where the file manager supports it; for a missing file, its folder is opened instead, and if the folder does not exist either, a warning is logged. Take a file as an argument.
+eg: `reveal_path /path/to/dragon.vtu`.
 
 ## Command Script (`--command-script`)
 
