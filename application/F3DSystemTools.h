@@ -8,6 +8,7 @@
 #define F3DSystemTools_h
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -28,11 +29,26 @@ std::filesystem::path GetBinaryResourceDirectory();
 std::string GetSystemLocale();
 
 /**
- * Show @p path in the OS file manager. When @p select is true the file itself is highlighted,
- * otherwise its parent folder is simply opened -- which is what a missing file needs, since there
- * is nothing there to select.
+ * What to hand RevealInFileManager to show @p path, which may be missing: @p path itself, to
+ * select, when it exists; otherwise the folder it would be in, to open -- the file-not-found message
+ * offers exactly that for a file that is gone. Relative paths are resolved against the current
+ * directory. Empty when that folder is missing too: there is nothing left to show.
+ */
+struct RevealTarget
+{
+  std::filesystem::path Path;
+  bool Select = false;
+};
+std::optional<RevealTarget> ResolveRevealTarget(const std::filesystem::path& path);
+
+/**
+ * Show @p path in the OS file manager. When @p select is true, @p path is highlighted in its
+ * folder; otherwise @p path is opened as it is, so it must be a folder: handed a file, the file
+ * manager would open the file itself. ResolveRevealTarget picks both for a path that may be missing.
  *
  * Best effort: failures are logged, never thrown. Nothing in the viewer depends on it working.
+ * With CTEST_G3D_FILE_MANAGER_DRY_RUN set, nothing is launched: what the file manager would have
+ * been handed is logged instead.
  */
 void RevealInFileManager(const std::filesystem::path& path, bool select);
 }

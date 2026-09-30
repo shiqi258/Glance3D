@@ -412,18 +412,57 @@ fs::path F3DSystemTools::GetBinaryResourceDirectory()
 }
 
 //----------------------------------------------------------------------------
+std::optional<F3DSystemTools::RevealTarget> F3DSystemTools::ResolveRevealTarget(
+  const fs::path& path)
+{
+  std::error_code ec;
+  fs::path target = fs::absolute(path, ec);
+  if (ec || target.empty())
+  {
+    return std::nullopt;
+  }
+  // "a/b/" names b, whose folder is a: parent_path() alone would stop at b.
+  if (!target.has_filename())
+  {
+    target = target.parent_path();
+  }
+  if (fs::exists(target, ec))
+  {
+    return RevealTarget{ target, true };
+  }
+  // A folder, never a file: the file manager would open a file instead of showing it.
+  const fs::path folder = target.parent_path();
+  if (fs::is_directory(folder, ec))
+  {
+    return RevealTarget{ folder, false };
+  }
+  return std::nullopt;
+}
+
+//----------------------------------------------------------------------------
 void F3DSystemTools::RevealInFileManager(const fs::path& path, bool select)
 {
+  // A test can neither have a file manager pop up on the machine running it nor ask one what it
+  // was shown, so log that instead, for a REGEXP to check.
+  if (f3d::utils::getEnv("CTEST_G3D_FILE_MANAGER_DRY_RUN").has_value())
+  {
+    f3d::log::info(
+      "File manager dry run: ", select ? "select" : "open", " \"", path.string(), "\"");
+    return;
+  }
 #if defined(_WIN32)
   // explorer.exe /select,"file" highlights the file; without /select it just opens the folder.
+  // Backslashes only: handed "C:/dir", Explorer opens Documents instead, and forward slashes are
+  // what collapsePath gives.
+  const std::wstring native = fs::path(path).make_preferred().wstring();
   std::wstring params;
   if (select)
   {
-    params = L"/select,\"" + path.wstring() + L"\"";
+    params = L"/select,\"" + native + L"\"";
   }
   else
   {
-    params = L"\"" + path.wstring() + L"\"";
+    params = L"\"" + native + L"\"";
   }
   const HINSTANCE res =
     ::ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL);

@@ -628,6 +628,15 @@ f3d_test(NAME TestNotificationCommand DATA cow.vtp SCRIPT NO_BASELINE REGEXP "no
 # An unknown severity is a scripting error, not something to guess at.
 f3d_test(NAME TestNotificationCommandInvalidSeverity DATA cow.vtp SCRIPT NO_BASELINE REGEXP "severity must be one of")
 
+# reveal_path, the "Open containing folder" action of the file-not-found message. No file manager
+# can run in a test, so CTEST_G3D_FILE_MANAGER_DRY_RUN logs what it would have been shown instead:
+# the folder of a missing file (it used to be handed the missing file itself, and Explorer fell back
+# to Documents), an existing file selected, and nothing when the folder is missing too.
+# The script paths are relative to the source directory. Do not create nonExistentFolder.
+f3d_test(NAME TestRevealPathMissingFile DATA cow.vtp SCRIPT NO_BASELINE WORKING_DIR ${F3D_SOURCE_DIR} ENV CTEST_G3D_FILE_MANAGER_DRY_RUN=1 REGEXP "File manager dry run: open \"[^\"]*testing.data\"")
+f3d_test(NAME TestRevealPathExistingFile DATA cow.vtp SCRIPT NO_BASELINE WORKING_DIR ${F3D_SOURCE_DIR} ENV CTEST_G3D_FILE_MANAGER_DRY_RUN=1 REGEXP "File manager dry run: select \"[^\"]*cow\\.vtp\"")
+f3d_test(NAME TestRevealPathMissingFolder DATA cow.vtp SCRIPT NO_BASELINE WORKING_DIR ${F3D_SOURCE_DIR} ENV CTEST_G3D_FILE_MANAGER_DRY_RUN=1 REGEXP "has no directory to open" REGEXP_FAIL "File manager dry run")
+
 # A group with one unreadable file must still show the others. This used to abandon the whole
 # group and never say which file was at fault, so both halves are asserted: the group-level
 # warning, and the per-file error naming the culprit.

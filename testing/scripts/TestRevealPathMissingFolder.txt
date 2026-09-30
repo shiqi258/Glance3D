@@ -1,0 +1,2 @@
+# The folder is gone too: nothing is left to show.
+reveal_path testing/data/nonExistentFolder/nonExistentFile.vtp

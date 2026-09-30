@@ -1,0 +1,2 @@
+# The file is gone, so what the file manager has to be shown is the folder it was expected in.
+reveal_path testing/data/nonExistentFile.vtp

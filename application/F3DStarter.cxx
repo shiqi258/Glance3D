@@ -3324,18 +3324,16 @@ void F3DStarter::AddCommands()
         throw f3d::interactor::invalid_args_exception(
           "Command: reveal_path is expecting 1 argument");
       }
-      const fs::path target = fs::path(args[0]);
       // Select the file itself when it exists, otherwise fall back to opening its parent: the
       // whole point of this action is that the file may be missing.
-      std::error_code ec;
-      const bool exists = fs::exists(target, ec);
-      const fs::path dir = exists ? target : target.parent_path();
-      if (dir.empty() || !fs::exists(dir, ec))
+      const std::optional<F3DSystemTools::RevealTarget> reveal =
+        F3DSystemTools::ResolveRevealTarget(fs::path(args[0]));
+      if (!reveal.has_value())
       {
-        f3d::log::warn("reveal_path: ", target.string(), " has no directory to open");
+        f3d::log::warn("reveal_path: ", args[0], " has no directory to open");
         return;
       }
-      F3DSystemTools::RevealInFileManager(target, exists);
+      F3DSystemTools::RevealInFileManager(reveal->Path, reveal->Select);
     },
     f3d::interactor::command_documentation_t{
       "reveal_path path/to/file", "show a file (or its folder) in the OS file manager" },

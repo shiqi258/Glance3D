@@ -1,0 +1,2 @@
+# An existing file is selected in its folder, not opened: that would launch it instead.
+reveal_path testing/data/cow.vtp
