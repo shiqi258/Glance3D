@@ -7,7 +7,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <optional>
@@ -16,13 +15,28 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
 #endif
 #ifdef __APPLE__
+#include <crt_externs.h>
 #include <mach-o/dyld.h>
 #endif
 #ifdef __FreeBSD__
 #include <sys/sysctl.h>
 #include <sys/types.h>
+#endif
+
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__linux__)
+// posix_spawnp needs environ. Linux declares it in <unistd.h> (C++ compilers define _GNU_SOURCE
+// there), where declaring it again fails a strict GCC build (-Wredundant-decls), and macOS code
+// asks _NSGetEnviron for it.
+extern char** environ;
 #endif
 
 namespace fs = std::filesystem;
@@ -439,6 +453,90 @@ std::optional<F3DSystemTools::RevealTarget> F3DSystemTools::ResolveRevealTarget(
   return std::nullopt;
 }
 
+#if !defined(_WIN32)
+namespace
+{
+//----------------------------------------------------------------------------
+// waitpid, retried when a signal handler interrupts it.
+bool WaitForExit(pid_t pid, int* status)
+{
+  while (waitpid(pid, status, 0) == -1)
+  {
+    if (errno != EINTR)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+//----------------------------------------------------------------------------
+// Start args[0], looked up on PATH, with args as its argv, and no shell in between: each argument
+// reaches the program as it is, so $(...), backticks, $VAR, \ and " in a path are just part of it.
+// False when the program cannot be started. Unless detached, it is also waited for, and false when
+// it does not exit with 0. Detached, it runs on the way the shell's "&" ran it: stdio on /dev/null
+// and, in a process group of its own, out of reach of a Ctrl+C in the viewer's terminal. A thread
+// reaps it once it exits, so it does not linger as a zombie.
+bool SpawnProgram(std::vector<std::string> args, bool detach)
+{
+  // The exec family takes char* const[] for historical reasons: nothing is written through it.
+  std::vector<char*> argv;
+  for (std::string& arg : args)
+  {
+    argv.push_back(arg.data());
+  }
+  argv.push_back(nullptr);
+
+  posix_spawn_file_actions_t actions;
+  if (posix_spawn_file_actions_init(&actions) != 0)
+  {
+    return false;
+  }
+  posix_spawnattr_t attributes;
+  if (posix_spawnattr_init(&attributes) != 0)
+  {
+    posix_spawn_file_actions_destroy(&actions);
+    return false;
+  }
+  if (detach)
+  {
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
+    // The process group is left at 0, the default: a new one, led by the child.
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+  }
+#if defined(__APPLE__)
+  char** const envp = *_NSGetEnviron();
+#else
+  char** const envp = environ;
+#endif
+  pid_t pid = 0;
+  const int err = posix_spawnp(&pid, argv[0], &actions, &attributes, argv.data(), envp);
+  posix_spawnattr_destroy(&attributes);
+  posix_spawn_file_actions_destroy(&actions);
+  if (err != 0)
+  {
+    return false;
+  }
+  if (!detach)
+  {
+    int status = 0;
+    return WaitForExit(pid, &status) && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  }
+  try
+  {
+    std::thread([pid] { WaitForExit(pid, nullptr); }).detach();
+  }
+  catch (const std::exception&)
+  {
+    // Nothing reaps it then: it stays a zombie until the viewer exits, which is harmless.
+  }
+  return true;
+}
+}
+#endif
+
 //----------------------------------------------------------------------------
 void F3DSystemTools::RevealInFileManager(const fs::path& path, bool select)
 {
@@ -472,17 +570,18 @@ void F3DSystemTools::RevealInFileManager(const fs::path& path, bool select)
     f3d::log::warn("Could not open the file manager for: ", path.string());
   }
 #elif defined(__APPLE__)
-  const std::string cmd = select ? ("open -R \"" + path.string() + "\"")
-                                 : ("open \"" + path.string() + "\"");
-  if (std::system(cmd.c_str()) != 0)
+  // Waited for, to catch a failure: open returns as soon as it has passed the request on.
+  const bool shown = select ? SpawnProgram({ "open", "-R", path.string() }, false)
+                            : SpawnProgram({ "open", path.string() }, false);
+  if (!shown)
   {
     f3d::log::warn("Could not open the file manager for: ", path.string());
   }
 #else
   // xdg-open has no "select" concept, so always hand it the containing directory.
   const fs::path target = select ? path.parent_path() : path;
-  const std::string cmd = "xdg-open \"" + target.string() + "\" >/dev/null 2>&1 &";
-  if (std::system(cmd.c_str()) != 0)
+  // Not waited for: xdg-open may only return once the file manager it started is closed.
+  if (!SpawnProgram({ "xdg-open", target.string() }, true))
   {
     f3d::log::warn("Could not open the file manager for: ", path.string());
   }

@@ -46,6 +46,9 @@ std::optional<RevealTarget> ResolveRevealTarget(const std::filesystem::path& pat
  * folder; otherwise @p path is opened as it is, so it must be a folder: handed a file, the file
  * manager would open the file itself. ResolveRevealTarget picks both for a path that may be missing.
  *
+ * @p path goes to the file manager as one argument, never through a shell. Make it absolute, as
+ * ResolveRevealTarget does: a relative path starting with '-' would be read as an option.
+ *
  * Best effort: failures are logged, never thrown. Nothing in the viewer depends on it working.
  * With CTEST_G3D_FILE_MANAGER_DRY_RUN set, nothing is launched: what the file manager would have
  * been handed is logged instead.
