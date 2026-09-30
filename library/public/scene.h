@@ -215,6 +215,7 @@ public:
   /**
    * Add and load provided files into the scene
    * Already added file will NOT be reloaded
+   * Empty paths are skipped, and a call left with nothing to load does nothing
    * If it fails to loads a file, it clears the scene and
    * throw a load_failure_exception.
    * On other failures, throw a load_failure_exception.
@@ -272,14 +273,17 @@ public:
    * The heavy parsing and geometry build run on a background thread, leaving the calling
    * (UI/render) thread free; addAsync() returns immediately. Drive completion from the thread that
    * owns the window/GL context: poll getAsyncState() and, once it returns AsyncState::READY (or
-   * FAILED), call finalizeAsync() to commit the result on the render thread.
+   * FAILED), call finalizeAsync() to commit the result on the render thread. A call left with
+   * nothing to load (no path, or only empty ones) starts nothing and the state stays IDLE, so poll
+   * while it is LOADING rather than until it is READY; finalizeAsync() then does nothing.
    *
    * Only one async load may be pending at a time, from addAsync() until finalizeAsync() -- READY
    * and FAILED included, since the build thread is only released by finalizeAsync(). While one is
-   * pending, addAsync() and add() throw a load_failure_exception, and clear() waits for the build
-   * to finish and discards it. Files that fail extension/reader detection are rejected
-   * synchronously (throwing as add() does); errors during the background build are reported via
-   * AsyncState::FAILED and re-thrown by finalizeAsync(). Already added files are NOT reloaded.
+   * pending, addAsync() and any add() with something to load throw a load_failure_exception, and
+   * clear() waits for the build to finish and discards it. Files that fail extension/reader
+   * detection are rejected synchronously (throwing as add() does); errors during the background
+   * build are reported via AsyncState::FAILED and re-thrown by finalizeAsync(). Already added files
+   * are NOT reloaded.
    *
    * Events pumped meanwhile with interactor::processEvents() stay responsive but do not run
    * commands: what they trigger is queued until the load is finalized (see processEvents()).

@@ -328,6 +328,16 @@ public:
   // Synchronous load: prepare, build + commit (blocking), post-process.
   void Load(const std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>>& importers)
   {
+    // Every path was empty (RecoverImporters() skips those): nothing to load, which is add({}), not
+    // a failure. A build of nothing succeeds only on the strength of the files already in the scene
+    // (BuildResult::anySucceeded), so on an empty scene it failed, cleared it and threw. Ahead of
+    // the pending check, as add({}) is: it adds nothing to the list the async worker is walking.
+    if (importers.empty())
+    {
+      log::debug("No file to load a full scene provided\n");
+      return;
+    }
+
     // Building now would add importers to the very list the async worker is walking.
     if (this->IsAsyncLoadPending())
     {
@@ -504,6 +514,14 @@ public:
   void LoadStart(
     const std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>>& importers)
   {
+    // Nothing to load starts nothing, as in Load(): the state stays IDLE. A worker started for a
+    // build of nothing ended FAILED on an empty scene, and finalizeAsync() threw.
+    if (importers.empty())
+    {
+      log::debug("No file to load a full scene provided\n");
+      return;
+    }
+
     this->LoadAddAndPrepare(importers);
 
     // Thread-safe progress: the callback only records the value (no GL), so it is safe to fire from

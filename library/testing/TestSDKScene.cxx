@@ -101,7 +101,23 @@ int TestSDKScene([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
   // add standard code paths
   test("add with empty file", [&]() { sce.add(std::vector<std::string>{}); });
   test("add with empty file", [&]() { sce.add(empty); });
+  // Nothing to load starts nothing, so there is no build to fail: a build of nothing on an empty
+  // scene used to end FAILED, and finalizeAsync() threw.
+  test("addAsync with empty file stays idle", [&]() {
+    sce.addAsync(std::vector<std::string>{ empty });
+    return sce.getAsyncState() == f3d::scene::AsyncState::IDLE;
+  });
+  test("finalizeAsync after addAsync with empty file", [&]() { sce.finalizeAsync(); });
   test("add with a single path", [&]() { sce.add(fs::path(logo)); });
+  // Nor does it disturb a loaded scene, whichever way it is asked for.
+  test("add with empty file keeps the scene", [&]() {
+    const unsigned long long files = sce.getG3DDataInfo().files;
+    sce.add(empty);
+    sce.addAsync(std::vector<std::string>{ empty });
+    const bool idle = sce.getAsyncState() == f3d::scene::AsyncState::IDLE;
+    sce.finalizeAsync();
+    return idle && files > 0 && sce.getG3DDataInfo().files == files;
+  });
   test("Glance3D scene tree after load", [&]() {
     const f3d::g3d_tree_info info = sce.getSceneTreeInfo();
     const std::vector<f3d::g3d_tree_row> rows = sce.getSceneTreeRows(0, info.rowCount);

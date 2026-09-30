@@ -135,6 +135,8 @@ void TestSceneWhilePending(PseudoUnitTest& test, const std::string& data)
     "addAsync while pending", [&]() { sce.addAsync(std::vector<std::string>{ dragon }); });
   test.expect<f3d::scene::load_failure_exception>(
     "add while pending", [&]() { sce.add(dragon); });
+  // Unless there is nothing to add: as with add({}), that touches nothing the build is using.
+  test("add with nothing to load while pending", [&]() { sce.add(std::string()); });
   while (sce.getAsyncState() == state_t::LOADING)
   {
     inter.processEvents();
