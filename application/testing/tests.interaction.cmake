@@ -152,6 +152,8 @@ f3d_test(NAME TestInteractionAnimationFrameRate DATA f3d.glb ARGS --animation-pr
 f3d_test(NAME TestInteractionAnimationCameraMovement DATA CameraAnimated.glb ARGS --camera-index=0 --animation-progress INTERACTION) #Space;MouseMovement;Space;
 f3d_test(NAME TestInteractionAnimationInvert DATA f3d.glb ARGS --animation-speed-factor=-1 --animation-progress INTERACTION) #Space;Wait;Space;
 f3d_test(NAME TestInteractionAnimationBackward DATA f3d.glb ARGS --animation-progress INTERACTION) #Ctrl+Shift+Space;Wait;Space;
+# A speed picked in the timeline plays at once: clicks only, no key press to sync it (0.25s after 30 ticks)
+f3d_test(NAME TestInteractionAnimationSpeedSelect DATA RiggedFigure.glb ARGS -Dui.control_panel=true RESOLUTION 1000,640 INTERACTION UI) #Click the speed dropdown;Click 0.25x;Click Play;Wait;Click Pause
 
 ## Cheatsheet
 f3d_test(NAME TestInteractionCheatsheetWhiteBG DATA cow.vtp ARGS --background-color=1,1,1 INTERACTION UI) #H
