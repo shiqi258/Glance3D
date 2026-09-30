@@ -498,6 +498,9 @@ public:
 
   // Kick off an asynchronous load: prepare on the calling thread, then run the heavy BuildGeometry()
   // on a worker thread. Completion is observed via AsyncState; finalize with LoadFinalize().
+  // The worker only touches the files of this load, which the meta importer keeps apart until the
+  // commit, so the render thread may go on reading the scene; what must wait for the join is
+  // adding, clearing and committing (IsAsyncLoadPending).
   void LoadStart(
     const std::vector<std::pair<std::string, vtkSmartPointer<vtkImporter>>>& importers)
   {

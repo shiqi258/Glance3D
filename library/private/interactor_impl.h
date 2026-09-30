@@ -55,8 +55,16 @@
  *    loader just finishes and the application exits.
  *  - The scene defends itself too: add() and addAsync() throw while a load is pending, clear()
  *    waits for the worker and discards what it built.
+ *  - The worker builds what nobody reads: vtkF3DMetaImporter keeps the files of a load on a list
+ *    of their own until finalizeAsync() commits them, so every frame drawn meanwhile (the scene
+ *    tree, the metadata and data panels, coloring) and every scene call describe the scene as it
+ *    was, and the new files appear at the commit, all at once. Readers used to share the list the
+ *    worker walked: the scene tree read actors being parsed, and iterated the list while the build
+ *    erased the files that failed from it.
  *  - The net: TestSDKAsyncLoadInput (input during a pending load, the scene API while pending, a
- *    close during the load).
+ *    close during the load), TestSDKAsyncLoadReads (what the panels and the scene read during a
+ *    pending load) and TestG3DMetaImporterPendingBuild (every meta importer reader against a
+ *    build held in the middle of a file).
  */
 
 #ifndef f3d_interactor_impl_h

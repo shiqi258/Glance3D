@@ -104,7 +104,7 @@ public:
   {
     std::string Name;
     vtkSmartPointer<vtkImporter> Importer;
-    bool Updated = false;
+    bool Updated = false; ///< committed by CommitToRenderer()
     vtkSmartPointer<vtkDataAssembly> DataAssembly;
   };
 
@@ -112,12 +112,15 @@ public:
 
   /**
    * Clear all importers and internal structures
+   * Not while BuildGeometry() runs: it would free the importers the build is parsing.
    */
   void Clear();
 
   /**
    * Add an importer to update when importing all actors
    * The first element is a descriptor and the second element is the internal importer to add
+   * It waits for BuildGeometry() and CommitToRenderer(): until then, nothing but those two sees it.
+   * Not while BuildGeometry() runs.
    */
   void AddImporter(const std::pair<std::string, vtkSmartPointer<vtkImporter>>& importer);
 
@@ -170,11 +173,20 @@ public:
   ///@{
   /**
    * Two-phase implementation of Update(), also usable to load asynchronously.
-   * BuildGeometry() parses each not-yet-updated importer and builds its geometry against a
-   * GL-free window; it touches no renderer/GL state and is safe to call on a worker thread.
+   * BuildGeometry() parses each importer added since the last commit and builds its geometry
+   * against a GL-free window; it touches no renderer/GL state and is safe to call on a worker
+   * thread.
    * CommitToRenderer() registers the built actors with the render window's renderer and MUST be
    * called on the thread owning the GL context. Call BuildGeometry() (optionally off-thread) then
    * CommitToRenderer() (on the render thread); Update() simply chains the two.
+   *
+   * The importers added since the last commit wait on a list of their own, which only
+   * BuildGeometry() and CommitToRenderer() touch; everything else in this class -- the scene graph,
+   * the descriptions and statistics, coloring, animations, cameras -- only knows the committed
+   * ones. So the render thread may keep reading the scene while BuildGeometry() runs on a worker,
+   * and the files being built show up in one step, at the commit. AddImporter(), Clear(),
+   * CommitToRenderer() and SetCameraIndex() change what the build reads, so they must not run
+   * until it returns (scene_impl sees to that).
    */
   /**
    * What one BuildGeometry() pass achieved.
@@ -206,12 +218,12 @@ public:
   static vtkInformationIntegerKey* ACTOR_HIDDEN();
 
   /**
-   * Get the number of importers
+   * Get the number of committed importers
    */
   int GetImporterInfoCount();
 
   /**
-   * Return info about a specific importer
+   * Return info about a specific committed importer
    */
   ImporterInfo GetImporterInfo(int index);
 

@@ -36,6 +36,7 @@
 #include <array>
 #include <chrono>
 #include <iostream>
+#include <iterator>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -278,7 +279,18 @@ struct vtkF3DMetaImporter::Internals
   std::vector<vtkF3DMetaImporter::PointSpritesStruct> PointSpritesActorsAndMappers;
   std::vector<vtkF3DMetaImporter::VolumeStruct> VolumePropsAndMappers;
 
+  // The files in the scene, committed by CommitToRenderer(). What every reader walks, the render
+  // thread included -- so a build never writes it.
   std::vector<vtkF3DMetaImporter::ImporterInfo> Importers;
+  // The files added since the last commit: the build's own list. Nothing but BuildGeometry() and
+  // CommitToRenderer() reads it, so a build on a worker thread shares no container, and no importer
+  // it is still writing, with a render thread that keeps drawing the scene. The build used to walk
+  // Importers itself, while the scene tree walked the actors of the files it was parsing and
+  // iterated the list as the build erased the files that failed from it.
+  std::vector<vtkF3DMetaImporter::ImporterInfo> PendingImporters;
+  // GetNumberOfCameras() summed over Importers at commit: the build offsets the global camera index
+  // with it instead of asking importers the render thread may be using.
+  vtkIdType CommittedCameraCount = 0;
   std::optional<vtkIdType> CameraIndex;
 
   // Cameras and lights declared by the loaded files, grouped per importer because the scene tree
@@ -339,6 +351,8 @@ vtkF3DMetaImporter::~vtkF3DMetaImporter()
 void vtkF3DMetaImporter::Clear()
 {
   this->Pimpl->Importers.clear();
+  this->Pimpl->PendingImporters.clear();
+  this->Pimpl->CommittedCameraCount = 0;
   // The renderer drops its own light list in vtkF3DRenderer::Initialize(); this only forgets the
   // bookkeeping that maps a global index back to a file camera/light.
   this->Pimpl->SceneElements.clear();
@@ -355,31 +369,10 @@ void vtkF3DMetaImporter::Clear()
 void vtkF3DMetaImporter::AddImporter(
   const std::pair<std::string, vtkSmartPointer<vtkImporter>>& importer)
 {
-  this->Pimpl->Importers.emplace_back(vtkF3DMetaImporter::ImporterInfo{
+  // Pending until committed: the build that parses it may run on a worker thread.
+  this->Pimpl->PendingImporters.emplace_back(vtkF3DMetaImporter::ImporterInfo{
     importer.first, importer.second, false, vtkSmartPointer<vtkDataAssembly>::New() });
   this->Modified();
-
-  // Add a progress event observer
-  vtkNew<vtkCallbackCommand> progressCallback;
-  progressCallback->SetClientData(this);
-  progressCallback->SetCallback(
-    [](vtkObject* const caller, unsigned long, void* clientData, void* callData)
-    {
-      vtkF3DMetaImporter* self = static_cast<vtkF3DMetaImporter*>(clientData);
-      double progress = *static_cast<double*>(callData);
-      double actualProgress = 0.0;
-      for (size_t i = 0; i < self->Pimpl->Importers.size(); i++)
-      {
-        if (self->Pimpl->Importers[i].Importer == caller)
-        {
-          // XXX: This does not consider that some importer may already have been updated
-          // or that some importers may take much longer than other.
-          actualProgress = (i + progress) / self->Pimpl->Importers.size();
-        }
-      }
-      self->InvokeEvent(vtkCommand::ProgressEvent, &actualProgress);
-    });
-  importer.second->AddObserver(vtkCommand::ProgressEvent, progressCallback);
 }
 
 //----------------------------------------------------------------------------
@@ -771,6 +764,17 @@ vtkF3DMetaImporter::BuildResult vtkF3DMetaImporter::BuildGeometry()
   vtkNew<vtkRenderer> buildRenderer;
   buildWindow->AddRenderer(buildRenderer);
 
+  // This may run on a worker thread while the render thread keeps drawing, so it walks the pending
+  // list alone. Of the committed files it reads two numbers that only change at a commit or a
+  // clear, neither of which may happen until it returns.
+  std::vector<vtkF3DMetaImporter::ImporterInfo>& pending = this->Pimpl->PendingImporters;
+
+  // The files already in the scene count as loaded: adding a file that fails to a scene is a
+  // partial load, not a failed one.
+  BuildResult result;
+  result.succeeded = static_cast<int>(this->Pimpl->Importers.size());
+  result.anySucceeded = result.succeeded > 0;
+
   vtkIdType localCameraIndex = -1;
 
   if (this->Pimpl->CameraIndex.has_value())
@@ -784,26 +788,26 @@ vtkF3DMetaImporter::BuildResult vtkF3DMetaImporter::BuildGeometry()
         .detailKey = G3D_MSG("Camera {index, number} does not exist, so the view may be wrong."),
         .detailArgs = { { "index", std::to_string(this->Pimpl->CameraIndex.value()) } } });
     }
-    localCameraIndex = this->Pimpl->CameraIndex.value();
+    // The global index counts the cameras of the files already in the scene first.
+    localCameraIndex = this->Pimpl->CameraIndex.value() - this->Pimpl->CommittedCameraCount;
   }
 
-  BuildResult result;
-  // Identity, not name: two entries can carry the same display name (the same file added twice),
-  // and at this point NOTHING is marked Updated yet -- that happens in CommitToRenderer -- so a
-  // name-based removal would take the healthy twin down with the broken one.
-  std::vector<vtkImporter*> failedImporters;
-  for (auto& importerInfo : this->Pimpl->Importers)
+  // A file's progress, reported as progress of this whole build.
+  // XXX: Every file weighs the same, however long it takes to parse.
+  struct ProgressShare
   {
-    vtkImporter* importer = importerInfo.Importer;
+    vtkF3DMetaImporter* Self;
+    double Index;
+    double Count;
+  };
 
-    // Importer has already been updated
-    if (importerInfo.Updated)
-    {
-      result.anySucceeded = true;
-      ++result.succeeded;
-      localCameraIndex -= importer->GetNumberOfCameras();
-      continue;
-    }
+  // Identity, not name: two entries can carry the same display name (the same file added twice),
+  // so a name-based removal would take the healthy twin down with the broken one.
+  std::vector<vtkImporter*> failedImporters;
+  for (std::size_t index = 0; index < pending.size(); index++)
+  {
+    vtkF3DMetaImporter::ImporterInfo& importerInfo = pending[index];
+    vtkImporter* importer = importerInfo.Importer;
 
     importer->SetRenderWindow(buildWindow);
 
@@ -813,6 +817,31 @@ vtkF3DMetaImporter::BuildResult vtkF3DMetaImporter::BuildGeometry()
     {
       importer->SetCamera(localCameraIndex);
     }
+
+    // Observed only while this file updates. An observer left on the importer would be fired again
+    // by its animation updates once committed, on the render thread, and could not tell where its
+    // file stands in a build that may be running meanwhile.
+    ProgressShare share{ this, static_cast<double>(index), static_cast<double>(pending.size()) };
+    vtkNew<vtkCallbackCommand> progressCallback;
+    progressCallback->SetClientData(&share);
+    progressCallback->SetCallback(
+      [](vtkObject*, unsigned long, void* clientData, void* callData)
+      {
+        const ProgressShare* file = static_cast<const ProgressShare*>(clientData);
+        double progress = (file->Index + *static_cast<double*>(callData)) / file->Count;
+        file->Self->InvokeEvent(vtkCommand::ProgressEvent, &progress);
+      });
+    const unsigned long progressTag =
+      importer->AddObserver(vtkCommand::ProgressEvent, progressCallback);
+    const struct ProgressObserver
+    {
+      vtkImporter* Importer;
+      unsigned long Tag;
+      ~ProgressObserver()
+      {
+        this->Importer->RemoveObserver(this->Tag);
+      }
+    } progressObserver{ importer, progressTag };
 
     // [G3D-PERF] Time the VTK importer itself: file parse + build of vtkPolyData (CPU, no GPU).
     const auto g3dParseStart = std::chrono::steady_clock::now();
@@ -849,17 +878,17 @@ vtkF3DMetaImporter::BuildResult vtkF3DMetaImporter::BuildGeometry()
 
   // Drop the importers that failed before anyone can commit their half-built state: an importer
   // that returned false may still have left actors on the build window, and CommitToRenderer()
-  // would happily re-home them into the scene.
+  // would happily re-home them into the scene. From the pending list: erasing from the one the
+  // render thread was iterating is what made this unsafe off-thread.
   if (!failedImporters.empty())
   {
-    auto& importers = this->Pimpl->Importers;
-    importers.erase(std::remove_if(importers.begin(), importers.end(),
-                      [&](const ImporterInfo& info)
-                      {
-                        return std::find(failedImporters.begin(), failedImporters.end(),
-                                 info.Importer.Get()) != failedImporters.end();
-                      }),
-      importers.end());
+    pending.erase(std::remove_if(pending.begin(), pending.end(),
+                    [&](const ImporterInfo& info)
+                    {
+                      return std::find(failedImporters.begin(), failedImporters.end(),
+                               info.Importer.Get()) != failedImporters.end();
+                    }),
+      pending.end());
   }
 
   if (localCameraIndex > 0 && result.anySucceeded)
@@ -883,18 +912,20 @@ void vtkF3DMetaImporter::CommitToRenderer()
   this->Renderer = this->RenderWindow->GetRenderers()->GetFirstRenderer();
   assert(this->Renderer);
 
-  this->Pimpl->SceneElements.resize(this->Pimpl->Importers.size());
+  // The built files join the scene here, all at once and on the render thread: until now they were
+  // on the build's own list, where no reader could catch them half-built.
+  std::vector<vtkF3DMetaImporter::ImporterInfo>& importers = this->Pimpl->Importers;
+  std::vector<vtkF3DMetaImporter::ImporterInfo>& pending = this->Pimpl->PendingImporters;
+  const std::size_t firstNewIndex = importers.size();
+  importers.insert(importers.end(), std::make_move_iterator(pending.begin()),
+    std::make_move_iterator(pending.end()));
+  pending.clear();
 
-  for (std::size_t importerIndex = 0; importerIndex < this->Pimpl->Importers.size(); importerIndex++)
+  this->Pimpl->SceneElements.resize(importers.size());
+
+  for (std::size_t importerIndex = firstNewIndex; importerIndex < importers.size(); importerIndex++)
   {
-    vtkF3DMetaImporter::ImporterInfo& importerInfo = this->Pimpl->Importers[importerIndex];
-
-    // Already committed to the renderer by a previous Update()
-    if (importerInfo.Updated)
-    {
-      continue;
-    }
-
+    vtkF3DMetaImporter::ImporterInfo& importerInfo = importers[importerIndex];
     vtkImporter* importer = importerInfo.Importer;
     const auto g3dCommitStart = std::chrono::steady_clock::now();
 
@@ -1116,6 +1147,7 @@ void vtkF3DMetaImporter::CommitToRenderer()
         " ms");
 
     importerInfo.Updated = true;
+    this->Pimpl->CommittedCameraCount += importer->GetNumberOfCameras();
   }
 
   // The requested file camera can only be applied here: BuildGeometry() asked each importer for it,

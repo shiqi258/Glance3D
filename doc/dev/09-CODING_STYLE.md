@@ -147,13 +147,20 @@ callback, no animation). The first tick after the load runs the queue in arrival
 had just happened. A window closed meanwhile is never rendered again
 (`window_impl::IsG3DWindowClosed`) and `start()` does not run. The scene refuses `add()` /
 `addAsync()` while a load is pending, and `clear()` waits for the worker before freeing what it
-uses. The contract is the ASYNC LOADS block of `library/private/interactor_impl.h`; the regression
-test is `TestSDKAsyncLoadInput`.
+uses. The worker only sees the files of its load: `vtkF3DMetaImporter` keeps them on a list of
+their own (`PendingImporters`) until `CommitToRenderer()`, and everything the render thread reads
+meanwhile walks the committed files, so the panels and the scene API describe the scene as it was
+until the new files appear, all at once. The contract is the ASYNC LOADS block of
+`library/private/interactor_impl.h`; the regression tests are `TestSDKAsyncLoadInput`,
+`TestSDKAsyncLoadReads` and `TestG3DMetaImporterPendingBuild`.
 
 - [ ] A new way to start or change a load goes through a command, so that the interactor can hold
       it. A caller that reaches `F3DStarter::LoadFileGroup` directly from an event (the macOS
       "open file" delegate) is queued by `LoadFileGroup` itself while a load is in progress.
 - [ ] A new per-tick step that touches the scene is skipped while `IsSceneLoadPending()`.
+- [ ] A new `vtkF3DMetaImporter` reader walks `Importers`, the committed files. Only
+      `BuildGeometry()` and `CommitToRenderer()` touch `PendingImporters`, and what the build reads
+      besides them changes only when no build runs.
 
 ### Automatic formatting
 

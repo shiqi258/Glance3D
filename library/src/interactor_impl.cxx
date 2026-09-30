@@ -783,8 +783,8 @@ public:
       this->RenderRequested = true;
     }
 
-    // The animation manager still describes the scene being replaced, and reading its animation
-    // names walks the importers the worker is building: it is reinitialized once the load commits.
+    // The animation manager still describes the scene being replaced: it is reinitialized once the
+    // load commits.
     const bool loadPending = this->IsSceneLoadPending();
     if (!loadPending)
     {

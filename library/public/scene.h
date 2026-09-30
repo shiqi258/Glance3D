@@ -283,6 +283,8 @@ public:
    *
    * Events pumped meanwhile with interactor::processEvents() stay responsive but do not run
    * commands: what they trigger is queued until the load is finalized (see processEvents()).
+   * Until then the scene is the one before addAsync(): the scene tree and getG3DDataInfo()
+   * describe it, and the files of the load appear at finalizeAsync(), all at once.
    */
   virtual scene& addAsync(const std::vector<std::filesystem::path>& filePaths) = 0;
   scene& addAsync(const std::vector<std::string>& filePathStrings)
